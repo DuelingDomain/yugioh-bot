@@ -90,8 +90,6 @@ export function MatchResultScreen({ room, match, mySeat, name, final, busy, erro
   onContinue: () => void; onLeave: () => void; onClose: () => void;
 }) {
   const rootRef = useRef<HTMLDivElement>(null);
-  const [sureLeave, setSureLeave] = useState(false);
-  useEffect(() => { if (!sureLeave) return undefined; const timer = window.setTimeout(() => setSureLeave(false), 4000); return () => window.clearTimeout(timer); }, [sureLeave]);
   const reduced = useReducedMotion();
   const [timedOut, setTimedOut] = useState(false);
   const [skipped, setSkipped] = useState(false);
@@ -111,7 +109,7 @@ export function MatchResultScreen({ room, match, mySeat, name, final, busy, erro
     : reasonLine(game, name, mySeat, game?.winnerSeat ?? null);
   const titleId = "match-result-title";
   const seats = room.seats.map(seat => seat.seat);
-  const leave = () => { if (final || sureLeave) onLeave(); else setSureLeave(true); };
+  const leave = () => onLeave();
   return <div ref={rootRef} className={cx(duelFontClasses, resultStyles.root, s.resultRoot)} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}
     data-testid="match-result" data-final={final || undefined} data-outcome={outcome === "spectator" ? "ended" : outcome} data-title={outcome === "win" ? "win" : outcome === "lose" ? "lose" : "calm"}
     data-phase={settled ? "settled" : "play"} data-reduced={reduced ? "true" : "false"} onClick={() => { if (!settled) setSkipped(true); }}>
@@ -149,14 +147,12 @@ export function MatchResultScreen({ room, match, mySeat, name, final, busy, erro
 
       {tournamentResult}
       {error ? <p className={s.resultError} role="alert" data-testid="match-error">{error}</p> : null}
-      <div className={resultStyles.actions} data-count={final ? 2 : undo ? 3 : 2}>
+      <div className={resultStyles.actions} data-count={final || undo ? 2 : 1}>
         {final
           ? <button type="button" className={resultStyles.btn} data-kind="primary" data-autofocus onClick={leave} data-testid="match-leave">Leave</button>
           : <button type="button" className={resultStyles.btn} data-kind="primary" data-autofocus disabled={busy} onClick={onContinue} data-testid="match-continue">Continue to side decking</button>}
         {undo ? <button type="button" className={resultStyles.btn} data-kind="secondary" disabled={busy} onClick={undo.onUndo} title={undo.label} data-testid="match-undo">Undo last action</button> : null}
-        {final
-          ? <button type="button" className={resultStyles.btn} data-kind="secondary" onClick={onClose} data-testid="match-view-board">View board</button>
-          : <button type="button" className={resultStyles.btn} data-kind="secondary" onClick={leave} data-testid="match-leave">{sureLeave ? "Leave? Press again" : "Leave"}</button>}
+        {final ? <button type="button" className={resultStyles.btn} data-kind="secondary" onClick={onClose} data-testid="match-view-board">View board</button> : null}
       </div>
     </div></div>
   </div>;
@@ -244,6 +240,9 @@ export function SidingScreen({ room, match, mySeat, name, now, act, error: outsi
   const choiceEnd = siding?.firstChoiceDeadline;
   const choiceLeft = choiceEnd !== undefined ? choiceEnd - clockNow : null;
   const locked = busy || imReady || expired || mySeat < 0;
+  // Everyone is Ready: the server starts the next game when this countdown ends. Not ready cancels it.
+  const startAt = siding?.startAt;
+  const startLeft = startAt !== undefined ? Math.max(0, Math.ceil((startAt - clockNow) / 1000)) : null;
 
   // A clock check at the end: never a game loss, and the server sweeps the room too.
   const timeoutSent = useRef<number | null>(null);
@@ -253,6 +252,13 @@ export function SidingScreen({ room, match, mySeat, name, now, act, error: outsi
     const timer = window.setTimeout(() => { timeoutSent.current = siding.deadline; void act({ type: "side.timeout", actorSeat: seatNo }); }, wait);
     return () => window.clearTimeout(timer);
   }, [siding, now, act, seatNo]);
+  // The start countdown: a check right after it ends makes the server start the game even if the sweep is late.
+  const startSent = useRef<number | null>(null);
+  useEffect(() => {
+    if (startAt === undefined || startSent.current === startAt) return undefined;
+    const timer = window.setTimeout(() => { startSent.current = startAt; void act({ type: "side.timeout", actorSeat: seatNo }); }, Math.max(0, startAt - now()) + 1500);
+    return () => window.clearTimeout(timer);
+  }, [startAt, now, act, seatNo]);
   // The choice clock and each seat's own clock end earlier than the final deadline: the server applies them, a check just asks sooner.
   const choiceSent = useRef<number | null>(null);
   const choiceAt = siding?.firstChoiceDeadline;
@@ -331,7 +337,7 @@ export function SidingScreen({ room, match, mySeat, name, now, act, error: outsi
     ? <div className={seriesStyles.first} role="group" aria-label="Who goes first in the next game" data-testid="first-choice">
       <p className={seriesStyles.firstHead}>{iChoose ? chooserWhy : `${name(chooser as number)} chooses who goes first`}</p>
       {iChoose ? <div className={seriesStyles.firstRow}>
-        {seats.map(seat => <button key={seat} type="button" className={seriesStyles.firstBtn} aria-pressed={match.firstSeat === seat} disabled={busy || finalLeft <= 0 || (choiceLeft !== null && choiceLeft <= 0)}
+        {seats.map(seat => <button key={seat} type="button" className={seriesStyles.firstBtn} aria-pressed={match.firstSeat === seat} disabled={busy || finalLeft <= 0 || startLeft === 0 || (choiceLeft !== null && choiceLeft <= 0)}
           data-testid={`first-choice-${seat === mySeat ? "me" : seat}`} onClick={() => void first(seat)}>{seat === mySeat ? "I go first" : `${name(seat)} first`}</button>)}
       </div> : null}
       <p className={seriesStyles.firstNote}>{match.firstSeat !== undefined ? `${name(match.firstSeat)} goes first.` : fallbackNote}</p>
@@ -339,12 +345,13 @@ export function SidingScreen({ room, match, mySeat, name, now, act, error: outsi
 
   const buttons = <div className={s.buttons}>
     {imReady
-      ? <SheetButton kind="secondary" size="lg" disabled={busy || expired || (choiceLeft !== null && choiceLeft <= 0)} onClick={() => void unready()} data-testid="siding-unready">Not ready</SheetButton>
+      ? <SheetButton kind="secondary" size="lg" disabled={busy || expired || startLeft === 0 || (choiceLeft !== null && choiceLeft <= 0)} onClick={() => void unready()} data-testid="siding-unready">Not ready</SheetButton>
       : <SheetButton kind="primary" size="lg" loading={busy} disabled={busy || expired || mySeat < 0 || (changed && plan.reason != null)} onClick={() => void ready()} data-testid="siding-ready">Ready</SheetButton>}
   </div>;
   const waitingFirst = everyoneReady && match.firstSeat === undefined && chooser !== null;
   const firstLeft = Math.max(0, Math.ceil((choiceLeft ?? finalLeft) / 1000));
-  const status = waitingFirst ? (iChoose ? `Everyone is ready. Choose who goes first: ${firstLeft} s left, then the default player goes first.` : `Everyone is ready. Waiting for ${name(chooser as number)} to choose who goes first (${firstLeft} s).`)
+  const status = startLeft !== null ? `Everyone is ready. The next game starts in ${startLeft} s. Press Not ready to wait.`
+    : waitingFirst ? (iChoose ? `Everyone is ready. Choose who goes first: ${firstLeft} s left, then the default player goes first.` : `Everyone is ready. Waiting for ${name(chooser as number)} to choose who goes first (${firstLeft} s).`)
     : waitsForOthers ? `Your time is up. The next game starts in ${clock(finalLeft)}.`
     : expired ? "Time is up. The next game starts now."
     : imReady ? "You are ready. Waiting for the other players."
@@ -352,6 +359,8 @@ export function SidingScreen({ room, match, mySeat, name, now, act, error: outsi
         : deck ? "Swap cards if you want. When you are ready, press Ready, or wait for the clock."
           : "Take your time with your physical cards. Press Ready when your deck is set.";
 
+  const countdown = startLeft !== null
+    ? <div className={s.startCount} role="timer" aria-label="Next game starts in" data-testid="siding-countdown"><span>Next game starts in</span><b>{startLeft}</b></div> : null;
   const timer = <div className={s.timer} data-danger={danger ? "true" : undefined} role="timer" aria-label="Time left to side deck" data-testid="siding-timer">
     <span className={s.timerCap}>{waitsForOthers ? "Game starts in" : "Time left"}</span>
     <b className={s.timerNum}>{waitsForOthers ? clock(Math.max(0, finalLeft)) : clockText}</b>
@@ -368,6 +377,7 @@ export function SidingScreen({ room, match, mySeat, name, now, act, error: outsi
         {readyRows}
         <div className={s.sticky}>
           {firstChoice}
+          {countdown}
           <p className={betweenStyles.reason} role="status" data-testid="siding-status">{status}</p>
           {error ? <p className={betweenStyles.error} role="alert" data-testid="siding-error">{error}</p> : null}
           {buttons}
@@ -419,6 +429,7 @@ export function SidingScreen({ room, match, mySeat, name, now, act, error: outsi
         <div className={s.sticky}>
           {firstChoice}
           <div className={betweenStyles.actions}>
+            {countdown}
             <p className={betweenStyles.reason} role="status" data-testid="siding-status">{status}</p>
             {error ? <p className={betweenStyles.error} role="alert" data-testid="siding-error">{error}</p> : null}
             {buttons}

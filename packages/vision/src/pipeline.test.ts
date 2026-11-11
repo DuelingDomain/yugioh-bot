@@ -17,7 +17,7 @@ function fixture(full=true,counter?:{calls:number},scores=[.9,.95]) {
   return new RecognitionPipeline(profile,index(['A','B']),detector,embedder,Tensor as unknown as TensorCtor,full?index(['C','D']):undefined);
 }
 test('clear full-catalog answer survives decklist preference across indexes',async()=>{
-  const result=await fixture().recognize([frame],{card:selected,k:5,priors:{decklist:['A'],voiceMentioned:['A']}});
+  const result=await fixture(true,undefined,[.78,.95]).recognize([frame],{card:selected,k:5,priors:{decklist:['A'],voiceMentioned:['A']}});
   assert.equal(result.candidates[0].cardId,'C');
   assert.ok(result.candidates.some(c=>c.cardId==='A'));
   assert.equal(result.tier,'sure');
@@ -80,6 +80,14 @@ test('identity embedding is opt-in and reuses the clean art vector without feedb
   assert.ok(result.identityEmbedding!.values.every(Number.isFinite));assert.equal(identityCount.calls,plainCount.calls);
   assert.deepEqual(result.candidates,plain.candidates);assert.deepEqual(result.quality,plain.quality);
   for(const key of ['feedback','warpedCard','aiWarpedCard','deferredAICrop','cropJpeg','aiCropJpeg','aiCropToken'] as const) assert.equal(result[key as keyof typeof result],undefined);
+  // No deck list: cards already confirmed in this duel form the first closed set, and the set never forces a card the catalog beats.
+  const dynamic=await fixture(false,undefined,[.95]).recognize([frame],{card:selected,preclean:false,priors:{decklist:[],seen:['A']}});
+  assert.equal(dynamic.quality.searchSource,'dynamic');assert.equal(dynamic.tier,'sure');
+  assert.equal((await fixture(false,undefined,[.95]).recognize([frame],{card:selected,preclean:false,priors:{decklist:[],seen:['B']}})).quality.searchSource,'catalog');
+  // A card the table's banlist forbids never enters the related-cards set.
+  const related=[{cardId:'A',reason:'x'}];
+  assert.equal((await fixture(false,undefined,[.95]).recognize([frame],{card:selected,preclean:false,priors:{decklist:[],seen:[],related}})).quality.searchSource,'likely');
+  assert.equal((await fixture(false,undefined,[.95]).recognize([frame],{card:selected,preclean:false,priors:{decklist:[],seen:[],related,forbidden:['A']}})).quality.searchSource,'catalog');
   const disabled=await fixture(false).recognize([frame],{card:selected,includeIdentityEmbedding:false});
   assert.equal('identityEmbedding' in disabled,false);assert.equal('identityEmbedding' in feedback,false);
 });
@@ -145,7 +153,7 @@ test('deck restriction searches only its artwork rows before catalog fallback',a
     const miss=await fixture(false).recognize([frame],{card:selected,preclean:false,priors:{decklist}});
     assert.equal(miss.quality.searchSource,'catalog');assert.equal(miss.candidates[0].cardId,'A');
   }
-  const weak=await fixture(false,undefined,[.83]).recognize([frame],{card:selected,preclean:false,priors:{decklist:['A']}});
+  const weak=await fixture(false,undefined,[.7]).recognize([frame],{card:selected,preclean:false,priors:{decklist:['A']}});
   assert.equal(weak.quality.searchSource,'catalog');
   const disabled=await fixture(false).recognize([frame],{card:selected,preclean:false,deckFirst:false,priors:{decklist:['A']}});
   assert.equal(disabled.quality.searchSource,'catalog');

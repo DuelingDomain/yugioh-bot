@@ -10,9 +10,8 @@ Built and deployed (PR #101 and #124, 2026-10-04). Rules: [ADR-0002](../adr/0002
 
 | Item | Where it is today |
 |---|---|
-| Remove the dead "Game engine" select. It has one disabled choice, "Automatic". | `packages/web/src/components/duel/creator.tsx:386` |
 | Use one shared format-name helper. The names differ: `FORMAT_LABELS` in `components/duel/table-format.ts` says "2v2 Tag"; `components/duel/multi-seat.ts` and `lib/bug-report.ts` have their own maps that say "Tag 2v2". `components/duel/match-chips.tsx` has a separate map for match formats. | `table-format.ts`, `multi-seat.ts`, `bug-report.ts`, `match-chips.tsx` |
-| Text under 11px. | For example `duel/between-games.module.css`, `duel/station-track.module.css`, `duel/solid/table.module.css` |
+| Text under 11px. Admin, decks, draft room and most duel labels are done. | Left: `duel/solid/table.module.css`, `duel/solid/rails.module.css`, `duel/edge-drawer/edge-drawer.module.css`, `duel/coin-toss-fx.module.css`, `duel/tag/tag-camera.module.css`, the Deck Master divider label in `duel/master-badge.tsx` (fits the gap) |
 
 Not re-checked (needs a visual check): clock name cut-off, lobby wording, small-screen card details, clock remount and blur cost.
 

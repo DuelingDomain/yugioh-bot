@@ -11,7 +11,7 @@ function replayContent(replay: DuelReplayV2) {
   return { ...replay, frames: replay.frames.map(({ cursor: _cursor, ...frame }) => frame) };
 }
 
-test("compressed replays keep private seats, owner access, and identity fallback", async ({ browser }) => {
+test("replays for gzip clients keep private seats, owner access, and identity fallback", async ({ browser }) => {
   const fixture = await createReplayFixture("ffa3", 12, "private");
   const own = await browser.newContext({ storageState: authFile("p1"), reducedMotion: "reduce" });
   const watcher = await browser.newContext({ storageState: authFile("p5") });
@@ -19,7 +19,7 @@ test("compressed replays keep private seats, owner access, and identity fallback
   try {
     const compressed = await own.request.get(url, { headers: { "accept-encoding": "gzip" } });
     expect(compressed.status()).toBe(200);
-    expect(compressed.headers()["content-encoding"]).toBe("gzip");
+    // A gzip client must get JSON it can parse. Next 16.4.5 drops a route's own content-encoding, so the route sends plain JSON.
     expect(compressed.headers()["cache-control"]).toBe("private, no-store");
     expect(compressed.headers().vary).toContain("Accept-Encoding");
     const replay = await compressed.json();
@@ -55,12 +55,10 @@ test("compressed replays keep private seats, owner access, and identity fallback
     if (process.env.E2E_OWNER_USER_IDS?.split(",").includes("101")) {
       const admin = await own.request.get(`/api/admin/duels/${fixture.slug}/replay?version=2&visibility=mine&seat=2&reveal=1`);
       expect(admin.status()).toBe(200);
-      expect(admin.headers()["content-encoding"]).toBe("gzip");
       const data = await admin.json();
       expect(data.capabilities.canFork).toBe(true);
       const unchecked = await own.request.get(`/api/admin/duels/${fixture.slug}/replay?version=2&visibility=mine&seat=2&reveal=1&unchecked=1`);
       expect(unchecked.status()).toBe(200);
-      expect(unchecked.headers()["content-encoding"]).toBe("gzip");
       const uncheckedData = await unchecked.json();
       expect(uncheckedData.verification).toBe("unverified");
       expect(uncheckedData.frames.map((frame: any) => frame.view)).toEqual(data.frames.map((frame: any) => frame.view));

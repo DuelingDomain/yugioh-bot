@@ -7,7 +7,7 @@ import { deckEngineDataDirectory } from "./card-artworks.js";
  * Card facts from the EDOPro engine database (cards.cdb). They are the first source for the card type:
  * our catalog rows can miss the Spell/Trap subtype (race) for older or newer cards.
  */
-export type EngineCardFacts = { type: number; level: number; def: number };
+export type EngineCardFacts = { type: number; level: number; atk?: number; def: number };
 const TYPE = { monster: 0x1, spell: 0x2, trap: 0x4, ritual: 0x80, quickPlay: 0x10000, continuous: 0x20000, equip: 0x40000, field: 0x80000, counter: 0x100000, pendulum: 0x1000000, link: 0x4000000 } as const;
 const cache = new Map<string, { mtime: number; cards: ReadonlyMap<number, EngineCardFacts> }>();
 
@@ -19,14 +19,14 @@ export function loadEngineCardFacts(dataDirectory = deckEngineDataDirectory()): 
   if (cached?.mtime === mtime) return cached.cards;
   const engine = new Database(path, { readonly: true, fileMustExist: true });
   try {
-    const rows = engine.prepare("select id, type, level, def from datas").all() as Array<{ id: number; type: number; level: number; def: number }>;
-    const cards = new Map(rows.map(row => [row.id, { type: row.type, level: row.level, def: row.def }]));
+    const rows = engine.prepare("select id, type, level, atk, def from datas").all() as Array<{ id: number; type: number; level: number; atk: number; def: number }>;
+    const cards = new Map(rows.map(row => [row.id, { type: row.type, level: row.level, atk: row.atk, def: row.def }]));
     cache.set(path, { mtime, cards });
     return cards;
   } finally { engine.close(); }
 }
 
-type CardTypeFields = { type: string; frameType: string; race?: string; level?: number };
+type CardTypeFields = { type: string; frameType: string; race?: string; level?: number; atk?: number | null; def?: number | null };
 /**
  * Engine type bits win over the catalog: Spell/Trap subtype (race), Trap Monster (a Trap with a Level),
  * Link Monster frame and rating. Other catalog fields stay as they are.
@@ -40,7 +40,7 @@ export function applyEngineCardFacts<T extends CardTypeFields>(card: T, engine: 
   }
   if (bits & TYPE.trap) {
     const race = bits & TYPE.continuous ? "Continuous" : bits & TYPE.counter ? "Counter" : "Normal";
-    return { ...card, race, ...(/trap/i.test(card.type) ? {} : { type: "Trap Card" }), ...(stars > 0 ? { level: stars } : {}) };
+    return { ...card, race, ...(/trap/i.test(card.type) ? {} : { type: "Trap Card" }), ...(stars > 0 ? { level: stars, atk: engine.atk == null || engine.atk < 0 ? null : engine.atk, def: engine.def == null || engine.def < 0 ? null : engine.def } : {}) };
   }
   if (bits & TYPE.link) return { ...card, frameType: "link", ...(/link/i.test(card.type) ? {} : { type: "Link Monster" }), level: card.level ?? stars };
   return card;

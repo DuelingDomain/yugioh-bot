@@ -97,11 +97,11 @@ export function useMissingPiles(seat: number): readonly string[] {
   return value.seat === seat ? value.zones : [];
 }
 /** "Scan field" beside the virtual board: the field watcher re-syncs the board at once. Local only. `ready` is false while the camera is off. */
-export interface FieldScanState { seat: number | null; scanning: boolean; enabled: boolean; /** The saved mode is read, so `enabled` is the player's mode. */ loaded?: boolean; ready: boolean; scan?: () => void; setDetection?: (on: boolean) => void }
+export interface FieldScanState { seat: number | null; scanning: boolean; enabled: boolean; /** The saved mode is read, so `enabled` is the player's mode. */ loaded?: boolean; ready: boolean; scan?: () => void; setDetection?: (on: boolean) => void; /** Why the field watcher cannot run. Empty when it is fine. */ error?: string }
 let fieldScan: FieldScanState = { seat: null, scanning: false, enabled: false, ready: false };
 const scanListeners = new Set<() => void>();
 export function publishFieldScan(next: FieldScanState) {
-  if (fieldScan.seat === next.seat && fieldScan.scanning === next.scanning && fieldScan.enabled === next.enabled && fieldScan.loaded === next.loaded && fieldScan.ready === next.ready && fieldScan.scan === next.scan && fieldScan.setDetection === next.setDetection) return;
+  if (fieldScan.seat === next.seat && fieldScan.scanning === next.scanning && fieldScan.enabled === next.enabled && fieldScan.loaded === next.loaded && fieldScan.ready === next.ready && fieldScan.scan === next.scan && fieldScan.setDetection === next.setDetection && fieldScan.error === next.error) return;
   fieldScan = next; for (const listener of scanListeners) listener();
 }
 /** Starts a field scan for my seat when the camera is on and auto-detect is watching; the S key calls it. Returns false when it did nothing. */
@@ -110,6 +110,8 @@ export function runFieldScan(): boolean {
   fieldScan.scan(); return true;
 }
 const useFieldScanStore = () => useSyncExternalStore(listener => { scanListeners.add(listener); return () => { scanListeners.delete(listener); }; }, () => fieldScan, () => fieldScan);
+/** Why my seat's Auto-detect cannot run (its card reader failed to start), or an empty string. */
+export function useFieldWatcherError(): string { return useFieldScanStore().error ?? ""; }
 /** Card detection of my seat at the table: Auto-detect or Tap to identify. Null before the watcher is on the page and has read the saved mode. */
 export function useCardDetection(): { seat: number; autoDetect: boolean; set: (on: boolean) => void } | null {
   const value = useFieldScanStore();
@@ -154,7 +156,7 @@ export function readGridPref(own: boolean): boolean {
 export function writeGridPref(own: boolean, on: boolean) { try { localStorage.setItem(prefKey(own), on ? "1" : "0"); } catch { /* storage may be blocked */ } }
 
 /** Owner debug overlay: what the field watcher saw on its last scan. Own feed only, never sent to other seats. */
-export interface FieldDebugView { /** Track id → text, for a track whose board card shows the other face. */ faces?: Readonly<Record<string, string>>; /** Frame sharpness vs its baseline and whether removals hold for blur. */ blur?: { ratio: number; hold: boolean }; /** Shadow over the mat and whether removals hold for it. */ shadow?: { share: number; hold: boolean }; debug?: FieldDebug; tracks: readonly FieldTrack[]; status: string; detectorMs: number; dutyPercent: number; intervalMs: number; writeError?: string; backend?: string; /** Why auto-placement does or does not act now (`live()`), and the 'placed' events held by the sync hold or dropped. */ gate?: { live: boolean; enabled: boolean; syncHold: boolean; calibrationNeeded: boolean; deferred: number; dropped: number }; gridShift?: { gap: number; outside: number; suspect: boolean } }
+export interface FieldDebugView { /** Track id → text, for a track whose board card shows the other face. */ faces?: Readonly<Record<string, string>>; /** Frame sharpness vs its baseline and whether removals hold for blur. */ blur?: { ratio: number; hold: boolean; /** Crop sharpness a card needs to be read now. */ limit?: number }; /** Shadow over the mat and whether removals hold for it. */ shadow?: { share: number; hold: boolean }; debug?: FieldDebug; tracks: readonly FieldTrack[]; status: string; detectorMs: number; dutyPercent: number; intervalMs: number; writeError?: string; /** The watcher's own error text (why the badge says "Watcher unavailable"). */ error?: string; backend?: string; /** Why auto-placement does or does not act now (`live()`), and the 'placed' events held by the sync hold or dropped. */ gate?: { live: boolean; enabled: boolean; syncHold: boolean; calibrationNeeded: boolean; deferred: number; dropped: number }; gridShift?: { gap: number; outside: number; suspect: boolean } }
 /** Debug tools are for developers only: the server says so (`room.isDeveloper`); the saved switch alone never turns them on. */
 let debugPref = false, developer = false, debugOn = false, debugView: FieldDebugView | null = null;
 const debugListeners = new Set<() => void>();
@@ -163,6 +165,9 @@ try { debugPref = typeof localStorage !== "undefined" && localStorage.getItem("d
 export const fieldDebugEnabled = () => debugOn;
 export function setFieldDeveloper(on: boolean) { if (developer === on) return; developer = on; debugOn = developer && debugPref; if (!debugOn) debugView = null; debugNotify(); }
 export const useFieldDeveloper = () => useSyncExternalStore(subscribeDebug, () => developer, () => false);
+export const fieldDeveloperEnabled = () => developer;
+/** Fires on every developer or debug switch change. */
+export const subscribeFieldDeveloper = (listener: () => void) => subscribeDebug(listener);
 export function setFieldDebugEnabled(on: boolean) { debugPref = on; debugOn = developer && on; if (!debugOn) debugView = null; try { localStorage.setItem("dd-field-debug", on ? "1" : "0"); } catch { /* storage may be blocked */ } debugNotify(); }
 export function publishFieldDebug(next: FieldDebugView | null) { if (!debugOn && next) return; debugView = next; debugNotify(); }
 const subscribeDebug = (listener: () => void) => { debugListeners.add(listener); return () => { debugListeners.delete(listener); }; };

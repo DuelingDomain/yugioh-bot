@@ -42,5 +42,5 @@ export async function GET(request: Request, { params }: { params: Promise<{ slug
     }
     return fallback ?? noStore(result.response);
   }
-  return replayResponse(result.data, request);
+  return replayResponse(result.data);
 }

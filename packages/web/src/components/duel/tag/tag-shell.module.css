@@ -259,6 +259,8 @@
 .hudNotices { top: var(--hud-top); z-index: 29; }
 /* A check note (unchecked banner, "checked" note, saved-board note) adds one row (about 26px and a gap) to the transport: the board keeps clear of it too. */
 .shell[data-hud="true"]:has([data-replay-unchecked], [data-replay-verified], [data-replay-saved-board]) { --hud-bottom: calc(var(--tag-th) + 12px + 32px); }
+/* The measured transport height (tag-shell.tsx) wins over the guess above: the LP bars stay above the panel. */
+.shell[data-hud="true"][data-replay-pad="true"] { --hud-bottom: var(--replay-pad); }
 
 /* ---------- bottom bar (floating HUD) ----------
    The phases live on the helipad now, so the bar keeps the hint of the phase and the turn controls, together at the
@@ -288,6 +290,14 @@
   min-width: 0;
   margin: 0 auto;
   pointer-events: auto;
+}
+/* The floating Updates and Report bug chips sit at the bottom right of a wide window: the bar ends before them, so its move counter
+   and speed button stay visible and clickable. */
+@media (min-width: 900px) {
+  .replayCorner {
+    width: min(980px, calc(100% - 264px));
+    margin: 0 250px 0 auto;
+  }
 }
 /* Narrow screen: a full-width row above the turn track. */
 .replayBar {

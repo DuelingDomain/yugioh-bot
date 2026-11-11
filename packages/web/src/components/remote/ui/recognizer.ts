@@ -138,6 +138,7 @@ const priorsFor = (found: Meta, priors: Priors, voice = true): RecognitionPriors
   decklist: idsFor(found, priors.decklist), seen: idsFor(found, priors.seen),
   voiceMentioned: idsFor(found, hint.cards), voiceExpiresAt: hint.expiresAt,
   related: cache.get(key),
+  forbidden: idsFor(found, priors.forbidden ?? []),
   };
 };
 const toQuad = (card: ReadCard): ReadCard => ({ quad: card.quad, kind: card.kind, confidence: card.confidence, partial: card.partial, ...(card.covered ? { covered: true } : {}) });
@@ -312,6 +313,7 @@ async function readCardNow(track: MediaStreamTrack | null, point: { x: number; y
     return read;
   } catch (error) {
     if (signal.aborted) throw error;
+    console.warn("[remote read] failed", error);
     if (reportGpuFailure(error)) return fallback("The GPU failed, so card recognition moved to the CPU. Try again.");
     return fallback("The card reader failed. Showing cards from the decklist.");
   } finally { for (const frame of frames) frame.close(); }
@@ -374,7 +376,7 @@ export function attachOwnFeed(video: HTMLVideoElement) {
   if (ownVideo === video) return;
   ownBuffer?.stop(); ownBuffer = null; ownVideo = video;
   void prepareOwnReader().catch(()=>undefined);
-  void import("@yugidraft/vision").then(({ createOwnFeedBuffer }) => { if (ownVideo === video) ownBuffer = createOwnFeedBuffer(video) as OwnBuffer; }).catch(() => undefined);
+  void import("@yugidraft/vision").then(({ createOwnFeedBuffer }) => { if (ownVideo === video) ownBuffer = createOwnFeedBuffer(video) as OwnBuffer; }).catch(error => { console.warn("[remote field] own camera buffer failed", error); });
 }
 
 /** Shared by the table and its lobby preview; the resident worker warms once. */

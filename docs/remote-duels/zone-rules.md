@@ -17,8 +17,12 @@ Card facts come from one resolver (`/api/cards/resolve`): the EDOPro engine `car
 | Link Monster | M, EMZ | → M |
 | Main Deck monster | M | EMZ → M (EMZ1 → M2, EMZ2 → M4) |
 | Monster Set as a Spell by its text (Artifact, Crystal Beast) | M, S/T | — |
-| Union, "equip this card", or a card on your field that equips monsters | M, S/T face-up | face-down in S/T: "Check zone?" |
+| Card logic: a monster that equips itself (Union, Agnumday-style Link/Fusion) or a monster that an Equip effect on your field equips | M, S/T face-up | face-down in S/T: "Check zone?" |
 | Pendulum Monster | M, S1/S5 (scales) | S2–S4: kept, "Check zone?" |
+
+A face-up monster with none of these reasons (a plain monster) seen in S/T is not moved silently. It can be legal: an equipped monster whose source left, a monster placed as a Continuous Trap, a card linked by "Equipped to". The verdict is `unusual`: the card stays where it was seen, shows "Check zone?", and counts toward the 2-card "Zones look shifted" check. The table asks once: "Monster in S3: Move to M3 / Keep (equipped or placed by a card)". A card with `equippedTo` is legal. Keep is remembered for that card, and a card that is already placed is never moved again by a zone rule.
+
+**Card logic** comes from the engine data, not from card text: `packages/duel-server/scripts/build-card-logic.ts` reads `cards.cdb` (Union type bit) and the card scripts (`Duel.Equip`, `X:EquipByEffect*(e,tp,Y)` means Y is equipped to X, `Duel.GetControl`, `SwapControl`, `CATEGORY_CONTROL`, "Special Summon from a Graveyard") and writes `packages/web/src/lib/remote/card-logic-data.json` (card ids only, about 4 KB). The engine data update workflow runs it after `duel:prepare` and adds the file to the patch; the new-card smoke job on update PRs runs it with `--check` and fails when the file is out of date. A card that is not in a list is plain. The card text rules stay as a fallback for cards the lists do not know.
 
 When the target zone is taken, the card goes to the nearest free zone in that row. When the row is full, the player chooses. A card that the camera sees now and that is in an illegal row on the board (from before) is moved the same way. Cards moved by hand on the board are the player's choice: they are not moved, and the manual move only shows a warning.
 
@@ -28,6 +32,9 @@ When the target zone is taken, the card goes to the nearest free zone in that ro
 
 - **Trap Monster.** A Trap with Trap Monster text that moves from S/T zone N to an M or EMZ zone keeps S/T zone N occupied (`trapZone: N` on the card). Other Traps hold nothing (they only get "Check zone?"). The board draws "S<N> · TRAP MONSTER <card>" in that zone. The reducer refuses another card there (Pendulum Zone 1/2 = S1/S5), and an Undo that would put a hold onto a used zone (or a card onto a held zone) is refused. The link goes when the card leaves the Monster Zones.
 - **Equip.** The card inspector has "Equipped to" for your face-up S/T cards (`equippedTo` on the card). The board shows the link on both cards. The link goes when either card leaves the field.
+
+- **Control change.** A card revived from an opponent's Graveyard, or taken from an opponent's field, ends on the taker's side. `twin.control` moves the twin card to the other seat and marks it `ownerSeat` (its owner). The card menu has "Take control" (an opponent's monster or Graveyard card) and "Return control" (a card with `ownerSeat`). When an activated card is known to revive from a Graveyard (Monster Reborn) or to take control (Snatch Steal, Change of Heart), the table asks "Revive from which Graveyard?" or "Take control of which monster?" and lists the opponents' cards. The player picks the card, then the Monster Zone, and for a revived card the position (ATK or DEF); nothing is guessed. A revive from the player\'s own Graveyard is a plain move. Only monsters are listed for a revive, own Graveyard first. A card with `ownerSeat` that goes to the GY or banished, leaves the field, is detached or is used as material (Link, Synchro, Fusion) goes to its owner's pile; Xyz materials move with the Xyz card. A face-down taken card keeps its identity for its owner only. It is never flagged as "not in your decklist", and the opponents' public cards are priors for the camera reader. A card taken from or returned to a field keeps its face (a face-down monster stays face-down and hidden); only a card revived from a Graveyard is face up. "Move to M" reads the free zone when it is clicked; several monsters seen in S/T are asked one after another; the equip picker waits until another popup or the inspector closes.
+- **Equip by card logic.** A self-equip monster seen face-up in S/T opens the "Equipped to which monster?" picker (own monsters first). `twin.equip` is sent only when the player clicks a monster; "Not equipped" leaves it unlinked. Nothing is linked because only one monster is on the table.
 
 ## Pile exits
 
@@ -51,9 +58,9 @@ Every 4 s on GPU and 8 s on CPU the watcher compares what the last full detector
 
 ## Examples
 
-1. **Ghost Belle, GY → S2.** Ghost Belle is the GY top. The player lifts it (hand over the GY) and puts it in S2. The read finishes 4 s later on CPU. The GY ref moves out of the GY; Ghost Belle is a monster with no equip or Set text, so it goes to M2 ("Monster → M2"). A 2nd Belle from the hand 3 s after a card was sent on top of a deeper Belle is a new copy.
+1. **Ghost Belle, GY → S2.** Ghost Belle is the GY top. The player lifts it (hand over the GY) and puts it in S2. The read finishes 4 s later on CPU. The GY ref moves out of the GY; Ghost Belle is a monster with no equip or Set text, so it stays in S2 and the table asks "Monster in S2: Move to M2 / Keep". A 2nd Belle from the hand 3 s after a card was sent on top of a deeper Belle is a new copy.
 2. **Infinite Impermanence seen in M3.** A normal Trap: it goes to S3 ("Trap → S3").
 3. **Artifact Lancea, Set in S3.** Face-down: stays in S3. Revealed: Artifact text says "Set this card … Spell & Trap Zone as a Spell", so it stays in S3 with no mark.
-4. **Union equip.** A Union monster (or a monster that an Equip effect on your field equips) in S2 face-up stays in S2. The player can set "Equipped to" in the inspector.
+4. **Union equip.** A Union monster (or a monster that an Equip effect on your field equips) in S2 face-up stays in S2. The table asks which monster it equips; the player can also set "Equipped to" in the inspector.
 5. **Odion, Trap Monster from S3.** Embodiment of Apophis is activated in S3 and goes to M3. It stays in M3 (Trap Monster text), and S3 shows "Occupied by Embodiment of Apophis (Trap Monster)" until it leaves the field.
 6. **Field Spell in S1.** A face-up Field Spell seen in S1 moves to FIELD ("Field Spell → Field Zone"). When FIELD is taken, it stays in S1 with "Check zone?".

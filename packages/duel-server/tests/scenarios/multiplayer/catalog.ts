@@ -764,6 +764,8 @@ export const GROUP_ONE: CatalogScenario[] = [
 
 /** Script evidence for the forbidden list (group c). The key is the passcode. */
 export const FORBIDDEN_EVIDENCE: Record<number, Evidence[]> = {
+  101403005: [{ file: "pre-release/c101403005.lua", line: 32, token: "local opp=1-tp" }, { file: "pre-release/c101403005.lua", line: 63, token: "Duel.GetFieldGroup(tp,0,LOCATION_HAND)" }],
+  101403067: [{ file: "pre-release/c101403067.lua", line: 30, token: "Duel.RegisterFlagEffect(rp,id" }, { file: "pre-release/c101403067.lua", line: 128, token: "Duel.GetFlagEffectLabel(tp,id)" }],
   100459021: [{ file: "pre-release/c100459021.lua", line: 51, token: "Duel.SendtoHand(rg,rg:GetFirst():GetPreviousControler()" }],
   101403004: [{ file: "pre-release/c101403004.lua", line: 82, token: "Duel.Damage(1-tp,800" }],
   100458024: [{ file: "pre-release/c100458024.lua", line: 29, token: "s.name_list[0]" }],

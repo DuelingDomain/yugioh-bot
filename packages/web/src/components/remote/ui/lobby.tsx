@@ -66,6 +66,8 @@ export function RemoteLobbyRoom({ ctl, room, voiceRecognition = false, tournamen
       if (note) { setDeckNote(note); sessionStorage.removeItem(key); }
     } catch { /* storage may be blocked */ }
   }, [room.slug]);
+  // Fetch and verify the reader's models while the players set up, so the first card read does not wait for the download.
+  useEffect(() => { void import("@yugidraft/vision").then(vision => vision.warmModelCache(vision.yugioh)).catch(() => {}); }, []);
   const current = room.format ?? normalizeRemoteFormat();
   const [formatDraft, setFormat] = useState<string>(current.id);
   // The open formats, and the format of an older room, which that room keeps until the host changes it.
@@ -126,7 +128,7 @@ export function RemoteLobbyRoom({ ctl, room, voiceRecognition = false, tournamen
             </li>;
             const mine = seat.seat === room.mySeat;
             const editable = room.solo || mine;
-            const choices = decks.some(deck => deck.id === seat.deck?.savedDeckId) || !seat.deck ? decks : [...decks, { id: seat.deck.savedDeckId, name: seat.deck.name }];
+            const choices = decks.some(deck => deck.id === seat.deck?.savedDeckId) || !seat.deck || seat.deck.savedDeckId === null ? decks : [...decks, { id: seat.deck.savedDeckId, name: seat.deck.name }];
             const Icon = seat.ready ? CheckCircle2 : CircleDashed;
             return <li key={index} className={room_.seat} data-testid={`lobby-seat-${seat.seat}`} data-ready={seat.ready ? "true" : "false"} data-mine={mine ? "true" : undefined}>
               <span className={room_.avatar} aria-hidden>{seat.bot ? <Bot size={18} strokeWidth={1.5} /> : (seat.displayName.trim()[0] ?? "?").toUpperCase()}</span>
@@ -140,7 +142,7 @@ export function RemoteLobbyRoom({ ctl, room, voiceRecognition = false, tournamen
                   choices={[{ value: "", label: !editable && seat.deckRegistered ? "Deck registered (private)" : "No deck" },
                     ...choices.map(deck => ({ value: deck.id, label: deck.name }))]}
                   onChange={value => void operation("deck", { savedDeckId: value === "" ? null : Number(value), seat: seat.seat })} />
-                {mine && editable ? <p className={ui.hint}>A deck list makes card reads faster and more accurate. Optional.</p> : null}
+                {mine && editable ? <p className={ui.hint}>A deck list helps the camera read your cards faster and more accurately. You can skip it and play without one.</p> : null}
                 {mine && editable ? <LobbyDeckList disabled={busy} mode={current.id === "normal" ? "standard" : (current.id as "domain" | "genesys" | "genesys-domain")} seated={!!seat.deck} onSeat={async id => { await saved.mutate(); return operation("deck", { savedDeckId: id, seat: seat.seat }); }} /> : null}
                 {seat.deck ? <p className={r.listOn} data-testid={`deck-list-on-${seat.seat}`}>Deck list: on · {seat.deck.deck.main.length + seat.deck.deck.extra.length} cards</p> : null}
                 {seat.deck?.validation.issues.length ? <ul className={r.issues} role="alert">{seat.deck.validation.issues.map((issue, i) => <li key={i}>{issue.message}</li>)}</ul>

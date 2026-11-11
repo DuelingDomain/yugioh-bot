@@ -98,5 +98,9 @@ export function useCardStatus(id: number | undefined): { info: CardInfo | undefi
 }
 
 export const isMonsterInfo = (info: CardInfo | undefined) => !!info && /monster|token/i.test(info.type) && !/spell|trap/i.test(info.type);
+/** A Trap Card that is a monster while it stands in a Monster Zone (a Level in the cdb; its ATK / DEF come with it). */
+export const isTrapMonsterInfo = (info: CardInfo | undefined) => !!info && /trap/i.test(info.type) && (info.level ?? 0) > 0;
+/** A card with battle stats on the field: a monster, or a Trap Monster. */
+export const hasBattleStats = (info: CardInfo | undefined) => isMonsterInfo(info) || isTrapMonsterInfo(info);
 export const isLinkInfo = (info: CardInfo | undefined) => !!info && (/link/i.test(info.frameType) || /link/i.test(info.type));
 export const cardArt = (id: number, size: "small" | "cropped" | "full" = "small") => `/api/cards/${id}/image?variant=${size}`;

@@ -11,7 +11,9 @@ const prepare = "packages/duel-server/scripts/prepare-data.ts";
 const coreFiles = ["packages/duel-server/domain-core/pins.json", "packages/duel-server/legacy-1v1/domain-core/pins.json"];
 const tableFile = "packages/duel-server/duelingbook-alt-passcodes.json";
 const namesFile = "packages/duel-server/duelingbook-alt-passcode-names.json";
+const logicFile = "packages/web/src/lib/remote/card-logic-data.json";
 const historyFile = "packages/web/src/lib/card-data-history.json";
+const logicJson = (ids: string) => JSON.stringify({ SELF_EQUIP: ids, EQUIPPERS: "3c", TAKE_CONTROL: "", REVIVE_OPPONENT_GY: "4d" }, null, 2) + "\n";
 const json = (value: unknown) => JSON.stringify(value, null, 2) + "\n";
 const coreSource = (scripts: string) => JSON.stringify({ ygoproCore: { commit: "1".repeat(40) }, cardScripts: { repository: "https://github.com/ProjectIgnis/CardScripts", commit: scripts } }, null, 2) + "\n";
 const bot = { name: "github-actions[bot]", email: "41898282+github-actions[bot]@users.noreply.github.com" };
@@ -46,12 +48,14 @@ function fixture(candidate = next, withHistory = false) {
     mkdirSync(dirname(join(cwd, file)), { recursive: true });
     writeFileSync(join(cwd, file), coreSource(old.scripts));
   }
+  mkdirSync(dirname(join(cwd, logicFile)), { recursive: true });
+  writeFileSync(join(cwd, logicFile), logicJson("1a 2b"));
   if (withHistory) {
     mkdirSync(dirname(join(cwd, historyFile)), { recursive: true });
     writeFileSync(join(cwd, historyFile), "[]\n");
     git("add", historyFile);
   }
-  git("add", prepare, ...coreFiles, tableFile, namesFile); git("commit", "-qm", "base"); git("push", "origin", "main");
+  git("add", prepare, ...coreFiles, tableFile, namesFile, logicFile); git("commit", "-qm", "base"); git("push", "origin", "main");
   const baseSha = git("rev-parse", "HEAD");
   const update = { changed: true, next: candidate, files: [prepare, ...(candidate.scripts === old.scripts ? [] : coreFiles)], baseSha };
   function patch(content = source(candidate), extra?: string, coreContent = coreSource(candidate.scripts), compatibility: Record<string, string> = {}) {
@@ -120,6 +124,21 @@ describe("engine data publication", () => {
     writeFileSync(join(f.artifact, "update.json"), JSON.stringify({ ...f.update, files: [...f.update.files, tableFile, namesFile] }));
     expect(await f.publish()).toMatchObject({ status: "published" });
     for (const [file, bytes] of Object.entries(compatibility)) expect(f.git("show", `HEAD:${file}`)).toBe(bytes.trim());
+  });
+
+  it("publishes regenerated Remote Duels card logic and refuses anything but four canonical id lists", async () => {
+    const f = fixture();
+    const regenerated = logicJson("1a 2b 3c");
+    f.patch(source(next), undefined, coreSource(next.scripts), { [logicFile]: regenerated });
+    writeFileSync(join(f.artifact, "update.json"), JSON.stringify({ ...f.update, files: [...f.update.files, logicFile] }));
+    expect(await f.publish()).toMatchObject({ status: "published" });
+    expect(f.git("show", `HEAD:${logicFile}`)).toBe(regenerated.trim());
+    // Executable source in the same path is not inert data: the publisher stops before pushing.
+    const g = fixture();
+    g.patch(source(next), undefined, coreSource(next.scripts), { [logicFile]: "export const SELF_EQUIP = 'x';\n" });
+    writeFileSync(join(g.artifact, "update.json"), JSON.stringify({ ...g.update, files: [...g.update.files, logicFile] }));
+    await expect(g.publish()).rejects.toThrow();
+    expect(pushed(g)).toHaveLength(0);
   });
 
   it("keeps newer Dueling Book JSON when recovering a missing PR history commit", async () => {

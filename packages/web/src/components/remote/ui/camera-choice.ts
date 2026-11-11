@@ -38,3 +38,19 @@ export function markCameraReady(slug: string, ready: boolean) {
 export function takeCameraReady(slug: string): boolean {
   try { const ready = sessionStorage.getItem(readyKey(slug)) === "1"; if (ready) sessionStorage.removeItem(readyKey(slug)); return ready; } catch { return false; }
 }
+
+/**
+ * Whether this tab had the table camera on. A reload clears the lobby mark above, so the table writes this one while the camera runs
+ * and only the Camera off button clears it. A reload then turns the camera on again when the browser still allows it.
+ */
+const wantedKey = (slug: string) => `dd-remote-cam-want:${slug}`;
+export function rememberCameraWanted(slug: string, on: boolean) {
+  try { if (on) sessionStorage.setItem(wantedKey(slug), "1"); else sessionStorage.removeItem(wantedKey(slug)); } catch { /* storage may be blocked */ }
+}
+export function cameraWanted(slug: string): boolean {
+  try { return sessionStorage.getItem(wantedKey(slug)) === "1"; } catch { return false; }
+}
+/** True only when the browser already allows the camera, so a restore never opens a permission prompt. */
+export async function cameraPermissionGranted(): Promise<boolean> {
+  try { return (await navigator.permissions.query({ name: "camera" as PermissionName })).state === "granted"; } catch { return false; }
+}

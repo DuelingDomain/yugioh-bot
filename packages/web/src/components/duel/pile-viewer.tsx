@@ -21,6 +21,7 @@ import { ChainGlyph } from "./chain-glyph";
 import type { ChainLinkState } from "./chain-state";
 import { pileChainMarks, type PileChainMark } from "./pile-chain-marks";
 import { pinTopCardAt } from "./pile-focus";
+import { DragGrip } from "./prompt-drag";
 import { useSkinStyles } from "./skin";
 import baseStyles from "./pile-viewer.module.css";
 import { UsableGlow } from "./usable-glow";
@@ -56,6 +57,8 @@ export type PileViewerProps = {
    * Left out, nothing is marked.
    */
   chainLinks?: readonly ChainLinkState[];
+  /** A pick can be dragged by a handle on its window: this key keeps the place the player left it while the same prompt goes on. */
+  dragKey?: string;
   /**
    * A pick: the engine asks the player to choose some of these cards (the Xyz materials of a detach cost). The window
    * stays the same centred Materials window; a click on a card chooses it instead of inspecting it, and a bar at the foot
@@ -161,6 +164,7 @@ export function PileViewer({
   legalKeys,
   selectedKeys,
   chainLinks,
+  dragKey,
   pick,
 }: PileViewerProps) {
   const styles = useSkinStyles(baseStyles, "pile");
@@ -261,9 +265,12 @@ export function PileViewer({
     if (!open || !root || !panel) return;
     const place = () => {
       const box = root.getBoundingClientRect();
-      const dx = Math.round(window.innerWidth / 2 - (box.left + box.width / 2));
-      const dy = Math.round(window.innerHeight / 2 - (box.top + box.height / 2));
-      panel.style.translate = dx === 0 && dy === 0 ? "" : `${dx}px ${dy}px`;
+      // A pick on a phone stays in its board box (the phase bar and the dock below must stay clear); a drag moves it from there.
+      const inBox = root.dataset.pick === "true" && typeof window.matchMedia === "function" && window.matchMedia("(max-width: 600px), (max-height: 500px)").matches;
+      const dx = inBox ? 0 : Math.round(window.innerWidth / 2 - (box.left + box.width / 2));
+      const dy = inBox ? 0 : Math.round(window.innerHeight / 2 - (box.top + box.height / 2));
+      panel.style.setProperty("--pv-place-x", `${dx}px`);
+      panel.style.setProperty("--pv-place-y", `${dy}px`);
     };
     place();
     // jsdom (the unit tests) has no ResizeObserver; the window resize listener still places the panel there.
@@ -420,8 +427,10 @@ export function PileViewer({
         aria-modal="true"
         aria-labelledby={headingId}
         data-pile-viewer
+        data-drag-surface=""
         onKeyDown={onPanelKeyDown}
       >
+        {pick && dragKey ? <DragGrip memoryKey={dragKey} /> : null}
         <header className={styles.head}>
           <div className={styles.headText}>
             <h2 id={headingId} className={styles.title}>{title}</h2>
@@ -435,6 +444,7 @@ export function PileViewer({
           </div>
           <button type="button" className={styles.close} onClick={onClose} aria-label={pick ? "Hide to look at the board" : `Close ${title}`} title={pick ? "Hide to look at the board" : undefined}>
             <X size={18} strokeWidth={1.75} aria-hidden />
+            {pick ? <span className={styles.closeLabel}>Hide</span> : null}
           </button>
         </header>
 

@@ -122,6 +122,8 @@ export interface HistoryViewOptions {
   /** Display name for a seat ("You" for the viewer). */
   who: (seat: number | null) => string;
   seatCount?: number;
+  /** A finished duel shown with every card (replay "Show all cards"): the history names any card it has an identity for. */
+  revealAll?: boolean;
 }
 
 const PLACEHOLDER_NAME = /^Player \d+$/;
@@ -201,8 +203,10 @@ function nameOf(card: HistoryCard | null | undefined): string | null {
 }
 
 /** May this card's face show for this tile? Identity must be present first; then the extra rules apply. */
-function mayReveal(tile: HistoryTile, card: HistoryCard | null | undefined, mySeat: number | null): boolean {
+function mayReveal(tile: HistoryTile, card: HistoryCard | null | undefined, mySeat: number | null, all: boolean): boolean {
   if (!card || isHiddenHistoryCard(card)) return false;
+  // A finished duel shown with every card: the server only sends an identity the viewer may see, so any identity shows.
+  if (all) return true;
   const mine = mySeat != null && tile.seat === mySeat;
   switch (tile.kind) {
     case "set":
@@ -218,8 +222,8 @@ function mayReveal(tile: HistoryTile, card: HistoryCard | null | undefined, mySe
   }
 }
 
-function thumbFor(tile: HistoryTile, card: HistoryCard | null | undefined, role: HistoryThumb["role"], side: HistorySide, mySeat: number | null, struck = false): HistoryThumb {
-  const show = mayReveal(tile, card, mySeat);
+function thumbFor(tile: HistoryTile, card: HistoryCard | null | undefined, role: HistoryThumb["role"], side: HistorySide, mySeat: number | null, all: boolean, struck = false): HistoryThumb {
+  const show = mayReveal(tile, card, mySeat, all);
   return {
     role,
     card: show ? (card ?? null) : null,
@@ -333,8 +337,8 @@ function verbFor(tile: HistoryTile): string {
   }
 }
 
-function titleFor(tile: HistoryTile, who: HistoryViewOptions["who"], mySeat: number | null): string {
-  const name = mayReveal(tile, tile.card, mySeat) ? nameOf(tile.card) : null;
+function titleFor(tile: HistoryTile, who: HistoryViewOptions["who"], mySeat: number | null, all: boolean): string {
+  const name = mayReveal(tile, tile.card, mySeat, all) ? nameOf(tile.card) : null;
   switch (tile.kind) {
     case "attack": {
       const attacker = name ?? "Monster";
@@ -361,9 +365,9 @@ function destroyedSentence(name: string | null, loss: HistoryLoss | undefined): 
   return `${name ?? "A card"} was destroyed${phrase ? ` ${phrase}` : ""}.`;
 }
 
-function sentenceFor(tile: HistoryTile, who: HistoryViewOptions["who"], mySeat: number | null, seatCount: number): string {
+function sentenceFor(tile: HistoryTile, who: HistoryViewOptions["who"], mySeat: number | null, all: boolean, seatCount: number): string {
   const actor = who(tile.seat);
-  const name = mayReveal(tile, tile.card, mySeat) ? nameOf(tile.card) : null;
+  const name = mayReveal(tile, tile.card, mySeat, all) ? nameOf(tile.card) : null;
   const parts: string[] = [];
   switch (tile.kind) {
     case "summon":
@@ -500,7 +504,7 @@ function plate(side: HistorySide, label: string): HistoryThumb {
   return { role: "portrait", card: null, code: null, name: null, struck: false, side, label };
 }
 
-function thumbsFor(tile: HistoryTile, side: HistorySide, mySeat: number | null, who: HistoryViewOptions["who"]): HistoryThumb[] {
+function thumbsFor(tile: HistoryTile, side: HistorySide, mySeat: number | null, all: boolean, who: HistoryViewOptions["who"]): HistoryThumb[] {
   switch (tile.kind) {
     case "attack": {
       const target = tile.target;
@@ -508,12 +512,12 @@ function thumbsFor(tile: HistoryTile, side: HistorySide, mySeat: number | null, 
       const targetStruck = tile.destroyed.some((loss) => loss.role === "target");
       const targetSide = sideOf(target?.seat ?? null, mySeat);
       return [
-        thumbFor(tile, tile.card, "attacker", side, mySeat, attackerStruck),
+        thumbFor(tile, tile.card, "attacker", side, mySeat, all, attackerStruck),
         target?.direct || !target?.card
           ? target?.direct
             ? plate(targetSide, who(target?.seat ?? null))
-            : thumbFor(tile, null, "target", targetSide, mySeat, targetStruck)
-          : thumbFor(tile, target.card, "target", targetSide, mySeat, targetStruck),
+            : thumbFor(tile, null, "target", targetSide, mySeat, all, targetStruck)
+          : thumbFor(tile, target.card, "target", targetSide, mySeat, all, targetStruck),
       ];
     }
     case "damage":
@@ -521,9 +525,9 @@ function thumbsFor(tile: HistoryTile, side: HistorySide, mySeat: number | null, 
     case "heal":
       return [plate(sideOf(tile.gain?.seat ?? tile.seat, mySeat), who(tile.gain?.seat ?? tile.seat))];
     case "destroy":
-      return [thumbFor(tile, tile.card, "main", side, mySeat, true)];
+      return [thumbFor(tile, tile.card, "main", side, mySeat, all, true)];
     default:
-      return [thumbFor(tile, tile.card, "main", side, mySeat)];
+      return [thumbFor(tile, tile.card, "main", side, mySeat, all)];
   }
 }
 
@@ -538,6 +542,7 @@ function withThumbSeats(thumbs: HistoryThumb[], tile: HistoryTile, actorSeat: nu
 /** One tile as a list entry. */
 export function entryFor(tile: HistoryTile, options: HistoryViewOptions): HistoryEntry {
   const { mySeat, who } = options;
+  const all = options.revealAll === true;
   const actorSeat = tile.kind === "damage" ? (tile.hits[0]?.seat ?? tile.seat) : tile.kind === "heal" ? (tile.gain?.seat ?? tile.seat) : tile.seat;
   const side = sideOf(actorSeat, mySeat);
   return {
@@ -549,9 +554,9 @@ export function entryFor(tile: HistoryTile, options: HistoryViewOptions): Histor
     seat: actorSeat,
     actor: who(actorSeat),
     verb: verbFor(tile),
-    title: titleFor(tile, who, mySeat),
-    sentence: sentenceFor(tile, who, mySeat, options.seatCount ?? 2),
-    thumbs: withThumbSeats(thumbsFor(tile, side, mySeat, who), tile, actorSeat),
+    title: titleFor(tile, who, mySeat, all),
+    sentence: sentenceFor(tile, who, mySeat, all, options.seatCount ?? 2),
+    thumbs: withThumbSeats(thumbsFor(tile, side, mySeat, all, who), tile, actorSeat),
     lp: lpFor(tile, mySeat, who),
     tags: tagsFor(tile),
     negated: tile.chain?.status === "negated",

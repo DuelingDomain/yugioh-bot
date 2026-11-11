@@ -1,4 +1,5 @@
 export { createRecognizer } from './client';
+export { warmModelCache } from './model-cache';
 export {fitToMat} from './client';
 export {fitMat,matFitCalibration} from './mat-fit';
 export type {MatFitResult,MatFitOptions} from './mat-fit';
@@ -38,3 +39,10 @@ export type {FaceState,FaceStateResult,FaceStateEmbedding,FaceStateOptions} from
 export type {PrepareOptions, FractionalBox, ModelVariant} from './types';
 
 export type { BackendStatus, WebGpuDiagnostics } from './types';
+
+export {CLIP_VERSION,CLIP_EXTENSION,writeZip,readZip,parseClip,buildClipEntries,matCropRect,rebaseCalibration,slimEvent,slimResult,EMPTY_TRUTH} from './clip-format';
+export type {ClipSession,ClipEvent,ClipFrameMeta,ClipTruth,ClipTruthEvent,ClipTruthKind,ClipTruthSide,ClipTruthPlace,ClipBundle,ClipRecorderStats,ClipRect,SlimFieldEvent,SlimRecognitionResult} from './clip-format';
+export {createClipRecorder,createBrowserFrameEncoder} from './clip-recorder';
+export type {ClipRecorder,ClipRecorderOptions,ClipContext,FrameEncoder,EncodedFrame} from './clip-recorder';
+export {replayClip,recordedRecognizer,scoreReplay,draftTruth,gateAgainstBaseline,formatMetricsTable,percentile,isArrival,isDeparture,onField} from './clip-replay';
+export type {ReplayResult,ReplayEvent,ReplayRead,ReplayOptions,ReplayMetrics} from './clip-replay';

@@ -5,6 +5,6 @@ export async function GET(_request: Request, context: RemoteRouteContext) {
   const actor = await requireRemoteActor(); if (!actor.ok) return actor.response;
   try {
     const { slug } = await context.params;
-    return remoteJson(actor.remote.replayFrames(slug, actor.guildId, actor.userId));
+    return remoteJson(await actor.remote.replayFramesAsync(slug, actor.guildId, actor.userId));
   } catch (error) { return remoteError(error); }
 }

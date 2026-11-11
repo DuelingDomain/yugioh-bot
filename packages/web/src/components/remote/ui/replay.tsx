@@ -16,10 +16,10 @@ import s from "./replay.module.css";
 const humanize = (type: string) => type.replace(/[._]/g, " ").replace(/^./, c => c.toUpperCase());
 
 function Cell({ zone, cell, down }: { zone: ZoneKey; cell: ReturnType<typeof cellsFor>[ZoneKey]; down?: boolean }) {
-  const card = cell.card, pile = zone === "gy" || zone === "ex" || zone === "deck";
+  const card = cell.card, pile = zone === "gy" || zone === "ban" || zone === "ex" || zone === "deck";
   const code = card ? cardCode(card) : undefined;
   const faceUp = card?.faceUp !== false;
-  return <div className={s.cell} data-filled={!!card || cell.count > 0} data-pos={card?.position} data-down={!!card && !faceUp || down}
+  return <div className={s.cell} data-wide={zone === "ban"} data-filled={!!card || cell.count > 0} data-pos={card?.position} data-down={!!card && !faceUp || down}
     title={card ? (faceUp ? cardName(card) : "Face-down card") : undefined}>
     <span className={s.zl}>{zoneLabel(zone)}</span>
     {card && faceUp && code ? <img src={cardArt(code, "small")} alt="" draggable={false} loading="lazy" /> : null}
@@ -39,7 +39,11 @@ function SeatMat({ state, seat, name, extraZones }: { state: RemoteState; seat: 
       <span className={s.lp} aria-label={`${view.resources.lp ?? 0} life points`}>{view.resources.lp ?? 0}</span>
     </div>
     <div className={s.counts}>Hand {view.handCount ?? hand}{view.deckCount !== undefined ? ` · Deck ${view.deckCount}` : ""}</div>
-    {extraZones ? <div className={s.emz}>{EK.map(key => <Cell key={key} zone={key} cell={cells[key]} />)}</div> : null}
+    {/* Top row of the mat: the two Extra Monster Zones (Master Rule 5) and the Banished pile above the Graveyard. */}
+    <div className={s.grid}>
+      {extraZones ? EK.map((key, i) => <div key={key} style={{ gridColumn: 3 + 2 * i }}><Cell zone={key} cell={cells[key]} /></div>) : null}
+      <div style={{ gridColumn: 7, justifySelf: "end", alignSelf: "end" }}><Cell zone="ban" cell={cells.ban} /></div>
+    </div>
     <div className={s.grid}>{ZK.map(key => <Cell key={key} zone={key} cell={cells[key]} />)}</div>
   </section>;
 }

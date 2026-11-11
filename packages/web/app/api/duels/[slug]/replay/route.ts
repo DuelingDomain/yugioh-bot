@@ -65,5 +65,5 @@ export async function GET(request: Request, { params }: { params: Promise<{ slug
   // Recheck after the host wait, including allowlist changes for a marked fork.
   try { assertDuelForkAccess(slug, actor); actor.duels.room(slug, actor.guildId, actor.playerId, { includeStoredBoard: false }); }
   catch (error) { return accessError(error); }
-  return replayResponse(result.data, request);
+  return replayResponse(result.data);
 }

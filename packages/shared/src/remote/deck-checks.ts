@@ -30,7 +30,7 @@ export function normalizeRemoteFormat(id: unknown = "normal", rules?: unknown, s
     throw error;
   }
 }
-export type RemoteDeckRegistration = { savedDeckId: number; name: string; deck: DuelDeck; validation: DuelDeckValidation };
+export type RemoteDeckRegistration = { savedDeckId: number | null; name: string; deck: DuelDeck; validation: DuelDeckValidation };
 export type RemoteCardFact = { code: number; copyKey: number; name: string; limit: number; section: "main" | "extra"; type?: number };
 export type RemoteCardFacts = Record<number, RemoteCardFact>;
 export type RemoteCardInstance = {
@@ -47,8 +47,10 @@ export type RemoteDeckChecks = {
 };
 /** Server-resolved facts are persisted beside the command, never accepted from a client. */
 export type RemoteReductionContext = {
-  /** Preserve pre-review declaration and first-choice rules on historical replay. */
-  matchFlowVersion?: 1;
+  /** Trusted account-deletion concession, persisted for replay. */
+  accountDeletion?: 1;
+  /** Preserve pre-review declaration and first-choice rules on historical replay. 2 adds the countdown before the next game. */
+  matchFlowVersion?: 1 | 2;
   /** Server-owned solo seats readied with the human; persisted for deterministic replay. */
   soloBotSeats?: number[];
   /** Versioned undo semantics for already accepted event replay. */
@@ -67,7 +69,7 @@ export type RemoteReductionContext = {
   /** Trusted replay only: retain slot conflicts accepted before the live guard. */
   replay?: boolean;
   /** Persisted by the service: old events replay with the original placement semantics. */
-  twinPlacementGuard?: 1 | 2 | 3 | 4 | 5;
+  twinPlacementGuard?: 1 | 2 | 3 | 4 | 5 | 6;
   pileArrivalGuard?: 1 | 2;
   /** Public knowledge survives an in-place Set; hidden destinations clear it. */
   fieldFaceState?: 1;
@@ -75,7 +77,15 @@ export type RemoteReductionContext = {
   handKnowledge?: 1;
   /** Refund a canceled unidentified face-up camera placement; historic events keep their count. */
   handCountCorrections?: 1;
+  /** A quit during a live game only concedes that game; historic quits left the match at once. */
+  quitGameOnly?: 1;
 };
+/** Persist current reducer semantics for live actions and account-deletion concessions. */
+export const REMOTE_REDUCTION_VERSIONS = {
+  undoVersion: 1, matchFlowVersion: 2, twinPlacementGuard: 6, fieldFaceState: 1,
+  pileArrivalGuard: 2, handKnowledge: 1, handReview: 1, handCountCorrections: 1, quitGameOnly: 1,
+} as const satisfies RemoteReductionContext;
+
 export function initialDeckChecks(format = normalizeRemoteFormat()): RemoteDeckChecks {
   return { format, registrations: {}, instances: [], flags: [] };
 }
@@ -103,7 +113,9 @@ export function isInRemoteDeck(deck: DuelDeck, fact: RemoteCardFact, facts: Remo
 export function remotePublicZone(zone?: string, faceUp = true): boolean {
   return faceUp && !!zone && ["monster", "spell-trap", "extra-monster", "field", "graveyard", "banished", "extra", "pendulum"].includes(zone);
 }
-export function remotePublicCard(card: {zone?: string; faceUp?: boolean; publicIdentity?: boolean}): boolean {
+export function remotePublicCard(card: {zone?: string; faceUp?: boolean; publicIdentity?: boolean; pendulumUp?: true}): boolean {
+  // The Extra Deck is hidden, except a face-up Pendulum Monster.
+  if (card.zone === "extra") return !!card.pendulumUp && card.faceUp === true;
   return !!card.zone && !["deck","extra"].includes(card.zone) && (remotePublicZone(card.zone, card.faceUp) || !!card.publicIdentity);
 }
 export function remotePhysicalSlot(zone?: string, slot?: number): number | undefined {

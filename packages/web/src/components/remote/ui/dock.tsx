@@ -18,7 +18,7 @@ export function MicSection({ recognition = true, chat = "on", state, level, spea
   const noMute = !recognition && chat === "none";
   const label = state === "muted" ? "Muted" : state === "off" ? (recognition || chat === "none" ? "Voice off" : "Voice chat") : ptt ? (held ? "Listening" : "Push to talk") : state === "listen" ? "Listening" : "Idle";
   const sub = error ? error
-    : !recognition && state === "off" ? (chat === "on" ? "Talk to the table." : chat === "connecting" ? "Connecting to voice chat…" : chat === "off" ? "Join table video to talk." : "No voice chat at a solo table.")
+    : !recognition && state === "off" ? (chat === "on" ? "Talk to the table." : chat === "connecting" ? "Connecting to voice chat…" : chat === "off" ? "Turn camera on to talk." : "No voice chat at a solo table.")
     : service === "closed" && state !== "muted" ? "Speech service offline. Use the buttons and the keyboard."
     : state === "muted" ? "Muted. Unmute to use voice commands."
     : ptt ? "Hold V and speak."

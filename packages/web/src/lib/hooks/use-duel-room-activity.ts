@@ -1,17 +1,43 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 const ACTIVITY_BATCH_MS = 15_000;
 
 /**
+ * Whether the room of `slug` has a waiting deadline (the room view says so). For a page that has no room view of its own,
+ * such as the deck editor opened from a room. False until the answer arrives; an explicit false from the server keeps it false.
+ */
+export function useRoomHasWaitingDeadline(slug: string | null): boolean {
+  const [has, setHas] = useState(false);
+  useEffect(() => {
+    setHas(false);
+    if (!slug) return;
+    const controller = new AbortController();
+    void fetch(`/api/duels/${encodeURIComponent(slug)}`, { signal: controller.signal })
+      .then(response => (response.ok ? response.json() : null))
+      .then((body: unknown) => {
+        // An older duel server sends no flag: treat that as "has a deadline" (old behaviour), only an explicit false stops the beats.
+        if (body && typeof body === "object" && !("hasWaitingDeadline" in body && body.hasWaitingDeadline === false)) setHas(true);
+      }).catch(() => undefined);
+    return () => controller.abort();
+  }, [slug]);
+  return has;
+}
+
+/**
  * Retain a waiting seat during actual room/editor input. A passive tab cannot renew it.
  * Returns the time (ms since 1970) the room closes if nobody acts, or null while it is not known.
+ * `waiting` is false once the room has left its waiting state (the duel started): the server answers 409 then,
+ * so the last input that is still pending is not sent.
  */
-export function useDuelRoomActivity(slug: string | null): number | null {
+export function useDuelRoomActivity(slug: string | null, waiting = true): number | null {
   const [idleDeadline, setIdleDeadline] = useState<number | null>(null);
+  // Read by the cleanup below: the render that ends the waiting state runs before the cleanup of the old effect.
+  const waitingNow = useRef(waiting);
+  waitingNow.current = waiting;
   useEffect(() => {
-    if (!slug) { setIdleDeadline(null); return; }
+    if (!slug || !waiting) { setIdleDeadline(null); return; }
     let stopped = false;
     let pending = false;
     let lastSent = 0;
@@ -52,10 +78,10 @@ export function useDuelRoomActivity(slug: string | null): number | null {
     return () => {
       for (const event of events) window.removeEventListener(event, activity, true);
       window.removeEventListener("pagehide", send);
-      send();
+      if (waitingNow.current) send();
       stopped = true;
       clearTimeout(timer);
     };
-  }, [slug]);
-  return slug ? idleDeadline : null;
+  }, [slug, waiting]);
+  return slug && waiting ? idleDeadline : null;
 }

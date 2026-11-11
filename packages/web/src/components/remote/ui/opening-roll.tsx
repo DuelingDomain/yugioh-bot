@@ -21,13 +21,15 @@ type Act = (proposal: RemoteActionProposal) => Promise<unknown>;
  * so a reload or a late spectator sees the same dice. It draws the duel room's dice opening (same dice, tiles, skin and
  * wording from `components/duel`) and ends with the duel room's go-first / go-second choice. Skip jumps to the result.
  */
-export function OpeningRollScreen({ opening, mySeat, name, now, act, out = [], error: outsideError }: {
+export function OpeningRollScreen({ opening, mySeat, name, now, act, out = [], error: outsideError, onCover }: {
   opening: RemoteOpening; mySeat: number; name: (seat: number) => string; now: () => number;
   /** Absent for a spectator: the screen only shows the dice and who chooses. */
   act?: Act;
   /** Seats that have left the game: they cannot choose and are not offered as the first player. */
   out?: readonly boolean[];
   error?: string | null;
+  /** True while this screen covers the table. The table shows its own Surrender dock only then; a bot roll ends while the opening is still open. */
+  onCover?: (covering: boolean) => void;
 }) {
   const skin = useDiceSkin();
   const [reduced, setReduced] = useState(false);
@@ -61,6 +63,7 @@ export function OpeningRollScreen({ opening, mySeat, name, now, act, out = [], e
   const [dismissed, setDismissed] = useState(false);
   // A bot's roll decides at once: the dice stay up for a moment and the table is already live.
   const finished = auto && (dismissed || clock >= diceEnd + 2500);
+  useEffect(() => { onCover?.(!finished); return () => onCover?.(false); }, [finished, onCover]);
 
   // The choice clock ends at the deadline: the server applies the default, a check just asks soon after.
   const sent = useRef(false);

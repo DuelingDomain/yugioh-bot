@@ -1,13 +1,14 @@
 import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ClerkBackendError } from "@yugidraft/shared/clerk";
+import { createRemoteDuelService } from "@yugidraft/shared/services";
 import { runCli } from "../../src/ops/cli.js";
 import { fakeClerk, fixture, remoteUser } from "./fixtures.js";
 
 let f: ReturnType<typeof fixture>;
 let reports = 0;
-afterEach(() => f?.close());
+afterEach(() => { f?.close(); vi.unstubAllGlobals(); });
 
 const EMAIL = "private.person@example.test";
 const CLERK_ID = "user_private_clerk_id";
@@ -73,12 +74,20 @@ describe("delete-user command", () => {
 
   it("with --apply deletes the Clerk user first, then anonymises the rows", async () => {
     seed(); const fake = fakeClerk(); fake.users.push(remoteUser(CLERK_ID, "1", EMAIL));
+    const remote=createRemoteDuelService(f.db);
+    const table=remote.create({guildId:"guild",userId:1,displayName:"One",gameId:"ygo",seatCount:2});
+    remote.join(table.slug,"guild",2,"Two",1);
+    const fetch=vi.fn(async () => {
+      expect(f.db.prepare("select clerk_user_id from users where id=1").get()).toEqual({clerk_user_id:null});
+      return new Response(null,{status:204});
+    });
+    vi.stubGlobal("fetch",fetch);
     const original = fake.backend.deleteUser;
     fake.backend.deleteUser = async id => {
       expect(f.db.prepare("select email, clerk_user_id from users where id=1").get()).toEqual({ email: EMAIL, clerk_user_id: CLERK_ID });
       return original(id);
     };
-    const result = await run(["--user-id", "1", "--apply"], { backend: fake.backend, env: { CLERK_SECRET_KEY: "sk_test_private" } });
+    const result = await run(["--user-id", "1", "--apply"], { backend: fake.backend, env: { CLERK_SECRET_KEY: "sk_test_private", WS_INTERNAL_URL:"http://ws.test", WS_INTERNAL_SECRET:"test-secret" } });
     expect(result.code).toBe(0);
     expect(fake.calls.filter(c => c.method === "deleteUser")).toEqual([{ method: "deleteUser", input: CLERK_ID }]);
     expect(f.db.prepare("select * from users where id=1").get()).toMatchObject({ clerk_user_id: null, email: null, discord_user_id: null, username: "deleted-1", display_name: "Deleted player" });
@@ -87,6 +96,7 @@ describe("delete-user command", () => {
     expect(f.db.prepare("select count(*) n from saved_decks").get()).toEqual({ n: 0 });
     expect(f.db.prepare("select count(*) n from waitlist_signups").get()).toEqual({ n: 0 });
     expect(result.json()).toMatchObject({ status: "applied", userId: 1, mode: "anonymised", clerk: "deleted" });
+    expect(fetch).toHaveBeenCalledExactlyOnceWith("http://ws.test/internal/remote/changed",expect.objectContaining({body:JSON.stringify({slug:table.slug,guildId:"guild"})}));
   });
 
   it("leaves the database untouched when Clerk fails, and says so in the report", async () => {

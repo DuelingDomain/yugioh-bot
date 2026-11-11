@@ -1,7 +1,7 @@
 import { boundsOf, quadMap, warpQuad, type Quad } from './geometry';
 import { sharpness } from './quality';
 import type { DetectedQuad, FractionalBox } from './types';
-import type { RGBAImage } from './pixels';
+import { resizeRGBA, type RGBAImage } from './pixels';
 export type FieldFrame=ImageBitmap|ImageData;
 /** Shadow evidence: share of the frame darker than its recent background with the same chromaticity, and the share that changed since the last frame. */
 export interface FieldShadow { /** Mean RGB per grid cell (gx x gy x 3) of this frame. */ means?:Float32Array; share:number; changed:number; /** Per-cell flags (row-major, gx x gy) of shadow cells that turned on or off this frame: the watcher holds removals only where a shadow moves. */ moved?:Uint8Array; gx?:number; gy?:number }
@@ -11,8 +11,10 @@ export function closeFieldFrame(frame:FieldFrame) { if('close' in frame)frame.cl
 export async function cloneFieldFrame(frame:FieldFrame):Promise<FieldFrame> {
   return 'close' in frame?createImageBitmap(frame):new ImageData(new Uint8ClampedArray(frame.data),frame.width,frame.height);
 }
-/** Only motion/sharpness are downsampled; inference and retained best frames stay native. */
-export function createFieldAnalyzer() {
+/** Only motion/sharpness are downsampled; inference and retained best frames stay native.
+ *  Live frames are ImageBitmaps and get drawn at 320 px wide; a plain RGBA frame is used as is unless `downsampleRGBA` is set
+ *  (clip replay: the saved frames are RGBA at up to 960 px, and motion must be measured at the live size). `crop()` always reads the full frame. */
+export function createFieldAnalyzer(options:{downsampleRGBA?:boolean}={}) {
   let previous:RGBAImage|undefined,faceCanvas:OffscreenCanvas|undefined;
   let shadows=createShadowBaseline();
   let lastMeans:Float32Array|undefined,markMeans:Float32Array|undefined;
@@ -20,7 +22,7 @@ export function createFieldAnalyzer() {
   const reset=()=>{shadows=createShadowBaseline();previous=undefined;lastMeans=undefined;markMeans=undefined;};
   return Object.assign((frame:FieldFrame):FieldAnalysis=>{
     let image:RGBAImage;
-    if(!('close' in frame))image=frame;
+    if(!('close' in frame))image=options.downsampleRGBA&&frame.width>320?resizeRGBA(frame,320,Math.max(3,Math.round(frame.height*320/frame.width))):frame;
     else {
       const width=Math.min(320,frame.width),height=Math.max(3,Math.round(frame.height*width/frame.width));
       const canvas=new OffscreenCanvas(width,height),context=canvas.getContext('2d',{willReadFrequently:true})!;

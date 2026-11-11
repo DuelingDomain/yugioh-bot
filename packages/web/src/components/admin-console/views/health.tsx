@@ -3,7 +3,7 @@
 import { VpsHealthSection } from "./vps-health";
 import type { ReactNode } from "react";
 import { duration, gb, plural } from "@/lib/admin-console/format";
-import { ADMIN_TIME_ZONE_LABEL, formatDayMonthClock } from "@/lib/admin-console/time";
+import { ADMIN_TIME_ZONE_LABEL, formatDate, formatDayMonthClock } from "@/lib/admin-console/time";
 import type { DiskStatus, ServiceHealth, SystemData } from "@/lib/admin-console/types";
 import { SERVICE_TONE, SERVICE_WORD, okData, type Snapshots } from "../model";
 import { Notice, SectionHead, Since, StatusIcon, useNow } from "../parts";
@@ -108,7 +108,7 @@ export function HealthView({ s }: { s: Snapshots }) {
             </div>
             <div>
               <dt>Duel engine</dt>
-              <dd>{data.duelServer.ok ? "Answering" : "Not answering"}<small>{data.duelServer.detail ?? (data.cardData?.dataAsOf ? `Engine data from ${data.cardData.dataAsOf.slice(0, 10)}` : "")}</small></dd>
+              <dd>{data.duelServer.ok ? "Answering" : "Not answering"}<small>{data.duelServer.detail ?? (data.cardData?.dataAsOf ? `Engine data from ${formatDate(Date.parse(data.cardData.dataAsOf))}` : "")}</small></dd>
             </div>
             {data.database ? (
               <div><dt>Database</dt><dd>SQLite · {gb(data.database.bytes)}<small>Write-ahead log {gb(data.database.walBytes)}</small></dd></div>

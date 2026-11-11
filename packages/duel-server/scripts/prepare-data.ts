@@ -13,8 +13,8 @@ import { installCardScriptPatches } from "./card-script-patches.js";
 
 export const sources = {
   corePackage: "ocgcore-wasm@0.1.2",
-  scripts: "5caccbf54d7d27b5208bef3b7bf49936eafc203c",
-  database: "511b2d01ee9c1253344f392fb9fa6f728481c366",
+  scripts: "7e91edbb481dd6bcbba703e33c4f40840f3b08e0",
+  database: "53e9b3ba8b4a1790e361141b00950b6b74bee92b",
   strings: "54a6e2395c532648ff762540e9615319fac4f51b",
   databaseFormat: "official-releases-prerelease-v4",
   // Immutable support boundary; abbreviated so the weekly pin rewrite never advances it.
@@ -186,7 +186,7 @@ export async function prepareData(
     await writeFile(join(directory, "manifest.json"), JSON.stringify(manifest, null, 2) + "\n");
     return { directory, skipped: false, ...manifest };
   } finally {
-    await rm(temporary, { recursive: true, force: true });
+    await rm(temporary, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
   }
 }
 

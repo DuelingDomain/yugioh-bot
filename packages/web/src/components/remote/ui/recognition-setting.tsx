@@ -56,12 +56,13 @@ export function RecognitionBadge({ phoneCamera = false }: { phoneCamera?: boolea
   const [say, setSay] = useState("");
   useEffect(() => {
     if (!note || announced.has(note)) return;
-    announced.add(note); setSay(note);
+    announced.add(note); setSay("The GPU failed, so card reading uses the CPU (slower). Details: hover the CPU badge or open Debug.");
     const timer = setTimeout(() => setSay(""), 8000);
     return () => clearTimeout(timer);
   }, [note]);
   const gpu = backend === "webgpu";
-  const where = backend ? (gpu ? "GPU" : note ? `CPU (GPU unavailable: ${note})` : "CPU") : mode === "cpu" ? "CPU" : "Reader";
+  // The badge stays short; the full GPU reason is in its tooltip and in the 8-second note below.
+  const where = backend ? (gpu ? "GPU" : note ? "CPU · GPU failed" : "CPU") : mode === "cpu" ? "CPU" : "Reader";
   const label = `${phoneCamera ? "Computer · " : ""}${where}${ms === null ? "" : ` · ${ms} ms`}`;
   const title = [
     backend ? `Card recognition runs on the ${gpu ? "graphics card (GPU)" : "processor (CPU)"}${ms === null ? "." : `. Last read: ${ms} ms.`}` : "Card recognition starts with the first read.",
@@ -70,7 +71,7 @@ export function RecognitionBadge({ phoneCamera = false }: { phoneCamera?: boolea
     "Change it in the camera menu.",
   ].filter(Boolean).join(" ");
   return <>
-    <span className={`${s.backendBadge} ${gpu ? s.backendGpu : ""}`} style={note ? { maxWidth: "min(32rem, 80vw)", whiteSpace: "normal", overflowWrap: "anywhere" } : undefined} title={title} data-testid="recognition-backend" data-backend={backend ?? "pending"}>{label}</span>
+    <span className={`${s.backendBadge} ${gpu ? s.backendGpu : ""}`} title={title} data-testid="recognition-backend" data-backend={backend ?? "pending"}>{label}</span>
     {say ? <span className={s.backendNote} role="status" data-testid="recognition-note">{say}</span> : null}
   </>;
 }

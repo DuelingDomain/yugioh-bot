@@ -451,7 +451,7 @@ function CardPoolGridBase({
 
       <div ref={scrollRef} className={cn("relative overflow-y-auto rounded-lg border border-border bg-surface/70", heightClassName)}>
         {loading && cards.length > 0 && (
-          <span className="pointer-events-none absolute right-2 top-2 z-10 rounded-full bg-bg-elevated px-2 py-0.5 text-[0.65rem] font-semibold uppercase tracking-wide text-text-secondary">
+          <span className="pointer-events-none absolute right-2 top-2 z-10 rounded-full bg-bg-elevated px-2 py-0.5 text-[0.7rem] font-semibold uppercase tracking-wide text-text-secondary">
             Updating…
           </span>
         )}
@@ -539,7 +539,7 @@ function CardPoolGridBase({
                             />
                           )}
                           {(entry.card.qty ?? 1) > 1 && (
-                            <span className="absolute bottom-1 right-1 rounded bg-black/75 px-1 py-0.5 text-[0.65rem] font-bold tabular-nums text-white">
+                            <span className="absolute bottom-1 right-1 rounded bg-black/75 px-1 py-0.5 text-[0.7rem] font-bold tabular-nums text-white">
                               ×{entry.card.qty}
                             </span>
                           )}
@@ -550,7 +550,7 @@ function CardPoolGridBase({
                           </p>
                           <span
                             className={cn(
-                              "mt-1 inline-flex rounded px-1.5 py-0.5 text-[0.65rem] font-semibold uppercase",
+                              "mt-1 inline-flex rounded px-1.5 py-0.5 text-[0.7rem] font-semibold uppercase",
                               getTypeBadgeClass(entry.card.type),
                             )}
                           >
@@ -569,7 +569,7 @@ function CardPoolGridBase({
                         <div className="flex aspect-[421/614] w-full items-center justify-center rounded-md bg-bg-elevated/40 font-mono text-xs text-text-muted">
                           {entry.id}
                         </div>
-                        <p className="text-[0.65rem] text-text-muted">not in catalog yet</p>
+                        <p className="text-[0.7rem] text-text-muted">not in catalog yet</p>
                       </div>
                     ),
                   )}

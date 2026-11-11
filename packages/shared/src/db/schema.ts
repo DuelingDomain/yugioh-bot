@@ -8,6 +8,7 @@ import { migrateCubeOwnerNames } from "./cube-owner-names.js";
 import { migrateVisionFeedback } from "./vision-feedback.js";
 import { migrateWaitlistAdminSource } from "./waitlist-admin-source.js";
 import { migrateReleases } from "./releases.js";
+import { migrateRemoteAnonymization } from "./remote-anonymization.js";
 import { migrateTournamentRemoteEvidence } from "./tournament-remote-evidence.js";
 
 function hasColumn(db: Database.Database, table: string, column: string) {
@@ -1821,6 +1822,7 @@ function migrateRemoteDuels(db: Database.Database) {
       end_reason text
     );
     create index if not exists remote_tables_guild_status_idx on remote_tables(guild_id,status);
+    create index if not exists remote_tables_history_idx on remote_tables(guild_id,coalesce(ended_at,created_at) desc,id desc) where status='ended';
     create index if not exists remote_tables_idle_idx on remote_tables(last_event_at) where status != 'ended';
     create table if not exists remote_seats (
       table_id integer not null references remote_tables(id),
@@ -1920,7 +1922,9 @@ function migrateRemoteDuels(db: Database.Database) {
     create index if not exists tournament_remote_evidence_player_one_idx on tournament_remote_evidence(player_one_user_id);
     create index if not exists tournament_remote_evidence_player_two_idx on tournament_remote_evidence(player_two_user_id);
   `);
+  migrateRemoteAnonymization(db);
   migrateTournamentRemoteEvidence(db);
+  addColumnIfMissing(db, "remote_tables", "privacy_revision", "integer not null default 0");
   addColumnIfMissing(db, "remote_tables", "solo", "integer not null default 0 check (solo in (0,1))");
   addColumnIfMissing(db, "remote_tables", "format_json", "text");
   addColumnIfMissing(db, "remote_tables", "show_cards_set_from_deck", "integer not null default 1 check (show_cards_set_from_deck in (0,1))");

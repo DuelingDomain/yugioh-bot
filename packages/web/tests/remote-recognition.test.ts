@@ -163,7 +163,7 @@ it("sends a Rescan request to one seat, answers off or started, and keeps one re
   expect(await channels[0].request(0)).toBe("unavailable");      // not yourself
   now += 15_000; answer = "off";
   expect(await channels[0].request(1)).toBe("off"); expect(started).toEqual([0]);
-  now += 15_000; answer = "paused";                              // the other client waits on a prompt, the sync hold or calibration
+  now += 15_000; answer = "paused";                              // the other client waits on the sync hold or calibration
   expect(await channels[0].request(1)).toBe("paused");
   const lonely = new RescanChannel(0, async () => undefined, () => "started", () => now, 50);
   expect(await lonely.request(2)).toBe("unavailable");           // no answer in time
@@ -422,13 +422,21 @@ it('departures leave field zones once with a named atomic move and retain physic
   const {describeEvent}=await import('../src/components/remote/ui/describe');
   const card={ref:'physical',cardId:101,name:'Varudras',zone:'extra-monster',slot:2,faceUp:true,position:'defense'} as const;
   const proposal=fieldDepartureProposal(card,0);
-  expect(proposal).toEqual({type:'twin.move',actorSeat:0,seat:0,cardRef:'physical',zone:'hand',source:'auto',name:'Varudras'});
+  expect(proposal).toEqual({type:'twin.move',actorSeat:0,seat:0,cardRef:'physical',zone:'graveyard',faceUp:true,source:'auto',name:'Varudras',position:'attack'});
   expect(describeEvent({actorSeat:0,action:proposal} as any,()=> 'Alice',()=>undefined)?.text).toContain('Varudras left the field');
-  expect(fieldDepartureProposal({...card,zone:'spell-trap'},0)?.zone).toBe('hand');
+  expect(fieldDepartureProposal({...card,zone:'spell-trap'},0)?.zone).toBe('graveyard');
+  // A face-up Pendulum Monster leaving a Monster Zone or a Pendulum Zone goes face-up to the Extra Deck, marked Pendulum (public).
+  expect(fieldDepartureProposal({...card,zone:'spell-trap',slot:5},0,undefined,{type:'Effect Monster / Pendulum'})).toMatchObject({zone:'extra',faceUp:true,pendulum:true});
   for(const zone of ['graveyard','banished'])expect(fieldDepartureProposal({...card,zone},0)).toMatchObject({cardRef:'physical',zone:'hand',faceUp:false});
   for(const zone of ['hand','extra','deck'])expect(fieldDepartureProposal({...card,zone},0)).toBeUndefined();
   expect(fieldDepartureProposal(card,0,'extra')).toMatchObject({zone:'extra',faceUp:false});
   expect(fieldDepartureProposal({...card,faceUp:false},0)?.name).toBeUndefined();
+  // Rules default (no camera evidence): GY; a face-up Pendulum goes face-up to the Extra Deck; a token is never moved by the camera.
+  expect(fieldDepartureProposal({...card,zone:'monster'},0,undefined,{type:'Pendulum Effect Monster'})).toMatchObject({zone:'extra',faceUp:true});
+  expect(fieldDepartureProposal({...card,faceUp:false,zone:'monster'},0,undefined,{type:'Pendulum Effect Monster'})?.zone).toBe('graveyard');
+  expect(fieldDepartureProposal({...card,token:true} as any,0)).toBeUndefined();
+  // The player's choice from the tag: banish face-down keeps its own face state.
+  expect(fieldDepartureProposal(card,0,{zone:'banished',faceUp:false})).toMatchObject({zone:'banished',faceUp:false});
   // Review r1: Rank-Up (an Xyz with materials under the new Xyz) is a summon; its materials are not counted alone.
   // A vanished card counts only while it is still out of view in the hand; Link takes the newest, up to its rating.
   const {fieldSummonMaterials}=await import('../src/lib/remote/field-summons');
@@ -607,7 +615,8 @@ it('field legality: Field Spells move to a free Field Spell Zone (hard rule) and
  expect(hardFieldZone({type:'Link Monster',frameType:'link'},'S2',[],'self')).toBeUndefined();
  expect(hardFieldZone({type:'Effect Monster'},'S2',[],'self')).toBeUndefined();
  expect(hardFieldZone({type:'Normal Spell Card'},'M2',[],'self')).toBe('S2');
- expect(projectFieldZone({zone:'S2',facts:{type:'Effect Monster'},twins:[]})).toMatchObject({zone:'S2',check:expect.stringMatching(/Monster Zones/)});
+ expect(projectFieldZone({zone:'S2',facts:{type:'Effect Monster'},twins:[]})).toMatchObject({zone:'S2',shiftTo:'M2',check:expect.stringMatching(/equipped or placed/)});
+ expect(projectFieldZone({zone:'S2',facts:{type:'Effect Monster'},twins:[],equipped:true}).shiftTo).toBeUndefined();
  expect(hardFieldZone({type:'Union Effect Monster'},'S2',[],'self')).toBeUndefined();
 });
 it('field legality: Main Deck monsters in the extra row go to the same column\'s Main Monster Zone; Pendulums are plausible',async()=>{
@@ -630,10 +639,10 @@ it('field legality: unavailable extra zones fall back to a free aligned main mon
  for(const format of ['genesys','genesys-domain'] as const)expect(projectFieldZone({zone:'EMZ1',facts,twins:[],format}).zone).toBe('M2');
  expect(projectFieldZone({zone:'EMZ2',facts,twins:[{ref:'extra',zone:'extra-monster',slot:2},{ref:'main',zone:'monster',slot:4}]}).zone).toBe('M3');
 });
-it('field legality: only exception monsters stay in Spell/Trap zones (Artifact Set, Union/Equip); Ghost Belle stays with Check zone',async()=>{
+it('field legality: only exception monsters stay in Spell/Trap zones (Artifact Set, Union/Equip); a plain monster like Ghost Belle stays with Check zone and offers M',async()=>{
  const {projectFieldZone}=await import('../src/lib/remote/field-legality');
  const belle=projectFieldZone({zone:'S2',facts:{type:'Effect Monster',effectText:'(Quick Effect): You can discard this card; negate the activation.'},twins:[]});
- expect(belle).toMatchObject({zone:'S2',check:expect.stringMatching(/Monster Zones/)});expect(belle.moved).toBeUndefined();
+ expect(belle).toMatchObject({zone:'S2',shiftTo:'M2',check:expect.stringMatching(/equipped or placed/)});expect(belle.moved).toBeUndefined();
  expect(projectFieldZone({zone:'S3',facts:{type:'Effect Monster',effectText:'You can Set this card from your hand to your Spell & Trap Zone as a Spell.'},twins:[]})).toEqual({zone:'S3',label:'Spell/Trap Zone 3'});
  expect(projectFieldZone({zone:'S2',facts:{type:'Union Effect Monster'},twins:[]}).check).toBeUndefined();
  expect(projectFieldZone({zone:'S2',facts:{type:'Effect Monster'},twins:[],equipSource:true}).check).toBeUndefined();
@@ -693,8 +702,8 @@ it('field legality: nullable catalog race does not invent a Field Spell subtype'
  expect(fieldZoneCheck(treasures,'field')).toBeUndefined();expect(cardTypeLine(treasures)).toBe('Field Spell');
  // Other type lines from the same resolver: a Quick-Play Spell, a Trap Monster (a Trap with a Level), a Link Monster.
  expect(cardTypeLine(applyEngineCardFacts({type:'Spell Card',frameType:'spell'},{type:0x10002,level:0,def:0}))).toBe('Quick-Play Spell');
- const apophis=applyEngineCardFacts({type:'Trap Card',frameType:'trap',effectText:'Fixture'},{type:0x20004,level:4,def:1400});
- expect(cardTypeLine(apophis)).toBe('Continuous Trap · Trap Monster');expect(fieldZoneCheck(apophis,'monster',3)).toBeUndefined();
+ const apophis=applyEngineCardFacts({type:'Trap Card',frameType:'trap',effectText:'Fixture'},{type:0x20004,level:4,atk:1800,def:1400});
+ expect(apophis).toMatchObject({atk:1800,def:1400,level:4});expect(cardTypeLine(apophis)).toBe('Continuous Trap · Trap Monster');expect(fieldZoneCheck(apophis,'monster',3)).toBeUndefined();
  expect(cardTypeLine(applyEngineCardFacts({type:'Link Monster',frameType:'link'},{type:0x4000021,level:2,def:0x28}))).toBe('Link-2 Monster');
 });
 it('field legality: pile observations remain unchanged for adapter policy',async()=>{
@@ -1023,11 +1032,26 @@ it.each([undefined,'DECK','EXTRA'] as const)('a clear field departure clears an 
     const {fieldDepartureProposal}=await import('../src/lib/remote/field-proposals');
     const {describeEvent}=await import('../src/components/remote/ui/describe');
     const proposal=fieldDepartureProposal({ref:first.track.id,zone:'monster',slot:3,cardId:100,name:'Kashtira Fenrir',faceUp:true,position:'attack'},0,destination==='DECK'?'deck':destination==='EXTRA'?'extra':undefined)!;
-    expect(proposal.zone).toBe(destination==='DECK'?'deck':destination==='EXTRA'?'extra':'hand');
+    expect(proposal.zone).toBe(destination==='DECK'?'deck':destination==='EXTRA'?'extra':'graveyard');
     if(destination)expect(proposal.faceUp).toBe(false);
     if(destination==='DECK')expect(describeEvent({actorSeat:0,action:proposal} as any,()=> 'Alice',()=>undefined)?.text).toContain('returned to Deck');
     await r.tick(5);expect(r.state.events.filter(e=>e.type==='removed')).toHaveLength(1);
   }finally{r.dispose();}
+});
+
+it('camera evidence for a departed card: an unread GY top or a face-down banished card is where it went; two candidates are a guess',async()=>{
+  const {fieldPileEvidence}=await import('../src/lib/remote/field-proposals');
+  const track=(id:string,zone:string,firstSeen=1000)=>({id,zone,visible:true,removed:false,firstSeen}) as any;
+  const stand=(ref:string,zone:string,faceUp:boolean)=>({ref,zone,faceUp,position:'attack'}) as any;
+  const base={lastSeen:900,owns:(t:any)=>t.id,departures:1};
+  expect(fieldPileEvidence({...base,twins:[stand('fw-1','graveyard',true)],tracks:[track('fw-1','GY')]})).toMatchObject({zone:'graveyard',faceUp:true});
+  expect(fieldPileEvidence({...base,twins:[stand('fw-2','banished',false)],tracks:[track('fw-2','BANISHED')]})).toMatchObject({zone:'banished',faceUp:false});
+  // Nothing seen, a named card, an old pile arrival, two candidates or two departures: the rules decide.
+  expect(fieldPileEvidence({...base,twins:[],tracks:[]})).toBeUndefined();
+  expect(fieldPileEvidence({...base,twins:[{...stand('fw-1','graveyard',true),name:'Known'}],tracks:[track('fw-1','GY')]})).toBeUndefined();
+  expect(fieldPileEvidence({...base,twins:[stand('fw-1','graveyard',true)],tracks:[track('fw-1','GY',-20000)]})).toBeUndefined();
+  expect(fieldPileEvidence({...base,twins:[stand('fw-1','graveyard',true),stand('fw-2','banished',false)],tracks:[track('fw-1','GY'),track('fw-2','BANISHED')]})).toBeUndefined();
+  expect(fieldPileEvidence({...base,departures:2,twins:[stand('fw-1','graveyard',true)],tracks:[track('fw-1','GY')]})).toBeUndefined();
 });
 
 it.each(['DECK','HAND'] as const)('a known card returns from %s to M4 after the move window without a new identity guess',async zone=>{

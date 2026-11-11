@@ -676,6 +676,8 @@ export interface DuelRoom {
   opening?: DuelOpeningView | null;
   /** The host is starting this lobby's engine. Transient, absent after activation or failure. */
   starting?: true;
+  /** The waiting room has an idle deadline, so the client may send activity beats. The service always sets it (false for openings, presets, test duels, tournament games and later series games). Missing from an older server or a hand-built room: treat as true. */
+  hasWaitingDeadline?: boolean;
   /** Only for the authorized replay-fork creator. mySeat remains the stored identity seat. */
   fork?: ReplayForkControl;
 }
@@ -725,7 +727,8 @@ export interface DuelHistoryOptions {
 }
 
 export interface DuelHistoryPage {
-  duels: DuelListItem[];
+  /** Each row can resume history immediately after itself, including inside a merged page. */
+  duels: (DuelListItem & { cursor: string })[];
   nextCursor: string | null;
   canSeeAll: boolean;
 }

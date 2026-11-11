@@ -17,6 +17,8 @@ export interface ReplayTimeline<F extends TimelineFrame = TimelineFrame> {
   viewAt(index: number): DuelEngineView;
   /** Log lines that first appear at this frame. */
   newLogAt(index: number): ReplayLogEntry[];
+  /** Like viewAt, but with only the events that first appear at this frame (no copy of the earlier ones). */
+  deltaViewAt(index: number): DuelEngineView;
 }
 
 /**
@@ -53,9 +55,42 @@ export function buildReplayTimeline<F extends TimelineFrame>(frames: readonly F[
         events: window(events, eventEnd[i]),
       };
     },
+    deltaViewAt(index) {
+      const i = clamp(index);
+      const { chainMode: _chainMode, ...board } = frames[i].view;
+      return { ...board, prompt: null, prioritySeat: null, log: window(log, logEnd[i]) };
+    },
     newLogAt(index) {
       const i = clamp(index);
       return log.slice(i === 0 ? 0 : logEnd[i - 1], logEnd[i]);
     },
   };
+}
+
+/** A spot on the scrubber: where a turn starts, or where a player's LP drops or rises sharply. */
+export type ReplayMarker =
+  | { kind: "turn"; index: number; turn: number; seat: number }
+  | { kind: "swing"; index: number; seat: number; delta: number };
+
+/** An LP change of this size in one move is a key moment. */
+export const SWING_LP = 2000;
+
+/** Turn starts and big LP changes of a replay, in move order. Reads only the board each frame already holds. */
+export function replayMarkers(frames: readonly TimelineFrame[]): ReplayMarker[] {
+  const markers: ReplayMarker[] = [];
+  let turn = 0;
+  frames.forEach((frame, index) => {
+    const view = frame.view;
+    if (view.turn > 0 && view.turn !== turn) {
+      turn = view.turn;
+      markers.push({ kind: "turn", index, turn, seat: view.turnSeat });
+    }
+    if (index === 0) return;
+    const before = frames[index - 1].view.seats;
+    view.seats.forEach((seat, at) => {
+      const delta = seat.lp - (before[at]?.lp ?? seat.lp);
+      if (Math.abs(delta) >= SWING_LP) markers.push({ kind: "swing", index, seat: at, delta });
+    });
+  });
+  return markers;
 }

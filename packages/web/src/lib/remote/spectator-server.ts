@@ -37,7 +37,15 @@ async function reconcile(sdk: RoomServiceClient, slug: string) {
   if (!roster) return null;
   const seated = new Set(roster.seated), slots = new Set(roster.slots.filter(isRemoteDuelUser));
   const noSeat = (identity: string) => { const user = userOf(identity, SEATED); return user !== null && !seated.has(user); };
-  const stale = inRoom.filter(identity => { const user = userOf(identity, SPECTATOR); return (user !== null && !slots.has(user)) || noSeat(identity); });
+  // Deleted accounts lose their pairing rows. Discover orphaned SFU identities here so
+  // deleting credentials also disconnects old phones, including refreshed-token rejoins.
+  const db = getDb();
+  const pairsExist = db.prepare("select 1 from sqlite_master where type='table' and name='remote_phone_pairs'").get();
+  const phones = new Set(pairsExist ? (db.prepare(`select p.id from remote_phone_pairs p
+    join remote_tables t on t.slug=p.slug join remote_seats s on s.table_id=t.id and s.user_id=p.user_id and s.seat=p.seat
+    where p.slug=? and p.revoked=0 and p.used_at is not null and p.device_expires_at>?`).all(slug,Date.now()) as {id:string}[])
+    .map(p=>`remote-phone-${p.id}`) : []);
+  const stale = inRoom.filter(identity => { const user = userOf(identity, SPECTATOR); return (user !== null && !slots.has(user)) || noSeat(identity) || (identity.startsWith("remote-phone-") && !phones.has(identity)); });
   await Promise.all([...stale.map(identity => drop(sdk, room, identity)), ...inVoice.filter(noSeat).map(identity => drop(sdk, voice, identity))]);
   return inRoom.filter(identity => !stale.includes(identity));
 }

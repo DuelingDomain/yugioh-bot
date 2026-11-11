@@ -35,6 +35,8 @@ export interface BarPlaceInput {
   field?: BarRect | null;
   /** Every legal zone and card (the cards of your hand included): the bar never covers one while a clear row exists. */
   targets?: readonly BarRect[];
+  /** A phone or a short window: a smaller bar, and when no row of the board is clear of every target it goes to the top edge, never over them. */
+  compact?: boolean;
 }
 
 export interface BarPlace {
@@ -68,6 +70,9 @@ const TARGET_AIR = 6;
 /** The height the bar is planned at (row and stacked), as in the 4-way grid. */
 const BAR_ROW_HEIGHT = 92;
 const BAR_STACK_HEIGHT = 136;
+/** The same for the compact bar (prompt-center.module.css: tighter padding, smaller text, a 20px handle row). */
+const BAR_ROW_HEIGHT_COMPACT = 78;
+const BAR_STACK_HEIGHT_COMPACT = 122;
 
 /**
  * The bar centred on the middle of YOUR field across (`field`), whatever else is in the middle band. Only its row moves: it starts
@@ -90,7 +95,8 @@ function placeOnField(input: BarPlaceInput, field: BarRect, start: number | null
   const narrow = fit != null && fit < BAR_MIN_WIDTH;
   const width = fit == null || narrow ? BAR_MAX_WIDTH : Math.max(BAR_MIN_WIDTH, fit);
   const stack = fit != null && !narrow && fit < BAR_ROW_FIT;
-  const barHeight = stack ? BAR_STACK_HEIGHT : BAR_ROW_HEIGHT;
+  const compact = input.compact === true;
+  const barHeight = compact ? (stack ? BAR_STACK_HEIGHT_COMPACT : BAR_ROW_HEIGHT_COMPACT) : stack ? BAR_STACK_HEIGHT : BAR_ROW_HEIGHT;
   const blocks = [...targets, ...hands].filter(valid);
   const clear = (middle: number) => {
     const box = { left: centre - width / 2, right: centre + width / 2, top: board.top + middle - barHeight / 2, bottom: board.top + middle + barHeight / 2 };
@@ -108,6 +114,8 @@ function placeOnField(input: BarPlaceInput, field: BarRect, start: number | null
   const inField = rows(field.top - board.top, field.bottom - board.top);
   const anywhere = rows(0, height);
   const found = [...inField, ...anywhere].find(clear);
+  // No clear row on a small screen: the top edge, over the far hand and field, not over a pick the player needs.
+  if (found == null && compact) return { mode: "top", top: TOP_EDGE, left: Math.round(left), fit: fit == null || narrow ? null : Math.round(fit), stack };
   return { mode: "mid", top: Math.round(found ?? from), left: Math.round(left), fit: fit == null || narrow ? null : Math.round(fit), stack };
 }
 

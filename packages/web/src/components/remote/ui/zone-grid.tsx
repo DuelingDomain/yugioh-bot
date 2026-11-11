@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useFieldProfile, percentile, PROFILE_SEGMENTS } from "@/lib/remote/field-profile";
-import { byAreaDesc, fieldGridCells, displayCalibration, projectCell, straddledZones, useZoneGrid, useFieldDebug, useFieldDebugEnabled, useFieldDeveloper } from "@/lib/remote/zone-grid";
+import { byAreaDesc, defaultSideFor, fieldGridCells, displayCalibration, projectCell, straddledZones, useZoneGrid, useFieldDebug, useFieldDebugEnabled, useFieldDeveloper } from "@/lib/remote/zone-grid";
 import { cameraRates, trafficLine, type CameraRate, type CameraTraffic } from "@/lib/remote/video-stats";
 import { FieldOrientationSelect } from "../field-orientation";
 import { useVideoHub } from "./video-hub";
@@ -35,7 +35,9 @@ export function ZoneGridOverlay({ seat, box, visible=true, onControlsEnter }: { 
   // Own feed: the shared rule (zones placed on the mat). Others: any grid the owner shares.
   const calibrated = own ? !!grid.placed : !!calibration;
   const cells = useMemo(() => fieldGridCells(grid.format,calibration?.zoneSpacing,calibration?.zones), [grid.format,calibration?.zoneSpacing,calibration?.zones]);
-  const defaultSide = own ? grid.defaultSide : undefined;
+  // The guess for a seat with no saved side follows its camera: a webcam faces the player (flipped), a phone is held from the player's side.
+  // Another seat used to get the phone guess always, so a webcam seat showed its zones turned the wrong way round.
+  const defaultSide = own ? grid.defaultSide : defaultSideFor(hub.phones.some(p => p.seat === seat && p.paired) ? "phone" : "webcam");
   const shown = displayCalibration(calibration, defaultSide);
   const projected = useMemo(() => byAreaDesc(cells).map(cell => ({ cell, ...projectCell(cell, shown) })), [cells, shown]);
   const tracks = own ? grid.tracks : [];
@@ -78,7 +80,7 @@ export function ZoneGridOverlay({ seat, box, visible=true, onControlsEnter }: { 
     {!own&&!calibration?<div className={s.zgcontrols} style={{left:box.left+8,top:box.top+36}}>Default grid · waiting for owner calibration</div>:null}
     {own&&grid.setCalibration?<div className={s.zgcontrols} style={{left:box.left+5,top:box.top+33,padding:3,maxWidth:Math.max(0,box.width-10)}}>
       <FieldOrientationSelect calibration={calibration} defaultSide={defaultSide} onChange={grid.setCalibration} onPointerEnter={onControlsEnter}/>
-      {grid.calibrate?<button type="button" className={s.fzbtn} onPointerDown={event=>event.stopPropagation()} onClick={event=>{event.stopPropagation();grid.calibrate?.();}}>{calibrated?'Calibrate zones':'Default grid · Calibrate'}</button>:null}
+      {/* Calibrate zones lives in the bar under the feed, one button for both states. */}
     </div>:null}
   </>;
 }
@@ -108,7 +110,7 @@ export function FieldDebugOverlay({ box }: { box: Box | null }) {
         {d.kind === "face-down" ? "back" : "front"} {d.confidence.toFixed(2).replace(/^0/, "")} {d.zone}{d.gap ? " · gap" : ""}{bad ? ` · ${d.use}` : ""}</span>; })}
       {live.map(t => <TrackLabel key={t.id} t={t} reason={debug?.reasons[t.id]} face={view?.faces?.[t.id]} />)}
       <span style={{ left: 8, top: "auto", bottom: 8, position: "absolute", background: "rgb(0 0 0/.8)", color: "#fff", fontSize: 11, padding: "3px 6px", whiteSpace: "normal", maxWidth: "calc(100% - 16px)" }} data-testid="field-debug-status">
-        {view ? <>{view.status} · last tick: {debug?.path ?? "—"} · detector {Math.round(view.detectorMs)} ms · every {Math.round(view.intervalMs)} ms · duty {view.dutyPercent.toFixed(0)}% · {debug?.detections.length ?? 0} boxes · {live.length} tracks{view.backend ? ` · ${view.backend}` : ""}{view.writeError ? ` · last write error: ${view.writeError}` : ""}{debug?.pileScores ? <><br />{`piles: ${Object.entries(debug.pileScores).map(([zone, score]) => `${zone} ${score == null ? "none" : score.toFixed(2)}`).join(" · ")}`}</> : null}{view.gate ? <><br />{`auto-placement: ${view.gate.live ? "live" : `held (${[!view.gate.enabled && "detection off", view.gate.syncHold && "sync hold", view.gate.calibrationNeeded && "calibration needed"].filter(Boolean).join(", ") || "room not active"})`} · placed events held ${view.gate.deferred} · dropped ${view.gate.dropped}`}</> : null}{view.gridShift && (view.gridShift.gap || view.gridShift.outside) ? <><br />{`grid: ${view.gridShift.gap} in a gap · ${view.gridShift.outside} outside${view.gridShift.suspect ? " · shift hint" : ""}`}</> : null}{view.shadow && view.shadow.share >= .01 ? <><br />{`shadow: ${Math.round(view.shadow.share * 100)}%${view.shadow.hold ? " · hold" : ""}`}</> : null}{view.blur && (view.blur.hold || view.blur.ratio < .8) ? <><br />{`blur: ${view.blur.ratio.toFixed(2)}${view.blur.hold ? " · hold" : ""}`}</> : null}</> : null}
+        {view ? <>{view.status} · last tick: {debug?.path ?? "—"} · detector {Math.round(view.detectorMs)} ms · every {Math.round(view.intervalMs)} ms · duty {view.dutyPercent.toFixed(0)}% · {debug?.detections.length ?? 0} boxes · {live.length} tracks{view.backend ? ` · ${view.backend}` : ""}{view.error ? ` · error: ${view.error}` : ""}{view.writeError ? ` · last write error: ${view.writeError}` : ""}{debug?.pileScores ? <><br />{`piles: ${Object.entries(debug.pileScores).map(([zone, score]) => `${zone} ${score == null ? "none" : score.toFixed(2)}`).join(" · ")}`}</> : null}{view.gate ? <><br />{`auto-placement: ${view.gate.live ? "live" : `held (${[!view.gate.enabled && "detection off", view.gate.syncHold && "sync hold", view.gate.calibrationNeeded && "calibration needed"].filter(Boolean).join(", ") || "room not active"})`} · placed events held ${view.gate.deferred} · dropped ${view.gate.dropped}`}</> : null}{view.gridShift && (view.gridShift.gap || view.gridShift.outside) ? <><br />{`grid: ${view.gridShift.gap} in a gap · ${view.gridShift.outside} outside${view.gridShift.suspect ? " · shift hint" : ""}`}</> : null}{view.shadow && view.shadow.share >= .01 ? <><br />{`shadow: ${Math.round(view.shadow.share * 100)}%${view.shadow.hold ? " · hold" : ""}`}</> : null}{view.blur && (view.blur.hold || view.blur.ratio < .8 || (view.blur.limit ?? 12) < 12) ? <><br />{`blur: ${view.blur.ratio.toFixed(2)}${view.blur.hold ? " · hold" : ""} · read limit ${(view.blur.limit ?? 12).toFixed(1)}`}</> : null}</> : null}
         {camera ? <>{view ? <br /> : null}{camera}</> : null}</span>
       <FieldProfilePanel />
       {traffic.length ? <span style={{ right: 8, top: 8, position: "absolute", background: "rgb(0 0 0/.82)", color: "#e8f6ff", fontSize: 10, lineHeight: 1.35, padding: "4px 6px", whiteSpace: "pre", fontFamily: "ui-monospace,monospace" }} title="Real WebRTC traffic per camera: RTP payload kbps over the last 2 s, without transport overhead" data-testid="field-debug-traffic">
@@ -143,6 +145,7 @@ function TrackLabel({ t, reason, face }: { t: FieldTrack; reason?: string; face?
     onClick={() => setOpen(v => !v)}>{line}{open ? `${t.cardId ? ` · card ${t.cardId}` : ""} — ${reason || "…"}` : t.state === "candidate" && reason ? ` — ${reason}` : ""}</span>;
 }
 
+const HOLDS: [string, string][] = [["hand", "hand"], ["still", "still"], ["sharp", "sharp"], ["read slot", "slot"], ["publish gate", "publish"]];
 const ms = (v: number | undefined) => v === undefined || !Number.isFinite(v) ? "–" : String(Math.round(v));
 /** Placement profile (owner debug): last event per stage plus rolling p50/p90 over the last 50 placements. */
 function FieldProfilePanel() {
@@ -159,6 +162,7 @@ function FieldProfilePanel() {
     {`\n${"total".padEnd(7)}${ms(last.totalMs).padStart(6)}  ${stat(r => r.totalMs).padStart(11)}\n`}
     {detail.map(([name, key]) => `${name.padEnd(15)}${ms(d[key]).padStart(5)}  ${stat(r => r.detail[key]).padStart(9)}`).join("\n")}
     {`\npreclean: on, cast=${d.precleanGainR === undefined ? "–" : [d.precleanGainR, d.precleanGainG, d.precleanGainB].map(v => (v ?? 1).toFixed(2)).join(",")}, glare=${d.precleanGlare === undefined ? "–" : d.precleanGlare.toFixed(1)}%, shadow=${d.precleanShadow === undefined ? "–" : d.precleanShadow.toFixed(0)}%, used=${d.precleanUsed === undefined ? "–" : d.precleanUsed ? "clean" : "raw"}${d.precleanMs === undefined ? "" : ` (${d.precleanMs.toFixed(1)} ms)`}`}
+    {last.trace ? `\ncard ${last.id.split(":").at(-2)}: down→stable ${ms(last.trace.stable)} → read ${ms(last.trace.readStart)}-${ms(last.trace.readEnd)} (${ms(d.readMs)} ms, ${d.embedCount ?? 0} crops, ${last.trace.source ?? "–"}/${last.trace.tier ?? "–"})\n  → publish ${ms(last.trace.publish)}\nheld: ${HOLDS.map(([name, key]) => `${name} ${ms(d[`hold.${key}`] ?? 0)}`).join(" · ")}` : null}
     {`\nreads ${d["n.reads"] ?? 0} · dropped ${d["n.readsDropped"] ?? 0} · embeds ${d.embedCount ?? 0} · det passes ${d["n.detects"] ?? 0} · face resets ${d["n.faceResets"] ?? 0}`}
   </span>;
 }

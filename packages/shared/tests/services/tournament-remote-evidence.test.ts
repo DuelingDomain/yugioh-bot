@@ -39,9 +39,9 @@ function setup(bestOf: 1 | 3 = 1, start = true) {
     values(?,?,?,?,?,1000,1000)`).run(matchId, tableId, room.slug, actors[0].playerId, actors[1].playerId);
   const initialSeq = room.lastSeq;
   let serial = 0;
-  const act = (input: Record<string, unknown>, actorSeat = 0) => {
+  const act = (input: Record<string, unknown>, actorSeat = 0, at?: number) => {
     room = service.act(room.slug, 'g', actors[actorSeat].userId, {baseSeq:room.lastSeq,
-      action:remoteActionSchema.parse({...input,actorSeat,idempotencyKey:`regression-${++serial}`})}, 2000 + serial);
+      action:remoteActionSchema.parse({...input,actorSeat,idempotencyKey:`regression-${++serial}`})}, at ?? 2000 + serial);
     return room;
   };
   const evidence = () => db.prepare('select * from tournament_remote_evidence where tournament_match_id=?').get(matchId) as
@@ -63,6 +63,8 @@ it.each(['purge', 'idle', 'act'] as const)('keeps %s successful when a tournamen
     s.act({type:'match.first',seatGoesFirst:0}, 1);
     s.act({type:'side.ready',seat:0});
     s.act({type:'side.ready',seat:1}, 1);
+    // When both are ready, the next game starts after the 5-second countdown.
+    s.act({type:'side.timeout'}, 0, 10_000);
   }
   s.removeGameEvents();
   const log = vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -79,7 +81,7 @@ it.each(['purge', 'idle', 'act'] as const)('keeps %s successful when a tournamen
       expect.objectContaining({slug:other.slug,status:'ended',endReason:'idle'}),
     ]));
   } else {
-    expect(s.act({type:'player.concede'}, 1)).toMatchObject({status:'ended',endReason:'game'});
+    expect(s.act({type:'player.concede'}, 1, 10_001)).toMatchObject({status:'ended',endReason:'game'});
   }
   expect(log).toHaveBeenCalledWith(expect.stringContaining(`table ${s.tableId}`),
     expect.objectContaining({message:expect.stringContaining('Missing tournament game-end facts')}));

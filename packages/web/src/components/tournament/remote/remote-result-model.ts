@@ -13,7 +13,7 @@ export type EvidenceBoard = { seat: number; monsters: string[]; spellTraps: stri
 export type EvidenceDetection = { seat: number; /** Time before the seat announced a mode. */ unknownSeconds: number; autoSeconds: number; tapSeconds: number; manualSeconds: number; cardsByClick: number; cardsTyped: number; manualFixes: number; unknownCards: number };
 export type RemoteEvidence = {
   tableSlug: string; tableStartedAt: number | null; tableEndedAt: number | null; endReason: string | null;
-  players: { seat: number; userId: number; displayName: string }[];
+  players: { seat: number; userId: number | null; displayName: string }[];
   games: EvidenceGame[];
   finalLp: { game: number; lp: { seat: number; lp: number }[] }[];
   resultEvents: EvidenceEvent[];
@@ -24,7 +24,7 @@ export type RemoteEvidence = {
 
 /** The `evidence` row of `GET .../remote-evidence`, as stored (docs/remote-duels/tournaments-api.md). */
 export type RemoteEvidenceRow = {
-  table_slug: string; player_one_user_id: number; player_two_user_id: number;
+  table_slug: string; player_one_user_id: number | null; player_two_user_id: number | null;
   players_json: string; table_started_at: number | null; table_ended_at: number; end_reason: string;
   games_json: string; result_events_json: string; final_lp_json: string; public_board_json: string;
   detection_summary_json: string; captured_at: number; hard_delete_at: number;
@@ -33,6 +33,7 @@ export type RemoteEvidenceRow = {
 type StoredAction =
   | { type: "lp.change"; seat: number; delta: number; reason?: string }
   | { type: "player.concede" }
+  | { type: "player.leave" }
   | { type: "match.declare"; winnerSeat: number | null }
   | { type: "match.confirm"; accept: boolean }
   | { type: "undo" }
@@ -41,8 +42,8 @@ type StoredAction =
 /** The stored row as the view model. `names` are the two paired players in tournament order. Null when a column is not valid JSON. */
 export function evidenceFromRow(row: RemoteEvidenceRow, names: { playerOne: string; playerTwo: string }): RemoteEvidence | null {
   try {
-    const nameOf = (userId: number) => (userId === row.player_one_user_id ? names.playerOne : userId === row.player_two_user_id ? names.playerTwo : `User ${userId}`);
-    const players = (JSON.parse(row.players_json) as { userId: number; seat: number }[]).map(player => ({ seat: player.seat, userId: player.userId, displayName: nameOf(player.userId) }));
+    const nameOf = (userId: number | null) => (userId === null ? "Deleted player" : userId === row.player_one_user_id ? names.playerOne : userId === row.player_two_user_id ? names.playerTwo : `User ${userId}`);
+    const players = (JSON.parse(row.players_json) as { userId: number | null; seat: number }[]).map(player => ({ seat: player.seat, userId: player.userId, displayName: nameOf(player.userId) }));
     const seatName = (seat: number | null) => (seat === null ? "No one" : players.find(player => player.seat === seat)?.displayName ?? `Seat ${seat + 1}`);
     const games = (JSON.parse(row.games_json) as { n: number; winnerSeat: number | null; reason: string; endedAt: number | null }[])
       .map(game => ({ number: game.n, winnerSeat: game.winnerSeat, reason: game.reason, endedAt: game.endedAt }));
@@ -71,6 +72,7 @@ function eventText(action: StoredAction, seatName: (seat: number | null) => stri
   switch (action.type) {
     case "lp.change": return `${seatName(action.seat)} LP ${action.delta > 0 ? "+" : ""}${action.delta}${action.reason ? ` (${action.reason})` : ""}`;
     case "player.concede": return "Conceded";
+    case "player.leave": return "Left the match";
     case "match.declare": return action.winnerSeat === null ? "Declared that there is no winner" : `Declared ${seatName(action.winnerSeat)} the winner`;
     case "match.confirm": return action.accept ? "Accepted the declared result" : "Rejected the declared result";
     case "undo": return "Undid an earlier action";
@@ -86,7 +88,7 @@ function boardOf(seat: number, cards: StoredCard[]): EvidenceBoard {
 
 export const REMOTE_NOTE_MAX = 280;
 export const SOURCE_TEXT: Record<NonNullable<RemoteResult["source"]>, string> = { concede: "a concede", declared: "a declared result", lp: "LP 0" };
-export const END_TEXT: Record<string, string> = { game: "Match finished", concede: "Concede", declared: "Declared and confirmed", lp: "LP 0", timeout: "Time ran out", idle: "Table idle", "creator-left": "Creator left" };
+export const END_TEXT: Record<string, string> = { game: "Match finished", concede: "Concede", declared: "Declared and confirmed", lp: "LP 0", timeout: "Time ran out", idle: "Table idle", "creator-left": "Creator left", "account-deleted": "Player account deleted", forfeit: "Player left the match" };
 
 /** A short date and time, in the viewer's locale. */
 export const when = (at: number | null | undefined) => at ? new Date(at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "";

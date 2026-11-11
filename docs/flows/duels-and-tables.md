@@ -31,10 +31,10 @@ Each table also has a duel type: Standard or Domain, with or without Genesys poi
 1. The host opens `/duels/new`.
 2. Table: name and visibility (Public or Private).
 3. Match: an opponent to challenge by name (optional; `GET /api/players?q=`), Best of 1 or 3, Ranked (off by default). Challenges, Best of 3 and Ranked are for 1v1 only.
-4. Format: table type, duel type, Genesys point cap, Master Rules (1v1 only). The "Game engine" select shows only "Automatic".
+4. Format: table type, duel type, Genesys point cap, Master Rules (1v1 only).
 5. Rules: banlist (none with Genesys), card pool (TCG + OCG, TCG, OCG), starting hand, draws per turn, deck order, first-turn draw (Domain FFA).
 6. Clock and life points: starting LP, turn timer (Unlimited, or 1 to 10 minutes per turn) and what happens at zero (lose or play on). Ranked has a fixed 3-minute bank and a timeout loss.
-7. Deck validation: forbid or allow invalid decks.
+7. Deck validation: forbid or allow invalid decks. On screens 1000 px wide or less, steps 5 to 7 start folded under a "Show options" button, with one line of current values (and any warning) under each heading.
 8. Create: `POST /api/duels` (with an `Idempotency-Key`). The host lands in `/duels/[slug]`.
 
 ## Lobby (before the duel)

@@ -1440,7 +1440,7 @@
     white-space: normal;
     overflow-wrap: anywhere;
     text-align: center;
-    font-size: 10.5px;
+    font-size: 11px;
     line-height: 1.15;
   }
   .dr .chip-seat .av { width: 28px; height: 28px; font-size: 11.5px; }
@@ -1515,7 +1515,7 @@
   .dr .dial .lbl small { font-size: 11.5px; }
   .dr .slot .win { width: 24px; height: 35px; }
   .dr .slot b { font-size: 17px; }
-  .dr .slot small { font-size: 10.5px; }
+  .dr .slot small { font-size: 11px; }
   .dr .slot small i { display: none; }
   .dr .notes { left: 8px; right: 8px; top: 8px; gap: 4px; }
   .dr .status { padding: 5px 11px; font-size: 13px; white-space: normal; text-align: center; }

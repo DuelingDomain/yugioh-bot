@@ -203,11 +203,19 @@ test.describe("remote duels screen, solo", () => {
       for (const page of [a, b]) await expect(async () => { await page.goto(`/duels/remote/${slug}`); await expect(page.getByTestId("rail")).toBeVisible({ timeout: 15_000 }); }).toPass({ timeout: 150_000 });
       await shot(a, "surrender-1-button");
       if (SHOTS) {
-        for (const [w, h] of [[1366, 768], [390, 844], [375, 812], [360, 740]]) {
+        for (const [w, h] of [[1366, 768], [1024, 768], [390, 844], [375, 812], [360, 740]]) {
           await a.setViewportSize({ width: w, height: h }); await a.waitForTimeout(500);
           await expect(a.getByTestId("surrender-button")).toBeVisible(); await shot(a, `surrender-1-button-${w}`);
           // The flag sits fully inside the screen.
           expect(await a.getByTestId("surrender-button").evaluate(el => el.getBoundingClientRect().right <= window.innerWidth)).toBe(true);
+          // The leave group sits inside the screen and covers no other header item.
+          expect(await a.getByTestId("leave-group").evaluate(el => {
+            const r = el.getBoundingClientRect(); const header = el.parentElement!;
+            const hit = Array.from(header.children).filter(c => c !== el && c.getBoundingClientRect().width > 0 && getComputedStyle(c).display !== "none").some(c => { const o = c.getBoundingClientRect(); return o.left < r.right - 0.5 && o.right > r.left + 0.5 && o.top < r.bottom - 0.5 && o.bottom > r.top + 0.5; });
+            return !hit && r.left >= 0 && r.right <= window.innerWidth;
+          })).toBe(true);
+          // During a game there is no way to leave the whole match: Surrender only loses this game.
+          await expect(a.getByTestId("quit-button")).toHaveCount(0);
           await a.getByTestId("surrender-button").click(); await shot(a, `surrender-2-confirm-${w}`); await a.getByTestId("surrender-no").click();
           await a.locator('[data-zone="deck"][data-seat="0"]').click(); await shot(a, `surrender-3-deck-menu-${w}`); await a.keyboard.press("Escape");
         }
@@ -226,6 +234,7 @@ test.describe("remote duels screen, solo", () => {
       await shot(a, "surrender-3-deck-menu");
       await a.getByTestId("deck-menu-surrender").click();
       await expect(a.getByTestId("surrender-confirm")).toBeVisible();
+      await expect(a.getByTestId("surrender-confirm")).toContainText("Side decking starts next");
       await a.getByTestId("surrender-yes").click();
       // Both players see the end of the game; the loser sees it as a defeat.
       await expect(a.getByTestId("match-result")).toContainText("Defeat", { timeout: 15_000 });
@@ -233,6 +242,20 @@ test.describe("remote duels screen, solo", () => {
       await expect(b.getByTestId("match-reason")).toContainText("conceded");
       await shot(a, "surrender-4-end-loser"); await shot(b, "surrender-5-end-winner");
       await expect(a.getByTestId("surrender-button")).toHaveCount(0);
+      if (SHOTS) for (const [w, h] of [[1366, 768], [390, 844]]) { await a.setViewportSize({ width: w, height: h }); await a.waitForTimeout(400); await expect(a.getByTestId("dock-quit")).toBeVisible(); await shot(a, `quit-result-${w}`); }
+      await a.setViewportSize({ width: 1920, height: 1080 });
+      // The match goes on to side decking. There, with nobody ready, the loser quits the match: it asks first, the other player wins and the table ends.
+      // The fixture cards have no art. Their image requests never end, and a browser runs only a few requests at once, so they would hold back the Quit request.
+      for (const page of [a, b]) await page.route("**/api/cards/*/image*", route => route.abort());
+      await a.getByTestId("match-continue").click();
+      await expect(a.getByTestId("siding")).toBeVisible({ timeout: 15_000 });
+      if (SHOTS) for (const [w, h] of [[1920, 1080], [1366, 768], [390, 844], [360, 740]]) { await a.setViewportSize({ width: w, height: h }); await a.waitForTimeout(400); await expect(a.getByTestId("dock-quit")).toBeVisible(); await shot(a, `quit-siding-${w}`); }
+      await a.setViewportSize({ width: 1920, height: 1080 });
+      await a.getByTestId("dock-quit").click();
+      await expect(a.getByTestId("quit-yes")).toBeVisible();
+      await a.getByTestId("quit-yes").click();
+      await expect(b.getByTestId("match-kicker")).toHaveText("Match over", { timeout: 15_000 });
+      await expect(b.getByTestId("table-ended")).toContainText("left the match");
     } finally { await alice.close(); await bob.close(); }
     // A solo test table: the same button ends the game. Setting a seat to 0 LP ends a game on a table that is not in a tournament.
     const solo = await soloTable(context.request, 2);
@@ -347,7 +370,8 @@ test.describe("remote duels screen, solo", () => {
     await expect(grid).toBeVisible();
     await expect(grid).toHaveAttribute("data-calibrated", "false");
     for (const zone of ["FIELD", "M1", "M5", "GY", "EXTRA", "S3", "DECK", "EMZ1", "EMZ2"]) await expect(grid.locator(`polygon[data-zone="${zone}"]`)).toHaveCount(1);
-    const calibrate = page.locator('[data-testid="feed-0"]').getByRole("button", { name: "Default grid · Calibrate" }); await expect(calibrate).toBeVisible();
+    // One Calibrate zones button, in the bar under the feed: the feed itself carries no second one.
+    const calibrate = page.getByRole("button", { name: "Calibrate zones", exact: true }); await expect(calibrate).toHaveCount(1); await expect(page.locator('[data-testid="feed-0"]').getByRole("button", { name: "Default grid · Calibrate" })).toHaveCount(0);
     // The grid sits exactly on the video, before and after the camera and the field swap places.
     const gap = async () => { const [g, v] = await Promise.all([grid.boundingBox(), video.boundingBox()]); return Math.abs(g!.x - v!.x) + Math.abs(g!.y - v!.y) + Math.abs(g!.width - v!.width) + Math.abs(g!.height - v!.height); };
     expect(await gap()).toBeLessThan(6); await shot(page, "zone-grid-default");
@@ -359,7 +383,7 @@ test.describe("remote duels screen, solo", () => {
     await page.getByTestId("view-toggle-0").click();
     await expect(page.getByTestId("seat-0")).toHaveAttribute("data-view", "camera");
     await expect.poll(gap, { timeout: 3_000 }).toBeLessThan(6);
-    // The Calibrate link opens the calibration, which draws the same zones to drag into place.
+    // The Calibrate zones button opens the calibration, which draws the same zones to drag into place.
     await calibrate.click();
     await expect(dialog).toBeVisible();
     for (const zone of ["M1", "S5", "EMZ1"]) await expect(dialog.locator(`polygon[data-zone="${zone}"]`)).toHaveCount(1);
@@ -636,7 +660,7 @@ test.describe("remote lobby camera step", () => {
     await expect(page.getByTestId("remote-table")).toBeVisible();
     const status = page.getByTestId("field-watcher-status");
     // Only a state after the record was read with the camera on can show a missing calibration.
-    await expect(status).toHaveText(/^(Preparing card reader…|Watching field.*|Watcher unavailable|Paused · busy)$/, { timeout: 30_000 });
+    await expect(status).toHaveText(/^(Preparing card reader…|Watching field.*|Reader off|Paused · busy)$/, { timeout: 30_000 });
     // With the zones calibrated, the grid shows only when the player turns it on.
     await page.getByTestId("feed-box-0").hover(); await page.getByTestId("zone-grid-toggle").first().click();
     const tableGrid = page.locator('[data-testid="zone-grid"][data-calibrated="true"]');
@@ -890,6 +914,13 @@ test.describe("remote duels screen, moving cards by hand", () => {
     await shot(page, "pile-viewer");
     for (const [w, h] of SHOTS ? [[1366, 768], [390, 844]] : []) { await page.setViewportSize({ width: w, height: h }); await page.waitForTimeout(300); await shot(page, `pile-viewer-${w}`); }
     await page.keyboard.press("Escape"); await expect(page.getByTestId("pile-viewer")).toHaveCount(0);
+    // The Banished pile is a zone of its own right above the Graveyard (as on the printed mat): count, top card, click opens its tab.
+    const ban = field.locator('[data-zone="ban"]'); await expect(ban).toBeVisible(); await expect(ban).toContainText("1");
+    const [banBox, gyBox] = [(await ban.boundingBox())!, (await gy.boundingBox())!];
+    expect(Math.abs(banBox.x + banBox.width - (gyBox.x + gyBox.width))).toBeLessThan(2); expect(banBox.width).toBeGreaterThan(banBox.height); expect(banBox.y + banBox.height).toBeLessThanOrEqual(gyBox.y + 1); // landscape, right edges level
+    await ban.click(); await expect(page.getByTestId("pile-tab-banished")).toHaveAttribute("aria-pressed", "true"); expect(await refs()).toEqual(["mst"]);
+    await page.keyboard.press("Escape"); await expect(page.getByTestId("pile-viewer")).toHaveCount(0);
+    for (const [w, h] of SHOTS ? [[1920, 1080], [1366, 768], [360, 700]] : []) { await page.setViewportSize({ width: w, height: h }); await page.waitForTimeout(300); await shot(page, `banish-zone-${w}`); }
   });
 
   test("one card seen twice: 2x badges and a banner; Two copies hides them, Merge keeps one card with a log line and Undo", async ({ page, context }) => {
@@ -1024,7 +1055,10 @@ test.describe("Remote Duel on the Duels screens (flag on)", () => {
     await page.getByTestId("create-room").click();
     await expect(page).toHaveURL(/\/duels\/remote\/[^/]+$/);
     await expect(page.getByTestId("remote-lobby-room")).toBeVisible();
-    // The deck list step is offered but optional: the paste box opens on request and the room stays usable without it.
+    // The deck list step is the default path: the paste box is open, and Skip for now closes it so the room stays usable without a list.
+    await expect(page.getByTestId("deck-list-text")).toBeVisible();
+    await page.getByTestId("deck-list-toggle").click();
+    await expect(page.getByTestId("deck-list-text")).toBeHidden();
     await page.getByTestId("deck-list-toggle").click();
     await expect(page.getByTestId("deck-list-text")).toBeVisible();
     await shot(page, "created-room-1920");
@@ -2251,5 +2285,103 @@ test.describe("remote duels screen, tokens and the camera", () => {
     await page.getByRole("button", { name: "Undo", exact: true }).click();
     // The whole board is back: the token in M3, the first card in M4, no card in M3.
     await expect.poll(mine).toEqual(["monster:3:token", "monster:4:card"]);
+  });
+
+  // A plain monster in a Spell & Trap Zone can be legal (equipped by a card, placed as a Continuous Trap), so the table keeps it where the camera saw it and asks.
+  test("a plain monster seen in a Spell & Trap Zone stays there and asks, and Keep leaves it", async ({ page, context }) => {
+    test.setTimeout(240_000);
+    await page.setViewportSize({ width: 1366, height: 768 });
+    await fakeCamera(page, "16:9");
+    await page.addInitScript(() => {
+      const w = window as unknown as Record<string, unknown>; w.__tracks = [];
+      w.__e2eFieldWatcher = {
+        getSnapshot: () => ({ status: "running", tracks: w.__tracks, metrics: { detectorMs: 0, recognitionMs: 0, dutyPercent: 0, intervalMs: 333, samples: 0, skipped: 0, placements: 0, latencyMs: 0, errors: 0 } }),
+        confirm() {}, dismiss() {}, forget() {}, resetBaselines() {}, scanNow() {}, setCalibration() {}, start() {}, dispose() {}, subscribe: () => () => {}, subscribeState: () => () => {},
+      };
+    });
+    const slug = await soloTable(context.request, 2), path = `/api/remote/${slug}`;
+    const mine = async () => ((await (await context.request.get(path)).json()).state.seats[0].twin as { zone: string; slot?: number }[]).map(c => `${c.zone}:${c.slot}`);
+    await page.goto(`/duels/remote/${slug}`);
+    await page.getByTestId("camera-on-feed").click();
+    await expect.poll(() => page.locator('[data-testid="feed-0"] video').evaluate((v: HTMLVideoElement) => v.videoWidth), { timeout: 30_000 }).toBeGreaterThan(0);
+    await page.getByTestId("feed-box-0").hover(); await page.getByRole("button", { name: "Calibrate zones", exact: true }).first().click();
+    const dialog = page.getByRole("dialog", { name: "Calibrate field zones", exact: true }); await expect(dialog).toBeVisible();
+    await dialog.getByTestId("camera-my-view").click(); await dialog.getByRole("button", { name: "Save calibration", exact: true }).click(); await expect(dialog).toBeHidden();
+    await page.waitForFunction(() => (window as unknown as { __e2eField?: { live: () => boolean } }).__e2eField?.live());
+    await page.waitForTimeout(1500);
+    const sees = (id: string, zone: string, cardId: string) => page.evaluate(([trackId, cell, code]) => {
+      const w = window as unknown as { __tracks: unknown[]; __e2eField: { entries: { current: Map<string, unknown> }; handle: (event: unknown) => void } };
+      const now = performance.now();
+      const track = { id: trackId, zone: cell, faceDown: false, cardId: code, revision: 0, state: "identified", firstSeen: now - 3000, lastSeen: now, removed: false, visible: true, position: "attack",
+        card: { kind: "face-up", confidence: 1, partial: false, quad: [{ x: .4, y: .4 }, { x: .5, y: .4 }, { x: .5, y: .5 }, { x: .4, y: .5 }] } };
+      w.__e2eField.entries.current.set(code, { cardId: code, passcode: Number(code), name: "Dark Magician" });
+      w.__tracks = [track]; w.__e2eField.handle({ type: "placed", track });
+    }, [id, zone, cardId] as const);
+
+    const prompt = page.getByTestId("monster-in-st");
+    await sees("cam1", "S3", "46986414");
+    await expect(prompt).toBeVisible();
+    // The card stays where the camera saw it until the player answers.
+    await expect.poll(mine).toEqual(["spell-trap:3"]);
+    await expect(page.getByTestId("monster-in-st-move")).toContainText("Move to M3");
+    await page.getByTestId("monster-in-st-keep").click();
+    await expect(prompt).toBeHidden();
+    await expect.poll(mine).toEqual(["spell-trap:3"]);
+  });
+});
+
+test.describe("remote duels screen, card logic", () => {
+  test.beforeEach(async ({ context }) => { await authenticatePlayer(context.request, { userId: 101 }, process.env.E2E_AUTH_SECRET!, process.env.E2E_REMOTE_UI_URL!); });
+  const seedCards = async (context: { request: APIRequestContext }, slug: string, cards: { seat: number; zone: string; ref: string; cardId: number; name: string; slot?: number }[]) => {
+    let room = await (await context.request.get(`/api/remote/${slug}`)).json();
+    for (const { seat, zone, ...card } of cards) {
+      const response = await context.request.post(`/api/remote/${slug}/actions`, { data: { baseSeq: room.lastSeq, action: { idempotencyKey: crypto.randomUUID(), type: "twin.place", actorSeat: seat, seat, zone, card: { ...card, faceUp: true, position: "attack" } } } });
+      expect(response.status(), await response.text()).toBe(200); room = await (await context.request.get(`/api/remote/${slug}`)).json();
+    }
+    return async () => (await (await context.request.get(`/api/remote/${slug}`)).json()) as { state: { seats: { twin: { ref: string; zone: string; slot?: number; position?: string; ownerSeat?: number; equippedTo?: { seat: number; ref: string } }[] }[] } };
+  };
+
+  test("control change: Monster Reborn asks which Graveyard, the revived card is mine, and Return control gives it back", async ({ page, context }) => {
+    test.setTimeout(120_000);
+    const slug = await soloTable(context.request, 2);
+    const room = await seedCards(context, slug, [
+      { seat: 1, zone: "graveyard", ref: "dm", cardId: 46986414, name: "Dark Magician" },
+      { seat: 0, zone: "spell-trap", ref: "mr", cardId: 83764718, name: "Monster Reborn", slot: 1 },
+    ]);
+    await page.goto(`/duels/remote/${slug}`);
+    const field = page.getByTestId("field-0");
+    await expect(field.locator('[data-zone="s1"]')).toBeVisible();
+    await field.locator('[data-zone="s1"]').click({ button: "right" });
+    await page.getByTestId("inspector").getByRole("button", { name: "Activate" }).click();
+    // The card logic knows Monster Reborn revives from a Graveyard, so the table asks. The player picks the card.
+    const dialog = page.getByTestId("control-dialog");
+    await expect(dialog).toContainText("Revive from which Graveyard?", { timeout: 60_000 });
+    await dialog.getByTestId("control-pick").first().click();
+    // The table never picks the zone or the position: both buttons are the player's choice. The zone stays locked until the position is chosen.
+    await expect(dialog.getByTestId("control-zone-M3")).toBeDisabled();
+    await dialog.getByTestId("control-position-defense").click();
+    await dialog.getByTestId("control-zone-M3").click();
+    await expect.poll(async () => (await room()).state.seats[0].twin.find(card => card.ref === "dm")).toMatchObject({ zone: "monster", slot: 3, position: "defense", ownerSeat: 1 });
+    expect((await room()).state.seats[1].twin.some(card => card.ref === "dm")).toBe(false);
+    await field.locator('[data-zone="m3"]').click({ button: "right" });
+    await page.getByTestId("inspector").getByTestId("card-control").click();
+    await page.getByTestId("control-dialog").getByTestId("control-zone-M2").click();
+    await expect.poll(async () => (await room()).state.seats[1].twin.find(card => card.ref === "dm")).toMatchObject({ zone: "monster", slot: 2 });
+    expect((await room()).state.seats[0].twin.some(card => card.ref === "dm")).toBe(false);
+  });
+
+  test("equip: a Union monster in a Spell & Trap Zone asks which monster it equips, and links only after a click", async ({ page, context }) => {
+    test.setTimeout(120_000);
+    const slug = await soloTable(context.request, 2);
+    const room = await seedCards(context, slug, [
+      { seat: 0, zone: "monster", ref: "dm", cardId: 46986414, name: "Dark Magician", slot: 1 },
+      { seat: 0, zone: "spell-trap", ref: "yd", cardId: 65622692, name: "Y-Dragon Head", slot: 1 },
+    ]);
+    await page.goto(`/duels/remote/${slug}`);
+    const dialog = page.getByTestId("control-dialog");
+    await expect(dialog).toContainText("equipped to which monster?", { timeout: 60_000 });
+    expect((await room()).state.seats[0].twin.find(card => card.ref === "yd")?.equippedTo).toBeUndefined();
+    await dialog.getByTestId("equip-pick").first().click();
+    await expect.poll(async () => (await room()).state.seats[0].twin.find(card => card.ref === "yd")).toMatchObject({ zone: "spell-trap", equippedTo: { seat: 0, ref: "dm" } });
   });
 });

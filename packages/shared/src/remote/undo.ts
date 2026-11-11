@@ -166,6 +166,9 @@ function restoredPosition(state: RemoteState, entry: RemoteUndoEntry): RemotePos
       twins.splice(destination, 0, card);
     }
   }
+  for (const seat of restored.seats) if (state.seats[seat.seat].accountDeleted) {
+    seat.accountDeleted = true; seat.eliminated = true; seat.twin = []; seat.knownHand = [];
+  }
   const living = restored.seats.filter(s=>!s.eliminated);
   restored.ended = living.length <= 1;
   restored.winnerSeat = restored.ended ? living[0]?.seat ?? null : null;
@@ -248,7 +251,8 @@ const summonName = (kind: string) => `${kind === "xyz" ? "Xyz" : kind[0].toUpper
 /** Public log labels use identities only when the physical card was public. */
 export function remoteUndoLabel(action: RemoteAction, position?: RemotePosition): string {
   const ref = action.type === "twin.place" ? action.card.ref : "cardRef" in action ? action.cardRef : undefined;
-  const seat = "seat" in action ? action.seat : action.actorSeat;
+  // After a control change the card stands on the other side: look there.
+  const seat = action.type === "twin.control" ? action.toSeat : "seat" in action ? action.seat : action.actorSeat;
   const twin = position?.seats[seat].twin.find(c=>c.ref===ref);
   const name = twin && remotePublicCard(twin) ? twin.name ?? position?.deckChecks.instances.find(i=>i.seat===seat && i.refs.includes(twin.ref))?.name ?? "Card" : "Card";
   const zone = (z: string, slot?: number) => ({monster:"M", "spell-trap":"S", pendulum:"P", "extra-monster":"EMZ"}[z] ?? z) + (slot ?? "");
@@ -260,6 +264,7 @@ export function remoteUndoLabel(action: RemoteAction, position?: RemotePosition)
     case "twin.flip": return `${name} flipped ${action.faceUp ? "up" : "down"}`;
     case "twin.remove": return `${name} removed`;
     case "twin.equip": return action.target ? `${name} equipped` : `${name} unequipped`;
+    case "twin.control": return `${name}: control changed`;
     case "hand.add": return "Added card to hand";
     case "hand.reveal": return "Revealed card in hand";
     case "hand.forget": return "Forgot known hand card";

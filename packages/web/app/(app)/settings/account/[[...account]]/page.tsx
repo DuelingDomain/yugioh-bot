@@ -36,7 +36,7 @@ export default async function AccountPage() {
         </div>
       </header>
       <div className="set-page">
-        <section className="set-sec" aria-labelledby="set-account">
+        <section className={`set-sec ${styles.section}`} aria-labelledby="set-account">
           <div className="set-intro">
             <h2 id="set-account">Sign-in and connected accounts</h2>
             <p>Your email, password and Discord connection. Connecting Discord brings back your past drafts and matches.</p>

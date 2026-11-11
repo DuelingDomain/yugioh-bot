@@ -84,11 +84,18 @@ export const remoteActionSchema = z.discriminatedUnion("type", [
   z.strictObject({ ...meta, type: z.literal("pile.order"), seat: remoteSeatSchema, zone: z.enum(["graveyard", "banished"]), cardRefs: z.array(id).min(1).max(120)
     .refine(refs => new Set(refs).size === refs.length, "Duplicate pile card") }),
   z.strictObject({ ...meta, type: z.literal("twin.move"), seat: remoteSeatSchema, zone, cardRef: id, slot: slot.optional(), position: z.enum(["attack", "defense"]).optional(), faceUp: z.boolean().optional(), source: z.literal("auto").optional(), name: z.string().trim().min(1).max(200).optional(),
+    /** A face-up Pendulum Monster in the Extra Deck is public information (only that card; every other Extra card stays hidden). */
+    pendulum: z.boolean().optional(),
+    /** The camera or the player chose this destination (not a rule default): the card keeps no field origin. */
+    confirmed: z.boolean().optional(),
     zoneRule: z.string().trim().min(1).max(80).optional(),
     /** A Trap that becomes a monster (Trap Monster) keeps its Spell & Trap Zone occupied while it is a monster. */
     trapMonster: z.boolean().optional() }),
   /** Link an Equip Card to the monster it equips (any seat), or clear the link with `target: null`. */
   z.strictObject({ ...meta, type: z.literal("twin.equip"), seat: remoteSeatSchema, cardRef: id, target: z.strictObject({ seat: remoteSeatSchema, ref: id }).nullable() }),
+  /** Control change. The card moves from `seat` (its holder) to `toSeat`, into a zone on `toSeat`'s side. The taker or the holder may send it. A card that returns to its owner's seat drops the owner mark. */
+  z.strictObject({ ...meta, type: z.literal("twin.control"), seat: remoteSeatSchema, cardRef: id, toSeat: remoteSeatSchema,
+    zone: z.enum(["monster", "extra-monster", "spell-trap", "field", "pendulum", "graveyard", "banished"]), slot: slot.optional(), position: z.enum(["attack", "defense"]).optional(), faceUp: z.boolean().optional() }),
   /** Record the materials of a summoned card already on the field: Xyz attaches them; Synchro/Link/Fusion send them to the GY. */
   z.strictObject({ ...meta, type: z.literal("twin.attach"), seat: remoteSeatSchema, cardRef: id, ...summon.shape }),
   /** Detach one Xyz material (default: to the GY). */
@@ -101,6 +108,8 @@ export const remoteActionSchema = z.discriminatedUnion("type", [
   z.strictObject({ ...meta, type: z.literal("log.note"), text: z.string().trim().min(1).max(500) }),
   z.strictObject({ ...meta, type: z.literal("undo"), targetActionId: id }),
   z.strictObject({ ...meta, type: z.literal("player.concede") }),
+  /** Quit the match. 1v1: the opponent wins the match. FFA: only this seat leaves for good. It cannot be undone. */
+  z.strictObject({ ...meta, type: z.literal("player.leave") }),
 ]);
 export type RemoteAction = z.infer<typeof remoteActionSchema>;
 // Distribute over the union so parser proposals retain phase/LP/card-specific fields.
@@ -112,8 +121,14 @@ export type TwinCard = z.infer<typeof twinCardSchema> & {
   zone: string; departedFrom?: { zone: string; slot?: number; at?: number; /** The camera moved it (default for a card out of view). */ auto?: boolean }; setBy?: import("./effect-filters.js").RemoteEffectSource;
   /** Server-authored: the Spell & Trap Zone a Trap Monster still occupies. Cleared when it leaves the Monster Zones. */
   trapZone?: number;
+  /** A face-up Pendulum Monster in the Extra Deck: the one Extra card the opponent sees. */
+  pendulumUp?: true;
   /** Server-authored: the monster this Equip Card equips. Cleared when either card leaves the field. */
   equippedTo?: { seat: number; ref: string };
+  /** Server-authored: the seat of the real owner while another player controls the card (Monster Reborn on their Graveyard, Change of Heart). Cleared when it returns. */
+  ownerSeat?: number;
+  /** Server-authored: what a face-down card was, kept for its owner while another player controls it. Never shown to anyone else. */
+  ownerIdentity?: { cardId?: number; passcode?: number; name?: string; race?: string };
   /** Server-authored: Xyz materials under this card, bottom first (twin refs in zone "material"). */
   materials?: string[];
   /** Server-authored: the Xyz Monster this material is attached to. */

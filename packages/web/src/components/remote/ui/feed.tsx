@@ -16,6 +16,7 @@ import { HubFeedCards } from "./feed-cards";
 import {fieldZoneLocation,mapFieldZone} from '@yugidraft/vision';
 import { noteTapFrame } from "@/lib/remote/tap-memory";
 import { useTapToIdentify, readGridPref, writeGridPref, currentZoneGrid, useFieldDebugEnabled, setFieldDebugEnabled, useFieldDeveloper } from "@/lib/remote/zone-grid";
+import { saveFieldClip, useFieldClipReady } from "@/lib/remote/clip-capture";
 import s from "./remote-ui.module.css";
 import { isTypingTarget } from "@/lib/typing-target";
 import { isThemedListOpen } from "@/components/ui/themed-select";
@@ -156,7 +157,18 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
   const tapSeat = useTapSeat(seat) && !you;
   const [gridOn, setGridOn] = useState(false); useEffect(() => { setGridOn(readGridPref(you)); }, [you]);
   const toggleGrid = () => { const on = !gridOn; setGridOn(on); writeGridPref(you, on); };
-  const debugOn = useFieldDebugEnabled(), isDeveloper = useFieldDeveloper();
+  const debugOn = useFieldDebugEnabled(), isDeveloper = useFieldDeveloper(), clipReady = useFieldClipReady();
+  // "Saved to your computer" note after a clip download; it clears itself after a few seconds.
+  const [clipNote, setClipNote] = useState(""); const clipTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [clipDetail, setClipDetail] = useState(""); const [clipSaved, setClipSaved] = useState(false);
+  const saveClip = () => {
+    const result = saveFieldClip(); if (clipTimer.current) clearTimeout(clipTimer.current);
+    setClipSaved(!!result?.saved);
+    setClipNote(!result ? "No clip yet: the card reader is not running." : result.saved ? "Saved to your computer. Contains your camera view of the mat." : "Nothing recorded yet: the card reader has not read the camera since it last started.");
+    setClipDetail(result?.saved ? `${result.stats.frames} frames, ${(result.stats.bytes / 1e6).toFixed(1)} MB, ${result.stats.events} events` : "");
+    clipTimer.current = setTimeout(() => setClipNote(""), 6000);
+  };
+  useEffect(() => () => { if (clipTimer.current) clearTimeout(clipTimer.current); }, []);
   useEffect(() => {
     const element = video.current; if (!element || !source) return;
     const detach = source.attach(element);
@@ -572,7 +584,9 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
         <button type="button" className={s.fzbtn} onClick={() => void freeze(true)} data-testid="freeze-feed" aria-keyshortcuts="F">Freeze <kbd>F</kbd></button>
         <button type="button" className={`${s.fzbtn} ${s.fzauto}`} aria-pressed={gridOn && !tapSeat} disabled={tapSeat} onClick={toggleGrid} data-testid="zone-grid-toggle" title={tapSeat ? "This player uses Tap to identify: no zone grid" : you ? "Show zone grid on my camera" : "Show zone grid on this opponent camera"}>Show zone grid</button>
         {you && isDeveloper ? <button type="button" className={`${s.fzbtn} ${s.fzauto}`} aria-pressed={debugOn} onClick={() => setFieldDebugEnabled(!debugOn)} data-testid="field-debug-toggle" title="Show what the field watcher sees: detector boxes, scores, tracks and reasons">Debug</button> : null}
+        {you && isDeveloper && clipReady ? <button type="button" className={`${s.fzbtn} ${s.fzauto}`} onClick={saveClip} data-testid="field-clip-save" title="Save the last 30 s of your mat camera and watcher events to a file on this computer. Nothing is uploaded. The recording restarts empty when the card reader restarts (backend switch, calibration on or off).">Save last 30 s</button> : null}
         <button type="button" className={`${s.fzbtn} ${s.fzauto}`} aria-pressed={auto} onClick={toggleAuto} title="Freeze the frame when the pointer rests on the feed">Hover freeze {auto ? "on" : "off"}</button>
+        {clipNote ? <span className={`${s.fzchip} ${s.fzchipWrap}`} role="status" data-testid="field-clip-note" title={clipDetail}>{clipSaved ? <Icon name="check" /> : null}{clipNote}</span> : null}
       </>}
       <span className={s.watcherControlsSlot} data-field-watcher-controls />
     </div> : null}

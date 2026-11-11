@@ -37,6 +37,10 @@ const ALL: MultiplayerFormat[] = ["ffa3", "ffa4", "tag"];
 const NO_RESULT = " A 'you win' effect has no defined result for the other players.";
 
 export const MULTIPLAYER_FORBIDDEN: readonly MultiplayerForbidden[] = [
+  // --- 2026-11-09 data review: docs/audits/2026-11-09-engine-data-review.md
+  // Stock scripts need multiplayer adaptation before admission.
+  { code: 101403005, name: "Amazoness Chain Master - Brink of Death Chain Dance", category: "chooser", reason: "Its GY trigger does not declare one opponent. The Level 10 choice, summon and random hand discard must all use that same chosen opponent, including one opposing member in Tag.", formats: ALL },
+  { code: 101403067, name: "Power of the Duelist", category: "global-state", reason: "Its global Attribute tracker writes flags using a folded reason player. It needs real-seat tracking in FFA and verified team tracking in Tag before the End Phase penalty can read the correct player's activations.", formats: ALL },
   // --- PR #395: temporary pre-release restrictions; review: docs/audits/2026-10-19-engine-data-395.md
   { code: 100459021, name: "Flashforce Sword", category: "chooser", reason: "Its delayed hand return saves a folded controller; in Tag a card banished from the second opponent can return to the wrong team member.", formats: ALL },
   { code: 101403004, name: "The Sun God's Torture Device - Viser Des Shock", category: "chooser", reason: "Its GY trigger can bind the reason player instead of the player whose GY received the monster, so the damage can reach an unrelated opponent.", formats: ALL },
