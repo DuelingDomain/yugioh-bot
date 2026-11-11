@@ -29,11 +29,12 @@ type Reuse = { ref: string; card?: TwinCard } | { pending: true } | { noop: true
 const pileZone = (zone: string) => zone === "graveyard" || zone === "banished";
 /**
  * Guard 6: a card the camera sent from the field to a pile or the Extra Deck by the rules (no camera evidence) still owns its field
- * origin, but only for 30 s and only for a card put back into the same zone and physical slot. A later second copy is another card.
+ * origin, but only for 30 s, and (for a card put back on the field) only into the same zone and physical slot. A later second copy is
+ * another card. A named read in another pile or the Extra Deck within 30 s is still the departed card.
  */
 const autoLeft = (t: TwinCard, at: number, place: { zone: string; card: { slot?: number } }) => (pileZone(t.zone) || t.zone === "extra") && !!t.departedFrom?.auto && remoteFieldZone(t.departedFrom.zone) &&
-  t.departedFrom.at !== undefined && at >= t.departedFrom.at && at - t.departedFrom.at <= 30_000 && t.departedFrom.zone === place.zone &&
-  remotePhysicalSlot(place.zone, t.departedFrom.slot) === remotePhysicalSlot(place.zone, place.card.slot);
+  t.departedFrom.at !== undefined && at >= t.departedFrom.at && at - t.departedFrom.at <= 30_000 &&
+  (!remoteFieldZone(place.zone) || t.departedFrom.zone === place.zone && remotePhysicalSlot(place.zone, t.departedFrom.slot) === remotePhysicalSlot(place.zone, place.card.slot));
 const zoneLabel = (card: { zone: string; slot?: number }) => card.zone === "monster" ? `M${card.slot ?? ""}`
   : card.zone === "spell-trap" ? `S${card.slot ?? ""}` : card.zone === "extra-monster" ? `EMZ${card.slot ?? ""}` : card.zone;
 

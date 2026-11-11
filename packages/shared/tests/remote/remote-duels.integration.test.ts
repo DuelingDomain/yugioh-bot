@@ -3977,6 +3977,17 @@ it('a second copy placed after 30 s, or in another slot, does not take a card th
   expect(state.seats[0].twin.find(c => c.ref === 'first')!.zone).toBe('graveyard');
 });
 
+it('a named read in the other pile after the GY default is the same card (no copy in both piles)', () => {
+  let state = ygoModule.initialState({seatCount:2}), at = 0;
+  const act = (input:Record<string,unknown>) => state = ygoModule.reduce(state, remoteActionSchema.parse({actorSeat:0, seat:0, at, idempotencyKey:crypto.randomUUID(), ...input}));
+  const card = {cardId:97522863, name:'The Man with the Mark', faceUp:true, position:'attack'};
+  act({type:'twin.place', zone:'monster', card:{...card, ref:'x', slot:3}});
+  at = 1000; act({type:'twin.move', source:'auto', cardRef:'x', zone:'graveyard', faceUp:true});
+  at = 2000; act({type:'twin.place', source:'auto', zone:'banished', card:{...card, ref:'fw-9'}});
+  const count = (zone:string) => state.seats[0].twin.filter(c => c.zone === zone).length;
+  expect([count('graveyard'), count('banished')]).toEqual([0, 1]);
+});
+
 it('only a face-up Pendulum Monster that was face-up on the field is shown in the Extra Deck to the opponent', () => {
   let state = ygoModule.initialState({seatCount:2});
   const act = (input:Record<string,unknown>) => state = ygoModule.reduce(state, remoteActionSchema.parse({actorSeat:0, seat:0, at:1, idempotencyKey:crypto.randomUUID(), ...input}));
