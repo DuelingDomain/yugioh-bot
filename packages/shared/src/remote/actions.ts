@@ -43,7 +43,8 @@ export const remoteActionSchema = z.discriminatedUnion("type", [
     delta: z.number().int().min(-999999).max(999999).optional(),
     value: z.number().int().min(0).max(999999).optional() })
     .refine(a => (a.delta !== undefined) !== (a.value !== undefined), "Choose either a hand count delta or value"),
-  z.strictObject({ ...meta, type: z.literal("effect.activated"), source: effectSource }),
+  /** `fromHand`: a card the player held up from the hand. The card stays in the hand; it becomes public and the log says so. */
+  z.strictObject({ ...meta, type: z.literal("effect.activated"), source: effectSource, fromHand: z.literal(true).optional() }),
   z.strictObject({ ...meta, type: z.literal("effect.choose"), originId: z.string().min(1).max(110), cardId }),
   z.strictObject({ ...meta, type: z.literal("effect.announce"), originId: z.string().min(1).max(110) }),
   z.strictObject({ ...meta, type: z.literal("effect.context.clear") }),
@@ -97,7 +98,9 @@ export const remoteActionSchema = z.discriminatedUnion("type", [
   z.strictObject({ ...meta, type: z.literal("twin.control"), seat: remoteSeatSchema, cardRef: id, toSeat: remoteSeatSchema,
     zone: z.enum(["monster", "extra-monster", "spell-trap", "field", "pendulum", "graveyard", "banished"]), slot: slot.optional(), position: z.enum(["attack", "defense"]).optional(), faceUp: z.boolean().optional() }),
   /** Record the materials of a summoned card already on the field: Xyz attaches them; Synchro/Link/Fusion send them to the GY. */
-  z.strictObject({ ...meta, type: z.literal("twin.attach"), seat: remoteSeatSchema, cardRef: id, ...summon.shape }),
+  z.strictObject({ ...meta, type: z.literal("twin.attach"), seat: remoteSeatSchema, cardRef: id, ...summon.shape,
+    /** Xyz only: the materials are monsters of this other player (an Xyz that attaches a card from the opponent's field). They keep their owner. Only that player sends it (from their own client). */
+    materialSeat: remoteSeatSchema.optional() }),
   /** Detach one Xyz material (default: to the GY). */
   z.strictObject({ ...meta, type: z.literal("twin.detach"), seat: remoteSeatSchema, cardRef: id, materialRef: id,
     zone: z.enum(["graveyard", "banished", "hand", "deck", "extra"]).default("graveyard") }),

@@ -69,7 +69,7 @@ export type RemoteReductionContext = {
   /** Trusted replay only: retain slot conflicts accepted before the live guard. */
   replay?: boolean;
   /** Persisted by the service: old events replay with the original placement semantics. */
-  twinPlacementGuard?: 1 | 2 | 3 | 4 | 5 | 6;
+  twinPlacementGuard?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
   pileArrivalGuard?: 1 | 2;
   /** Public knowledge survives an in-place Set; hidden destinations clear it. */
   fieldFaceState?: 1;
@@ -82,7 +82,7 @@ export type RemoteReductionContext = {
 };
 /** Persist current reducer semantics for live actions and account-deletion concessions. */
 export const REMOTE_REDUCTION_VERSIONS = {
-  undoVersion: 1, matchFlowVersion: 2, twinPlacementGuard: 6, fieldFaceState: 1,
+  undoVersion: 1, matchFlowVersion: 2, twinPlacementGuard: 8, fieldFaceState: 1,
   pileArrivalGuard: 2, handKnowledge: 1, handReview: 1, handCountCorrections: 1, quitGameOnly: 1,
 } as const satisfies RemoteReductionContext;
 

@@ -2032,6 +2032,73 @@ describe("tolerant voice attack resolution", () => {
     expect(undo(synced, newest.actionId).seats[0].twin.find(c => c.ref === "apophis")).toMatchObject({ zone: "monster", slot: 3, trapZone: 3 });
   });
 
+  it("a card the camera took off the field waits in the hand; a named pile read 12 s later is that card (one copy, hand count back), and one Undo reverts it", () => {
+    const b = board();
+    let n = 0;
+    const act = (state: typeof b.state, action: Record<string, unknown>) => ygoModule.reduce(state, remoteActionSchema.parse({ actorSeat: 0, seat: 0, idempotencyKey: `late-${++n}`, ...action }));
+    const at0 = b.state.updatedAt;
+    const inHand = act(b.state, { type: "twin.move", cardRef: "blue", zone: "hand", source: "auto", at: at0 + 100 });
+    const read = act(inHand, { type: "twin.place", source: "auto", zone: "graveyard", card: { ref: "fw-9", cardId: 89631139, name: "Blue-Eyes White Dragon" }, at: at0 + 12_000 });
+    const copies = (state: typeof b.state) => state.seats[0].twin.filter(c => c.cardId === 89631139 || c.ref === "blue");
+    expect(copies(read).map(c => [c.ref, c.zone])).toEqual([["blue", "graveyard"]]);
+    expect(read.seats[0].twin.filter(c => c.zone === "hand")).toHaveLength(0);
+    const undone = ygoModule.reduce(read, remoteActionSchema.parse({ type: "undo", actorSeat: 0, targetActionId: read.undo!.actionId, idempotencyKey: `late-${++n}` }));
+    expect(copies(undone).map(c => [c.ref, c.zone])).toEqual([["blue", "hand"]]);
+  });
+
+  it("a card tagged straight to the Extra Deck is not taken by a named GY read 20 s later; the discard comes from the hand", () => {
+    const b = board();
+    b.place(0, { ref: "p2", name: "Blue-Eyes White Dragon", cardId: 89631139 }, "hand");
+    const act = (state: typeof b.state, action: Record<string, unknown>) => ygoModule.reduce(state, remoteActionSchema.parse({ actorSeat: 0, seat: 0, idempotencyKey: crypto.randomUUID(), ...action }));
+    const at0 = b.state.updatedAt;
+    const tagged = act(b.state, { type: "twin.move", cardRef: "blue", zone: "extra", faceUp: false, source: "auto", at: at0 + 1_000 });
+    const read = act(tagged, { type: "twin.place", source: "auto", zone: "graveyard", card: { ref: "fw-9", cardId: 89631139, name: "Blue-Eyes White Dragon" }, at: at0 + 20_000 });
+    expect(read.seats[0].twin.find(c => c.ref === "blue")?.zone).toBe("extra");
+    expect(read.seats[0].twin.find(c => c.ref === "p2")?.zone).toBe("graveyard");
+  });
+
+  it("a named pile read never takes a card that is back in the hand while another copy lies in that pile", () => {
+    const b = board();
+    let n = 0;
+    const act = (state: typeof b.state, action: Record<string, unknown>) => ygoModule.reduce(state, remoteActionSchema.parse({ actorSeat: 0, seat: 0, idempotencyKey: `steal-${++n}`, ...action }));
+    b.place(0, { ref: "blue2", name: "Blue-Eyes White Dragon", cardId: 89631139 }, "graveyard");
+    const at0 = b.state.updatedAt;
+    const inHand = act(b.state, { type: "twin.move", cardRef: "blue", zone: "hand", source: "auto", at: at0 + 100 });
+    const read = act(inHand, { type: "twin.place", source: "auto", zone: "graveyard", card: { ref: "fw-9", cardId: 89631139, name: "Blue-Eyes White Dragon" }, at: at0 + 4_000 });
+    expect(read.seats[0].twin.find(c => c.ref === "blue")?.zone).toBe("hand");
+  });
+
+  it("an Xyz placed in a new zone 8 s after two lifts takes both from the hand (no card left counted in hand)", () => {
+    const b = board();
+    let n = 0;
+    const act = (state: typeof b.state, action: Record<string, unknown>) => ygoModule.reduce(state, remoteActionSchema.parse({ actorSeat: 0, seat: 0, idempotencyKey: `xyz-${++n}`, ...action }));
+    b.place(0, { ref: "m2", slot: 2, cardId: 12 }); b.place(0, { ref: "m3", slot: 3, cardId: 13 });
+    const at0 = b.state.updatedAt;
+    const lifted = act(act(b.state, { type: "twin.move", cardRef: "m2", zone: "hand", source: "auto", at: at0 + 800 }), { type: "twin.move", cardRef: "m3", zone: "hand", source: "auto", at: at0 + 900 });
+    const hands = (state: typeof b.state) => state.seats[0].twin.filter(c => c.zone === "hand").length;
+    expect(hands(lifted)).toBe(2);
+    const xyz = act(lifted, { type: "twin.place", zone: "monster", card: { ref: "x1", slot: 4, cardId: 21 }, summon: { kind: "xyz", materialRefs: ["m2", "m3"] }, at: at0 + 8_900 });
+    expect(xyz.seats[0].twin.find(c => c.ref === "x1")?.materials).toEqual(["m2", "m3"]);
+    expect(hands(xyz)).toBe(0);
+  });
+
+  it("an Xyz takes a monster from the opponent's field as material; detached it goes to its owner's Graveyard", () => {
+    const b = board();
+    let n = 0;
+    const act = (state: typeof b.state, action: Record<string, unknown>) => ygoModule.reduce(state, remoteActionSchema.parse({ actorSeat: 0, seat: 0, idempotencyKey: `foreign-${++n}`, ...action }));
+    b.place(0, { ref: "infinity", name: "Cyber Dragon Infinity", slot: 2, cardId: 10443957 });
+    // Only the card's owner sends it; the Xyz controller cannot take the other player's cards.
+    expect(() => act(b.state, { type: "twin.attach", cardRef: "infinity", kind: "xyz", materialRefs: ["dark"], materialSeat: 1 })).toThrow(/owner of the card/);
+    const attached = act(b.state, { type: "twin.attach", actorSeat: 1, cardRef: "infinity", kind: "xyz", materialRefs: ["dark"], materialSeat: 1 });
+    expect(attached.seats[1].twin.some(c => c.ref === "dark")).toBe(false);
+    expect(attached.seats[0].twin.find(c => c.ref === "dark")).toMatchObject({ zone: "material", materialOf: "infinity", ownerSeat: 1 });
+    expect(attached.seats[0].twin.find(c => c.ref === "infinity")?.materials).toEqual(["dark"]);
+    // Detach with no zone: the Graveyard, and it is the owner's.
+    const detached = act(attached, { type: "twin.detach", cardRef: "infinity", materialRef: "dark" });
+    expect(detached.seats[1].twin.find(c => c.ref === "dark")?.zone).toBe("graveyard");
+    expect(detached.seats[0].twin.some(c => c.ref === "dark")).toBe(false);
+  });
+
   it("persists public annotations and replays a confirmed proposal through the normal event store", () => {
     const { service, table, users, db } = setup();
     service.join(table.slug, "g", users[1], "Imran", 1, 1100);
@@ -2988,9 +3055,12 @@ it('reveals identity and position in one undoable action, then hides a public Se
   expect(scan.cards).toHaveLength(1);expect(scan.read).toBeUndefined();
   scan=heldReader.observe([heldCard],frame,evidence,210,undefined,undefined,false);expect(scan.read).toBeDefined();await scan.read;
   expect(heldEvents).toEqual([]);
+  // One sure read is not enough for a public reveal: two in a row must agree.
   readTier='sure';scan=heldReader.observe([heldCard],frame,evidence,460,undefined,undefined,false);await scan.read;
-  expect(heldEvents).toEqual([expect.objectContaining({type:'held',state:'held',cardId:'29762407'})]);
-  scan=heldReader.observe([heldCard],frame,evidence,510,undefined,undefined,false);expect(scan.read).toBeUndefined();expect(reads).toBe(2);
+  expect(heldEvents).toEqual([]);
+  scan=heldReader.observe([heldCard],frame,evidence,710,undefined,undefined,false);await scan.read;
+  expect(heldEvents).toEqual([expect.objectContaining({type:'held',state:'held',cardId:'29762407',lifted:false})]);
+  scan=heldReader.observe([heldCard],frame,evidence,760,undefined,undefined,false);expect(scan.read).toBeUndefined();expect(reads).toBe(3);
   heldReader.reset();
   const fan={...heldCard,quad:heldCard.quad.map(p=>({x:p.x+.02,y:p.y+.02}))};
   scan=heldReader.observe([heldCard,fan],frame,evidence,520,undefined,undefined,false);expect(scan.read).toBeUndefined();
@@ -3003,11 +3073,11 @@ it('reveals identity and position in one undoable action, then hides a public Se
   const episodes=vision.createHeldCardReader({profile:{cardBack:{cardId:'back'}},now:()=>heldNow,clone:async()=>frame,
     recognizer:{recognize:async()=>({...sure,candidates:[{cardId:heldIdentity,score:.99}]})},onHeldCard:(event:Record<string,unknown>)=>episodeEvents.push(event)});
   scan=episodes.observe([heldCard],frame,evidence,heldNow,undefined,undefined,false);expect(scan.read).toBeUndefined();
-  heldNow=300;scan=episodes.observe([heldCard],frame,evidence,heldNow,undefined,undefined,false);await scan.read;
-  heldNow=400;heldIdentity='69299029';
+  for(heldNow=300;heldNow<=550;heldNow+=250){scan=episodes.observe([heldCard],frame,evidence,heldNow,undefined,undefined,false);await scan.read;}
+  heldNow=700;heldIdentity='69299029';
   const newFace={...evidence,appearance:()=>[.8,.1,.9]};
   scan=episodes.observe([heldCard],frame,newFace,heldNow,undefined,undefined,false);expect(scan.read).toBeUndefined();
-  heldNow=600;scan=episodes.observe([heldCard],frame,newFace,heldNow,undefined,undefined,false);expect(scan.read).toBeDefined();await scan.read;
+  for(heldNow=900;heldNow<=1150;heldNow+=250){scan=episodes.observe([heldCard],frame,newFace,heldNow,undefined,undefined,false);expect(scan.read).toBeDefined();await scan.read;}
   expect(episodeEvents.map(e=>e.cardId)).toEqual(['29762407','69299029']);
   let completeRead!:(value:unknown)=>void;
   const slowResult=new Promise(resolve=>{completeRead=resolve;});heldNow=700;
@@ -3016,8 +3086,10 @@ it('reveals identity and position in one undoable action, then hides a public Se
   slow.observe([heldCard],frame,evidence,heldNow,undefined,undefined,false);heldNow=900;
   scan=slow.observe([heldCard],frame,evidence,heldNow,undefined,undefined,false);await Promise.resolve();
   slow.observe([],frame,evidence,1000,undefined,undefined,true);
-  heldNow=2300;completeRead(sure);await scan.read;expect(episodeEvents).toHaveLength(3);
-  scan=slow.observe([heldCard],frame,evidence,2301,undefined,undefined,false);expect(scan.read).toBeUndefined();expect(slow.snapshot()).toHaveLength(1);slow.reset();
+  heldNow=2300;completeRead(sure);await scan.read;expect(episodeEvents).toHaveLength(2);
+  slow.observe([heldCard],frame,evidence,2301,undefined,undefined,false);
+  scan=slow.observe([heldCard],frame,evidence,2560,undefined,undefined,false);await scan.read;expect(episodeEvents).toHaveLength(3);
+  scan=slow.observe([heldCard],frame,evidence,2900,undefined,undefined,false);expect(scan.read).toBeUndefined();expect(slow.snapshot()).toHaveLength(1);slow.reset();
   // Field provenance wins over size and fingers, including a recent invisible field track.
   let blockedReads=0;
   const blocked=vision.createHeldCardReader({profile:{cardBack:{cardId:'back'}},clone:async()=>frame,
@@ -3999,6 +4071,15 @@ it('only a face-up Pendulum Monster that was face-up on the field is shown in th
   expect(['pend', 'plain', 'down'].map(ref => seen.find(c => c.ref === ref)!.name)).toEqual(['pend', undefined, undefined]);
 });
 
+it('a face-up Pendulum the camera lifted to the hand and the tag sends to the Extra Deck stays face-up and public', () => {
+  let state = ygoModule.initialState({seatCount:2}), at = 1;
+  const act = (input:Record<string,unknown>) => state = ygoModule.reduce(state, remoteActionSchema.parse({actorSeat:0, seat:0, at, idempotencyKey:crypto.randomUUID(), ...input}));
+  act({type:'twin.place', zone:'monster', card:{cardId:97522863, name:'pend', faceUp:true, position:'attack', ref:'pend', slot:1}});
+  at = 2; act({type:'twin.move', source:'auto', cardRef:'pend', zone:'hand'});
+  at = 3; act({type:'twin.move', source:'auto', cardRef:'pend', zone:'extra', faceUp:true, pendulum:true});
+  expect(projectRemoteState(state, new Set([1])).seats[0].twin.find(c => c.ref === 'pend')).toMatchObject({zone:'extra', faceUp:true, name:'pend'});
+});
+
 it('keeps a token as public table state: created, moved and removed by its owner, seen by every viewer, ignored by the camera', () => {
   const s = deckSession('normal', false);
   s.select(s.save().id);
@@ -4436,5 +4517,88 @@ describe("account deletion in live remote rooms", () => {
       expect(exec.mock.calls.filter(([sql])=>/create trigger.*remote_events_no_update/i.test(sql))).toHaveLength(1);
       expect(()=>db.prepare("update remote_events set user_id=null").run()).toThrow(/append.only/);
     } finally {vi.restoreAllMocks();}
+  });
+});
+
+describe("remote hand activation (a card held up from the hand)", () => {
+  const CARD = 73628505;
+  const hold = async (s: ReturnType<typeof originSession>) => {
+    const { remoteHandActivationDecision } = await import("../../src/remote/index.js");
+    const decision = remoteHandActivationDecision(s.room.state, 0, { cardId: CARD, id: "held-1", at: 3000 });
+    expect(decision).toEqual({ type: "effect.activated", actorSeat: 0, source: { cardId: CARD }, fromHand: true });
+    s.act(decision as Record<string, unknown>);
+    return s.room.state.undo!.actionId;
+  };
+
+  it("shows a sure read at once, keeps the card in the hand, and a discard of it counts the hand once", async () => {
+    const { remoteHandActivationDecision } = await import("../../src/remote/index.js");
+    const s = originSession(true), count = s.room.state.seats[0].handCount!;
+    await hold(s);
+    expect(s.room.events.at(-1)!.action).toMatchObject({ type: "effect.activated", fromHand: true });
+    expect(s.room.state.seats[0].knownHand).toEqual([expect.objectContaining({ cardId: CARD })]);
+    expect(s.room.state.seats[0].handCount).toBe(count);
+    // The same card again gives nothing new; a Normal or unknown card keeps the one-tap suggestion.
+    expect(remoteHandActivationDecision(s.room.state, 0, { cardId: CARD, id: "held-2", at: 3100 })).toBeUndefined();
+    expect(remoteHandActivationDecision(originSession(true).room.state, 0, { cardId: CARD, id: "held-3", at: 3100 }, { activatable: false })).toMatchObject({ type: "hand.suggest" });
+    s.act({ type: "twin.place", seat: 0, zone: "graveyard", card: { ref: "discarded", cardId: CARD } });
+    expect(s.room.state.seats[0].handCount).toBe(count - 1);
+    expect(s.room.state.seats[0].knownHand ?? []).toEqual([]);
+    // A Spell played to the field leaves the known hand too: a later unread pile card must not be named after it (the web checks this).
+    const spell = originSession(true);
+    await hold(spell);
+    spell.act({ type: "twin.place", seat: 0, zone: "spell-trap", card: { ref: "played", cardId: CARD } });
+    expect(spell.room.state.seats[0].knownHand ?? []).toEqual([]);
+  });
+
+  it("does not show a hand copy while another copy is on the field, and counts the right copy afterwards", async () => {
+    const { remoteHandActivationDecision } = await import("../../src/remote/index.js");
+    const s = originSession(true);
+    s.act({ type: "twin.place", seat: 0, zone: "spell-trap", card: { ref: "field-copy", cardId: CARD, faceUp: true } });
+    // The camera cannot tell the two copies apart: the field copy blocks the activation.
+    expect(remoteHandActivationDecision(s.room.state, 0, { cardId: CARD, id: "held-1", at: 3000 })).toBeUndefined();
+    s.act({ type: "twin.move", seat: 0, cardRef: "field-copy", zone: "graveyard", source: "auto" });
+    const count = s.room.state.seats[0].handCount!;
+    await hold(s);
+    // An unread pile card right after that departure is read as the field copy again: it adds no GY card and does not
+    // take the shown hand copy, so the web must not name it as the hand copy (it checks that the new card ref exists).
+    s.act({ type: "twin.place", seat: 0, zone: "graveyard", source: "auto", card: { ref: "hand-copy", cardId: CARD } });
+    expect(s.room.state.seats[0].twin.filter(c => c.zone === "graveyard")).toHaveLength(1);
+    expect(s.room.state.seats[0].knownHand).toEqual([expect.objectContaining({ cardId: CARD })]);
+    expect(s.room.state.seats[0].handCount).toBe(count);
+    expect(s.room.state.seats[0].twin.some(c => c.ref === "hand-copy")).toBe(false);
+  });
+
+  it("undoes the activation and takes the card out of the known hand", async () => {
+    const s = originSession(true), count = s.room.state.seats[0].handCount;
+    const targetActionId = await hold(s);
+    s.act({ type: "undo", targetActionId });
+    expect(s.room.state.seats[0].knownHand ?? []).toEqual([]);
+    expect(s.room.state.seats[0].handCount).toBe(count);
+  });
+
+  it("needs two agreeing sure reads of a lifted card, and gives a one-tap pick when the read is not sure", async () => {
+    const vision = await import(new URL("../../../vision/src/field-watcher.ts", import.meta.url).pathname);
+    const frame = { width: 640, height: 480, data: new Uint8ClampedArray(0) };
+    const card = { kind: "face-up", confidence: .99, partial: false, quad: [{ x: .05, y: .03 }, { x: .12, y: .03 }, { x: .12, y: .16 }, { x: .05, y: .16 }] };
+    const evidence = { motion: () => 0, sharpness: () => 100, touched: () => .03, appearance: () => [.1, .2, .3], halo: () => [] };
+    const lifted = () => ({ ok: false, hard: true, text: "held: size 1.5x" });
+    const run = async (tier: string, ids: string[]) => {
+      const sure: Record<string, unknown>[] = [], unsure: Record<string, unknown>[] = [];
+      let read = 0;
+      const reader = vision.createHeldCardReader({ profile: { cardBack: { cardId: "back" } }, clone: async () => frame,
+        recognizer: { recognize: async () => ({ tier, candidates: [{ cardId: ids[Math.min(read++, ids.length - 1)], score: .9 }, { cardId: "2", score: .5 }, { cardId: "3", score: .4 }, { cardId: "4", score: .3 }],
+          quality: { fallback: false, faceDown: false, partial: false }, timingsMs: {} }) },
+        onHeldCard: (event: Record<string, unknown>) => sure.push(event), onHeldUnsure: (event: Record<string, unknown>) => unsure.push(event) });
+      for (const at of [0, 200, 450, 700, 950]) await reader.observe([card], frame, evidence, at, undefined, undefined, false, [], lifted).read;
+      return { sure, unsure };
+    };
+    const agree = await run("sure", ["1", "1"]);
+    expect(agree.sure).toEqual([expect.objectContaining({ type: "held", cardId: "1", lifted: true })]);
+    const split = await run("sure", ["1", "2", "3"]);
+    expect(split.sure).toEqual([]);
+    expect(split.unsure).toEqual([expect.objectContaining({ type: "held-unsure", lifted: true, candidates: expect.arrayContaining([expect.objectContaining({ cardId: "3" })]) })]);
+    const unsure = await run("not sure", ["1"]);
+    expect(unsure.sure).toEqual([]);
+    expect(unsure.unsure).toEqual([expect.objectContaining({ type: "held-unsure", lifted: true, candidates: [expect.objectContaining({ cardId: "1" }), expect.objectContaining({ cardId: "2" }), expect.objectContaining({ cardId: "3" })] })]);
   });
 });

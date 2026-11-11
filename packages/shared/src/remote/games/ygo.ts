@@ -350,6 +350,8 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
         freeSlot(s, action.zone, slot, card.ref);
         // Guard 6: a card the camera sends from the field to a pile or the Extra Deck keeps its field origin too, so a card put back
         // (or taken as a summon material) is the same copy, not a duplicate.
+        // Guard 8: a face-up Pendulum the camera lifted to the hand and the tag then sends to the Extra Deck still leaves the field (stays face-up, public).
+        const handLift = (!context?.replay || (context.twinPlacementGuard ?? 0) >= 8) && card.zone === "hand" && !!card.departedFrom?.auto && FIELD_ZONES.has(card.departedFrom.zone);
         const leavesField = FIELD_ZONES.has(card.zone), guardSix = !context?.replay || (context.twinPlacementGuard ?? 0) >= 6;
         if ((!context?.replay || (context.twinPlacementGuard ?? 0) >= 2) && leavesField && (action.zone === "hand" || guardSix && action.source === "auto" && !action.confirmed && (action.zone === "graveyard" || action.zone === "banished" || action.zone === "extra")))
           card.departedFrom = { zone: card.zone, ...(card.slot ? { slot: card.slot } : {}), ...(!context?.replay || (context.twinPlacementGuard ?? 0) >= 3 ? {at} : {}), ...(action.source === "auto" ? { auto: true } : {}) };
@@ -365,7 +367,7 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
         if (action.position !== undefined) card.position = action.position;
         const faceUpBefore = card.faceUp !== false;
         if (action.faceUp !== undefined) card.faceUp = action.faceUp;
-        if (card.zone === "extra" && card.faceUp === true && action.pendulum && leavesField && faceUpBefore) card.pendulumUp = true; else delete card.pendulumUp;
+        if (card.zone === "extra" && card.faceUp === true && action.pendulum && (leavesField || handLift) && faceUpBefore) card.pendulumUp = true; else delete card.pendulumUp;
       }
       if (action.type === "twin.flip") {
         card.faceUp = action.faceUp;
@@ -429,8 +431,23 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
       break;
     }
     case "twin.attach": {
-      const s = ownField(action.seat); const card = s.twin.find(c => c.ref === action.cardRef);
+      const foreign = action.materialSeat !== undefined && action.materialSeat !== action.seat;
+      if (foreign) remoteAssert(action.actorSeat === action.materialSeat, "Only the owner of the card can put it under another player's Xyz Monster", 403);
+      const s = foreign ? seat(action.seat) : ownField(action.seat); const card = s.twin.find(c => c.ref === action.cardRef);
       remoteAssert(card && !card.token && MONSTER_ZONES.has(card.zone), "Summon materials need the summoned monster on the field", 409);
+      if (foreign) {
+        // A card of the other player goes under this Xyz and stays theirs: detached, it returns to its owner's Graveyard.
+        remoteAssert(action.kind === "xyz", "Only an Xyz Monster takes a card from the other field", 409);
+        const from = seat(action.materialSeat!);
+        for (const ref of action.materialRefs) {
+          const material = from.twin.find(c => c.ref === ref);
+          remoteAssert(validMaterial(material, card, at) && !material.token && !material.materials?.length && !s.twin.some(c => c.ref === ref) && s.twin.length < 100, "A material must be a monster on the field or one that just left it", 409);
+          const owner = material.ownerSeat ?? from.seat;
+          from.twin = from.twin.filter(c => c !== material);
+          if (owner === s.seat) delete material.ownerSeat; else material.ownerSeat = owner;
+          s.twin.push(material);
+        }
+      }
       applySummon(next.seats, s, card, action.kind, action.materialRefs, at, true);
       break;
     }

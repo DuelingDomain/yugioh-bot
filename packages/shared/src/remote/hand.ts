@@ -184,6 +184,11 @@ export function applyRemoteHand(next: RemoteState, before: RemoteState, action: 
     for(const card of s.twin)if(card.zone!=='hand')delete card.inspectionFrom;
     if (s.eliminated) s.knownHand = [];
   }
+  // A card held up from the hand becomes public and stays in the hand, so a later play or discard from it counts exactly.
+  if (action.type === 'effect.activated' && action.fromHand && action.source.cardId !== undefined) {
+    const own = next.seats[action.actorSeat];
+    if (own && !own.knownHand?.some(c => c.cardId === action.source.cardId)) remember(next, action.actorSeat, action.source.cardId, 'unknown', action.idempotencyKey);
+  }
   // A held-card/voice addition completes the same pending search as the picker.
   if (action.type === 'hand.add' && (action.source==='deck'||reviewed&&['gy','banish'].includes(action.source)) && action.by) {
     const origin=[...(next.effectTracking?.origins??[])].reverse().find(o=>o.seat===action.actorSeat&&o.destination==='hand'&&o.source.cardId===action.by!.cardId&&!o.handCounted&&
@@ -242,4 +247,17 @@ export function remoteHandReadDecision(state:RemoteState,actorSeat:number,read:{
   if(origin&&!fieldReadPending&&new Set(origins.map(o=>o.searchSource??'deck')).size===1)
     return {type:'hand.add',actorSeat,cardId:read.cardId,source:origin.searchSource??'deck',by:{cardId:origin.source.cardId,name:origin.source.name}};
   return {type:'hand.suggest',actorSeat,...read};
+}
+/**
+ * The decision for a sure read of a card held up to the camera, taken at once (not after the episode ends).
+ * A matching search plan adds the card. Any other card of the registered Deck is shown to the table as an activation from the
+ * hand. A card that cannot be activated (`activatable:false`: a Normal or Extra Deck monster) or is not in the Deck keeps the
+ * one-tap suggestion. Nothing comes back when the card is already on the field, was just played, or is already public in the hand.
+ */
+export function remoteHandActivationDecision(state:RemoteState,actorSeat:number,read:{cardId:number;id:string;at:number},opts:{fieldReadPending?:boolean;activatable?:boolean}={}):RemoteActionProposal|RemoteHandSuggestionEvent|undefined {
+  const decision=remoteHandReadDecision(state,actorSeat,read,opts.fieldReadPending);
+  if(!decision||decision.type!=='hand.suggest'||opts.fieldReadPending)return decision;
+  const main=state.deckChecks.registrations[actorSeat]?.deck.main;
+  if(opts.activatable===false||main&&!main.includes(read.cardId))return decision;
+  return {type:'effect.activated',actorSeat,source:{cardId:read.cardId},fromHand:true};
 }

@@ -29,6 +29,7 @@ import { isBestMatch, isClearRead, setFeedbackCapture, type FeedbackSource, type
 import { SeatPanel } from "./seat-panel";
 import type { RescanResult } from "@/lib/remote/video-protocol";
 import { RemoteFx } from "./remote-fx";
+import { HandActivation } from "./hand-activation";
 import { useLayers } from "./use-layers";
 import { remoteApi, serverNow } from "./api";
 import { useRemoteRoom, type RoomController } from "./use-remote-room";
@@ -1168,6 +1169,8 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
       const old = before.get(seat) ?? new Set<string>();
       for (const card of knownHandOf(state, seat)) {
         if (old.has(card.id) || !ids.has(card.id)) continue;
+        // A card held up from the hand has its own reveal for every seat.
+        if (room.events.some(event => event.id === card.id && event.action.type === "effect.activated")) continue;
         const text = card.source === "field" ? `${name(seat)} returned ${card.name} to hand` : card.source === "unknown" ? `${name(seat)} revealed ${card.name} in hand` : `${name(seat)} added ${card.name} to hand`;
         // A field card that left may still become a summon material. The note waits for that window and skips a card that is gone from the hand.
         if (card.source !== "field") { toast(text, 4200); continue; }
@@ -1549,6 +1552,7 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
     {control.node}
     {/* A drawer or pile covers the stack, so a toast leaves it and stays readable. */}
     <Toasts items={toasts} dock={layers.layer && layers.layer !== "card" && layers.layer !== "tray" ? null : seatDocks[mySeat] ?? null} top={layers.layer === "pile"} />
+    <HandActivation events={room.events} name={name} />
     <RemoteFx state={state} webcamOnly={webcamOnly} seq={room.lastSeq} last={room.events.find(event => event.seq === room.lastSeq)?.action} />
   </div></FeedCardsProvider>;
 }
