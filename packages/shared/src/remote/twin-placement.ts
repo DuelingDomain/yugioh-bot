@@ -34,10 +34,12 @@ const pileZone = (zone: string) => zone === "graveyard" || zone === "banished";
  */
 /**
  * Guard 7: a card the camera took off the field with no pile in view is assumed to be in the hand. If the camera then names it on a
- * pile (GY, banished) within 30 s, that is the same card (it moves, no copy).
+ * pile (GY, banished) within HAND_LEFT_MS, that is the same card (it moves, no copy).
  */
-const handLeft = (t: TwinCard, at: number) => t.zone === "hand" && !!t.departedFrom?.auto && remoteFieldZone(t.departedFrom.zone) &&
-  t.departedFrom.at !== undefined && at >= t.departedFrom.at && at - t.departedFrom.at <= 30_000;
+/** Same as the watcher's late-pile window (LATE_PILE_MS): the camera shows the pile this soon after the card left. */
+const HAND_LEFT_MS = 5000;
+const handLeft = (t: TwinCard, at: number) => (t.zone === "hand" || t.zone === "extra") && !!t.departedFrom?.auto && remoteFieldZone(t.departedFrom.zone) &&
+  t.departedFrom.at !== undefined && at >= t.departedFrom.at && at - t.departedFrom.at <= HAND_LEFT_MS;
 const autoLeft = (t: TwinCard, at: number, place: { zone: string; card: { slot?: number } }) => (pileZone(t.zone) || t.zone === "extra") && !!t.departedFrom?.auto && remoteFieldZone(t.departedFrom.zone) &&
   t.departedFrom.at !== undefined && at >= t.departedFrom.at && at - t.departedFrom.at <= 30_000 &&
   (!remoteFieldZone(place.zone) || t.departedFrom.zone === place.zone && remotePhysicalSlot(place.zone, t.departedFrom.slot) === remotePhysicalSlot(place.zone, place.card.slot));
