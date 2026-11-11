@@ -350,6 +350,8 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
         freeSlot(s, action.zone, slot, card.ref);
         // Guard 6: a card the camera sends from the field to a pile or the Extra Deck keeps its field origin too, so a card put back
         // (or taken as a summon material) is the same copy, not a duplicate.
+        // Guard 8: a face-up Pendulum the camera lifted to the hand and the tag then sends to the Extra Deck still leaves the field (stays face-up, public).
+        const handLift = (!context?.replay || (context.twinPlacementGuard ?? 0) >= 8) && card.zone === "hand" && !!card.departedFrom?.auto && FIELD_ZONES.has(card.departedFrom.zone);
         const leavesField = FIELD_ZONES.has(card.zone), guardSix = !context?.replay || (context.twinPlacementGuard ?? 0) >= 6;
         if ((!context?.replay || (context.twinPlacementGuard ?? 0) >= 2) && leavesField && (action.zone === "hand" || guardSix && action.source === "auto" && !action.confirmed && (action.zone === "graveyard" || action.zone === "banished" || action.zone === "extra")))
           card.departedFrom = { zone: card.zone, ...(card.slot ? { slot: card.slot } : {}), ...(!context?.replay || (context.twinPlacementGuard ?? 0) >= 3 ? {at} : {}), ...(action.source === "auto" ? { auto: true } : {}) };
@@ -365,7 +367,7 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
         if (action.position !== undefined) card.position = action.position;
         const faceUpBefore = card.faceUp !== false;
         if (action.faceUp !== undefined) card.faceUp = action.faceUp;
-        if (card.zone === "extra" && card.faceUp === true && action.pendulum && leavesField && faceUpBefore) card.pendulumUp = true; else delete card.pendulumUp;
+        if (card.zone === "extra" && card.faceUp === true && action.pendulum && (leavesField || handLift) && faceUpBefore) card.pendulumUp = true; else delete card.pendulumUp;
       }
       if (action.type === "twin.flip") {
         card.faceUp = action.faceUp;

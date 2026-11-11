@@ -26,7 +26,7 @@ export * from "./privacy.js";
 
 export * from "./undo.js";
 
-export { REMOTE_TWIN_MOVE_WINDOW_MS, recentFieldDeparture } from "./twin-placement.js";
+export { REMOTE_TWIN_MOVE_WINDOW_MS, REMOTE_NAMED_PILE_READ_MS, REMOTE_UNREAD_PILE_MS, recentFieldDeparture } from "./twin-placement.js";
 
 export * from "./hand.js";
 export * from "./search-candidates.js";
