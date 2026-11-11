@@ -211,6 +211,17 @@ jobs:
             mv "$UPDATE_ARTIFACT_DIR/update.json.tmp" "$UPDATE_ARTIFACT_DIR/update.json"
           fi
 
+      # Remote Duels card behaviour (zone movement per card) comes from the same scripts.
+      - name: Regenerate Remote Duels card behaviour
+        if: steps.candidate.outputs.changed == 'true'
+        run: |
+          prlimit --core=0 -- node --import tsx packages/duel-server/scripts/build-card-behaviour.ts
+          file=packages/web/src/lib/remote/card-behaviour-data.json
+          if [ -n "$(git diff --numstat -- "$file")" ]; then
+            jq --arg file "$file" '.files = ((.files + [$file]) | unique)' "$UPDATE_ARTIFACT_DIR/update.json" > "$UPDATE_ARTIFACT_DIR/update.json.tmp"
+            mv "$UPDATE_ARTIFACT_DIR/update.json.tmp" "$UPDATE_ARTIFACT_DIR/update.json"
+          fi
+
       - name: Check multiplayer overlay and record result
         if: steps.candidate.outputs.changed == 'true'
         run: |
