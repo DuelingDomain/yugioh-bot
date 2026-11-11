@@ -2032,13 +2032,13 @@ describe("tolerant voice attack resolution", () => {
     expect(undo(synced, newest.actionId).seats[0].twin.find(c => c.ref === "apophis")).toMatchObject({ zone: "monster", slot: 3, trapZone: 3 });
   });
 
-  it("a card the camera took off the field waits in the hand; a pile read within 5 s is that card (one copy), and one Undo reverts it", () => {
+  it("a card the camera took off the field waits in the hand; a named pile read 12 s later is that card (one copy, hand count back), and one Undo reverts it", () => {
     const b = board();
     let n = 0;
     const act = (state: typeof b.state, action: Record<string, unknown>) => ygoModule.reduce(state, remoteActionSchema.parse({ actorSeat: 0, seat: 0, idempotencyKey: `late-${++n}`, ...action }));
     const at0 = b.state.updatedAt;
     const inHand = act(b.state, { type: "twin.move", cardRef: "blue", zone: "hand", source: "auto", at: at0 + 100 });
-    const read = act(inHand, { type: "twin.place", source: "auto", zone: "graveyard", card: { ref: "fw-9", cardId: 89631139, name: "Blue-Eyes White Dragon" }, at: at0 + 4_000 });
+    const read = act(inHand, { type: "twin.place", source: "auto", zone: "graveyard", card: { ref: "fw-9", cardId: 89631139, name: "Blue-Eyes White Dragon" }, at: at0 + 12_000 });
     const copies = (state: typeof b.state) => state.seats[0].twin.filter(c => c.cardId === 89631139 || c.ref === "blue");
     expect(copies(read).map(c => [c.ref, c.zone])).toEqual([["blue", "graveyard"]]);
     const undone = ygoModule.reduce(read, remoteActionSchema.parse({ type: "undo", actorSeat: 0, targetActionId: read.undo!.actionId, idempotencyKey: `late-${++n}` }));
@@ -4052,6 +4052,15 @@ it('only a face-up Pendulum Monster that was face-up on the field is shown in th
   act({type:'twin.move', source:'auto', cardRef:'down', zone:'extra', faceUp:true, pendulum:true});
   const seen = projectRemoteState(state, new Set([1])).seats[0].twin;
   expect(['pend', 'plain', 'down'].map(ref => seen.find(c => c.ref === ref)!.name)).toEqual(['pend', undefined, undefined]);
+});
+
+it('a face-up Pendulum the camera lifted to the hand and the tag sends to the Extra Deck stays face-up and public', () => {
+  let state = ygoModule.initialState({seatCount:2}), at = 1;
+  const act = (input:Record<string,unknown>) => state = ygoModule.reduce(state, remoteActionSchema.parse({actorSeat:0, seat:0, at, idempotencyKey:crypto.randomUUID(), ...input}));
+  act({type:'twin.place', zone:'monster', card:{cardId:97522863, name:'pend', faceUp:true, position:'attack', ref:'pend', slot:1}});
+  at = 2; act({type:'twin.move', source:'auto', cardRef:'pend', zone:'hand'});
+  at = 3; act({type:'twin.move', source:'auto', cardRef:'pend', zone:'extra', faceUp:true, pendulum:true});
+  expect(projectRemoteState(state, new Set([1])).seats[0].twin.find(c => c.ref === 'pend')).toMatchObject({zone:'extra', faceUp:true, name:'pend'});
 });
 
 it('keeps a token as public table state: created, moved and removed by its owner, seen by every viewer, ignored by the camera', () => {

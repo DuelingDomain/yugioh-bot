@@ -7,7 +7,7 @@ import {useSendHealth} from '@/lib/remote/send-health-store';
 import {markVideoOfferShown,readVideoChoice,VIDEO_OFFER_MS,videoOfferShown} from '@/lib/remote/video-rate';
 import {createSlowWatch,isWeakDevice,markTapOfferShown,readTapChoice,saveTapChoice,tapOfferShown,TAP_OFFER_MS,type TapChoice} from '@/lib/remote/tap-offer';
 import {isTournamentTable,readTournamentMode,saveTournamentMode,stateMode,ownDetectionMode,type TournamentMode,type TournamentModeReason} from '@/lib/remote/tournament-detection';
-import {remoteHandReadDecision,remotePhysicalSlot,REMOTE_HAND_SUGGESTION_EVENT,recentFieldDeparture,type RemoteRoom,type RemoteSummonKind,type TwinCard} from '@yugidraft/shared/remote';
+import {remoteHandReadDecision,remotePhysicalSlot,REMOTE_HAND_SUGGESTION_EVENT,recentFieldDeparture,REMOTE_UNREAD_PILE_MS,type RemoteRoom,type RemoteSummonKind,type TwinCard} from '@yugidraft/shared/remote';
 import type {RoomMutation,RoomTransaction} from '@/lib/remote/room-mutations';
 import {useFieldWatcher} from '@/lib/remote/use-field-watcher';
 import {e2eFieldHook} from '@/lib/remote/e2e-field-hook';
@@ -64,10 +64,10 @@ type Departure={ref:string;name:string;zone:string;/** Face-down: only a banishe
 const destinations=FIELD_LEAVE_DESTINATIONS;
 /**
  * A card the camera lost from the field goes to the hand at once (after the removal check), never guessed onto a pile: it goes to the
- * GY, banished or banished face-down only when the camera sees it arrive there. A pile card the camera shows within LATE_PILE_MS
- * after the move still counts for that card (it moves hand to pile, the stand-in goes). With two cards waiting the player picks one.
+ * GY, banished or banished face-down only when the camera sees it arrive there. An UNREAD pile card the camera shows within LATE_PILE_MS
+ * after the move still counts for that card (it moves hand to pile, the stand-in goes). A NAMED pile read is matched by the server for REMOTE_NAMED_PILE_READ_MS (30 s). With two cards waiting the player picks one.
  */
-const LATE_PILE_MS=5000;
+const LATE_PILE_MS=REMOTE_UNREAD_PILE_MS;
 /** Where a camera departure can still be a summon material (the server accepts these for 30 s). */
 const summonable=(zone:string)=>['hand','graveyard','banished','extra'].includes(zone);
 /** Owner evidence, table mutations and UI remain isolated from the feed reader. */
@@ -1047,7 +1047,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       const card=current.current.room.state.seats[seat].twin.find(c=>c.ref===value.ref);
       if(!card||(!destinations.some(d=>d.zone===card.zone)&&!(value.zone==='pending'&&watch.isRemoved(card.ref))))return;
       setPending(true);
-      try{const updated=await act({type:'twin.move',source:'auto',actorSeat:seat,seat,cardRef:card.ref,zone,...(zone==='banished'?{faceUp:!down}:zone==='graveyard'?{faceUp:true}:zone==='deck'||zone==='extra'?{faceUp:false}:{}),...(card.faceUp?{name:value.name}:{})});if(updated){setDeparture({...value,zone,down:zone==='banished'&&down});setNotice(`${value.name} → ${fieldLeaveLabel(zone,!down)} · auto`);setUndoId(updated.state.undo?.actionId??'');}}finally{setPending(false);}
+      try{const updated=await act({type:'twin.move',source:'auto',actorSeat:seat,seat,cardRef:card.ref,zone,...(zone==='banished'?{faceUp:!down}:zone==='graveyard'?{faceUp:true}:zone==='deck'?{faceUp:false}:zone==='extra'?(card.faceUp&&/\bpendulum\b/i.test(cardInfo(cardCode(card))?.type??'')?{faceUp:true,pendulum:true}:{faceUp:false}):{}),...(card.faceUp?{name:value.name}:{})});if(updated){setDeparture({...value,zone,down:zone==='banished'&&down});setNotice(`${value.name} → ${fieldLeaveLabel(zone,!down)} · auto`);setUndoId(updated.state.undo?.actionId??'');}}finally{setPending(false);}
     });
   }
   /** The tag's "Attach to": the card that left the field goes under an Xyz Monster (either side's), keeping its owner. */

@@ -32,16 +32,18 @@ const pileZone = (zone: string) => zone === "graveyard" || zone === "banished";
  * origin, but only for 30 s, and (for a card put back on the field) only into the same zone and physical slot. A later second copy is
  * another card. A named read in another pile or the Extra Deck within 30 s is still the departed card.
  */
+/** A camera departure keeps its field origin this long for a NAMED pile read (guard 8; guard 7 replays used REMOTE_UNREAD_PILE_MS). */
+export const REMOTE_NAMED_PILE_READ_MS = 30_000;
+/** An UNREAD pile card (no name yet) can only be the card that left this recently, or it is a discard: the watcher's late-pile window. */
+export const REMOTE_UNREAD_PILE_MS = 5000;
 /**
- * Guard 7: a card the camera took off the field with no pile in view is assumed to be in the hand. If the camera then names it on a
- * pile (GY, banished) within HAND_LEFT_MS, that is the same card (it moves, no copy).
+ * Guard 7/8: a card the camera took off the field with no pile in view is assumed to be in the hand. If the camera then names it on a
+ * pile (GY, banished) within REMOTE_NAMED_PILE_READ_MS, that is the same card (it moves, no copy). Guard 7 replays keep the old 5 s.
  */
-/** Same as the watcher's late-pile window (LATE_PILE_MS): the camera shows the pile this soon after the card left. */
-const HAND_LEFT_MS = 5000;
-const handLeft = (t: TwinCard, at: number) => (t.zone === "hand" || t.zone === "extra") && !!t.departedFrom?.auto && remoteFieldZone(t.departedFrom.zone) &&
-  t.departedFrom.at !== undefined && at >= t.departedFrom.at && at - t.departedFrom.at <= HAND_LEFT_MS;
+const handLeft = (t: TwinCard, at: number, windowMs: number) => (t.zone === "hand" || t.zone === "extra") && !!t.departedFrom?.auto && remoteFieldZone(t.departedFrom.zone) &&
+  t.departedFrom.at !== undefined && at >= t.departedFrom.at && at - t.departedFrom.at <= windowMs;
 const autoLeft = (t: TwinCard, at: number, place: { zone: string; card: { slot?: number } }) => (pileZone(t.zone) || t.zone === "extra") && !!t.departedFrom?.auto && remoteFieldZone(t.departedFrom.zone) &&
-  t.departedFrom.at !== undefined && at >= t.departedFrom.at && at - t.departedFrom.at <= 30_000 &&
+  t.departedFrom.at !== undefined && at >= t.departedFrom.at && at - t.departedFrom.at <= REMOTE_NAMED_PILE_READ_MS &&
   (!remoteFieldZone(place.zone) || t.departedFrom.zone === place.zone && remotePhysicalSlot(place.zone, t.departedFrom.slot) === remotePhysicalSlot(place.zone, place.card.slot));
 const zoneLabel = (card: { zone: string; slot?: number }) => card.zone === "monster" ? `M${card.slot ?? ""}`
   : card.zone === "spell-trap" ? `S${card.slot ?? ""}` : card.zone === "extra-monster" ? `EMZ${card.slot ?? ""}` : card.zone;
@@ -94,7 +96,7 @@ export function guardTwinPlacement(state: RemoteState, action: Placement, contex
   const simultaneous = !!proof && proof.simultaneousQuads >= 2 && proof.at <= at && at - proof.at <= 5000;
   // A recent departure wins even while another X remains in GY or banish.
   const recent = matches.filter(t => recentFieldDeparture(t, at) && (t.zone === "hand" || autoLeft(t, at, action))).sort((a,b) => b.departedFrom!.at! - a.departedFrom!.at!)[0] ??
-    ((!context?.replay || (context.twinPlacementGuard ?? 0) >= 7) && action.source === "auto" && pileZone(action.zone) && !matches.some(t => t.zone === action.zone) ? matches.filter(t => handLeft(t, at)).sort((a,b) => b.departedFrom!.at! - a.departedFrom!.at!)[0] : undefined);
+    ((!context?.replay || (context.twinPlacementGuard ?? 0) >= 7) && action.source === "auto" && pileZone(action.zone) && !matches.some(t => t.zone === action.zone) ? matches.filter(t => handLeft(t, at, !context?.replay || (context.twinPlacementGuard ?? 0) >= 8 ? REMOTE_NAMED_PILE_READ_MS : REMOTE_UNREAD_PILE_MS)).sort((a,b) => b.departedFrom!.at! - a.departedFrom!.at!)[0] : undefined);
   if ((!context?.replay || context.pileArrivalGuard === 2) && action.source === "auto" && pileZone(action.zone) && matches.some(t => t.zone === action.zone)) {
     if (exact && remoteFieldZone(exact.zone)) return {ref:exact.ref,card:exact};
     if (recent) return {ref:recent.ref,card:recent};
