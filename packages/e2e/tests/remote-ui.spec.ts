@@ -22,11 +22,12 @@ const reachable = (host: string, port: number) => new Promise<boolean>(resolve =
 });
 const VISION_LAB = new URL(process.env.VISION_LAB_ORIGIN ?? "http://127.0.0.1:3449");
 const LIVEKIT = new URL((process.env.LIVEKIT_URL ?? "ws://127.0.0.1:7880").replace(/^ws/, "http"));
-const HAVE_VISION_LAB = await reachable(VISION_LAB.hostname, Number(VISION_LAB.port || 80));
-const HAVE_LIVEKIT = await reachable(LIVEKIT.hostname, Number(LIVEKIT.port || 80));
-// Card pictures and camera shots of the field watcher benchmark (data/vision, not in git).
-const HAVE_FIELD_FIXTURES = existsSync(new URL("../../../data/vision/benchmark/field-watcher/card.png", import.meta.url));
-const NEED_FIXTURES = "needs the field watcher benchmark pictures in data/vision/benchmark/field-watcher";
+const defaultPort = (url: URL) => Number(url.port || (url.protocol === "https:" ? 443 : 80));
+const HAVE_VISION_LAB = await reachable(VISION_LAB.hostname, defaultPort(VISION_LAB));
+const HAVE_LIVEKIT = await reachable(LIVEKIT.hostname, defaultPort(LIVEKIT));
+// Vision data: the web server reads VISION_DATA_DIR, or data/vision at the repo root.
+const HAVE_VISION_DATA = !!process.env.VISION_DATA_DIR || existsSync(new URL("../../../data/vision", import.meta.url));
+const NEED_FIXTURES = "needs the field watcher card pictures (E2E_AUTO_CARD and E2E_EXTRA_CARD, default data/vision/benchmark/field-watcher)";
 const NEED_LAB = `needs the vision lab at ${VISION_LAB.origin} (VISION_LAB_ORIGIN)`;
 async function fakeCamera(page: Page, shape: "16:9" | "4:3" | "" = "") {
   if (!FRAME && !shape) return;
@@ -116,7 +117,7 @@ test.describe("remote duels screen, solo", () => {
   });
 
   test("click on the live feed opens the card popup, it stays open while the card is read, Esc closes it", async ({ page, context }) => {
-  test.skip(!FRAME || !process.env.VISION_DATA_DIR, "needs a camera picture of cards (E2E_FAKE_FRAME) and vision data (VISION_DATA_DIR)");
+    test.skip(!FRAME || !HAVE_VISION_DATA, "needs a camera picture of cards (E2E_FAKE_FRAME) and vision data (VISION_DATA_DIR)");
     test.setTimeout(240_000);
     const slug = await soloTable(context.request, 2);
     await fakeCamera(page);
@@ -350,7 +351,7 @@ test.describe("remote duels screen, solo", () => {
   }
 
   test("F freezes the frame and outlines the cards", async ({ page, context }) => {
-  test.skip(!FRAME || !process.env.VISION_DATA_DIR, "needs a camera picture of cards (E2E_FAKE_FRAME) and vision data (VISION_DATA_DIR)");
+    test.skip(!FRAME || !HAVE_VISION_DATA, "needs a camera picture of cards (E2E_FAKE_FRAME) and vision data (VISION_DATA_DIR)");
     test.setTimeout(240_000);
     const slug = await soloTable(context.request, 2);
     await fakeCamera(page);
@@ -452,14 +453,16 @@ test.describe("remote duels screen, solo", () => {
   // The feed box takes the camera's real shape, the camera row sits under it, and the virtual field is smaller.
   for (const [width, height, label] of [[1366, 768, "1366"]] as const) {
     for (const [count, mode] of [[2, "1v1"]] as [2 | 3 | 4, string][]) {
-      for (const shape of ["16:9"] as const) {
-        test(`video box matches the camera and controls fit: ${label} ${mode} ${shape}`, async ({ page, context }) => {
+      for (const shape of ["16:9"] as const) for (const view of ["Both", "Webcam only"] as const) {
+        test(`video box matches the camera and controls fit: ${label} ${mode} ${shape} ${view}`, async ({ page, context }) => {
+          // Known app issue: in Both view with Auto detection the camera is about 9% of the seat at 1366 x 768 (limit 33%). Remove this line when the layout is fixed.
+          test.fixme(view === "Both", "the camera is about 9% of the seat in Both view at 1366 x 768, below the 33% limit");
           test.setTimeout(120_000);
           await page.setViewportSize({ width, height });
           const slug = await soloTable(context.request, count);
           await fakeCamera(page, shape);
-          // Camera first: Webcam only. The default (Auto, board on) leaves a small camera on a 1366 x 768 window.
-          await page.addInitScript(() => { try { localStorage.setItem("dd-remote-webcam-only", "1"); } catch { /* storage blocked */ } });
+          // Both keeps the virtual field on, so the camera must still hold its share of the seat. Webcam only has no field.
+          await page.addInitScript(on => { try { localStorage.setItem("dd-remote-webcam-only", on ? "1" : "0"); } catch { /* storage blocked */ } }, view === "Webcam only");
           await page.goto(`/duels/remote/${slug}`);
           // Camera off: the empty feed fills the same box as a live one will.
           await expect(page.getByTestId("feed-box-0")).toBeVisible();
@@ -494,8 +497,9 @@ test.describe("remote duels screen, solo", () => {
           if (width >= 1366 && shape === "16:9") {
             // The camera comes first: a large share of the seat. The field frame hugs its zones and is a strip. LP is one small row.
             expect(share(on)).toBeGreaterThan(mode === "3" ? 0.3 : 0.33);
-            if (on.holo) expect(on.holo.w).toBeLessThan(on.seat!.w * (mode === "3" ? 1.01 : 0.7));
-            if (on.holo && mode !== "4") expect(on.holo.h).toBeLessThan(on.seat!.h * (mode === "3" ? 0.5 : 0.36));
+            if (view === "Both") expect(on.holo).toBeTruthy();
+            if (view === "Both") expect(on.holo!.w).toBeLessThan(on.seat!.w * (mode === "3" ? 1.01 : 0.7));
+            if (view === "Both" && mode !== "4") expect(on.holo!.h).toBeLessThan(on.seat!.h * (mode === "3" ? 0.5 : 0.36));
             expect(on.lpFont).toBeLessThanOrEqual(42);
             if (mode === "1v1") expect(on.lp!.h).toBeLessThanOrEqual(60);
           }
@@ -1128,7 +1132,7 @@ test.describe("Remote Duel with the flag off leaves no trace", () => {
 
 test.describe("remote duels screen, two players on LiveKit", () => {
   test("Bob reads Alice's feed, both see it, and the other player can undo", async ({ browser }) => {
-  test.skip(!HAVE_LIVEKIT, `needs LiveKit at ${LIVEKIT.origin} (LIVEKIT_URL)`);
+    test.skip(!HAVE_LIVEKIT, `needs LiveKit at ${LIVEKIT.origin} (LIVEKIT_URL)`);
     test.setTimeout(300_000);
     const alice = await browser.newContext(); const bob = await browser.newContext();
     await Promise.all([bothView(alice), bothView(bob)]);
@@ -1554,9 +1558,10 @@ test.describe("remote duels, spectators", () => {
 // Standalone real-worker coverage: run with playwright.vision.config.ts and a prepared local lab.
 const AUTO_CARD = process.env.E2E_AUTO_CARD ?? new URL('../../../data/vision/benchmark/field-watcher/card.png', import.meta.url).pathname;
 const EXTRA_CARD = process.env.E2E_EXTRA_CARD ?? new URL('../../../data/vision/benchmark/field-watcher/44508094.png', import.meta.url).pathname;
+const HAVE_FIXTURE_FILES = existsSync(AUTO_CARD) && existsSync(EXTRA_CARD);
 const TRAP_CARD = process.env.E2E_TRAP_CARD ?? new URL('../../../data/vision/benchmark/field-watcher/41420027.png', import.meta.url).pathname;
 test('field watcher owner: one card completes the full physical lifecycle',async({page,context})=>{
-  test.skip(!HAVE_FIELD_FIXTURES, NEED_FIXTURES);
+  test.skip(!HAVE_FIXTURE_FILES, NEED_FIXTURES);
   test.setTimeout(240_000);
   // A human choice must survive a frozen visibility flag and one bad HTTP frame.
   const {fieldEvidenceMatches,applyVerifiedFieldMutation}=await import('../../web/src/lib/remote/field-proposals');
@@ -1797,7 +1802,7 @@ async function appearingCamera(page:Page,cardFile=AUTO_CARD,guided=false) {
   },{data,guided});
 }
 test('field watcher automatic: owner table applies once and Undo removes the atomic placement',async({page,context})=>{
-  test.skip(!HAVE_FIELD_FIXTURES || !HAVE_VISION_LAB, `${NEED_FIXTURES} and the vision lab`);
+  test.skip(!HAVE_FIXTURE_FILES || !HAVE_VISION_LAB, `${NEED_FIXTURES} and the vision lab`);
   test.setTimeout(120_000);await authenticatePlayer(context.request,{userId:101},process.env.E2E_AUTH_SECRET!,process.env.VISION_LAB_ORIGIN??'http://127.0.0.1:3449');
   const slug=await soloTable(context.request,2,true);
   // Next dev compiles these on first use. Warm them before a placement starts
@@ -1936,7 +1941,7 @@ async function measuredFieldChange(page:Page,kind:'move'|'remove') {
   }),kind);
 }
 for(const seatCount of [2,4] as const)test(`field watcher automatic: responsive best-match and calibration screenshots for ${seatCount} seats`,async({page,context})=>{
-  test.skip(!HAVE_FIELD_FIXTURES || !HAVE_VISION_LAB, `${NEED_FIXTURES} and the vision lab`);
+  test.skip(!HAVE_FIXTURE_FILES || !HAVE_VISION_LAB, `${NEED_FIXTURES} and the vision lab`);
   test.setTimeout(180_000);const origin=process.env.VISION_LAB_ORIGIN??'http://127.0.0.1:3449';
   await authenticatePlayer(context.request,{userId:101},process.env.E2E_AUTH_SECRET!,origin);
   const slug=await soloTable(context.request,seatCount),directory=process.env.E2E_FIELD_SHOTS??new URL('../../../data/vision/benchmark/field-watcher/r1-shots/',import.meta.url).pathname;
@@ -1970,7 +1975,7 @@ for(const seatCount of [2,4] as const)test(`field watcher automatic: responsive 
 });
 
 test('field watcher automatic: Set backs, deck stacks, and revealed Sets keep face state',async({page,context})=>{
-  test.skip(!HAVE_FIELD_FIXTURES, NEED_FIXTURES);
+  test.skip(!HAVE_FIXTURE_FILES, NEED_FIXTURES);
   test.setTimeout(120_000);
   const writes:{type:string;baseSeq:number;status:number;recovery:boolean}[]=[];let recovery=false;
   page.on('response',response=>{
