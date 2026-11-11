@@ -7,7 +7,7 @@ import {useSendHealth} from '@/lib/remote/send-health-store';
 import {markVideoOfferShown,readVideoChoice,VIDEO_OFFER_MS,videoOfferShown} from '@/lib/remote/video-rate';
 import {createSlowWatch,isWeakDevice,markTapOfferShown,readTapChoice,saveTapChoice,tapOfferShown,TAP_OFFER_MS,type TapChoice} from '@/lib/remote/tap-offer';
 import {isTournamentTable,readTournamentMode,saveTournamentMode,stateMode,ownDetectionMode,type TournamentMode,type TournamentModeReason} from '@/lib/remote/tournament-detection';
-import {remoteHandActivationDecision,remotePhysicalSlot,REMOTE_HAND_SUGGESTION_EVENT,recentFieldDeparture,type RemoteRoom,type RemoteSummonKind,type TwinCard} from '@yugidraft/shared/remote';
+import {remoteHandActivationDecision,remoteHandReadDecision,remotePhysicalSlot,REMOTE_HAND_SUGGESTION_EVENT,recentFieldDeparture,type RemoteRoom,type RemoteSummonKind,type TwinCard} from '@yugidraft/shared/remote';
 import type {RoomMutation,RoomTransaction} from '@/lib/remote/room-mutations';
 import {useFieldWatcher} from '@/lib/remote/use-field-watcher';
 import {e2eFieldHook} from '@/lib/remote/e2e-field-hook';
@@ -48,6 +48,8 @@ const piles=new Set<FieldZone>(['GY','BANISHED','DECK','EXTRA']);
 const physicalZonePattern=/^(?:M[1-5]|S[1-5]|EMZ[12]|FIELD)$/;
 /** A hand over the GY/banished pile counts as exit evidence for a card that shows on the field up to 10 s later. */
 const PILE_EXIT_MS=10_000;
+/** How long a card shown from the hand stays linked to the play that follows it (field or pile placement, one Undo). */
+const HAND_ACTIVATION_MS=10_000;
 /** An Equip effect on this field makes a monster in a Spell & Trap Zone plausible (an Equip Card). */
 const equipSourceOn=(twins:readonly TwinCard[])=>equipSourceOnField(twins,c=>cardInfo(cardCode(c)));
 /** The slow-camera hint shows once per page load. */
@@ -534,7 +536,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       if(tokenUndo.current?.trackId===event.track.id&&updated?.state.undo?.actionId){undoChain.current={after:updated.state.undo.actionId,ids:[tokenUndo.current.actionId]};tokenUndo.current=undefined;}
       // The card was held up and shown first: the placement joins that activation, so one notice and one Undo cover both.
       const activated=handActivation.current,placedId=updated?.state.undo?.actionId;
-      if(activated&&placedId&&!summon&&entry&&catalogCardId(entry)===activated.cardId&&performance.now()-activated.at<60_000&&!undoChain.current.ids.length){
+      if(activated&&placedId&&!summon&&entry&&catalogCardId(entry)===activated.cardId&&performance.now()-activated.at<HAND_ACTIVATION_MS&&!undoChain.current.ids.length){
         handActivation.current=undefined;undoChain.current={after:placedId,ids:[activated.actionId]};
         setNotice(`${entry.name} activated from hand, then placed · auto`);
       }
@@ -543,10 +545,12 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       if(projected.shiftTo&&projected.zone?.startsWith('S')&&!rowKept.current.has(target.card.ref))setRowPrompts(list=>list.some(p=>p.ref===target.card.ref)?list:[...list,{ref:target.card.ref,name:entry?.name??'Monster'}]);
     }finally{setPending(false);}
   }
-  /** Held cards that cannot be activated (a Normal or Extra Deck monster) keep the one-tap suggestion. Unknown data does not block a sure read. */
-  const heldActivatable=(cardId:number)=>{const frame=cardInfo(cardId)?.frameType;return frame===undefined?undefined:!/^(normal|fusion|synchro|xyz|link|token)/.test(frame);};
-  /** One held card, named by the camera (sure) or picked by the player: shown to the table at once, never placed on the field. */
+  /** Held cards that cannot be activated (a Normal or Extra Deck monster) keep the one-tap suggestion. Unknown card data means not activatable. */
+  const heldActivatable=(cardId:number)=>{const frame=cardInfo(cardId)?.frameType;return frame!==undefined&&!/^(normal|fusion|synchro|xyz|link|token)/.test(frame);};
+  /** One held card, named by the camera (sure, lifted) or picked by the player: shown to the table at once, never placed on the field. */
   async function commitHeld(act:RoomMutation,cardId:number,name:string,id:string,readAt:number,key:string) {
+    // The card type must be known before the decision: an unloaded card is never "activatable".
+    await loadCards([cardId]);
     if(!live()||watch.getTracks().some(t=>t.visible&&!t.removed&&t.cardId&&(entries.current.get(t.cardId)?.passcode??Number(t.cardId))===cardId))return;
     const decision=remoteHandActivationDecision(current.current.room.state,seat,{cardId,id,at:serverNow()},{fieldReadPending:heldFieldReadPending(watch.getTracks(),readAt),activatable:heldActivatable(cardId)});
     if(!decision)return;
@@ -557,15 +561,47 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     const updated=await act(decision,key.slice(0,100));
     const actionId=updated?.state.undo?.actionId;
     if(!updated||!actionId)return;
-    if(decision.type==='effect.activated')handActivation.current={cardId,actionId,at:performance.now()};
+    if(decision.type==='effect.activated'){
+      handActivation.current={cardId,actionId,at:performance.now()};
+      // Later plays of another copy do not join this one once its window is over.
+      setTimeout(()=>{if(handActivation.current?.actionId===actionId)handActivation.current=undefined;},HAND_ACTIVATION_MS);
+    }
     setNotice(decision.type==='effect.activated'?`${name} activated from hand · auto`:`${name} added to hand · auto`);setUndoId(actionId);
   }
   function handleHeld(event:HeldCardEvent) {
     const entry=entries.current.get(event.cardId),cardId=entry?catalogCardId(entry):Number(event.cardId);
     if(typeof cardId!=='number'||!Number.isSafeInteger(cardId)||cardId<=0||heldTimers.current.has(event.id))return;
-    void loadCards([cardId]);
-    // The card shows at once while it is still in the hand (not after the episode). Only a field read waiting on the same spot goes first.
-    const startedAt=performance.now(),readAt=event.at-performance.timeOrigin;
+    const readAt=event.at-performance.timeOrigin;
+    if(!event.lifted){
+      // Fingers on a flat card can be a slow placement or a discard: never a public activation. The old path waits for the episode
+      // to end and for no field play to follow, then adds the card to the hand or only suggests it.
+      let endedAt:number|undefined;
+      const timer=setInterval(()=>{
+        if(!live()){clearInterval(timer);heldTimers.current.delete(event.id);return;}
+        const stillHeld=watch.getSnapshot()?.held?.some(t=>t.id===event.id&&t.visible);
+        if(stillHeld){endedAt=undefined;return;}
+        endedAt??=performance.now();
+        if(performance.now()-endedAt<800)return;
+        if(heldFieldReadPending(watch.getTracks(),readAt)&&performance.now()-endedAt<5000)return;
+        clearInterval(timer);heldTimers.current.delete(event.id);
+        void queue(async act=>{
+          if(!live()||watch.getTracks().some(t=>t.visible&&!t.removed&&t.cardId&&
+            (entries.current.get(t.cardId)?.passcode??Number(t.cardId))===cardId))return;
+          const decision=remoteHandReadDecision(current.current.room.state,seat,{cardId,id:event.id,at:serverNow()},heldFieldReadPending(watch.getTracks(),readAt));
+          if(!decision)return;
+          if(decision.type==='hand.suggest'){
+            window.dispatchEvent(new CustomEvent(REMOTE_HAND_SUGGESTION_EVENT,{detail:{...decision,slug:current.current.room.slug,name:entry?.name??'Card'}}));
+            setNotice(`Add ${entry?.name??'card'} to hand?`);return;
+          }
+          const updated=await act(decision,event.id.slice(0,100));
+          if(updated){setNotice(`${entry?.name??'Card'} added to hand · auto`);setUndoId(updated.state.undo?.actionId??'');}
+        });
+      },100);
+      heldTimers.current.set(event.id,timer);
+      return;
+    }
+    // A lifted card shows at once while it is still in the hand (not after the episode). Only a field read waiting on the same spot goes first.
+    const startedAt=performance.now();
     const timer=setInterval(()=>{
       if(!live()){clearInterval(timer);heldTimers.current.delete(event.id);return;}
       if(heldFieldReadPending(watch.getTracks(),readAt)&&performance.now()-startedAt<5000)return;
@@ -576,7 +612,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   }
   /** After the last try: the top candidates for one tap. A wrong automatic card is worse than a tap. */
   function handleHeldUnsure(event:HeldUnsureEvent) {
-    if(!live())return;
+    if(!live()||!event.lifted)return;
     const options=event.candidates.flatMap(c=>{const entry=entries.current.get(c.cardId),cardId=entry?catalogCardId(entry):undefined;return entry&&cardId?[{cardId,name:entry.name}]:[];}).slice(0,3);
     if(!options.length)return;
     void loadCards(options.map(o=>o.cardId));
@@ -636,8 +672,16 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
           if(!live()||twins.some(c=>c.ref===ref))return;
           const zone=event.track.zone==='GY'?'graveyard':'banished';
           if(!pileEntry(event.track)){const top=twins.filter(c=>c.zone===zone).at(-1);if(top)bindings.current.set(event.track.id,top.ref);return;}
-          const updated=await act({type:'twin.place',source:'auto',actorSeat:seat,seat,zone,card:{ref,faceUp:true,position:'attack'}});
-          if(updated){bindings.current.set(event.track.id,ref);setNotice(`Unknown card added to the ${zone==='graveyard'?'GY':'banished pile'} · name it`);setUndoId(updated.state.undo?.actionId??'');}
+          // A card that was just shown from the hand and then reaches a pile unread is that card: name it, so the hand count stays exact.
+          const shown=handActivation.current&&performance.now()-handActivation.current.at<HAND_ACTIVATION_MS?handActivation.current:undefined;
+          const updated=await act({type:'twin.place',source:'auto',actorSeat:seat,seat,zone,card:{ref,faceUp:true,position:'attack',...(shown?{cardId:shown.cardId}:{})}});
+          if(updated){
+            bindings.current.set(event.track.id,ref);
+            const pileId=updated.state.undo?.actionId;
+            if(shown&&pileId){handActivation.current=undefined;undoChain.current={after:pileId,ids:[shown.actionId]};setNotice(`${cardInfo(shown.cardId)?.name??'Card'} activated from hand, then sent to the ${zone==='graveyard'?'GY':'banished pile'} · auto`);}
+            else setNotice(`Unknown card added to the ${zone==='graveyard'?'GY':'banished pile'} · name it`);
+            setUndoId(pileId??'');
+          }
         },event);
         offer(event);
       }
@@ -1387,11 +1431,11 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
         <button type="button" disabled={pending} onClick={()=>{const {event,token}=tokenPrompt;setTokenPrompt(null);tokenUndo.current=undefined;void queue(async act=>{const removed=await act({type:'twin.remove',actorSeat:seat,seat,cardRef:token.ref});const actionId=removed?.state.undo?.actionId;if(!removed||!actionId)return;tokenUndo.current={trackId:event.track.id,actionId};setNotice('Token removed · Undo');setUndoId(actionId);},event).then(()=>queue(act=>apply(event,act),event));}} data-testid="token-clash-remove">Remove token</button>
         <button type="button" onClick={()=>setTokenPrompt({...tokenPrompt,choosing:true})} data-testid="token-clash-other">Choose another zone</button></span>:rowPrompts[0]?<span data-testid="monster-in-st">{rowPrompts[0].name} is a monster in {rowZone}.
         <button type="button" disabled={pending} data-testid="monster-in-st-move" onClick={()=>moveFromSpellTrap(rowPrompts[0])}>Move to {rowTarget??'a Monster Zone'}</button>
-        <button type="button" data-testid="monster-in-st-keep" onClick={()=>{const first=rowPrompts[0];rowKept.current.add(first.ref);setRowPrompts(list=>list.filter(p=>p.ref!==first.ref));}}>Keep (equipped or placed by a card)</button></span>:heldPick?<span data-testid="held-pick">Which card did you hold up?
-        {heldPick.options.map(o=><button type="button" key={o.cardId} disabled={pending} data-testid="held-pick-card" onClick={()=>{const pick=heldPick;setHeldPick(null);void queue(act=>commitHeld(act,o.cardId,o.name,`${pick.id}-pick`,performance.now(),`${pick.id}-pick`));}}>{o.name}</button>)}
-        <button type="button" data-testid="held-pick-none" onClick={()=>setHeldPick(null)}>Not an activation</button></span>:failedUpdate?<>{notice||'Could not save the field update.'}<button type="button" disabled={pending} onClick={()=>void queue(failedUpdate.work,failedUpdate.event,failedUpdate.humanChoice)}>Retry field update</button></>:recovery?<>{recovery.message}<button type="button" onClick={recover}>Remove stale placement</button></>:syncHold?<span data-testid="sync-board-hold">Auto-detect is on. The board keeps its cards until you sync it.<button type="button" onClick={()=>{scanField();}}>Sync board to camera</button></span>:shiftHint?<span data-testid="zone-shift-hint">Zones look shifted — Recalibrate?<button type="button" onClick={()=>{setShiftHint(false);setCalibrating(true);}}>Recalibrate</button><button type="button" onClick={()=>setShiftHint(false)}>Dismiss</button></span>:notice?<>{notice}{departure?<span data-leave-tags> → {fieldLeaveLabel(departure.zone,!departure.down)} {destinations.map(d=><button type="button" key={d.title} disabled={pending||d.zone===departure.zone&&(d.zone!=='banished'||('down' in d)===!!departure.down)} onClick={()=>redirect(d.zone,'down' in d)}>{d.title}</button>)}</span>:null}
+        <button type="button" data-testid="monster-in-st-keep" onClick={()=>{const first=rowPrompts[0];rowKept.current.add(first.ref);setRowPrompts(list=>list.filter(p=>p.ref!==first.ref));}}>Keep (equipped or placed by a card)</button></span>:failedUpdate?<>{notice||'Could not save the field update.'}<button type="button" disabled={pending} onClick={()=>void queue(failedUpdate.work,failedUpdate.event,failedUpdate.humanChoice)}>Retry field update</button></>:recovery?<>{recovery.message}<button type="button" onClick={recover}>Remove stale placement</button></>:syncHold?<span data-testid="sync-board-hold">Auto-detect is on. The board keeps its cards until you sync it.<button type="button" onClick={()=>{scanField();}}>Sync board to camera</button></span>:shiftHint?<span data-testid="zone-shift-hint">Zones look shifted — Recalibrate?<button type="button" onClick={()=>{setShiftHint(false);setCalibrating(true);}}>Recalibrate</button><button type="button" onClick={()=>setShiftHint(false)}>Dismiss</button></span>:notice?<>{notice}{departure?<span data-leave-tags> → {fieldLeaveLabel(departure.zone,!departure.down)} {destinations.map(d=><button type="button" key={d.title} disabled={pending||d.zone===departure.zone&&(d.zone!=='banished'||('down' in d)===!!departure.down)} onClick={()=>redirect(d.zone,'down' in d)}>{d.title}</button>)}</span>:null}
         {departure?.zone==='pending'?<button type="button" disabled={pending} onClick={()=>redirect('graveyard')}>Retry removal</button>:null}
-        {undoId&&room.state.undo?.actionId===undoId&&serverNow()<=room.state.undo.at+5000?<button type="button" onClick={()=>void queue(async act=>{clipAction('undo',{actionId:undoId});const departed=departureRef.current?.ref,link=undoChain.current.after===undoId?undoChain.current:undefined,chain=link?.ids??[];undoChain.current={after:'',ids:[]};let updated=await act({type:'undo',actorSeat:seat,targetActionId:undoId});for(const id of chain)if(updated)updated=await act({type:'undo',actorSeat:seat,targetActionId:id})??updated;if(updated){if(link?.rebind){bindings.current.set(link.rebind.trackId,link.rebind.ref);watch.confirm(link.rebind.trackId,undefined,link.rebind.ref,false);readerRemovals.current.delete(link.rebind.ref);}if(departed&&updated.state.seats[seat].twin.some(card=>card.ref===departed&&publicField(card.zone)))watch.dismiss(departed);setDeparture(null);setNotice('Automatic field change undone');setUndoId('');}})}>Undo</button>:null}</>:tapOffer?<span data-testid="tap-identify-offer">{tournament?'This computer is slow for live tracking. Switch to tap-to-identify? Your opponent will see the switch.':'This computer is slow for live tracking. Switch to tap-to-identify?'}<button type="button" onClick={()=>answerTapOffer('switch')}>Switch</button><button type="button" onClick={()=>answerTapOffer('keep')}>Keep</button></span>:videoOfferShowing?<span data-testid="video-fps-offer">Your computer is struggling with video. Switch to 15 fps to reduce lag?<button type="button" onClick={()=>answerVideoOffer(15)}>Switch</button><button type="button" onClick={()=>answerVideoOffer(30)}>Keep</button></span>:lightHintShowing?<span data-testid="low-light-hint">Camera is slow — add light or turn off auto exposure<button type="button" onClick={()=>setLightHint(false)}>Dismiss</button></span>:softHintShowing?<span data-testid="soft-camera-hint">Camera is out of focus — tap to focus or move closer<button type="button" onClick={()=>setSoftDismissed(true)}>Dismiss</button></span>:undefined}/>
+        {undoId&&room.state.undo?.actionId===undoId&&serverNow()<=room.state.undo.at+5000?<button type="button" onClick={()=>void queue(async act=>{clipAction('undo',{actionId:undoId});const departed=departureRef.current?.ref,link=undoChain.current.after===undoId?undoChain.current:undefined,chain=link?.ids??[];undoChain.current={after:'',ids:[]};let updated=await act({type:'undo',actorSeat:seat,targetActionId:undoId});for(const id of chain)if(updated)updated=await act({type:'undo',actorSeat:seat,targetActionId:id})??updated;if(updated){if(link?.rebind){bindings.current.set(link.rebind.trackId,link.rebind.ref);watch.confirm(link.rebind.trackId,undefined,link.rebind.ref,false);readerRemovals.current.delete(link.rebind.ref);}if(departed&&updated.state.seats[seat].twin.some(card=>card.ref===departed&&publicField(card.zone)))watch.dismiss(departed);setDeparture(null);setNotice('Automatic field change undone');setUndoId('');}})}>Undo</button>:null}</>:heldPick?<span data-testid="held-pick">Which card did you hold up?
+        {heldPick.options.map(o=><button type="button" key={o.cardId} disabled={pending} data-testid="held-pick-card" onClick={()=>{const pick=heldPick;setHeldPick(null);void queue(act=>commitHeld(act,o.cardId,o.name,`${pick.id}-pick`,performance.now(),`${pick.id}-pick`));}}>{o.name}</button>)}
+        <button type="button" data-testid="held-pick-none" onClick={()=>setHeldPick(null)}>Not an activation</button></span>:tapOffer?<span data-testid="tap-identify-offer">{tournament?'This computer is slow for live tracking. Switch to tap-to-identify? Your opponent will see the switch.':'This computer is slow for live tracking. Switch to tap-to-identify?'}<button type="button" onClick={()=>answerTapOffer('switch')}>Switch</button><button type="button" onClick={()=>answerTapOffer('keep')}>Keep</button></span>:videoOfferShowing?<span data-testid="video-fps-offer">Your computer is struggling with video. Switch to 15 fps to reduce lag?<button type="button" onClick={()=>answerVideoOffer(15)}>Switch</button><button type="button" onClick={()=>answerVideoOffer(30)}>Keep</button></span>:lightHintShowing?<span data-testid="low-light-hint">Camera is slow — add light or turn off auto exposure<button type="button" onClick={()=>setLightHint(false)}>Dismiss</button></span>:softHintShowing?<span data-testid="soft-camera-hint">Camera is out of focus — tap to focus or move closer<button type="button" onClick={()=>setSoftDismissed(true)}>Dismiss</button></span>:undefined}/>
     {calibrating?<FieldCalibrationControl defaultSide={defaultSideFor(phone?'phone':'webcam')} video={video} initialCalibration={watch.calibration} placed={watch.placed} format={room.format?.id??room.state.deckChecks.format.id} detectCalibrationCards={async frame=>{const result=await detectCards(await createImageBitmap(frame));if(result.status!=='ready')throw new Error(result.note);return result.cards;}} onSave={grid=>{updateCalibration(grid,true);setCalibrating(false);}} onCancel={()=>{if(watch.calibrationNeeded&&!watch.calibration?.orientation)setDetection(false);setCalibrating(false);}}/>:null}
   </>;
 }
