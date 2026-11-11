@@ -71,23 +71,21 @@ export function heldFieldReadPending(tracks:readonly FieldTrack[],readAt:number)
     t.state!=='dismissed'&&(!t.cardId||t.state==='candidate'));
 }
 /**
- * Where a card goes when the camera saw nothing: the rules, never the hand (a card returns to the hand or Deck only by the
- * camera or the player's choice). A face-up Pendulum Monster leaving a Monster Zone is added to the Extra Deck face-up; the
- * rest go to the Graveyard. A token has no pile (the server drops it) and an Xyz Monster's materials follow it to the GY.
+ * Where a card goes when the camera saw no pile: a card taken off the field is assumed to be in the hand (Dueling Domain owner rule).
+ * It goes to the GY, banished or the Extra Deck only when the camera sees it arrive there (or the player says so). A token has no
+ * hand (the server drops it). An Xyz Monster's materials follow the same rule (a known mismatch with the rulebook: they should go to the GY).
  */
-export function fieldDefaultDestination(card:Pick<TwinCard,'zone'|'faceUp'|'slot'>,facts?:{type?:string}):{zone:'graveyard'|'extra';faceUp?:true} {
-  // Monster Zones, or a Pendulum Zone (the 'pendulum' row, or Spell/Trap Zone 1 or 5).
-  const where=['monster','extra-monster','pendulum'].includes(card.zone)||card.zone==='spell-trap'&&(card.slot===1||card.slot===5);
-  return card.faceUp&&where&&/\bpendulum\b/i.test(facts?.type??'')?{zone:'extra',faceUp:true}:{zone:'graveyard'};
+export function fieldDefaultDestination():{zone:'hand'} {
+  return {zone:'hand'};
 }
 /** The destinations a player can pick for a card that left the field (the tag on the moved card). `down`: face-down. */
 export const FIELD_LEAVE_DESTINATIONS=[{zone:'graveyard',title:'GY'},{zone:'banished',title:'Banish'},{zone:'banished',down:true,title:'Banish face-down'},{zone:'hand',title:'Hand'},{zone:'deck',title:'Deck'},{zone:'extra',title:'Extra Deck'}] as const;
-export const fieldLeaveLabel=(zone:string,faceUp?:boolean)=>FIELD_LEAVE_DESTINATIONS.find(d=>d.zone===zone&&(zone!=='banished'||(('down' in d)===(faceUp===false))))?.title??zone;
-/** `destination`: a pile the camera showed, or a choice. Without one, the rules decide (fieldDefaultDestination). A card in a pile that leaves it still goes to the hand. */
-export function fieldDepartureProposal(card:TwinCard,seat:number,destination?:'deck'|'extra'|{zone:'graveyard'|'banished'|'extra';faceUp?:boolean},facts?:{type?:string}):Extract<RemoteActionProposal,{type:'twin.move'}>|undefined {
+export const fieldLeaveLabel=(zone:string,faceUp?:boolean)=>zone==='material'?'Under Xyz':FIELD_LEAVE_DESTINATIONS.find(d=>d.zone===zone&&(zone!=='banished'||(('down' in d)===(faceUp===false))))?.title??zone;
+/** `destination`: a pile the camera showed, or a choice. Without one, the card is assumed in the hand (fieldDefaultDestination). A card in a pile that leaves it goes to the hand too. */
+export function fieldDepartureProposal(card:TwinCard,seat:number,destination?:'deck'|'extra'|{zone:'graveyard'|'banished'|'extra';faceUp?:boolean}):Extract<RemoteActionProposal,{type:'twin.move'}>|undefined {
   if(card.token||!['monster','extra-monster','spell-trap','field','pendulum','graveyard','banished'].includes(card.zone))return;
   const pile=['graveyard','banished'].includes(card.zone);
-  const to=typeof destination==='string'?{zone:destination}:destination??(pile?{zone:'hand' as const}:fieldDefaultDestination(card,facts));
+  const to=typeof destination==='string'?{zone:destination}:destination??fieldDefaultDestination();
   // Back to the Deck/Extra, or a pile card that leaves its pile, turns face-down. The GY is public, so a card sent there (even a
   // face-down one) is face-up; banished is face-up unless the choice or the camera says face-down.
   const faceUp:boolean|undefined='faceUp' in to&&to.faceUp!==undefined?to.faceUp:pile||typeof destination==='string'?false:to.zone==='graveyard'||to.zone==='banished'?true:undefined;
@@ -95,13 +93,12 @@ export function fieldDepartureProposal(card:TwinCard,seat:number,destination?:'d
 }
 
 /**
- * Camera evidence for a card that left the field: a pile card the camera placed within a second before the removal (or after it) and has not named (an unread
- * face-up top, or a face-down card on the banished pile) is that card. It needs exactly one such pile card and exactly one
- * departure waiting; two of either is a guess, and the rules decide. An identity read goes the usual way (the pile track
- * finds the departed card by its name).
+ * Camera evidence for a card that left the field: a pile card the camera placed within a second before the removal (or after it)
+ * and has not named (an unread face-up top, or a face-down card on the banished pile). Exactly one such pile card is evidence; two
+ * mean the camera cannot tell them apart. The caller decides which departed card it is (one waiting card: that one; more: the
+ * player is asked). An identity read goes the usual way (the pile track finds the departed card by its name).
  */
-export function fieldPileEvidence({twins,tracks,lastSeen,owns,departures}:{twins:readonly TwinCard[];tracks:readonly FieldTrack[];lastSeen:number;owns:(track:FieldTrack)=>string;departures:number}):{twin:TwinCard;zone:'graveyard'|'banished';faceUp:boolean}|undefined {
-  if(departures!==1)return;
+export function fieldPileEvidence({twins,tracks,lastSeen,owns}:{twins:readonly TwinCard[];tracks:readonly FieldTrack[];lastSeen:number;owns:(track:FieldTrack)=>string}):{twin:TwinCard;zone:'graveyard'|'banished';faceUp:boolean}|undefined {
   const found=twins.filter(c=>['graveyard','banished'].includes(c.zone)&&c.ref.startsWith('fw-')&&!c.cardId&&!c.passcode&&!c.name&&(c.zone==='banished'||c.faceUp)).filter(c=>
     tracks.some(t=>owns(t)===c.ref&&t.zone===(c.zone==='banished'?'BANISHED':'GY')&&t.visible&&!t.removed&&t.firstSeen>=lastSeen-1000));
   return found.length===1?{twin:found[0],zone:found[0].zone as 'graveyard'|'banished',faceUp:found[0].faceUp}:undefined;
@@ -174,4 +171,13 @@ export async function retryFieldMutation(act:RoomMutation,proposal:RemoteActionP
     if(attempt<attempts-1)await new Promise(resolve=>setTimeout(resolve,100*(attempt+1)));
   }
   throw new Error(`Could not save the field update (${proposal.type}${reason?`: ${reason}`:''}). Use Retry field update.`);
+}
+
+/**
+ * Xyz Monsters a card that just left the field can go under (the "Attach to" tag): every face-up Xyz Monster on the field, either side.
+ * Those whose text attaches cards (the attach_material vocabulary verb; the same word rule as the effect search) come first.
+ */
+export function xyzAttachTargets(seats:readonly {seat:number;twin:readonly TwinCard[]}[],facts:(card:TwinCard)=>{type?:string;effectText?:string}|undefined,exclude?:string):{seat:number;ref:string;name:string;hint:boolean}[] {
+  const found=seats.flatMap(({seat,twin})=>twin.filter(c=>c.ref!==exclude&&c.faceUp&&['monster','extra-monster'].includes(c.zone)&&!c.token&&/\bxyz\b/i.test(facts(c)?.type??'')).map(c=>({seat,ref:c.ref,name:c.name??facts(c)?.type??'Xyz Monster',hint:/\battach\w*/i.test(facts(c)?.effectText??'')})));
+  return found.sort((a,b)=>Number(b.hint)-Number(a.hint));
 }

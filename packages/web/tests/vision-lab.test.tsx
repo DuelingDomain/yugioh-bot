@@ -978,7 +978,7 @@ describe('typed watcher zone projection',()=>{
    await fixture.emit();await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());Object.assign(fixture.track,{id:'new-s4',zone:'S4',cardId:undefined,state:'prompt'});await fixture.emit({type:'prompt',result:{...result,candidates:[{cardId:cards[2].cardId,score:.99},{cardId:cards[3].cardId,score:.98}]}});
    fireEvent.click(await screen.findByRole('button',{name:/Monster Reborn/i}));await waitFor(()=>expect(screen.getByRole('button',{name:/Pot of Greed/i})).toBeEnabled());fireEvent.click(screen.getByRole('button',{name:/Pot of Greed/i}));await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledTimes(2),{timeout:4000});
    expect(fixture.post.mock.calls.map(([proposal])=>proposal.type)).toEqual(['twin.place','twin.move','twin.place']);
-   expect(fixture.room().state.seats[0].twin).toEqual(expect.arrayContaining([expect.objectContaining({ref:'physical-typed',zone:'graveyard'}),expect.objectContaining({ref:'new-s4',cardId:55144522,zone:'spell-trap',slot:4})]));
+   expect(fixture.room().state.seats[0].twin).toEqual(expect.arrayContaining([expect.objectContaining({ref:'physical-typed',zone:'hand'}),expect.objectContaining({ref:'new-s4',cardId:55144522,zone:'spell-trap',slot:4})]));
   }finally{fixture.dispose();}
  });
  it.each(['prompt','automatic'] as const)('reuses an unread restart reservation without simultaneous second-copy proof via %s',async mode=>{
@@ -1015,7 +1015,7 @@ describe('typed watcher zone projection',()=>{
    await fixture.emit({type:placement?'placed':'removed'});await waitFor(()=>expect(fixture.post).toHaveBeenCalledOnce(),{timeout:6000});await act(async()=>{await fixture.post.mock.results[0].value;});fixture.room().state.undo.at=Date.now();fixture.refresh();fireEvent.click(await screen.findByRole('button',{name:'Undo'}));await waitFor(()=>expect(fixture.post).toHaveBeenCalledTimes(2));expect(dismiss).not.toHaveBeenCalled();
    await act(async()=>{ready.resolve();await fixture.post.mock.results[1].value;});
    if(mode==='restored departure'){await waitFor(()=>expect(dismiss).toHaveBeenCalledExactlyOnceWith(old.ref));expect(fixture.track).toMatchObject({removed:true,visible:false});}
-   else{expect(dismiss).not.toHaveBeenCalled();expect(fixture.room().state.seats[0].twin).toEqual(placement?[]:[expect.objectContaining({ref:old.ref,zone:'graveyard'})]);}
+   else{expect(dismiss).not.toHaveBeenCalled();expect(fixture.room().state.seats[0].twin).toEqual(placement?[]:[expect.objectContaining({ref:old.ref,zone:'hand'})]);}
   }finally{ready.resolve();fixture.dispose();}
  },10_000);
  it('a pile card the camera shows right after a departure settles the move at once, and the stand-in goes (one card, one pile)',async()=>{
@@ -1031,13 +1031,26 @@ describe('typed watcher zone projection',()=>{
    expect(fixture.room().state.seats[0].twin).toEqual([expect.objectContaining({ref:old.ref,zone:'banished',faceUp:false})]);
   }finally{fixture.dispose();}
  },10_000);
- it('a card that leaves the field goes to the GY by default and the tag moves it where the player says',async()=>{
+ it('a pile card the camera shows seconds after the hand default moves the card hand to GY (one move, the stand-in goes)',async()=>{
+  const old={ref:'left-field',zone:'spell-trap',slot:4,cardId:41420027,name:'Solemn Judgment',faceUp:true,position:'attack'};
+  const fixture=await typedWatcherFixture(zoneEntries[0],'M4',[old],'moved');
+  try{
+   Object.assign(fixture.track,{removed:true,visible:false});state.fieldWatch.watch.isRemoved=(id:string)=>id===fixture.track.id||id===old.ref;fixture.refresh();
+   await fixture.emit({type:'removed'});await waitFor(()=>expect(fixture.post).toHaveBeenCalledOnce(),{timeout:6000});await act(async()=>{await fixture.post.mock.results[0].value;});fixture.refresh();
+   expect(fixture.room().state.seats[0].twin).toEqual([expect.objectContaining({ref:old.ref,zone:'hand'})]);
+   fixture.addTrack({id:'fw-1',zone:'GY',faceDown:false,cardId:undefined,state:'candidate',visible:true,removed:false,firstSeen:performance.now()});
+   fixture.setTwins([...fixture.room().state.seats[0].twin,{ref:'fw-1',zone:'graveyard',faceUp:true,position:'attack'}]);
+   await waitFor(()=>expect(fixture.post.mock.calls.map(([p]:any[])=>p.type)).toEqual(['twin.move','twin.move','twin.remove']),{timeout:3000});
+   expect(fixture.room().state.seats[0].twin).toEqual([expect.objectContaining({ref:old.ref,zone:'graveyard'})]);
+  }finally{fixture.dispose();}
+ },15_000);
+ it('a card that leaves the field goes to the hand by default and the tag moves it where the player says',async()=>{
   const old={ref:'left-field',zone:'spell-trap',slot:4,cardId:41420027,name:'Solemn Judgment',faceUp:true,position:'attack'};
   const fixture=await typedWatcherFixture(zoneEntries[0],'M4',[old],'moved');
   try{
    Object.assign(fixture.track,{removed:true,visible:false});state.fieldWatch.watch.isRemoved=()=>true;fixture.refresh();
    await fixture.emit({type:'removed'});await waitFor(()=>expect(fixture.post).toHaveBeenCalledOnce(),{timeout:6000});await act(async()=>{await fixture.post.mock.results[0].value;});fixture.refresh();
-   expect(fixture.room().state.seats[0].twin).toEqual([expect.objectContaining({ref:old.ref,zone:'graveyard'})]);
+   expect(fixture.room().state.seats[0].twin).toEqual([expect.objectContaining({ref:old.ref,zone:'hand'})]);
    fireEvent.click(await screen.findByRole('button',{name:'Banish face-down'}));await waitFor(()=>expect(fixture.post).toHaveBeenCalledTimes(2));
    await act(async()=>{await fixture.post.mock.results[1].value;});fixture.refresh();
    expect(fixture.room().state.seats[0].twin).toEqual([expect.objectContaining({ref:old.ref,zone:'banished',faceUp:false})]);
