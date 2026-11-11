@@ -75,8 +75,10 @@ export function heldFieldReadPending(tracks:readonly FieldTrack[],readAt:number)
  * camera or the player's choice). A face-up Pendulum Monster leaving a Monster Zone is added to the Extra Deck face-up; the
  * rest go to the Graveyard. A token has no pile (the server drops it) and an Xyz Monster's materials follow it to the GY.
  */
-export function fieldDefaultDestination(card:Pick<TwinCard,'zone'|'faceUp'>,facts?:{type?:string}):{zone:'graveyard'|'extra';faceUp?:true} {
-  return card.faceUp&&['monster','extra-monster'].includes(card.zone)&&/\bpendulum\b/i.test(facts?.type??'')?{zone:'extra',faceUp:true}:{zone:'graveyard'};
+export function fieldDefaultDestination(card:Pick<TwinCard,'zone'|'faceUp'|'slot'>,facts?:{type?:string}):{zone:'graveyard'|'extra';faceUp?:true} {
+  // Monster Zones, or a Pendulum Zone (the 'pendulum' row, or Spell/Trap Zone 1 or 5).
+  const where=['monster','extra-monster','pendulum'].includes(card.zone)||card.zone==='spell-trap'&&(card.slot===1||card.slot===5);
+  return card.faceUp&&where&&/\bpendulum\b/i.test(facts?.type??'')?{zone:'extra',faceUp:true}:{zone:'graveyard'};
 }
 /** The destinations a player can pick for a card that left the field (the tag on the moved card). `down`: face-down. */
 export const FIELD_LEAVE_DESTINATIONS=[{zone:'graveyard',title:'GY'},{zone:'banished',title:'Banish'},{zone:'banished',down:true,title:'Banish face-down'},{zone:'hand',title:'Hand'},{zone:'deck',title:'Deck'},{zone:'extra',title:'Extra Deck'}] as const;
@@ -86,13 +88,14 @@ export function fieldDepartureProposal(card:TwinCard,seat:number,destination?:'d
   if(card.token||!['monster','extra-monster','spell-trap','field','pendulum','graveyard','banished'].includes(card.zone))return;
   const pile=['graveyard','banished'].includes(card.zone);
   const to=typeof destination==='string'?{zone:destination}:destination??(pile?{zone:'hand' as const}:fieldDefaultDestination(card,facts));
-  // Back to the Deck/Extra, or a pile card that leaves its pile, turns face-down; a field card sent to a pile keeps its face.
-  const faceUp:boolean|undefined='faceUp' in to?to.faceUp:pile||typeof destination==='string'?false:undefined;
-  return {type:'twin.move',actorSeat:seat,seat,cardRef:card.ref,zone:to.zone,...(faceUp!==undefined?{faceUp}:{}),source:'auto',...(card.faceUp&&card.name?{name:card.name}:{}),...(card.position==='defense'?{position:'attack' as const}:{})};
+  // Back to the Deck/Extra, or a pile card that leaves its pile, turns face-down. The GY is public, so a card sent there (even a
+  // face-down one) is face-up; banished is face-up unless the choice or the camera says face-down.
+  const faceUp:boolean|undefined='faceUp' in to&&to.faceUp!==undefined?to.faceUp:pile||typeof destination==='string'?false:to.zone==='graveyard'||to.zone==='banished'?true:undefined;
+  return {type:'twin.move',actorSeat:seat,seat,cardRef:card.ref,zone:to.zone,...(faceUp!==undefined?{faceUp}:{}),...(to.zone==='extra'&&faceUp===true?{pendulum:true}:{}),source:'auto',...(card.faceUp&&card.name?{name:card.name}:{}),...(card.position==='defense'?{position:'attack' as const}:{})};
 }
 
 /**
- * Camera evidence for a card that left the field: a pile card the camera placed around then and has not named (an unread
+ * Camera evidence for a card that left the field: a pile card the camera placed within a second before the removal (or after it) and has not named (an unread
  * face-up top, or a face-down card on the banished pile) is that card. It needs exactly one such pile card and exactly one
  * departure waiting; two of either is a guess, and the rules decide. An identity read goes the usual way (the pile track
  * finds the departed card by its name).
@@ -100,7 +103,7 @@ export function fieldDepartureProposal(card:TwinCard,seat:number,destination?:'d
 export function fieldPileEvidence({twins,tracks,lastSeen,owns,departures}:{twins:readonly TwinCard[];tracks:readonly FieldTrack[];lastSeen:number;owns:(track:FieldTrack)=>string;departures:number}):{twin:TwinCard;zone:'graveyard'|'banished';faceUp:boolean}|undefined {
   if(departures!==1)return;
   const found=twins.filter(c=>['graveyard','banished'].includes(c.zone)&&c.ref.startsWith('fw-')&&!c.cardId&&!c.passcode&&!c.name&&(c.zone==='banished'||c.faceUp)).filter(c=>
-    tracks.some(t=>owns(t)===c.ref&&t.zone===(c.zone==='banished'?'BANISHED':'GY')&&t.visible&&!t.removed&&t.firstSeen>=lastSeen-8000));
+    tracks.some(t=>owns(t)===c.ref&&t.zone===(c.zone==='banished'?'BANISHED':'GY')&&t.visible&&!t.removed&&t.firstSeen>=lastSeen-1000));
   return found.length===1?{twin:found[0],zone:found[0].zone as 'graveyard'|'banished',faceUp:found[0].faceUp}:undefined;
 }
 

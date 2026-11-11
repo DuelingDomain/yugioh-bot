@@ -1017,7 +1017,20 @@ describe('typed watcher zone projection',()=>{
    if(mode==='restored departure'){await waitFor(()=>expect(dismiss).toHaveBeenCalledExactlyOnceWith(old.ref));expect(fixture.track).toMatchObject({removed:true,visible:false});}
    else{expect(dismiss).not.toHaveBeenCalled();expect(fixture.room().state.seats[0].twin).toEqual(placement?[]:[expect.objectContaining({ref:old.ref,zone:'graveyard'})]);}
   }finally{ready.resolve();fixture.dispose();}
- });
+ },10_000);
+ it('a pile card the camera shows right after a departure settles the move at once, and the stand-in goes (one card, one pile)',async()=>{
+  const old={ref:'left-field',zone:'spell-trap',slot:4,cardId:41420027,name:'Solemn Judgment',faceUp:true,position:'attack'};
+  const fixture=await typedWatcherFixture(zoneEntries[0],'M4',[old],'moved');
+  try{
+   Object.assign(fixture.track,{removed:true,visible:false});state.fieldWatch.watch.isRemoved=(id:string)=>id===fixture.track.id||id===old.ref;fixture.refresh();
+   await fixture.emit({type:'removed'});
+   expect(fixture.post).not.toHaveBeenCalled();
+   fixture.addTrack({id:'fw-1',zone:'BANISHED',faceDown:true,cardId:undefined,state:'candidate',visible:true,removed:false,firstSeen:performance.now()});
+   fixture.setTwins([old,{ref:'fw-1',zone:'banished',faceUp:false,position:'attack'}]);
+   await waitFor(()=>expect(fixture.post.mock.calls.map(([p]:any[])=>p.type)).toEqual(['twin.move','twin.remove']),{timeout:700});
+   expect(fixture.room().state.seats[0].twin).toEqual([expect.objectContaining({ref:old.ref,zone:'banished',faceUp:false})]);
+  }finally{fixture.dispose();}
+ },10_000);
  it('a card that leaves the field goes to the GY by default and the tag moves it where the player says',async()=>{
   const old={ref:'left-field',zone:'spell-trap',slot:4,cardId:41420027,name:'Solemn Judgment',faceUp:true,position:'attack'};
   const fixture=await typedWatcherFixture(zoneEntries[0],'M4',[old],'moved');
@@ -1029,7 +1042,7 @@ describe('typed watcher zone projection',()=>{
    await act(async()=>{await fixture.post.mock.results[1].value;});fixture.refresh();
    expect(fixture.room().state.seats[0].twin).toEqual([expect.objectContaining({ref:old.ref,zone:'banished',faceUp:false})]);
   }finally{fixture.dispose();}
- });
+ },10_000);
  it('retains physical hints in memory when session storage is unavailable',async()=>{
   const blocked=vi.spyOn(Storage.prototype,'setItem').mockImplementation(()=>{throw new Error('Storage unavailable');});const fixture=await typedWatcherFixture(zoneEntries[0],'M4');try{await fixture.emit();await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());fixture.switchCamera();expect(fixture.known()[0].zone).toBe('M4');expect(sessionStorage.getItem(physicalHintsKey)).toBeNull();}finally{blocked.mockRestore();fixture.dispose();}
  });

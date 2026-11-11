@@ -422,9 +422,11 @@ it('departures leave field zones once with a named atomic move and retain physic
   const {describeEvent}=await import('../src/components/remote/ui/describe');
   const card={ref:'physical',cardId:101,name:'Varudras',zone:'extra-monster',slot:2,faceUp:true,position:'defense'} as const;
   const proposal=fieldDepartureProposal(card,0);
-  expect(proposal).toEqual({type:'twin.move',actorSeat:0,seat:0,cardRef:'physical',zone:'graveyard',source:'auto',name:'Varudras',position:'attack'});
+  expect(proposal).toEqual({type:'twin.move',actorSeat:0,seat:0,cardRef:'physical',zone:'graveyard',faceUp:true,source:'auto',name:'Varudras',position:'attack'});
   expect(describeEvent({actorSeat:0,action:proposal} as any,()=> 'Alice',()=>undefined)?.text).toContain('Varudras left the field');
   expect(fieldDepartureProposal({...card,zone:'spell-trap'},0)?.zone).toBe('graveyard');
+  // A face-up Pendulum Monster leaving a Monster Zone or a Pendulum Zone goes face-up to the Extra Deck, marked Pendulum (public).
+  expect(fieldDepartureProposal({...card,zone:'spell-trap',slot:5},0,undefined,{type:'Effect Monster / Pendulum'})).toMatchObject({zone:'extra',faceUp:true,pendulum:true});
   for(const zone of ['graveyard','banished'])expect(fieldDepartureProposal({...card,zone},0)).toMatchObject({cardRef:'physical',zone:'hand',faceUp:false});
   for(const zone of ['hand','extra','deck'])expect(fieldDepartureProposal({...card,zone},0)).toBeUndefined();
   expect(fieldDepartureProposal(card,0,'extra')).toMatchObject({zone:'extra',faceUp:false});
