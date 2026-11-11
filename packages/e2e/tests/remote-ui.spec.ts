@@ -1284,9 +1284,11 @@ test.describe("remote duels, spectators", () => {
       // Face up once, then Set: the old event must not name it.
       await act({ type: "twin.place", seat: 0, zone: "spell-trap", card: { ref: "c0-70825459-was", slot: 2, cardId: 70825459, name: "Trap Tracks", faceUp: true } });
       await act({ type: "twin.flip", seat: 0, cardRef: "c0-70825459-was", faceUp: false });
+      // Added to hand is public table knowledge (the opponent sees it), so the spectator may see it too, never more than the opponent.
       await act({ type: "hand.add", cardId: 47355498, source: "unknown" });
+      await act({ type: "twin.place", seat: 0, zone: "banished", card: { ref: "c0-24094653-down", slot: 1, cardId: 24094653, name: "Polymerization", faceUp: false } });
       await act({ type: "twin.place", seat: 0, zone: "monster", card: { ref: "shown", slot: 1, cardId: 900000001, name: "Origin fixture 1", faceUp: true } });
-      const hiddenFree = (text: string) => { for (const secret of ["Torrential", "53582587", "Trap Tracks", "70825459", "Necrovalley", "47355498", "knownHand", "\"deck\":{", "savedDeckId", "deckCount", "effectTracking"]) expect(text, secret).not.toContain(secret); };
+      const hiddenFree = (text: string) => { for (const secret of ["Torrential", "53582587", "Trap Tracks", "70825459", "24094653", "Polymerization", "\"deck\":{", "savedDeckId", "deckCount", "effectTracking"]) expect(text, secret).not.toContain(secret); };
 
       // Listed where normal duels list tables, and the view from the server holds no hidden fact.
       expect((await (await carol!.request.get("/api/remote?scope=open")).json()).tables.some((t: { slug: string }) => t.slug === slug)).toBe(true);
@@ -1297,7 +1299,9 @@ test.describe("remote duels, spectators", () => {
       expect([view.spectator, view.mySeat]).toEqual([true, -1]);
       hiddenFree(viewText);
       expect(view.state.seats[0].twin.find((c: { ref: string }) => c.ref === "shown").name).toBe("Origin fixture 1");
-      expect(view.state.seats[0].twin.filter((c: { ref: string; cardId?: number }) => c.ref.startsWith("private-card-") && c.cardId === undefined)).toHaveLength(2);
+      expect(view.state.seats[0].twin.filter((c: { ref: string; cardId?: number }) => c.ref.startsWith("private-card-") && c.cardId === undefined)).toHaveLength(3);
+      expect(view.state.seats[0].knownHand.map((c: { cardId: number }) => c.cardId)).toEqual([47355498]);
+      expect(view.state.seats[0].knownHand).toEqual((await (await bob!.request.get(path)).json()).state.seats[0].knownHand);
       expect(view.state.seats[0].handCount).toBeDefined();
 
       // No seat change, no event, no idle clock.
