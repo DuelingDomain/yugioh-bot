@@ -422,18 +422,19 @@ it('departures leave field zones once with a named atomic move and retain physic
   const {describeEvent}=await import('../src/components/remote/ui/describe');
   const card={ref:'physical',cardId:101,name:'Varudras',zone:'extra-monster',slot:2,faceUp:true,position:'defense'} as const;
   const proposal=fieldDepartureProposal(card,0);
-  expect(proposal).toEqual({type:'twin.move',actorSeat:0,seat:0,cardRef:'physical',zone:'graveyard',faceUp:true,source:'auto',name:'Varudras',position:'attack'});
+  expect(proposal).toEqual({type:'twin.move',actorSeat:0,seat:0,cardRef:'physical',zone:'hand',source:'auto',name:'Varudras',position:'attack'});
   expect(describeEvent({actorSeat:0,action:proposal} as any,()=> 'Alice',()=>undefined)?.text).toContain('Varudras left the field');
-  expect(fieldDepartureProposal({...card,zone:'spell-trap'},0)?.zone).toBe('graveyard');
-  // A face-up Pendulum Monster leaving a Monster Zone or a Pendulum Zone goes face-up to the Extra Deck, marked Pendulum (public).
-  expect(fieldDepartureProposal({...card,zone:'spell-trap',slot:5},0,undefined,{type:'Effect Monster / Pendulum'})).toMatchObject({zone:'extra',faceUp:true,pendulum:true});
+  expect(fieldDepartureProposal({...card,zone:'spell-trap'},0)?.zone).toBe('hand');
+  // A face-up Pendulum Monster the camera sees arrive in the Extra Deck goes there face-up, marked Pendulum (public).
+  expect(fieldDepartureProposal({...card,zone:'spell-trap',slot:5},0,{zone:'extra',faceUp:true})).toMatchObject({zone:'extra',faceUp:true,pendulum:true});
   for(const zone of ['graveyard','banished'])expect(fieldDepartureProposal({...card,zone},0)).toMatchObject({cardRef:'physical',zone:'hand',faceUp:false});
   for(const zone of ['hand','extra','deck'])expect(fieldDepartureProposal({...card,zone},0)).toBeUndefined();
   expect(fieldDepartureProposal(card,0,'extra')).toMatchObject({zone:'extra',faceUp:false});
+  // An Extra Deck monster the camera lost goes back to the Extra Deck (face-down), never to the hand.
+  expect(fieldDepartureProposal(card,0,undefined,{type:'Xyz Monster'})).toMatchObject({zone:'extra',faceUp:false});
+  expect(fieldDepartureProposal(card,0,undefined,{type:'Effect Monster'})).toMatchObject({zone:'hand'});
   expect(fieldDepartureProposal({...card,faceUp:false},0)?.name).toBeUndefined();
-  // Rules default (no camera evidence): GY; a face-up Pendulum goes face-up to the Extra Deck; a token is never moved by the camera.
-  expect(fieldDepartureProposal({...card,zone:'monster'},0,undefined,{type:'Pendulum Effect Monster'})).toMatchObject({zone:'extra',faceUp:true});
-  expect(fieldDepartureProposal({...card,faceUp:false,zone:'monster'},0,undefined,{type:'Pendulum Effect Monster'})?.zone).toBe('graveyard');
+  // No camera evidence: the hand, even for a Pendulum Monster (the GY and the Extra Deck need the camera); a token is never moved by the camera.
   expect(fieldDepartureProposal({...card,token:true} as any,0)).toBeUndefined();
   // The player's choice from the tag: banish face-down keeps its own face state.
   expect(fieldDepartureProposal(card,0,{zone:'banished',faceUp:false})).toMatchObject({zone:'banished',faceUp:false});
@@ -1032,26 +1033,43 @@ it.each([undefined,'DECK','EXTRA'] as const)('a clear field departure clears an 
     const {fieldDepartureProposal}=await import('../src/lib/remote/field-proposals');
     const {describeEvent}=await import('../src/components/remote/ui/describe');
     const proposal=fieldDepartureProposal({ref:first.track.id,zone:'monster',slot:3,cardId:100,name:'Kashtira Fenrir',faceUp:true,position:'attack'},0,destination==='DECK'?'deck':destination==='EXTRA'?'extra':undefined)!;
-    expect(proposal.zone).toBe(destination==='DECK'?'deck':destination==='EXTRA'?'extra':'graveyard');
+    expect(proposal.zone).toBe(destination==='DECK'?'deck':destination==='EXTRA'?'extra':'hand');
     if(destination)expect(proposal.faceUp).toBe(false);
     if(destination==='DECK')expect(describeEvent({actorSeat:0,action:proposal} as any,()=> 'Alice',()=>undefined)?.text).toContain('returned to Deck');
     await r.tick(5);expect(r.state.events.filter(e=>e.type==='removed')).toHaveLength(1);
   }finally{r.dispose();}
 });
 
+it('an Xyz placed seconds after the monsters were lifted (or stacked, then lifted) takes the ones the hand holds, newest first',async()=>{
+  const {fieldSummonMaterials}=await import('../src/lib/remote/field-summons');
+  const inHand=(ref:string,at:number)=>({ref,zone:'hand',faceUp:false,position:'attack',departedFrom:{zone:'monster',slot:2,at,auto:true}}) as any;
+  // Lifted M2 + M3, 8 s pass (outside the 5 s window), the Xyz is read in a new zone: both come back as materials.
+  const twins=[inHand('m2',92_000),inHand('m3',92_100),inHand('old',50_000)];
+  expect(fieldSummonMaterials({kind:'xyz',covered:[],vanished:[{ref:'m2',at:0},{ref:'m3',at:100}],firstSeen:8_000,twins,removed:()=>true,now:100_000})).toEqual(['m2','m3']);
+  // Stack: M3 on M2, the 5 s hold lowered M2 to the hand, then both were lifted (no vanish entries at all).
+  expect(fieldSummonMaterials({kind:'xyz',covered:[],vanished:[],firstSeen:0,twins,removed:()=>false,now:100_000})).toEqual(['m2','m3']);
+});
+
+it('the Attach to tag lists face-up Xyz Monsters of both sides, those that attach cards first',async()=>{
+  const {xyzAttachTargets}=await import('../src/lib/remote/field-proposals');
+  const xyz=(ref:string,name:string,zone='monster')=>({ref,name,zone,faceUp:true,cardId:ref}) as any;
+  const facts=(c:any)=>({type:'Xyz Monster',effectText:c.ref==='infinity'?'Attach 1 monster as material.':'Draw 1 card.'});
+  const seats=[{seat:0,twin:[xyz('plain','Plain Xyz'),{...xyz('syn','Synchro'),zone:'graveyard'}]},{seat:1,twin:[xyz('infinity','Cyber Dragon Infinity')]}];
+  expect(xyzAttachTargets(seats,facts,'gone').map(t=>[t.seat,t.ref])).toEqual([[1,'infinity'],[0,'plain']]);
+});
+
 it('camera evidence for a departed card: an unread GY top or a face-down banished card is where it went; two candidates are a guess',async()=>{
   const {fieldPileEvidence}=await import('../src/lib/remote/field-proposals');
   const track=(id:string,zone:string,firstSeen=1000)=>({id,zone,visible:true,removed:false,firstSeen}) as any;
   const stand=(ref:string,zone:string,faceUp:boolean)=>({ref,zone,faceUp,position:'attack'}) as any;
-  const base={lastSeen:900,owns:(t:any)=>t.id,departures:1};
+  const base={lastSeen:900,owns:(t:any)=>t.id};
   expect(fieldPileEvidence({...base,twins:[stand('fw-1','graveyard',true)],tracks:[track('fw-1','GY')]})).toMatchObject({zone:'graveyard',faceUp:true});
   expect(fieldPileEvidence({...base,twins:[stand('fw-2','banished',false)],tracks:[track('fw-2','BANISHED')]})).toMatchObject({zone:'banished',faceUp:false});
-  // Nothing seen, a named card, an old pile arrival, two candidates or two departures: the rules decide.
+  // Nothing seen, a named card, an old pile arrival, or two candidates: no evidence (the hand stays).
   expect(fieldPileEvidence({...base,twins:[],tracks:[]})).toBeUndefined();
   expect(fieldPileEvidence({...base,twins:[{...stand('fw-1','graveyard',true),name:'Known'}],tracks:[track('fw-1','GY')]})).toBeUndefined();
   expect(fieldPileEvidence({...base,twins:[stand('fw-1','graveyard',true)],tracks:[track('fw-1','GY',-20000)]})).toBeUndefined();
   expect(fieldPileEvidence({...base,twins:[stand('fw-1','graveyard',true),stand('fw-2','banished',false)],tracks:[track('fw-1','GY'),track('fw-2','BANISHED')]})).toBeUndefined();
-  expect(fieldPileEvidence({...base,departures:2,twins:[stand('fw-1','graveyard',true)],tracks:[track('fw-1','GY')]})).toBeUndefined();
 });
 
 it.each(['DECK','HAND'] as const)('a known card returns from %s to M4 after the move window without a new identity guess',async zone=>{

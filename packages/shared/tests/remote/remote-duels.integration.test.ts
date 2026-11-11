@@ -2032,6 +2032,61 @@ describe("tolerant voice attack resolution", () => {
     expect(undo(synced, newest.actionId).seats[0].twin.find(c => c.ref === "apophis")).toMatchObject({ zone: "monster", slot: 3, trapZone: 3 });
   });
 
+  it("a card the camera took off the field waits in the hand; a pile read within 5 s is that card (one copy), and one Undo reverts it", () => {
+    const b = board();
+    let n = 0;
+    const act = (state: typeof b.state, action: Record<string, unknown>) => ygoModule.reduce(state, remoteActionSchema.parse({ actorSeat: 0, seat: 0, idempotencyKey: `late-${++n}`, ...action }));
+    const at0 = b.state.updatedAt;
+    const inHand = act(b.state, { type: "twin.move", cardRef: "blue", zone: "hand", source: "auto", at: at0 + 100 });
+    const read = act(inHand, { type: "twin.place", source: "auto", zone: "graveyard", card: { ref: "fw-9", cardId: 89631139, name: "Blue-Eyes White Dragon" }, at: at0 + 4_000 });
+    const copies = (state: typeof b.state) => state.seats[0].twin.filter(c => c.cardId === 89631139 || c.ref === "blue");
+    expect(copies(read).map(c => [c.ref, c.zone])).toEqual([["blue", "graveyard"]]);
+    const undone = ygoModule.reduce(read, remoteActionSchema.parse({ type: "undo", actorSeat: 0, targetActionId: read.undo!.actionId, idempotencyKey: `late-${++n}` }));
+    expect(copies(undone).map(c => [c.ref, c.zone])).toEqual([["blue", "hand"]]);
+  });
+
+  it("a named pile read never takes a card that is back in the hand while another copy lies in that pile", () => {
+    const b = board();
+    let n = 0;
+    const act = (state: typeof b.state, action: Record<string, unknown>) => ygoModule.reduce(state, remoteActionSchema.parse({ actorSeat: 0, seat: 0, idempotencyKey: `steal-${++n}`, ...action }));
+    b.place(0, { ref: "blue2", name: "Blue-Eyes White Dragon", cardId: 89631139 }, "graveyard");
+    const at0 = b.state.updatedAt;
+    const inHand = act(b.state, { type: "twin.move", cardRef: "blue", zone: "hand", source: "auto", at: at0 + 100 });
+    const read = act(inHand, { type: "twin.place", source: "auto", zone: "graveyard", card: { ref: "fw-9", cardId: 89631139, name: "Blue-Eyes White Dragon" }, at: at0 + 4_000 });
+    expect(read.seats[0].twin.find(c => c.ref === "blue")?.zone).toBe("hand");
+  });
+
+  it("an Xyz placed in a new zone 8 s after two lifts takes both from the hand (no card left counted in hand)", () => {
+    const b = board();
+    let n = 0;
+    const act = (state: typeof b.state, action: Record<string, unknown>) => ygoModule.reduce(state, remoteActionSchema.parse({ actorSeat: 0, seat: 0, idempotencyKey: `xyz-${++n}`, ...action }));
+    b.place(0, { ref: "m2", slot: 2, cardId: 12 }); b.place(0, { ref: "m3", slot: 3, cardId: 13 });
+    const at0 = b.state.updatedAt;
+    const lifted = act(act(b.state, { type: "twin.move", cardRef: "m2", zone: "hand", source: "auto", at: at0 + 800 }), { type: "twin.move", cardRef: "m3", zone: "hand", source: "auto", at: at0 + 900 });
+    const hands = (state: typeof b.state) => state.seats[0].twin.filter(c => c.zone === "hand").length;
+    expect(hands(lifted)).toBe(2);
+    const xyz = act(lifted, { type: "twin.place", zone: "monster", card: { ref: "x1", slot: 4, cardId: 21 }, summon: { kind: "xyz", materialRefs: ["m2", "m3"] }, at: at0 + 8_900 });
+    expect(xyz.seats[0].twin.find(c => c.ref === "x1")?.materials).toEqual(["m2", "m3"]);
+    expect(hands(xyz)).toBe(0);
+  });
+
+  it("an Xyz takes a monster from the opponent's field as material; detached it goes to its owner's Graveyard", () => {
+    const b = board();
+    let n = 0;
+    const act = (state: typeof b.state, action: Record<string, unknown>) => ygoModule.reduce(state, remoteActionSchema.parse({ actorSeat: 0, seat: 0, idempotencyKey: `foreign-${++n}`, ...action }));
+    b.place(0, { ref: "infinity", name: "Cyber Dragon Infinity", slot: 2, cardId: 10443957 });
+    // Only the card's owner sends it; the Xyz controller cannot take the other player's cards.
+    expect(() => act(b.state, { type: "twin.attach", cardRef: "infinity", kind: "xyz", materialRefs: ["dark"], materialSeat: 1 })).toThrow(/owner of the card/);
+    const attached = act(b.state, { type: "twin.attach", actorSeat: 1, cardRef: "infinity", kind: "xyz", materialRefs: ["dark"], materialSeat: 1 });
+    expect(attached.seats[1].twin.some(c => c.ref === "dark")).toBe(false);
+    expect(attached.seats[0].twin.find(c => c.ref === "dark")).toMatchObject({ zone: "material", materialOf: "infinity", ownerSeat: 1 });
+    expect(attached.seats[0].twin.find(c => c.ref === "infinity")?.materials).toEqual(["dark"]);
+    // Detach with no zone: the Graveyard, and it is the owner's.
+    const detached = act(attached, { type: "twin.detach", cardRef: "infinity", materialRef: "dark" });
+    expect(detached.seats[1].twin.find(c => c.ref === "dark")?.zone).toBe("graveyard");
+    expect(detached.seats[0].twin.some(c => c.ref === "dark")).toBe(false);
+  });
+
   it("persists public annotations and replays a confirmed proposal through the normal event store", () => {
     const { service, table, users, db } = setup();
     service.join(table.slug, "g", users[1], "Imran", 1, 1100);
