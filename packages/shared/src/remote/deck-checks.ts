@@ -113,7 +113,9 @@ export function isInRemoteDeck(deck: DuelDeck, fact: RemoteCardFact, facts: Remo
 export function remotePublicZone(zone?: string, faceUp = true): boolean {
   return faceUp && !!zone && ["monster", "spell-trap", "extra-monster", "field", "graveyard", "banished", "extra", "pendulum"].includes(zone);
 }
-export function remotePublicCard(card: {zone?: string; faceUp?: boolean; publicIdentity?: boolean}): boolean {
+export function remotePublicCard(card: {zone?: string; faceUp?: boolean; publicIdentity?: boolean; pendulumUp?: true}): boolean {
+  // The Extra Deck is hidden, except a face-up Pendulum Monster.
+  if (card.zone === "extra") return !!card.pendulumUp && card.faceUp === true;
   return !!card.zone && !["deck","extra"].includes(card.zone) && (remotePublicZone(card.zone, card.faceUp) || !!card.publicIdentity);
 }
 export function remotePhysicalSlot(zone?: string, slot?: number): number | undefined {

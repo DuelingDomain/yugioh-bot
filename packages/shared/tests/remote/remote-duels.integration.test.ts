@@ -3963,6 +3963,16 @@ it('a card the camera sent from the field to a pile is the same copy when put ba
   expect(count('graveyard')).toBe(0);
 });
 
+it('only a face-up Pendulum Monster in the Extra Deck is shown to the opponent', () => {
+  let state = ygoModule.initialState({seatCount:2});
+  const act = (input:Record<string,unknown>) => state = ygoModule.reduce(state, remoteActionSchema.parse({actorSeat:0, seat:0, at:1, idempotencyKey:crypto.randomUUID(), ...input}));
+  for (const [ref, slot, cardId] of [['pend', 1, 97522863], ['plain', 2, 89631139]] as const) act({type:'twin.place', zone:'monster', card:{cardId, name:ref, faceUp:true, position:'attack', ref, slot}});
+  act({type:'twin.move', source:'auto', cardRef:'pend', zone:'extra', faceUp:true, pendulum:true});
+  act({type:'twin.move', source:'auto', cardRef:'plain', zone:'extra', faceUp:true});
+  const seen = projectRemoteState(state, new Set([1])).seats[0].twin;
+  expect([seen.find(c => c.ref === 'pend')!.name, seen.find(c => c.ref === 'plain')!.name]).toEqual(['pend', undefined]);
+});
+
 it('keeps a token as public table state: created, moved and removed by its owner, seen by every viewer, ignored by the camera', () => {
   const s = deckSession('normal', false);
   s.select(s.save().id);

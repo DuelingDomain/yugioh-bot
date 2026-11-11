@@ -84,6 +84,8 @@ export const remoteActionSchema = z.discriminatedUnion("type", [
   z.strictObject({ ...meta, type: z.literal("pile.order"), seat: remoteSeatSchema, zone: z.enum(["graveyard", "banished"]), cardRefs: z.array(id).min(1).max(120)
     .refine(refs => new Set(refs).size === refs.length, "Duplicate pile card") }),
   z.strictObject({ ...meta, type: z.literal("twin.move"), seat: remoteSeatSchema, zone, cardRef: id, slot: slot.optional(), position: z.enum(["attack", "defense"]).optional(), faceUp: z.boolean().optional(), source: z.literal("auto").optional(), name: z.string().trim().min(1).max(200).optional(),
+    /** A face-up Pendulum Monster in the Extra Deck is public information (only that card; every other Extra card stays hidden). */
+    pendulum: z.boolean().optional(),
     zoneRule: z.string().trim().min(1).max(80).optional(),
     /** A Trap that becomes a monster (Trap Monster) keeps its Spell & Trap Zone occupied while it is a monster. */
     trapMonster: z.boolean().optional() }),
@@ -117,6 +119,8 @@ export type TwinCard = z.infer<typeof twinCardSchema> & {
   zone: string; departedFrom?: { zone: string; slot?: number; at?: number; /** The camera moved it (default for a card out of view). */ auto?: boolean }; setBy?: import("./effect-filters.js").RemoteEffectSource;
   /** Server-authored: the Spell & Trap Zone a Trap Monster still occupies. Cleared when it leaves the Monster Zones. */
   trapZone?: number;
+  /** A face-up Pendulum Monster in the Extra Deck: the one Extra card the opponent sees. */
+  pendulumUp?: true;
   /** Server-authored: the monster this Equip Card equips. Cleared when either card leaves the field. */
   equippedTo?: { seat: number; ref: string };
   /** Server-authored: the seat of the real owner while another player controls the card (Monster Reborn on their Graveyard, Change of Heart). Cleared when it returns. */

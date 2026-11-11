@@ -361,6 +361,7 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
         if((fieldFaceState?["hand","deck","extra"]:["deck","extra"]).includes(card.zone)) delete card.publicIdentity;
         if (action.position !== undefined) card.position = action.position;
         if (action.faceUp !== undefined) card.faceUp = action.faceUp;
+        if (card.zone === "extra" && card.faceUp === true && action.pendulum) card.pendulumUp = true; else delete card.pendulumUp;
       }
       if (action.type === "twin.flip") {
         card.faceUp = action.faceUp;
@@ -438,7 +439,7 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
       delete material.materialOf;
       if (enteringPile("material", action.zone)) { s.twin.splice(s.twin.indexOf(material), 1); s.twin.push(material); }
       material.zone = action.zone;
-      if (["hand", "deck", "extra"].includes(action.zone)) { delete material.publicIdentity; if (action.zone !== "hand") material.faceUp = false; }
+      if (["hand", "deck", "extra"].includes(action.zone)) { delete material.publicIdentity; if (action.zone !== "hand") material.faceUp = false; delete material.pendulumUp; }
       // A material that another player owns goes to its owner, wherever it was sent.
       returnToOwner(next.seats, s, material);
       break;
