@@ -32,7 +32,7 @@ const pileZone = (zone: string) => zone === "graveyard" || zone === "banished";
  * origin, but only for 30 s, and (for a card put back on the field) only into the same zone and physical slot. A later second copy is
  * another card. A named read in another pile or the Extra Deck within 30 s is still the departed card.
  */
-/** A camera departure keeps its field origin this long for a NAMED pile read (guard 8; guard 7 replays used REMOTE_UNREAD_PILE_MS). */
+/** A hand card the camera lifted from the field keeps its field origin this long for a NAMED pile read (guard 8; a card tagged straight to the Extra Deck keeps only the short window; guard 7 replays used REMOTE_UNREAD_PILE_MS). */
 export const REMOTE_NAMED_PILE_READ_MS = 30_000;
 /** An UNREAD pile card (no name yet) can only be the card that left this recently, or it is a discard: the watcher's late-pile window. */
 export const REMOTE_UNREAD_PILE_MS = 5000;
@@ -96,7 +96,7 @@ export function guardTwinPlacement(state: RemoteState, action: Placement, contex
   const simultaneous = !!proof && proof.simultaneousQuads >= 2 && proof.at <= at && at - proof.at <= 5000;
   // A recent departure wins even while another X remains in GY or banish.
   const recent = matches.filter(t => recentFieldDeparture(t, at) && (t.zone === "hand" || autoLeft(t, at, action))).sort((a,b) => b.departedFrom!.at! - a.departedFrom!.at!)[0] ??
-    ((!context?.replay || (context.twinPlacementGuard ?? 0) >= 7) && action.source === "auto" && pileZone(action.zone) && !matches.some(t => t.zone === action.zone) ? matches.filter(t => handLeft(t, at, !context?.replay || (context.twinPlacementGuard ?? 0) >= 8 ? REMOTE_NAMED_PILE_READ_MS : REMOTE_UNREAD_PILE_MS)).sort((a,b) => b.departedFrom!.at! - a.departedFrom!.at!)[0] : undefined);
+    ((!context?.replay || (context.twinPlacementGuard ?? 0) >= 7) && action.source === "auto" && pileZone(action.zone) && !matches.some(t => t.zone === action.zone) ? matches.filter(t => handLeft(t, at, t.zone === "hand" && (!context?.replay || (context.twinPlacementGuard ?? 0) >= 8) ? REMOTE_NAMED_PILE_READ_MS : REMOTE_UNREAD_PILE_MS)).sort((a,b) => b.departedFrom!.at! - a.departedFrom!.at!)[0] : undefined);
   if ((!context?.replay || context.pileArrivalGuard === 2) && action.source === "auto" && pileZone(action.zone) && matches.some(t => t.zone === action.zone)) {
     if (exact && remoteFieldZone(exact.zone)) return {ref:exact.ref,card:exact};
     if (recent) return {ref:recent.ref,card:recent};

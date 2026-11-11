@@ -2041,8 +2041,20 @@ describe("tolerant voice attack resolution", () => {
     const read = act(inHand, { type: "twin.place", source: "auto", zone: "graveyard", card: { ref: "fw-9", cardId: 89631139, name: "Blue-Eyes White Dragon" }, at: at0 + 12_000 });
     const copies = (state: typeof b.state) => state.seats[0].twin.filter(c => c.cardId === 89631139 || c.ref === "blue");
     expect(copies(read).map(c => [c.ref, c.zone])).toEqual([["blue", "graveyard"]]);
+    expect(read.seats[0].twin.filter(c => c.zone === "hand")).toHaveLength(0);
     const undone = ygoModule.reduce(read, remoteActionSchema.parse({ type: "undo", actorSeat: 0, targetActionId: read.undo!.actionId, idempotencyKey: `late-${++n}` }));
     expect(copies(undone).map(c => [c.ref, c.zone])).toEqual([["blue", "hand"]]);
+  });
+
+  it("a card tagged straight to the Extra Deck is not taken by a named GY read 20 s later; the discard comes from the hand", () => {
+    const b = board();
+    b.place(0, { ref: "p2", name: "Blue-Eyes White Dragon", cardId: 89631139 }, "hand");
+    const act = (state: typeof b.state, action: Record<string, unknown>) => ygoModule.reduce(state, remoteActionSchema.parse({ actorSeat: 0, seat: 0, idempotencyKey: crypto.randomUUID(), ...action }));
+    const at0 = b.state.updatedAt;
+    const tagged = act(b.state, { type: "twin.move", cardRef: "blue", zone: "extra", faceUp: false, source: "auto", at: at0 + 1_000 });
+    const read = act(tagged, { type: "twin.place", source: "auto", zone: "graveyard", card: { ref: "fw-9", cardId: 89631139, name: "Blue-Eyes White Dragon" }, at: at0 + 20_000 });
+    expect(read.seats[0].twin.find(c => c.ref === "blue")?.zone).toBe("extra");
+    expect(read.seats[0].twin.find(c => c.ref === "p2")?.zone).toBe("graveyard");
   });
 
   it("a named pile read never takes a card that is back in the hand while another copy lies in that pile", () => {
