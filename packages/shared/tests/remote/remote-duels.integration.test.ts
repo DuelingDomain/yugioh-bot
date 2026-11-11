@@ -4438,3 +4438,79 @@ describe("account deletion in live remote rooms", () => {
     } finally {vi.restoreAllMocks();}
   });
 });
+
+describe("remote hand activation (a card held up from the hand)", () => {
+  const CARD = 73628505;
+  const hold = async (s: ReturnType<typeof originSession>) => {
+    const { remoteHandActivationDecision } = await import("../../src/remote/index.js");
+    const decision = remoteHandActivationDecision(s.room.state, 0, { cardId: CARD, id: "held-1", at: 3000 });
+    expect(decision).toEqual({ type: "effect.activated", actorSeat: 0, source: { cardId: CARD }, fromHand: true });
+    s.act(decision as Record<string, unknown>);
+    return s.room.state.undo!.actionId;
+  };
+
+  it("shows a sure read at once and keeps the card in the hand", async () => {
+    const s = originSession(true), count = s.room.state.seats[0].handCount;
+    await hold(s);
+    expect(s.room.events.at(-1)!.action).toMatchObject({ type: "effect.activated", fromHand: true });
+    expect(s.room.state.seats[0].knownHand).toEqual([expect.objectContaining({ cardId: CARD })]);
+    expect(s.room.state.seats[0].handCount).toBe(count);
+    // The same card again, or a card that is already public, gives nothing new.
+    const { remoteHandActivationDecision } = await import("../../src/remote/index.js");
+    expect(remoteHandActivationDecision(s.room.state, 0, { cardId: CARD, id: "held-2", at: 3100 })).toBeUndefined();
+  });
+
+  it("links a discard of the revealed card to the Graveyard with an exact hand count", async () => {
+    const s = originSession(true), count = s.room.state.seats[0].handCount!;
+    await hold(s);
+    s.act({ type: "twin.place", seat: 0, zone: "graveyard", card: { ref: "discarded", cardId: CARD } });
+    expect(s.room.state.seats[0].handCount).toBe(count - 1);
+    expect(s.room.state.seats[0].knownHand ?? []).toEqual([]);
+  });
+
+  it("undoes the activation and takes the card out of the known hand", async () => {
+    const s = originSession(true), count = s.room.state.seats[0].handCount;
+    const targetActionId = await hold(s);
+    s.act({ type: "undo", targetActionId });
+    expect(s.room.state.seats[0].knownHand ?? []).toEqual([]);
+    expect(s.room.state.seats[0].handCount).toBe(count);
+  });
+
+  it("gives a one-tap pick, not an automatic card, when the read is not sure", async () => {
+    const vision = await import(new URL("../../../vision/src/field-watcher.ts", import.meta.url).pathname);
+    const frame = { width: 640, height: 480, data: new Uint8ClampedArray(0) };
+    const card = { kind: "face-up", confidence: .99, partial: false, quad: [{ x: .05, y: .03 }, { x: .12, y: .03 }, { x: .12, y: .16 }, { x: .05, y: .16 }] };
+    const evidence = { motion: () => 0, sharpness: () => 100, touched: () => .03, appearance: () => [.1, .2, .3], halo: () => [] };
+    const sure: Record<string, unknown>[] = [], unsure: Record<string, unknown>[] = [];
+    const reader = vision.createHeldCardReader({ profile: { cardBack: { cardId: "back" } }, clone: async () => frame,
+      recognizer: { recognize: async () => ({ tier: "not sure", candidates: [{ cardId: "1", score: .6 }, { cardId: "2", score: .5 }, { cardId: "3", score: .4 }, { cardId: "4", score: .3 }],
+        quality: { fallback: false, faceDown: false, partial: false }, timingsMs: {} }) },
+      onHeldCard: (event: Record<string, unknown>) => sure.push(event), onHeldUnsure: (event: Record<string, unknown>) => unsure.push(event) });
+    for (const at of [0, 200, 450, 700, 950, 1200]) await reader.observe([card], frame, evidence, at, undefined, undefined, false).read;
+    expect(sure).toEqual([]);
+    expect(unsure).toEqual([expect.objectContaining({ type: "held-unsure", candidates: [expect.objectContaining({ cardId: "1" }), expect.objectContaining({ cardId: "2" }), expect.objectContaining({ cardId: "3" })] })]);
+  });
+
+  it("never makes a field card or a Reading placeholder from a card held up over a zone", async () => {
+    const vision = await import(new URL("../../../vision/src/field-watcher.ts", import.meta.url).pathname);
+    const frame = { width: 640, height: 480, data: new Uint8ClampedArray(0) };
+    const card = { kind: "face-up", confidence: .99, partial: false, quad: [{ x: .4, y: .4 }, { x: .47, y: .4 }, { x: .47, y: .53 }, { x: .4, y: .53 }] };
+    let at = 0, hand = true;
+    const events: string[] = [];
+    const evidence = { motion: () => 0, sharpness: () => 100, touched: () => hand ? .03 : 0, appearance: () => [.1, .2, .3], halo: () => [] };
+    const watcher = vision.createFieldWatcher({ profile: { cardBack: { cardId: "back" } }, now: () => at, hidden: () => false,
+      buffer: { sample: async () => ({ frame, at }) }, clone: async () => frame, analyze: () => evidence,
+      recognizer: { detectCards: async () => [card], recognize: async () => ({ tier: "not sure", candidates: [], quality: {}, timingsMs: {} }) },
+      onEvent: (event: { type: string }) => events.push(event.type) });
+    // A hand holds the card up and keeps it still: the held path owns it for the whole time.
+    for (at = 0; at <= 1500; at += 100) { await watcher.tick(); await Promise.resolve(); }
+    expect(watcher.getSnapshot().tracks.filter((t: { visible: boolean }) => t.visible)).toEqual([]);
+    expect(events.filter(type => type === "reading" || type === "placed")).toEqual([]);
+    // The hand lets go: the card still waits for the settle time before it may be a field card.
+    hand = false;
+    for (at = 1600; at <= 1800; at += 100) { await watcher.tick(); await Promise.resolve(); }
+    expect(events.filter(type => type === "reading" || type === "placed")).toEqual([]);
+    expect(watcher.getSnapshot().tracks.filter((t: { visible: boolean }) => t.visible)).toEqual([]);
+    watcher.dispose();
+  });
+});

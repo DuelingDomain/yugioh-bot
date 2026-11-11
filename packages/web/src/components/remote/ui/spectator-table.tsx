@@ -27,6 +27,7 @@ import { PileViewer, type PileZone } from "./pile-viewer";
 import { FeedCards, FeedCardsProvider } from "./feed-cards";
 import type { PopAt, Rect } from "./popup";
 import { useLayers } from "./use-layers";
+import { HandActivation } from "./hand-activation";
 import type { RoomController } from "./use-remote-room";
 import s from "./remote-ui.module.css";
 import v from "./spectator-table.module.css";
@@ -228,5 +229,6 @@ function SpectatorTable({ room }: { room: RemoteRoom }) {
     {opening ? <OpeningRollScreen opening={opening} mySeat={-1} name={name} now={serverNow} out={state.seats.map(seat => !!seat.eliminated)} /> : null}
     {pile && state.seats[pile.seat] ? <PileViewer fieldHidden seat={pile.seat} name={name(pile.seat)} mine={false} twin={state.seats[pile.seat].twin} zone={pile.zone} onZone={zone => setPile({ seat: pile.seat, zone })} info={info} onOpenCard={(card, anchor) => show(pile.seat, card, anchor, null)} onClose={() => layers.close()} /> : null}
     {layers.layer === "card" && subject ? <CardPopover subject={subject} info={info(subject.cardId)} at={popAt} actions={NO_ACTIONS} onClose={() => layers.close("card")} /> : null}
+    <HandActivation events={room.events} name={name} />
   </div></FeedCardsProvider>;
 }
