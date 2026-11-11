@@ -3953,24 +3953,39 @@ it('a card the camera sent from the field to a pile is the same copy when put ba
   expect(state.seats[0].twin[0].departedFrom).toMatchObject({zone:'monster', slot:3, auto:true});
   // Late banish arrival: the camera shows an unread face-down card; the departed card moves there and the stand-in goes (one card, one pile).
   at = 3000; act({type:'twin.place', source:'auto', zone:'banished', card:{ref:'fw-1', faceUp:false, position:'attack'}});
-  act({type:'twin.move', source:'auto', cardRef:'lifted', zone:'banished', faceUp:false}); act({type:'twin.remove', cardRef:'fw-1'});
+  act({type:'twin.move', source:'auto', confirmed:true, cardRef:'lifted', zone:'banished', faceUp:false}); act({type:'twin.remove', cardRef:'fw-1'});
   expect([count('graveyard'), count('banished')]).toEqual([0, 1]);
+  expect(state.seats[0].twin.find(c => c.ref === 'lifted')!.departedFrom).toBeUndefined();
   act({type:'undo', targetActionId:state.undo!.actionId}); act({type:'undo', targetActionId:state.undo!.actionId});
+  expect([count('graveyard'), count('banished')]).toEqual([1, 1]);
   expect(state.seats[0].twin.filter(c => c.ref === 'lifted')).toHaveLength(1); expect(state.seats[0].twin.find(c => c.ref === 'lifted')!.zone).toBe('graveyard');
-  // Put back long after the window: the same copy returns to the field, no duplicate.
-  at = 1_000_000; act({type:'twin.place', source:'auto', zone:'monster', card:{...card, ref:'new-outline', slot:3}});
+  // Put back in the same slot within 30 s, long after the 2.5 s window: the same copy returns to the field, no duplicate.
+  at = 20_000; act({type:'twin.place', source:'auto', zone:'monster', card:{...card, ref:'new-outline', slot:3}});
   expect(state.seats[0].twin.filter(c => c.ref === 'lifted' || c.ref === 'new-outline').map(c => [c.ref, c.zone])).toEqual([['lifted', 'monster']]);
   expect(count('graveyard')).toBe(0);
 });
 
-it('only a face-up Pendulum Monster in the Extra Deck is shown to the opponent', () => {
+it('a second copy placed after 30 s, or in another slot, does not take a card the rules sent to the GY', () => {
+  let state = ygoModule.initialState({seatCount:2}), at = 0;
+  const act = (input:Record<string,unknown>) => state = ygoModule.reduce(state, remoteActionSchema.parse({actorSeat:0, seat:0, at, idempotencyKey:crypto.randomUUID(), ...input}));
+  const card = {cardId:97522863, name:'The Man with the Mark', faceUp:true, position:'attack'};
+  act({type:'twin.place', zone:'monster', card:{...card, ref:'first', slot:3}});
+  at = 1000; act({type:'twin.move', source:'auto', cardRef:'first', zone:'graveyard', faceUp:true});
+  at = 5_000; act({type:'twin.place', source:'auto', zone:'monster', card:{...card, ref:'third', slot:5}});
+  expect(state.seats[0].twin.find(c => c.ref === 'first')!.zone).toBe('graveyard');
+  at = 600_000; act({type:'twin.place', source:'auto', zone:'monster', card:{...card, ref:'second', slot:1}});
+  expect(state.seats[0].twin.find(c => c.ref === 'first')!.zone).toBe('graveyard');
+});
+
+it('only a face-up Pendulum Monster that was face-up on the field is shown in the Extra Deck to the opponent', () => {
   let state = ygoModule.initialState({seatCount:2});
   const act = (input:Record<string,unknown>) => state = ygoModule.reduce(state, remoteActionSchema.parse({actorSeat:0, seat:0, at:1, idempotencyKey:crypto.randomUUID(), ...input}));
-  for (const [ref, slot, cardId] of [['pend', 1, 97522863], ['plain', 2, 89631139]] as const) act({type:'twin.place', zone:'monster', card:{cardId, name:ref, faceUp:true, position:'attack', ref, slot}});
+  for (const [ref, slot, cardId, faceUp] of [['pend', 1, 97522863, true], ['plain', 2, 89631139, true], ['down', 3, 15025844, false]] as const) act({type:'twin.place', zone:'monster', card:{cardId, name:ref, faceUp, position:'attack', ref, slot}});
   act({type:'twin.move', source:'auto', cardRef:'pend', zone:'extra', faceUp:true, pendulum:true});
   act({type:'twin.move', source:'auto', cardRef:'plain', zone:'extra', faceUp:true});
+  act({type:'twin.move', source:'auto', cardRef:'down', zone:'extra', faceUp:true, pendulum:true});
   const seen = projectRemoteState(state, new Set([1])).seats[0].twin;
-  expect([seen.find(c => c.ref === 'pend')!.name, seen.find(c => c.ref === 'plain')!.name]).toEqual(['pend', undefined]);
+  expect(['pend', 'plain', 'down'].map(ref => seen.find(c => c.ref === ref)!.name)).toEqual(['pend', undefined, undefined]);
 });
 
 it('keeps a token as public table state: created, moved and removed by its owner, seen by every viewer, ignored by the camera', () => {

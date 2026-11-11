@@ -40,7 +40,9 @@ const toZone=(zone:string,slot?:number):FieldZone|undefined=>zone==='monster'?`M
 const DEPARTURE_WAIT_MS=800;
 const publicField=(zone:string)=>['monster','extra-monster','spell-trap','field','pendulum'].includes(zone);
 /** A card the camera sent from the field to the hand, a pile or the Extra Deck still owns its field origin. */
-const leftField=(c:TwinCard)=>!!c.departedFrom&&publicField(c.departedFrom.zone)&&(c.zone==='hand'||!!c.departedFrom.auto&&['graveyard','banished','extra'].includes(c.zone));
+const leftField=(c:TwinCard,at:number,spot:{zone:string;slot?:number})=>!!c.departedFrom&&publicField(c.departedFrom.zone)&&(c.zone==='hand'||!!c.departedFrom.auto&&['graveyard','banished','extra'].includes(c.zone)&&
+  // A card sent to a pile by the rules is the same copy only for 30 s, and only for the same zone and slot.
+  c.departedFrom.at!==undefined&&at-c.departedFrom.at>=0&&at-c.departedFrom.at<=30_000&&c.departedFrom.zone===spot.zone&&(c.departedFrom.slot??undefined)===(spot.slot??undefined));
 const sameFieldSlot=(a:TwinCard,b:TwinCard)=>publicField(a.zone)&&a.zone===b.zone&&(a.zone==='field'||(a.slot!==undefined&&a.slot===b.slot));
 const piles=new Set<FieldZone>(['GY','BANISHED','DECK','EXTRA']);
 const physicalZonePattern=/^(?:M[1-5]|S[1-5]|EMZ[12]|FIELD)$/;
@@ -234,7 +236,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     }).catch(error=>{console.error('[remote field] update failed',error);if(quiet)return;if(error instanceof StaleFieldPlacementError)setRecovery(error);else{setFailedUpdate({work,event,humanChoice});setNotice(error instanceof Error?error.message:'Could not save the field update. Use Retry field update.');}});
   }
   function resolveExisting(event:FieldEvent,track:FieldTrack,entry:Entry|undefined,twins:readonly TwinCard[]) {
-    const reusable=(card:TwinCard)=>publicField(card.zone)||['deck','hand','extra'].includes(card.zone)||card.ref===event.fromRef||['GY','BANISHED'].includes(track.zone)&&card.zone===fieldZoneLocation(track.zone).zone||leftField(card);
+    const reusable=(card:TwinCard)=>publicField(card.zone)||['deck','hand','extra'].includes(card.zone)||card.ref===event.fromRef||['GY','BANISHED'].includes(track.zone)&&card.zone===fieldZoneLocation(track.zone).zone||leftField(card,serverNow(),fieldZoneLocation(track.zone));
     let existing=twins.find(c=>c.ref===track.id&&reusable(c));
     const sameSlot=(c:typeof twins[number])=>knownZone(c)===track.zone;
     const owns=(t:FieldTrack,ref:string)=>(bindings.current.get(t.id)??t.id)===ref;
@@ -247,10 +249,10 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       existing=bound??twins.find(c=>publicField(c.zone)&&sameSlot(c)&&!tracks.current.some(t=>owns(t,c.ref)&&t.visible&&!t.removed));
     }
     if(existing&&entry&&!publicField(existing.zone)&&publicField(fieldZoneLocation(track.zone).zone)&&
-      !twins.some(c=>['graveyard','banished'].includes(c.zone)&&!leftField(c)&&sameObservedCard(c,{cardId:catalogCardId(entry),name:entry.name}))){
+      !twins.some(c=>['graveyard','banished'].includes(c.zone)&&!leftField(c,serverNow(),fieldZoneLocation(track.zone))&&sameObservedCard(c,{cardId:catalogCardId(entry),name:entry.name}))){
       // Reader reservations are inferred. An absent field owner takes priority
       // over a private ref unless a second current physical copy is witnessed.
-      for(const copy of twins.filter(c=>(publicField(c.zone)||leftField(c))&&sameObservedCard(c,{cardId:catalogCardId(entry),name:entry.name})).sort((a,b)=>Number(publicField(b.zone))-Number(publicField(a.zone)))){
+      for(const copy of twins.filter(c=>(publicField(c.zone)||leftField(c,serverNow(),fieldZoneLocation(track.zone)))&&sameObservedCard(c,{cardId:catalogCardId(entry),name:entry.name})).sort((a,b)=>Number(publicField(b.zone))-Number(publicField(a.zone)))){
         if(copy.ref===existing.ref)continue;
         const cached=tracks.current.find(t=>t.id!==event.track.id&&owns(t,copy.ref));
         const other=watch.getTrack(copy.ref)??(cached?watch.getTrack(cached.id):undefined);
@@ -1016,9 +1018,9 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       void queue(async act=>{
         const now=current.current.room.state.seats[seat].twin,card=now.find(c=>c.ref===ref);
         if(!live()||!card||!now.some(c=>c.ref===seen.twin.ref)||undoKept.current.has(ref))return;
-        const move=card.zone!==seen.zone||seen.zone==='banished'&&(card.faceUp===false)!==(seen.faceUp===false);
-        let moved=move?await act({type:'twin.move',source:'auto',actorSeat:seat,seat,cardRef:ref,zone:seen.zone,faceUp:seen.zone==='banished'?seen.faceUp:true,...(card.faceUp&&card.name?{name:card.name}:{})}):undefined;
-        if(move&&!moved)return;
+        // Always one move (even in place): the camera confirmed the pile, so the card drops its field origin and no later second copy can take it.
+        const moved=await act({type:'twin.move',source:'auto',confirmed:true,actorSeat:seat,seat,cardRef:ref,zone:seen.zone,faceUp:seen.zone==='banished'?seen.faceUp:true,...(card.faceUp&&card.name?{name:card.name}:{})});
+        if(!moved)return;
         const adopted=await adoptPileCard(act,seen,ref,moved?.state.undo?.actionId??'');
         const done=adopted?.state??moved;if(!done)return;
         const name=card.name??'Card';

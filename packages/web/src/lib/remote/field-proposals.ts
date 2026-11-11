@@ -91,7 +91,7 @@ export function fieldDepartureProposal(card:TwinCard,seat:number,destination?:'d
   // Back to the Deck/Extra, or a pile card that leaves its pile, turns face-down. The GY is public, so a card sent there (even a
   // face-down one) is face-up; banished is face-up unless the choice or the camera says face-down.
   const faceUp:boolean|undefined='faceUp' in to&&to.faceUp!==undefined?to.faceUp:pile||typeof destination==='string'?false:to.zone==='graveyard'||to.zone==='banished'?true:undefined;
-  return {type:'twin.move',actorSeat:seat,seat,cardRef:card.ref,zone:to.zone,...(faceUp!==undefined?{faceUp}:{}),...(to.zone==='extra'&&faceUp===true?{pendulum:true}:{}),source:'auto',...(card.faceUp&&card.name?{name:card.name}:{}),...(card.position==='defense'?{position:'attack' as const}:{})};
+  return {type:'twin.move',actorSeat:seat,seat,cardRef:card.ref,zone:to.zone,...(faceUp!==undefined?{faceUp}:{}),...(to.zone==='extra'&&faceUp===true?{pendulum:true}:{}),...(destination!==undefined?{confirmed:true}:{}),source:'auto',...(card.faceUp&&card.name?{name:card.name}:{}),...(card.position==='defense'?{position:'attack' as const}:{})};
 }
 
 /**

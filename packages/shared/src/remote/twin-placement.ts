@@ -27,8 +27,13 @@ export function sameTwinIdentity(state: RemoteState, seat: number, a: Identity, 
 type Placement = Extract<RemoteAction, { type: "twin.place" }>;
 type Reuse = { ref: string; card?: TwinCard } | { pending: true } | { noop: true };
 const pileZone = (zone: string) => zone === "graveyard" || zone === "banished";
-/** Guard 6: a card the camera sent from the field to a pile or the Extra Deck still owns its field origin. */
-const autoLeft = (t: TwinCard) => (pileZone(t.zone) || t.zone === "extra") && !!t.departedFrom?.auto && remoteFieldZone(t.departedFrom.zone);
+/**
+ * Guard 6: a card the camera sent from the field to a pile or the Extra Deck by the rules (no camera evidence) still owns its field
+ * origin, but only for 30 s and only for a card put back into the same zone and physical slot. A later second copy is another card.
+ */
+const autoLeft = (t: TwinCard, at: number, place: { zone: string; card: { slot?: number } }) => (pileZone(t.zone) || t.zone === "extra") && !!t.departedFrom?.auto && remoteFieldZone(t.departedFrom.zone) &&
+  t.departedFrom.at !== undefined && at >= t.departedFrom.at && at - t.departedFrom.at <= 30_000 && t.departedFrom.zone === place.zone &&
+  remotePhysicalSlot(place.zone, t.departedFrom.slot) === remotePhysicalSlot(place.zone, place.card.slot);
 const zoneLabel = (card: { zone: string; slot?: number }) => card.zone === "monster" ? `M${card.slot ?? ""}`
   : card.zone === "spell-trap" ? `S${card.slot ?? ""}` : card.zone === "extra-monster" ? `EMZ${card.slot ?? ""}` : card.zone;
 
@@ -79,7 +84,7 @@ export function guardTwinPlacement(state: RemoteState, action: Placement, contex
   }
   const simultaneous = !!proof && proof.simultaneousQuads >= 2 && proof.at <= at && at - proof.at <= 5000;
   // A recent departure wins even while another X remains in GY or banish.
-  const recent = matches.filter(t => recentFieldDeparture(t, at)).sort((a,b) => b.departedFrom!.at! - a.departedFrom!.at!)[0];
+  const recent = matches.filter(t => recentFieldDeparture(t, at) && (t.zone === "hand" || autoLeft(t, at, action))).sort((a,b) => b.departedFrom!.at! - a.departedFrom!.at!)[0];
   if ((!context?.replay || context.pileArrivalGuard === 2) && action.source === "auto" && pileZone(action.zone) && matches.some(t => t.zone === action.zone)) {
     if (exact && remoteFieldZone(exact.zone)) return {ref:exact.ref,card:exact};
     if (recent) return {ref:recent.ref,card:recent};
@@ -89,10 +94,10 @@ export function guardTwinPlacement(state: RemoteState, action: Placement, contex
   }
   if (simultaneous && matches.some(t => remoteFieldZone(t.zone))) return (!context?.replay || context.handKnowledge === 1) && hand && handDestination ? {ref:hand.ref,card:hand} : undefined;
   if ((!context?.replay || (context.twinPlacementGuard ?? 0) >= 5) && action.source === "auto" && remoteFieldZone(action.zone) &&
-      !matches.some(t => pileZone(t.zone) && !autoLeft(t))) {
+      !matches.some(t => pileZone(t.zone) && !autoLeft(t, at, action))) {
     // A missed field card still owns its identity, even after a long correction.
     // Automatic departures retain that origin; ordinary hand copies do not.
-    const owner = matches.find(t => remoteFieldZone(t.zone)) ?? matches.find(t => t.zone === "hand" && t.departedFrom && remoteFieldZone(t.departedFrom.zone)) ?? matches.find(autoLeft);
+    const owner = matches.find(t => remoteFieldZone(t.zone)) ?? matches.find(t => t.zone === "hand" && t.departedFrom && remoteFieldZone(t.departedFrom.zone)) ?? matches.find(t => autoLeft(t, at, action));
     if (owner) return {ref:owner.ref,card:owner};
   }
   if (exact && remoteFieldZone(exact.zone)) return {ref:exact.ref,card:exact};
