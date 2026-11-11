@@ -4467,6 +4467,11 @@ describe("remote hand activation (a card held up from the hand)", () => {
     s.act({ type: "twin.place", seat: 0, zone: "graveyard", card: { ref: "discarded", cardId: CARD } });
     expect(s.room.state.seats[0].handCount).toBe(count - 1);
     expect(s.room.state.seats[0].knownHand ?? []).toEqual([]);
+    // A Spell played to the field leaves the known hand too: a later unread pile card must not be named after it (the web checks this).
+    const spell = originSession(true);
+    await hold(spell);
+    spell.act({ type: "twin.place", seat: 0, zone: "spell-trap", card: { ref: "played", cardId: CARD } });
+    expect(spell.room.state.seats[0].knownHand ?? []).toEqual([]);
   });
 
   it("undoes the activation and takes the card out of the known hand", async () => {

@@ -536,7 +536,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       if(tokenUndo.current?.trackId===event.track.id&&updated?.state.undo?.actionId){undoChain.current={after:updated.state.undo.actionId,ids:[tokenUndo.current.actionId]};tokenUndo.current=undefined;}
       // The card was held up and shown first: the placement joins that activation, so one notice and one Undo cover both.
       const activated=handActivation.current,placedId=updated?.state.undo?.actionId;
-      if(activated&&placedId&&!summon&&entry&&catalogCardId(entry)===activated.cardId&&performance.now()-activated.at<HAND_ACTIVATION_MS&&!undoChain.current.ids.length){
+      if(activated&&placedId&&!summon&&entry&&catalogCardId(entry)===activated.cardId&&performance.now()-activated.at<HAND_ACTIVATION_MS&&undoChain.current.after!==placedId){
         handActivation.current=undefined;undoChain.current={after:placedId,ids:[activated.actionId]};
         setNotice(`${entry.name} activated from hand, then placed · auto`);
       }
@@ -618,7 +618,8 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     void loadCards(options.map(o=>o.cardId));
     setHeldPick({id:event.id,options});
   }
-  useEffect(()=>{if(!heldPick)return;const timer=setTimeout(()=>setHeldPick(null),10_000);return()=>clearTimeout(timer);},[heldPick]);
+  // The 10 s start when the pick is on screen (a notice with Undo shows first).
+  useEffect(()=>{if(!heldPick||notice)return;const timer=setTimeout(()=>setHeldPick(null),10_000);return()=>clearTimeout(timer);},[heldPick,notice]);
   function handle(event:FieldEvent,departureOrigin?:Pick<TwinCard,'ref'|'zone'|'slot'>) {
     if(event.type==='placed'&&!live()){if(syncHoldRef.current)heldPlaced.current.deferred++;else heldPlaced.current.dropped++;}
     if(event.type!=='removed'){
@@ -673,7 +674,9 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
           const zone=event.track.zone==='GY'?'graveyard':'banished';
           if(!pileEntry(event.track)){const top=twins.filter(c=>c.zone===zone).at(-1);if(top)bindings.current.set(event.track.id,top.ref);return;}
           // A card that was just shown from the hand and then reaches a pile unread is that card: name it, so the hand count stays exact.
-          const shown=handActivation.current&&performance.now()-handActivation.current.at<HAND_ACTIVATION_MS?handActivation.current:undefined;
+          const active=handActivation.current,mine=current.current.room.state.seats[seat];
+          // Only while the shown card is still in the known hand (a field play already took it out) and no field departure is waiting.
+          const shown=active&&performance.now()-active.at<HAND_ACTIVATION_MS&&mine.knownHand?.some(c=>c.cardId===active.cardId)&&pendingDepartures.current.size===0?active:undefined;
           const updated=await act({type:'twin.place',source:'auto',actorSeat:seat,seat,zone,card:{ref,faceUp:true,position:'attack',...(shown?{cardId:shown.cardId}:{})}});
           if(updated){
             bindings.current.set(event.track.id,ref);
