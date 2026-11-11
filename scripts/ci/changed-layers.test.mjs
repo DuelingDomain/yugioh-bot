@@ -747,3 +747,9 @@ test("a small application diff stays focused in the dependency-free detection CL
   assert.equal(outputs.engine_app, "true");
   assert.equal(outputs.core, "false");
 });
+
+test("the Remote Duels card behaviour encoder and generated files select the engine lane that checks them", () => {
+  for (const file of ["packages/shared/src/remote/card-behaviour.ts", "packages/web/src/lib/remote/card-behaviour-data.json", "packages/web/src/lib/remote/card-logic-data.json"]) {
+    assert.equal(classify([file], "pull_request").engine, true, file);
+  }
+});

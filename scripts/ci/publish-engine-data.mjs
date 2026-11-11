@@ -15,7 +15,9 @@ const NAMES_FILE = "packages/duel-server/duelingbook-alt-passcode-names.json";
 const COMPATIBILITY_FILES = [TABLE_FILE, NAMES_FILE];
 // Remote Duels card logic: four packed id lists generated from the card data. Inert JSON, imported by the web app.
 export const CARD_LOGIC_FILE = "packages/web/src/lib/remote/card-logic-data.json";
-const LOGIC_FILES = [CARD_LOGIC_FILE];
+// Remote Duels card behaviour: the packed per-card zone movement table, built from the same card scripts. Inert JSON too.
+export const CARD_BEHAVIOUR_FILE = "packages/web/src/lib/remote/card-behaviour-data.json";
+const LOGIC_FILES = [CARD_LOGIC_FILE, CARD_BEHAVIOUR_FILE];
 const DATA_FILES = [...PIN_FILES, ...COMPATIBILITY_FILES, ...BRIDGE_FILES, ...LOGIC_FILES];
 export const BOT = { name: "github-actions[bot]", email: "41898282+github-actions[bot]@users.noreply.github.com" };
 const pinKeys = ["scripts", "database", "strings"];
@@ -83,6 +85,18 @@ export function validateCardLogic(bytes) {
       keys.some(key => typeof value[key] !== "string" || value[key].length > 50_000 || (value[key] !== "" && !/^[0-9a-z]+( [0-9a-z]+)*$/.test(value[key]))) ||
       JSON.stringify(value, keys, 2) + "\n" !== bytes) {
     throw new Error("Card logic JSON must be exactly four canonical lists of base36 card ids");
+  }
+}
+
+/** The card behaviour file is exactly two canonical strings (shape words and base36 id groups), never code. */
+export function validateCardBehaviour(bytes) {
+  const keys = ["SHAPES", "IDS"];
+  if (Buffer.byteLength(bytes) > 400_000) throw new Error("Card behaviour JSON is too large");
+  const value = JSON.parse(bytes);
+  if (!value || typeof value !== "object" || Array.isArray(value) || JSON.stringify(Object.keys(value).sort()) !== JSON.stringify([...keys].sort()) ||
+      !/^[A-Za-z0-9:;,-]+( [A-Za-z0-9:;,-]+)*$/.test(value.SHAPES ?? "") || !/^[0-9a-z |]+$/.test(value.IDS ?? "") ||
+      JSON.stringify(value, keys, 2) + "\n" !== bytes) {
+    throw new Error("Card behaviour JSON must be exactly canonical SHAPES and IDS strings");
   }
 }
 
@@ -191,7 +205,7 @@ export async function publishEngineData({ cwd = process.cwd(), env = process.env
     }
     for (const file of artifact.files.filter(file => LOGIC_FILES.includes(file))) {
       const logic = indexGit("show", `:${file}`);
-      validateCardLogic(logic);
+      if (file === CARD_BEHAVIOUR_FILE) validateCardBehaviour(logic); else validateCardLogic(logic);
       expectedSources.set(file, logic);
     }
     for (const file of artifact.files.filter(file => BRIDGE_FILES.includes(file))) expectedSources.set(file, readFileSync(join(artifactDir, file)));
