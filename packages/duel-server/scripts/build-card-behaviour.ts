@@ -17,6 +17,7 @@ const out = join(here, "../../web/src/lib/remote/card-behaviour-data.json");
 
 // Fusion, Synchro, Xyz and Link monsters go back to the Extra Deck, never the Deck.
 const EXTRA_DECK_TYPES = 0x40 | 0x2000 | 0x800000 | 0x4000000;
+const PENDULUM = 0x1000000;
 const db = new Database(join(dataDir, "cards.cdb"), { readonly: true, fileMustExist: true });
 const rows = db.prepare("SELECT id, alias, type FROM datas").all() as { id: number; alias: number; type: number }[];
 const aliases = new Map<number, number[]>();
@@ -33,12 +34,12 @@ const script = (id: number, depth = 0): string | undefined => {
 };
 
 const records = new Map<number, CardBehaviour>();
-const stats = { scripts: 0, withBehaviour: 0, handQuick: 0, cost: 0, costOther: 0, detach: 0, attach: 0, leaves: 0, sends: 0, banishDown: 0, draws: 0 };
+const stats = { scripts: 0, withBehaviour: 0, handQuick: 0, cost: 0, costOther: 0, detach: 0, attach: 0, leaves: 0, sends: 0, banishDown: 0, draws: 0, partial: 0 };
 for (const { id, type, alias } of rows) {
   // Alt arts take the record of the card they alias, unless they have a script of their own (then they are a different card).
   const text = script(id); if (!text) continue;
   stats.scripts++;
-  const record = scanScript(text, { extraDeckMonster: (type & EXTRA_DECK_TYPES) !== 0 });
+  const record = scanScript(text, { extraDeckMonster: (type & EXTRA_DECK_TYPES) !== 0, pendulum: (type & PENDULUM) !== 0 });
   if (!Object.keys(record).length) continue;
   stats.withBehaviour++;
   if (record.handQuick) stats.handQuick++;
@@ -48,7 +49,8 @@ for (const { id, type, alias } of rows) {
   if (record.attach) stats.attach++;
   if (record.leaves) stats.leaves++;
   if (record.sends) stats.sends++;
-  if (record.leaves?.includes("banishDown") || record.sends?.some(s => s.to === "banishDown")) stats.banishDown++;
+  if (record.leaves?.some(l => l.to === "banishDown") || record.sends?.some(s => s.to === "banishDown") || record.cost?.includes("banishDown")) stats.banishDown++;
+  if (record.partial) stats.partial++;
   if (record.draws) stats.draws++;
   records.set(id, record);
   for (const a of aliases.get(id) ?? []) if (!script(a)) records.set(a, record);

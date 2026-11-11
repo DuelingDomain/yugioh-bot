@@ -1,7 +1,8 @@
 /**
  * Card behaviour for Remote Duels: what a card does to the board, read from the engine card scripts (offline, see
  * packages/duel-server/scripts/build-card-behaviour.ts). The mirrored board may use it as a prior to set defaults and break
- * ties. It never overrides what the camera sees. A card that is not in the table is unknown, not inert.
+ * ties. It never overrides what the camera sees. A card that is not in the table is unknown, not inert, and a field that is
+ * absent from a record is unknown too (not "never"): the scan only reports what it could read from the script.
  * Pure and browser-safe: it only decodes the packed JSON that the web app imports.
  */
 /** Where a card can be taken from. "opponent..." means the opponent's side. */
@@ -9,7 +10,7 @@ export const BEHAVIOUR_LOCATIONS = ["field", "opponentField", "hand", "opponentH
 /** Where a card can end up. banishDown = banished face-down; extraUp = face-up in the Extra Deck (a Pendulum Monster). */
 export const BEHAVIOUR_DESTINATIONS = ["gy", "banish", "banishDown", "hand", "deck", "extra", "extraUp"] as const;
 /** What an activation costs: this card moves itself, or its Xyz materials are detached. Discard goes to the GY too. */
-export const BEHAVIOUR_COSTS = ["discard", "toGY", "banish", "toDeck", "toHand", "toExtra", "tribute", "detach"] as const;
+export const BEHAVIOUR_COSTS = ["discard", "toGY", "banish", "toDeck", "toHand", "toExtra", "tribute", "detach", "banishDown"] as const;
 export type BehaviourLocation = (typeof BEHAVIOUR_LOCATIONS)[number];
 export type BehaviourDestination = (typeof BEHAVIOUR_DESTINATIONS)[number];
 export type BehaviourCost = (typeof BEHAVIOUR_COSTS)[number];
@@ -25,19 +26,21 @@ export type CardBehaviour = {
   detach?: { min: number; max: number };
   /** Cards this one takes as Xyz material, and where they come from (Duel.Overlay). */
   attach?: { from: BehaviourLocation[] };
-  /** Where this card can send itself. */
-  leaves?: BehaviourDestination[];
+  /** Where this card can send itself, and from which of its own zones (field, hand, gy, banish, deck, extra). An empty from means the script does not say. */
+  leaves?: { to: BehaviourDestination; from: BehaviourLocation[] }[];
   /** Where this card can send other cards, and from where. An empty from means the script does not say. */
   sends?: { to: BehaviourDestination; from: BehaviourLocation[] }[];
-  /** Draws cards. */
+  /** The player draws cards (the opponent's draws are not counted). */
   draws?: true;
+  /** The script also uses Fusion or Ritual helpers, which move cards this scan cannot see. Every field may be incomplete. */
+  partial?: true;
 };
 
 /** The packed file: SHAPES = one shape per word, IDS = one "|" group per shape (same order). Ids are base 36, sorted, then delta coded. */
 export type CardBehaviourData = { SHAPES: string; IDS: string };
 
 // One letter per value. Costs, destinations and locations each have their own letters.
-const COST_CODES = "dgbkhxte", DEST_CODES = "gbfhdxu", LOC_CODES = "fFhHdDgGbBxX";
+const COST_CODES = "dgbkhxtey", DEST_CODES = "gbfhdxu", LOC_CODES = "fFhHdDgGbBxX";
 const code = <T extends string>(all: readonly T[], letters: string, value: T) => letters[all.indexOf(value)];
 const sorted = <T extends string>(all: readonly T[], values: readonly T[]) => all.filter(value => values.includes(value));
 
@@ -52,12 +55,14 @@ export function encodeBehaviourShape(b: CardBehaviour): string {
   costs("c", b.cost); costs("o", b.costOther);
   if (b.detach) out.push(`x:${b.detach.min}-${b.detach.max}`);
   if (b.attach) out.push(`a:${locations(b.attach.from)}`);
-  if (b.leaves?.length) out.push(`l:${sorted(BEHAVIOUR_DESTINATIONS, b.leaves).map(v => code(BEHAVIOUR_DESTINATIONS, DEST_CODES, v)).join("")}`);
-  if (b.sends?.length) {
-    const entries = [...b.sends].sort((a, c) => BEHAVIOUR_DESTINATIONS.indexOf(a.to) - BEHAVIOUR_DESTINATIONS.indexOf(c.to));
-    out.push(`s:${entries.map(entry => code(BEHAVIOUR_DESTINATIONS, DEST_CODES, entry.to) + locations(entry.from)).join(",")}`);
-  }
+  const moves = (key: string, values: CardBehaviour["sends"]) => {
+    if (!values?.length) return;
+    const entries = [...values].sort((a, c) => BEHAVIOUR_DESTINATIONS.indexOf(a.to) - BEHAVIOUR_DESTINATIONS.indexOf(c.to));
+    out.push(`${key}:${entries.map(entry => code(BEHAVIOUR_DESTINATIONS, DEST_CODES, entry.to) + locations(entry.from)).join(",")}`);
+  };
+  moves("l", b.leaves); moves("s", b.sends);
   if (b.draws) out.push("w");
+  if (b.partial) out.push("p");
   return out.join(";");
 }
 
@@ -73,8 +78,11 @@ export function decodeBehaviourShape(shape: string): CardBehaviour {
     else if (key === "o") b.costOther = decodeList(BEHAVIOUR_COSTS, COST_CODES, value) as Exclude<BehaviourCost, "detach">[];
     else if (key === "x") { const [min, max] = value.split("-").map(Number); b.detach = { min, max }; }
     else if (key === "a") b.attach = { from: decodeList(BEHAVIOUR_LOCATIONS, LOC_CODES, value) };
-    else if (key === "l") b.leaves = decodeList(BEHAVIOUR_DESTINATIONS, DEST_CODES, value);
-    else if (key === "s") b.sends = value.split(",").map(entry => ({ to: decodeList(BEHAVIOUR_DESTINATIONS, DEST_CODES, entry[0])[0], from: decodeList(BEHAVIOUR_LOCATIONS, LOC_CODES, entry.slice(1)) }));
+    else if (key === "p") b.partial = true;
+    else if (key === "l" || key === "s") {
+      const entries = value.split(",").map(entry => ({ to: decodeList(BEHAVIOUR_DESTINATIONS, DEST_CODES, entry[0])[0], from: decodeList(BEHAVIOUR_LOCATIONS, LOC_CODES, entry.slice(1)) }));
+      if (key === "l") b.leaves = entries; else b.sends = entries;
+    }
   }
   return b;
 }
