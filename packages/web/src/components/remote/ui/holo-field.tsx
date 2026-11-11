@@ -246,8 +246,9 @@ export function HoloField({ seat, name, twin, info, extraZones, facing, rv, onRv
         const observedPile=deckPile&&backs.some(back=>back.zone===(key==='deck'?'DECK':'EXTRA'));
         const offMat=deckPile&&missingPiles.includes(key==='deck'?'DECK':'EXTRA');
         if (pile && (cell.count||observedPile||deckPile&&deckRegistered||(listed??0)>0)) {
-          const topZone = key === "gy" ? "graveyard" : key === "ban" ? "banished" : undefined;
-          const top = topZone ? [...twin].reverse().find(item => item.zone === topZone) : undefined;
+          const topZone = key === "gy" ? "graveyard" : key === "ban" ? "banished" : key === "ex" ? "extra" : undefined;
+          // A face-up Pendulum monster in the Extra Deck is the only Extra card shown as a face (to the opponent too).
+          const top = topZone ? [...twin].reverse().find(item => item.zone === topZone && (key !== "ex" || item.faceUp && item.pendulumUp)) : undefined;
           const topInfo = top && top.faceUp && cardCode(top) ? info(cardCode(top)) : undefined;
           const count=deckPile?undefined:(cell.count||undefined);
           desc = deckPile ? (offMat?'Not on the mat (camera)':listed!==undefined?`Face-down pile. Registered deck: ${listed} cards`:"Face-down pile") : topZone && top ? `${cell.count} cards, top card ${top.faceUp ? cardName(top, topInfo) : "face-down"}. Press Enter to open the pile` : count===undefined?'Face-down pile':`${count} cards`;

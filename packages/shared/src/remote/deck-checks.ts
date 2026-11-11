@@ -69,7 +69,7 @@ export type RemoteReductionContext = {
   /** Trusted replay only: retain slot conflicts accepted before the live guard. */
   replay?: boolean;
   /** Persisted by the service: old events replay with the original placement semantics. */
-  twinPlacementGuard?: 1 | 2 | 3 | 4 | 5;
+  twinPlacementGuard?: 1 | 2 | 3 | 4 | 5 | 6;
   pileArrivalGuard?: 1 | 2;
   /** Public knowledge survives an in-place Set; hidden destinations clear it. */
   fieldFaceState?: 1;
@@ -82,7 +82,7 @@ export type RemoteReductionContext = {
 };
 /** Persist current reducer semantics for live actions and account-deletion concessions. */
 export const REMOTE_REDUCTION_VERSIONS = {
-  undoVersion: 1, matchFlowVersion: 2, twinPlacementGuard: 5, fieldFaceState: 1,
+  undoVersion: 1, matchFlowVersion: 2, twinPlacementGuard: 6, fieldFaceState: 1,
   pileArrivalGuard: 2, handKnowledge: 1, handReview: 1, handCountCorrections: 1, quitGameOnly: 1,
 } as const satisfies RemoteReductionContext;
 
@@ -113,7 +113,9 @@ export function isInRemoteDeck(deck: DuelDeck, fact: RemoteCardFact, facts: Remo
 export function remotePublicZone(zone?: string, faceUp = true): boolean {
   return faceUp && !!zone && ["monster", "spell-trap", "extra-monster", "field", "graveyard", "banished", "extra", "pendulum"].includes(zone);
 }
-export function remotePublicCard(card: {zone?: string; faceUp?: boolean; publicIdentity?: boolean}): boolean {
+export function remotePublicCard(card: {zone?: string; faceUp?: boolean; publicIdentity?: boolean; pendulumUp?: true}): boolean {
+  // The Extra Deck is hidden, except a face-up Pendulum Monster.
+  if (card.zone === "extra") return !!card.pendulumUp && card.faceUp === true;
   return !!card.zone && !["deck","extra"].includes(card.zone) && (remotePublicZone(card.zone, card.faceUp) || !!card.publicIdentity);
 }
 export function remotePhysicalSlot(zone?: string, slot?: number): number | undefined {
