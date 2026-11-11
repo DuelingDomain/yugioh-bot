@@ -17,6 +17,7 @@ import {fieldTrackMessage} from '@/lib/remote/field-track-cache';
 import {onManualMove} from '@/lib/remote/manual-moves';
 import {projectFieldZone,tokenInCell,freeFieldZones,fieldCandidateFitsZone,hardFieldZone,zoneMoveLabel,equipSourceOnField,becomesTrapMonster,nearestFreeMonsterZone,fieldZoneLabel} from '@/lib/remote/field-legality';
 import {bindFieldTiming,markFieldTiming,bindBackTiming} from '@/lib/remote/field-timing';
+import {behaviourOf} from '@/lib/remote/card-behaviour';
 import {saveLocalFieldDiagnostic} from '@/lib/remote/field-diagnostics';
 import {ownFieldResources,detectCards,prepareOwnReader} from './ui/recognizer';
 import {RecognitionBadge} from './ui/recognition-setting';
@@ -540,7 +541,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       if(tokenUndo.current?.trackId===event.track.id&&updated?.state.undo?.actionId){undoChain.current={after:updated.state.undo.actionId,ids:[tokenUndo.current.actionId]};tokenUndo.current=undefined;}
       // The card was held up and shown first: the placement joins that activation, so one notice and one Undo cover both.
       const activated=handActivation.current,placedId=updated?.state.undo?.actionId;
-      if(activated&&placedId&&!summon&&entry&&catalogCardId(entry)===activated.cardId&&performance.now()-activated.at<HAND_ACTIVATION_MS&&undoChain.current.after!==placedId){
+      if(activated&&placedId&&!summon&&entry&&!['monster','extra-monster'].includes(location.zone)&&catalogCardId(entry)===activated.cardId&&performance.now()-activated.at<HAND_ACTIVATION_MS&&undoChain.current.after!==placedId){
         handActivation.current=undefined;undoChain.current={after:placedId,ids:[activated.actionId]};
         setNotice(`${entry.name} activated from hand, then placed · auto`);
       }
@@ -549,8 +550,8 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       if(projected.shiftTo&&projected.zone?.startsWith('S')&&!rowKept.current.has(target.card.ref))setRowPrompts(list=>list.some(p=>p.ref===target.card.ref)?list:[...list,{ref:target.card.ref,name:entry?.name??'Monster'}]);
     }finally{setPending(false);}
   }
-  /** Held cards that cannot be activated (a Normal or Extra Deck monster) keep the one-tap suggestion. Unknown card data means not activatable. */
-  const heldActivatable=(cardId:number)=>{const frame=cardInfo(cardId)?.frameType;return frame!==undefined&&!/^(normal|fusion|synchro|xyz|link|token)/.test(frame);};
+  /** A held Spell or Trap is shown as an activation. A monster only when its script has a hand quick effect: any other monster held up is about to be summoned or added, so it keeps the one-tap suggestion. Unknown card data means not activatable. */
+  const heldActivatable=(cardId:number)=>{const frame=cardInfo(cardId)?.frameType;if(frame===undefined)return false;if(/^(spell|trap)/.test(frame))return true;return !/^(normal|fusion|synchro|xyz|link|token)/.test(frame)&&!!behaviourOf(cardId)?.handQuick;};
   /** One held card, named by the camera (sure, lifted) or picked by the player: shown to the table at once, never placed on the field. */
   async function commitHeld(act:RoomMutation,cardId:number,name:string,id:string,readAt:number,key:string) {
     // The card type must be known before the decision: an unloaded card is never "activatable".
@@ -684,7 +685,8 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
           if(updated){
             bindings.current.set(event.track.id,ref);
             const pileId=updated.state.undo?.actionId;
-            if(shown&&pileId){handActivation.current=undefined;undoChain.current={after:pileId,ids:[shown.actionId]};setNotice(`${cardInfo(shown.cardId)?.name??'Card'} activated from hand, then sent to the ${zone==='graveyard'?'GY':'banished pile'} · auto`);}
+            // A pile card read as a copy that already left the field adds no card: it is not the shown hand copy.
+            if(shown&&pileId&&updated.state.seats[seat].twin.some(c=>c.ref===ref&&c.zone===zone)){handActivation.current=undefined;undoChain.current={after:pileId,ids:[shown.actionId]};setNotice(`${cardInfo(shown.cardId)?.name??'Card'} activated from hand, then sent to the ${zone==='graveyard'?'GY':'banished pile'} · auto`);}
             else setNotice(`Unknown card added to the ${zone==='graveyard'?'GY':'banished pile'} · name it`);
             setUndoId(pileId??'');
           }

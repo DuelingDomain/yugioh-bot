@@ -4529,6 +4529,24 @@ describe("remote hand activation (a card held up from the hand)", () => {
     expect(spell.room.state.seats[0].knownHand ?? []).toEqual([]);
   });
 
+  it("does not show a hand copy while another copy is on the field, and counts the right copy afterwards", async () => {
+    const { remoteHandActivationDecision } = await import("../../src/remote/index.js");
+    const s = originSession(true);
+    s.act({ type: "twin.place", seat: 0, zone: "spell-trap", card: { ref: "field-copy", cardId: CARD, faceUp: true } });
+    // The camera cannot tell the two copies apart: the field copy blocks the activation.
+    expect(remoteHandActivationDecision(s.room.state, 0, { cardId: CARD, id: "held-1", at: 3000 })).toBeUndefined();
+    s.act({ type: "twin.move", seat: 0, cardRef: "field-copy", zone: "graveyard", source: "auto" });
+    const count = s.room.state.seats[0].handCount!;
+    await hold(s);
+    // An unread pile card right after that departure is read as the field copy again: it adds no GY card and does not
+    // take the shown hand copy, so the web must not name it as the hand copy (it checks that the new card ref exists).
+    s.act({ type: "twin.place", seat: 0, zone: "graveyard", source: "auto", card: { ref: "hand-copy", cardId: CARD } });
+    expect(s.room.state.seats[0].twin.filter(c => c.zone === "graveyard")).toHaveLength(1);
+    expect(s.room.state.seats[0].knownHand).toEqual([expect.objectContaining({ cardId: CARD })]);
+    expect(s.room.state.seats[0].handCount).toBe(count);
+    expect(s.room.state.seats[0].twin.some(c => c.ref === "hand-copy")).toBe(false);
+  });
+
   it("undoes the activation and takes the card out of the known hand", async () => {
     const s = originSession(true), count = s.room.state.seats[0].handCount;
     const targetActionId = await hold(s);
