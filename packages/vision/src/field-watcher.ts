@@ -14,13 +14,14 @@ export interface HeldCardTrack {
   id:string; state:'held'; card:DetectedQuad; at:number; cardId?:string; visible?:boolean;
 }
 /** First sure read of one held-card episode. Pixels remain local. Never a field placement. */
-export interface HeldCardEvent extends HeldCardTrack {type:'held'; cardId:string; result:RecognitionResult; source:'auto'}
+/** `lifted`: the outline was off the mat plane (certainly lifted, or off the plane with fingers on it). Fingers alone on a flat card may only be a placement or a discard. */
+export interface HeldCardEvent extends HeldCardTrack {type:'held'; cardId:string; result:RecognitionResult; source:'auto'; lifted:boolean}
 /** A held card the reader could not name after its last try: the best few candidates for a one-tap pick. Never a field placement. */
-export interface HeldUnsureEvent extends HeldCardTrack {type:'held-unsure'; candidates:{cardId:string;score:number}[]; source:'auto'}
+export interface HeldUnsureEvent extends HeldCardTrack {type:'held-unsure'; candidates:{cardId:string;score:number}[]; source:'auto'; lifted:boolean}
 
 /** A separate path so removal/shadow fixes can change the field tracker independently. */
 export function createHeldCardReader(options:Pick<FieldWatcherOptions,'recognizer'|'profile'|'getPriors'|'getKnownCards'|'clone'|'onHeldCard'|'onHeldUnsure'|'now'>) {
-  type Track={view:HeldCardTrack;look?:number[];seen:number;tried:number;attempts:number;stable:number;pending:boolean;emitted:boolean;visible:boolean;field:boolean;eligible:boolean;planeHeld:boolean;/** Last sample this outline counted as held (watcher clock). */lastHeld:number;unsure:boolean};
+  type Track={view:HeldCardTrack;look?:number[];seen:number;tried:number;attempts:number;stable:number;pending:boolean;emitted:boolean;visible:boolean;field:boolean;eligible:boolean;planeHeld:boolean;/** Last sample this outline was off the mat plane (watcher clock). */lastLifted:number;unsure:boolean;/** Consecutive sure reads naming the same card. */sure?:{cardId:string;count:number}};
   const clone=options.clone??cloneFieldFrame,tracks:Track[]=[];
   const session=globalThis.crypto?.randomUUID?.()??Math.random().toString(36).slice(2);
   let serial=0,epoch=0;
@@ -48,13 +49,13 @@ export function createHeldCardReader(options:Pick<FieldWatcherOptions,'recognize
           const missingField=tracks.some(t=>t.field&&at-t.seen<10_000&&!cards.some(other=>other!==card&&distance(t.view.card,other)<.18));
           // onMat always maps the player's hand edge to y=1. An uncalibrated frame uses its near edge.
           const fromHandEdge=center.y>=.94;
-          track={view:{id:`held-${session}-${++serial}`,state:'held',card:structuredClone(card),at},seen:at,tried:-Infinity,attempts:0,stable:at,pending:false,emitted:false,visible:true,field:!planeHeld&&(recentField||missingField||!!cell&&!fromHandEdge),eligible:false,planeHeld,lastHeld:-Infinity,unsure:false};
+          track={view:{id:`held-${session}-${++serial}`,state:'held',card:structuredClone(card),at},seen:at,tried:-Infinity,attempts:0,stable:at,pending:false,emitted:false,visible:true,field:!planeHeld&&(recentField||missingField||!!cell&&!fromHandEdge),eligible:false,planeHeld,lastLifted:-Infinity,unsure:false};
           tracks.push(track);
         }
         if(recentField&&!planeHeld)track.field=true;
         const moving=distance(track.view.card,card)>.012||evidence.motion(card)>.025||!track.visible;
         if(moving||!(contact||planeHeld))track.stable=at;
-        track.planeHeld=planeHeld;track.eligible=planeHeld||!track.field&&contact;if(track.eligible)track.lastHeld=at;
+        track.planeHeld=planeHeld;track.eligible=planeHeld||!track.field&&contact;if(planeHeld)track.lastLifted=at;
         track.view.card=structuredClone(card);track.seen=at;track.look=look;used.add(track);
         if(track.eligible){held.push(card);notes.set(card,planeHeld?verdict!.hard?verdict!.text:`${verdict!.text.replace(/^held\? /,'held: ')} · fingers`:'held: hand contact');}
       }
@@ -73,30 +74,33 @@ export function createHeldCardReader(options:Pick<FieldWatcherOptions,'recognize
             const cardId=result.candidates[0]?.cardId;
             // A captured frame remains valid after the outline leaves the view.
             if(generation!==epoch||track.field&&!track.planeHeld||track.emitted)return;
-            if(result.tier!=='sure'||!cardId||cardId===options.profile.cardBack.cardId||result.quality.faceDown||result.quality.fallback||result.quality.partial){
+            const sure=result.tier==='sure'&&!!cardId&&cardId!==options.profile.cardBack.cardId&&!result.quality.faceDown&&!result.quality.fallback&&!result.quality.partial;
+            // The public reveal needs two sure reads in a row that name the same card.
+            track.sure=sure&&cardId?{cardId,count:track.sure?.cardId===cardId?track.sure.count+1:1}:undefined;
+            if(!sure||track.sure!.count<2){
               // After the last try the player gets the best few to pick from. A wrong automatic card is worse than one tap.
               const top=result.candidates.filter(c=>c.cardId&&c.cardId!==options.profile.cardBack.cardId).slice(0,3);
-              if(track.attempts>=3&&!track.unsure&&result.tier==='not sure'&&!result.quality.faceDown&&!result.quality.partial&&top.length){
+              if(track.attempts>=3&&!track.unsure&&(sure||result.tier==='not sure')&&!result.quality.faceDown&&!result.quality.partial&&top.length){
                 track.unsure=true;
-                options.onHeldUnsure?.({...track.view,card,type:'held-unsure',candidates:top.map(c=>({cardId:c.cardId,score:c.score})),source:'auto',at:performance.timeOrigin+at});
+                options.onHeldUnsure?.({...track.view,card,type:'held-unsure',candidates:top.map(c=>({cardId:c.cardId,score:c.score})),source:'auto',lifted:track.planeHeld,at:performance.timeOrigin+at});
               }
               return;
             }
             const repeated=tracks.some(t=>t!==track&&t.emitted&&t.view.cardId===cardId&&at-t.seen<1500&&distance(t.view.card,card)<.18);
             track.seen=options.now?.()??at+Math.max(0,performance.now()-readStart);
             track.emitted=true;track.view.cardId=cardId;
-            if(!repeated)options.onHeldCard?.({...track.view,card,type:'held',cardId,result,source:'auto',at:performance.timeOrigin+at});
+            if(!repeated)options.onHeldCard?.({...track.view,card,type:'held',cardId,result,source:'auto',lifted:track.planeHeld,at:performance.timeOrigin+at});
           }finally{closeFieldFrame(input);}
         })().finally(()=>{track.pending=false;});
       }
       return {cards:held,read,notes};
     },
     /**
-     * A card that was held up must never become a field card by passing over a zone. An outline near one that counted as held
-     * (hand contact, off the mat plane) stays out of the field until `holdMs` after the last held sample, and while a hand is on it.
+     * A card that was held up must never become a field card by passing over a zone. An outline near one that was lifted
+     * (off the mat plane) stays out of the field until `holdMs` after the last lifted sample. Fingers on a flat card are a placement.
      */
-    claims(card:DetectedQuad,at:number,holdMs:number,handNear:boolean){
-      return tracks.some(t=>(t.eligible||at-t.lastHeld<(handNear?1500:holdMs))&&(distance(t.view.card,card)<.18||quadIou(t.view.card,card)>.2));
+    claims(card:DetectedQuad,at:number,holdMs:number){
+      return tracks.some(t=>(t.planeHeld||at-t.lastLifted<holdMs)&&(distance(t.view.card,card)<.18||quadIou(t.view.card,card)>.2));
     },
     snapshot:()=>tracks.filter(t=>t.eligible).map(t=>({...t.view,visible:t.visible,card:structuredClone(t.view.card)})),
     hasVisibleCard:()=>tracks.some(t=>t.eligible&&t.visible),
@@ -324,7 +328,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
     else{samples=1;since=at;text=prev?'moving':'settling';}
     restNext.push({quad:structuredClone(c),samples,since,contactAt});
     // A card that was just held up (or has a hand on it) is no field card yet: it counts only after it lies still on the mat for stableMs.
-    const heldUp=t.view.state==='candidate'&&heldReader.claims(c,at,stableMs,handNear(evidence,c));
+    const heldUp=t.view.state==='candidate'&&heldReader.claims(c,at,stableMs);
     const ok=samples>=REST_SAMPLES&&at-(since??at)>=REST_MS&&!heldUp;
     if(heldUp&&samples)text='held up';
     t.rest={samples,since,ok,planeOk:plane.ok,hard:plane.hard,text:ok?'on mat':samples?`${text} ${samples}/${REST_SAMPLES}`:text};
