@@ -17,7 +17,7 @@ import { build } from "esbuild";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const out = path.join(path.resolve(process.env.VISION_DATA_DIR ?? path.join(root, "data/vision")), "kws");
-const pins = JSON.parse(await readFile(path.join(root, "scripts/voice/kws-pins.json"), "utf8")) as { model: { name: string; url: string } };
+const pins = JSON.parse(await readFile(path.join(root, "scripts/voice/kws-pins.json"), "utf8")) as { model: { name: string; url: string; sha256: string } };
 const vocabFile = path.join(root, "packages/web/src/components/remote/ui/voice/sp-vocab.json");
 const modelFiles = ["encoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx", "decoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx", "joiner-epoch-12-avg-2-chunk-16-left-64.int8.onnx", "tokens.txt"];
 
@@ -60,7 +60,9 @@ try {
   const archive = path.join(work, "model.tar.bz2");
   const response = await fetch(pins.model.url);
   if (!response.ok) throw new Error(`Model download failed (HTTP ${response.status})`);
-  await writeFile(archive, Buffer.from(await response.arrayBuffer()));
+  const bytes = Buffer.from(await response.arrayBuffer());
+  if (sha(bytes) !== pins.model.sha256) throw new Error(`Model archive SHA-256 is ${sha(bytes)}, expected ${pins.model.sha256}`);
+  await writeFile(archive, bytes);
   execFileSync("tar", ["xjf", archive, "-C", work]);
   const dir = path.join(work, pins.model.name);
   await mkdir(path.join(out, "model"), { recursive: true });
