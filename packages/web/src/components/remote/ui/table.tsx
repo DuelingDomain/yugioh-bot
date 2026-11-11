@@ -3,7 +3,7 @@
 import { REMOTE_TABLE_TALK } from "@/lib/remote/table-talk";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
-import { REMOTE_FORMATS, REMOTE_HAND_SUGGESTION_EVENT, type RemoteHandSuggestionEvent, matchCardsByName, previousYgoPhase, normalizeRemoteFormat, remoteRecognitionRef, remoteRecognitionRefs, type RemoteActionProposal, type RemoteEvent, type RemoteRoom, type RemoteUndoEntry } from "@yugidraft/shared/remote";
+import { REMOTE_FORMATS, REMOTE_HAND_SUGGESTION_EVENT, REMOTE_VOICE_UNDO_EVENT, remoteRecentActivation, type RemoteHandSuggestionEvent, type RemoteVoiceUndoEvent, matchCardsByName, previousYgoPhase, normalizeRemoteFormat, remoteRecognitionRef, remoteRecognitionRefs, type RemoteActionProposal, type RemoteEvent, type RemoteRoom, type RemoteUndoEntry } from "@yugidraft/shared/remote";
 import { cardInfo, isLinkInfo, isMonsterInfo, loadCards, searchCards, useCardInfo } from "./catalog";
 import { EffectControls, EffectPicker } from "./effect-controls";
 import { Rail, LpStrip, TopBar, AdminWatchStrip, type Player } from "./chrome";
@@ -949,6 +949,13 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
     if (!card) return { text: "No card to move. Place one first.", ignored: true };
     if (move.flipSummon && !canFlipSummon(card)) return { text: "Flip summon needs a face-down monster in a Monster Zone", ignored: true };
     const dest = move.dest;
+    // A bare "set" (no card, no zone) must not move whatever card was placed last: the camera may have placed it. It asks first.
+    if (!move.query && !dest) {
+      const who = card.faceUp ? cardName(card, cardInfo(cardCode(card))) : "Face-down card";
+      const extra = { ...(move.faceUp !== undefined ? { faceUp: move.faceUp } : {}), ...(move.position ? { position: move.position } : {}) };
+      propose(move.faceUp === false ? `Set ${who} face down?` : `Change ${who}?`, `Said: “set” with no card name. Say the name to skip this question.`, "Yes", () => void tryMove(seat, card, { zone: card.zone, ...(card.slot ? { slot: card.slot } : {}) }, extra, undefined, true), requestId);
+      return { text: "Needs a confirm" };
+    }
     const emz = dest?.zone === "extra-monster" && !dest.slot ? freeEmzSlot(seat, cur.seats) : dest?.slot;
     const land: Landing = dest ? { zone: dest.zone, ...(dest.zone === "extra-monster" ? (emz ? { slot: emz } : {}) : dest.slot ? { slot: dest.slot } : {}) } : { zone: card.zone, ...(card.slot ? { slot: card.slot } : {}) };
     if (dest?.zone === "extra-monster" && !land.slot) return { text: "Both Extra Monster Zones are taken.", ignored: true };
@@ -982,8 +989,16 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
         if (intent.proposal.type !== "effect.activated" || !intent.proposal.source.cardRef) {
           setProposal(null); set("Which card? Say its name with ‘effect’, or activate it from its card view.", true); break;
         }
+        // The camera's held-card read just showed this card from the hand: the same activation is not recorded twice.
+        if (remoteRecentActivation(current, me, intent.proposal.source.cardId, serverNow(), true)) { set("Already shown from your hand", true); break; }
         set("Effect activated"); void act(intent.proposal); break;
-      case "undo": set("Undone"); void doUndo(); break;
+      case "undo": {
+        // One undo per word: the field watcher takes it when the newest action is a camera change with its own Undo chain.
+        const newest = ownUndoEntries(current, now.solo, now.mySeat)[0];
+        const ask: RemoteVoiceUndoEvent = { slug: now.slug, actionId: newest?.actionId ?? "", handled: false };
+        if (newest && !newest.reason) window.dispatchEvent(new CustomEvent(REMOTE_VOICE_UNDO_EVENT, { detail: ask }));
+        set("Undone"); if (!ask.handled) void doUndo(); break;
+      }
       case "phase":
         if (!now.solo && now.mySeat !== current.turnSeat) { set(`Only ${name(current.turnSeat)} can change phase`, true); break; }
         set(`Phase: ${PHASE_LONG[intent.phase] ?? intent.phase}`); void act({ type: "phase.set", actorSeat: me, phase: intent.phase }); break;

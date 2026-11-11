@@ -4540,6 +4540,15 @@ describe("remote hand activation (a card held up from the hand)", () => {
     // The same card again gives nothing new; a Normal or unknown card keeps the one-tap suggestion.
     expect(remoteHandActivationDecision(s.room.state, 0, { cardId: CARD, id: "held-2", at: 3100 })).toBeUndefined();
     expect(remoteHandActivationDecision(originSession(true).room.state, 0, { cardId: CARD, id: "held-3", at: 3100 }, { activatable: false })).toMatchObject({ type: "hand.suggest" });
+    // The two sources never record one activation twice: a held read is seen by the voice check, a spoken effect is seen by the camera.
+    const at = s.room.state.undoHistory!.at(-1)!.at, { remoteRecentActivation } = await import("../../src/remote/index.js");
+    expect(remoteRecentActivation(s.room.state, 0, CARD, at + 1000, true)).toBe(true);
+    expect(remoteRecentActivation(s.room.state, 0, CARD, at + 30_000, true)).toBe(false);
+    const spoken = originSession(true);
+    spoken.act({ type: "effect.activated", actorSeat: 0, source: { cardId: CARD } });
+    const spokenAt = spoken.room.state.undoHistory!.at(-1)!.at;
+    expect(remoteRecentActivation(spoken.room.state, 0, CARD, spokenAt + 1000, false)).toBe(true);
+    expect(remoteHandActivationDecision(spoken.room.state, 0, { cardId: CARD, id: "held-4", at: spokenAt + 1000 })).toBeUndefined();
     s.act({ type: "twin.place", seat: 0, zone: "graveyard", card: { ref: "discarded", cardId: CARD } });
     expect(s.room.state.seats[0].handCount).toBe(count - 1);
     expect(s.room.state.seats[0].knownHand ?? []).toEqual([]);

@@ -236,6 +236,16 @@ export function remoteHandActionFromVision(event: RemoteHandVisionEvent, actorSe
 /** Local camera suggestion. This is not a server action and must never be POSTed. */
 export type RemoteHandSuggestionEvent = {type:'hand.suggest';actorSeat:number;cardId:number;id:string;at:number};
 export const REMOTE_HAND_SUGGESTION_EVENT='remote:hand-suggestion';
+/** The table asks the field watcher to take a spoken "undo" when the newest action is one it can undo with its own chain. Cancelled by `detail.handled=true`. */
+export const REMOTE_VOICE_UNDO_EVENT='remote:voice-undo';
+export type RemoteVoiceUndoEvent={slug:string;actionId:string;handled:boolean};
+/** The same card was just recorded as an activation by the other source (the camera's held-card read, or a spoken effect): the second one must not record it again. */
+export const REMOTE_ACTIVATION_DEDUPE_MS=6000;
+export function remoteRecentActivation(state:RemoteState,actorSeat:number,cardId:number|undefined,now:number,byCamera:boolean):boolean {
+  if(cardId===undefined)return false;
+  return (state.undoHistory??[]).some(e=>!e.undone&&e.actorSeat===actorSeat&&e.action.type==='effect.activated'&&!!e.action.fromHand===byCamera&&
+    e.action.source.cardId===cardId&&now-e.at<=REMOTE_ACTIVATION_DEDUPE_MS&&now>=e.at-REMOTE_ACTIVATION_DEDUPE_MS);
+}
 /** Call after the held episode ends and a further 800 ms shows no play of this card. */
 export function remoteHandReadDecision(state:RemoteState,actorSeat:number,read:{cardId:number;id:string;at:number},fieldReadPending=false):RemoteActionProposal|RemoteHandSuggestionEvent|undefined {
   const own=state.seats[actorSeat];
@@ -257,6 +267,8 @@ export function remoteHandReadDecision(state:RemoteState,actorSeat:number,read:{
 export function remoteHandActivationDecision(state:RemoteState,actorSeat:number,read:{cardId:number;id:string;at:number},opts:{fieldReadPending?:boolean;activatable?:boolean}={}):RemoteActionProposal|RemoteHandSuggestionEvent|undefined {
   const decision=remoteHandReadDecision(state,actorSeat,read,opts.fieldReadPending);
   if(!decision||decision.type!=='hand.suggest'||opts.fieldReadPending)return decision;
+  // A spoken effect for this card was just recorded: the held card is the same activation.
+  if(remoteRecentActivation(state,actorSeat,read.cardId,read.at,false))return;
   const main=state.deckChecks.registrations[actorSeat]?.deck.main;
   if(opts.activatable===false||main&&!main.includes(read.cardId))return decision;
   return {type:'effect.activated',actorSeat,source:{cardId:read.cardId},fromHand:true};
