@@ -430,6 +430,9 @@ it('departures leave field zones once with a named atomic move and retain physic
   for(const zone of ['graveyard','banished'])expect(fieldDepartureProposal({...card,zone},0)).toMatchObject({cardRef:'physical',zone:'hand',faceUp:false});
   for(const zone of ['hand','extra','deck'])expect(fieldDepartureProposal({...card,zone},0)).toBeUndefined();
   expect(fieldDepartureProposal(card,0,'extra')).toMatchObject({zone:'extra',faceUp:false});
+  // An Extra Deck monster the camera lost goes back to the Extra Deck (face-down), never to the hand.
+  expect(fieldDepartureProposal(card,0,undefined,{type:'Xyz Monster'})).toMatchObject({zone:'extra',faceUp:false});
+  expect(fieldDepartureProposal(card,0,undefined,{type:'Effect Monster'})).toMatchObject({zone:'hand'});
   expect(fieldDepartureProposal({...card,faceUp:false},0)?.name).toBeUndefined();
   // No camera evidence: the hand, even for a Pendulum Monster (the GY and the Extra Deck need the camera); a token is never moved by the camera.
   expect(fieldDepartureProposal({...card,token:true} as any,0)).toBeUndefined();
@@ -1035,6 +1038,16 @@ it.each([undefined,'DECK','EXTRA'] as const)('a clear field departure clears an 
     if(destination==='DECK')expect(describeEvent({actorSeat:0,action:proposal} as any,()=> 'Alice',()=>undefined)?.text).toContain('returned to Deck');
     await r.tick(5);expect(r.state.events.filter(e=>e.type==='removed')).toHaveLength(1);
   }finally{r.dispose();}
+});
+
+it('an Xyz placed seconds after the monsters were lifted (or stacked, then lifted) takes the ones the hand holds, newest first',async()=>{
+  const {fieldSummonMaterials}=await import('../src/lib/remote/field-summons');
+  const inHand=(ref:string,at:number)=>({ref,zone:'hand',faceUp:false,position:'attack',departedFrom:{zone:'monster',slot:2,at,auto:true}}) as any;
+  // Lifted M2 + M3, 8 s pass (outside the 5 s window), the Xyz is read in a new zone: both come back as materials.
+  const twins=[inHand('m2',92_000),inHand('m3',92_100),inHand('old',50_000)];
+  expect(fieldSummonMaterials({kind:'xyz',covered:[],vanished:[{ref:'m2',at:0},{ref:'m3',at:100}],firstSeen:8_000,twins,removed:()=>true,now:100_000})).toEqual(['m2','m3']);
+  // Stack: M3 on M2, the 5 s hold lowered M2 to the hand, then both were lifted (no vanish entries at all).
+  expect(fieldSummonMaterials({kind:'xyz',covered:[],vanished:[],firstSeen:0,twins,removed:()=>false,now:100_000})).toEqual(['m2','m3']);
 });
 
 it('the Attach to tag lists face-up Xyz Monsters of both sides, those that attach cards first',async()=>{

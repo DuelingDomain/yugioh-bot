@@ -1044,6 +1044,22 @@ describe('typed watcher zone projection',()=>{
    expect(fixture.room().state.seats[0].twin).toEqual([expect.objectContaining({ref:old.ref,zone:'graveyard'})]);
   }finally{fixture.dispose();}
  },15_000);
+ it('two cards the camera took off the field and a pile card seen later open a choice; Neither closes it for good',async()=>{
+  const a={ref:'left-a',zone:'spell-trap',slot:4,cardId:41420027,name:'Solemn Judgment',faceUp:true,position:'attack'},b={...a,ref:'left-b',slot:3,cardId:55144522,name:'Pot of Greed'};
+  const fixture=await typedWatcherFixture(zoneEntries[0],'M4',[a,b],'moved');
+  try{
+   state.fieldWatch.watch.isRemoved=()=>true;
+   for(const old of [a,b]){Object.assign(fixture.track,{id:old.ref,removed:true,visible:false});fixture.refresh();const calls=fixture.post.mock.calls.length;await fixture.emit({type:'removed'});await waitFor(()=>expect(fixture.post.mock.calls.length).toBe(calls+1),{timeout:6000});await act(async()=>{await fixture.post.mock.results[calls].value;});fixture.refresh();}
+   fixture.addTrack({id:'fw-1',zone:'GY',faceDown:false,cardId:undefined,state:'candidate',visible:true,removed:false,firstSeen:performance.now()});
+   fixture.setTwins([...fixture.room().state.seats[0].twin,{ref:'fw-1',zone:'graveyard',faceUp:true,position:'attack'}]);
+   const choice=await screen.findByTestId('leave-choice');
+   fireEvent.click(within(choice).getByRole('button',{name:'Neither'}));
+   await waitFor(()=>expect(screen.queryByTestId('leave-choice')).toBeNull());
+   // A new snapshot with the same pile card must not reopen it.
+   fixture.setTwins([...fixture.room().state.seats[0].twin]);fixture.refresh();await act(async()=>{await new Promise(r=>setTimeout(r,300));});
+   expect(screen.queryByTestId('leave-choice')).toBeNull();
+  }finally{fixture.dispose();}
+ },20_000);
  it('a card that leaves the field goes to the hand by default and the tag moves it where the player says',async()=>{
   const old={ref:'left-field',zone:'spell-trap',slot:4,cardId:41420027,name:'Solemn Judgment',faceUp:true,position:'attack'};
   const fixture=await typedWatcherFixture(zoneEntries[0],'M4',[old],'moved');

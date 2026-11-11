@@ -72,20 +72,22 @@ export function heldFieldReadPending(tracks:readonly FieldTrack[],readAt:number)
 }
 /**
  * Where a card goes when the camera saw no pile: a card taken off the field is assumed to be in the hand (Dueling Domain owner rule).
- * It goes to the GY, banished or the Extra Deck only when the camera sees it arrive there (or the player says so). A token has no
- * hand (the server drops it). An Xyz Monster's materials follow the same rule (a known mismatch with the rulebook: they should go to the GY).
+ * An Extra Deck monster (Fusion, Synchro, Xyz, Link) cannot be in the hand: it goes to the Extra Deck, face-down (face-up when it is
+ * a Pendulum Monster the camera lost face-up). GY or banished only when the camera sees the card arrive there (or the player says
+ * so). A token has no hand (the server drops it).
  */
-export function fieldDefaultDestination():{zone:'hand'} {
-  return {zone:'hand'};
+export function fieldDefaultDestination(card:Pick<TwinCard,'faceUp'>,facts?:{type?:string}):{zone:'hand'}|{zone:'extra';faceUp:boolean} {
+  const type=facts?.type??'';
+  return /\b(fusion|synchro|xyz|link)\b/i.test(type)?{zone:'extra',faceUp:!!card.faceUp&&/\bpendulum\b/i.test(type)}:{zone:'hand'};
 }
 /** The destinations a player can pick for a card that left the field (the tag on the moved card). `down`: face-down. */
 export const FIELD_LEAVE_DESTINATIONS=[{zone:'graveyard',title:'GY'},{zone:'banished',title:'Banish'},{zone:'banished',down:true,title:'Banish face-down'},{zone:'hand',title:'Hand'},{zone:'deck',title:'Deck'},{zone:'extra',title:'Extra Deck'}] as const;
 export const fieldLeaveLabel=(zone:string,faceUp?:boolean)=>zone==='material'?'Under Xyz':FIELD_LEAVE_DESTINATIONS.find(d=>d.zone===zone&&(zone!=='banished'||(('down' in d)===(faceUp===false))))?.title??zone;
 /** `destination`: a pile the camera showed, or a choice. Without one, the card is assumed in the hand (fieldDefaultDestination). A card in a pile that leaves it goes to the hand too. */
-export function fieldDepartureProposal(card:TwinCard,seat:number,destination?:'deck'|'extra'|{zone:'graveyard'|'banished'|'extra';faceUp?:boolean}):Extract<RemoteActionProposal,{type:'twin.move'}>|undefined {
+export function fieldDepartureProposal(card:TwinCard,seat:number,destination?:'deck'|'extra'|{zone:'graveyard'|'banished'|'extra';faceUp?:boolean},facts?:{type?:string}):Extract<RemoteActionProposal,{type:'twin.move'}>|undefined {
   if(card.token||!['monster','extra-monster','spell-trap','field','pendulum','graveyard','banished'].includes(card.zone))return;
   const pile=['graveyard','banished'].includes(card.zone);
-  const to=typeof destination==='string'?{zone:destination}:destination??fieldDefaultDestination();
+  const to=typeof destination==='string'?{zone:destination}:destination??fieldDefaultDestination(card,facts);
   // Back to the Deck/Extra, or a pile card that leaves its pile, turns face-down. The GY is public, so a card sent there (even a
   // face-down one) is face-up; banished is face-up unless the choice or the camera says face-down.
   const faceUp:boolean|undefined='faceUp' in to&&to.faceUp!==undefined?to.faceUp:pile||typeof destination==='string'?false:to.zone==='graveyard'||to.zone==='banished'?true:undefined;

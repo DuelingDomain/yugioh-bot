@@ -67,7 +67,7 @@ const destinations=FIELD_LEAVE_DESTINATIONS;
  * GY, banished or banished face-down only when the camera sees it arrive there. A pile card the camera shows within LATE_PILE_MS
  * after the move still counts for that card (it moves hand to pile, the stand-in goes). With two cards waiting the player picks one.
  */
-const LATE_PILE_MS=10_000;
+const LATE_PILE_MS=5000;
 /** Where a camera departure can still be a summon material (the server accepts these for 30 s). */
 const summonable=(zone:string)=>['hand','graveyard','banished','extra'].includes(zone);
 /** Owner evidence, table mutations and UI remain isolated from the feed reader. */
@@ -136,6 +136,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   /** Monsters out of view during the 2 s departure wait (track id): an Extra Deck summon in that window takes them as materials. */
   const pendingLeft=useRef(new Map<string,FieldVanish>()),leaveStarted=useRef(new Map<string,number>()),pendingDepartures=useRef(new Map<string,{event:FieldEvent;origin:Pick<TwinCard,'ref'|'zone'|'slot'>}>()),settlingDepartures=useRef(new Set<string>()),lateDefaults=useRef(new Map<string,{at:number;lastSeen:number}>()),lateBusy=useRef(false);
   useEffect(()=>()=>{pendingDepartures.current.clear();settlingDepartures.current.clear();lateDefaults.current.clear();for(const timer of heldTimers.current.values())clearInterval(timer);heldTimers.current.clear();for(const timer of departureTimers.current.values())clearTimeout(timer);departureTimers.current.clear();pendingLeft.current.clear();},[room.slug,seat,source]);
+  const choiceClosed=useRef(new Set<string>());
   const [leaveChoice,setLeaveChoice]=useState<{twinRef:string;zone:'graveyard'|'banished';faceUp:boolean;options:{ref:string;name:string}[]}|null>(null),[departure,setDepartureState]=useState<Departure|null>(null),departureRef=useRef<Departure|null>(null);
   // Grid check: when the card type contradicts the camera row for 2+ cards in 2 minutes, the zones are
   // probably shifted by one row. One hint per table and seat.
@@ -452,7 +453,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
         },Math.max(1,2000-(performance.now()-absentAt))));
         return;
       }
-      const departure=fieldDepartureProposal(stale,seat);
+      const departure=fieldDepartureProposal(stale,seat,undefined,cardInfo(cardCode(stale)));
       if(!departure||!await act(departure))return;
       // The departure counts as a vanish too: the summon that follows can still take this monster as a material.
       if(summonable(departure.zone)&&stale.faceUp&&['monster','extra-monster'].includes(stale.zone))vanishes.current=[...vanishes.current.filter(v=>v.ref!==stale.ref),{ref:stale.ref,at:absentAt}].slice(-10);
@@ -674,7 +675,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
         const wasPublic=publicField(card.zone),twinsNow=current.current.room.state.seats[seat].twin;
         const seen=wasPublic&&pendingDepartures.current.size+lateDefaults.current.size<=1?fieldPileEvidence({twins:twinsNow,tracks:watch.getTracks(),lastSeen:event.track.lastSeen,owns:t=>bindings.current.get(t.id)??t.id}):undefined;
         forget();
-        const proposal=fieldDepartureProposal(card,seat,seen?{zone:seen.zone,faceUp:seen.faceUp}:undefined);if(!proposal)return;
+        const proposal=fieldDepartureProposal(card,seat,seen?{zone:seen.zone,faceUp:seen.faceUp}:undefined,cardInfo(cardCode(card)));if(!proposal)return;
         const name=proposal.name??(card.faceUp?entries.current.get(event.track.cardId??'')?.name:undefined)??'Card';
         let updated=await act({...proposal,...(card.faceUp?{name}:{})}),undoTarget=updated?.state.undo?.actionId??'';
         if(updated&&seen){const adopted=await adoptPileCard(act,seen,card.ref,undoTarget);if(adopted){updated=adopted.state;undoTarget=adopted.undoTarget;}}
@@ -729,8 +730,9 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
               // Check the camera again: the top card may have moved back, or an Xyz may lie on the stack now.
               const twins=current.current.room.state.seats[seat].twin,mover=twins.find(c=>c.ref===card.ref),below=twins.find(c=>c.ref===stacked.ref),live_=watch.getTrack(trackId);
               if(!live()||!mover||!publicField(mover.zone)||!live_||!heldStackStillStacked({mover:live_,zone,under:stackUnder(trackId),below,location}))return;
-              const name=below!.faceUp?below!.name??'Card':'Card',departure=fieldDepartureProposal(below!,seat);if(!departure)return;
+              const name=below!.faceUp?below!.name??'Card':'Card',departure=fieldDepartureProposal(below!,seat,undefined,cardInfo(cardCode(below!)));if(!departure)return;
               const left=await next({...departure,...(below!.faceUp?{name}:{})});if(!left)return;
+              if(below!.faceUp)vanishes.current=[...vanishes.current.filter(v=>v.ref!==below!.ref),{ref:below!.ref,at:live_.lastSeen}].slice(-10);
               const moved=await next({type:'twin.move',source:'auto',actorSeat:seat,seat,cardRef:mover.ref,...location,position:fieldTwinPosition(live_)});
               // One Undo puts both back: the top card's move first, then the card under it.
               const leftId=left.state.undo?.actionId??'',movedId=moved?.state.undo?.actionId??'';
@@ -1002,7 +1004,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     lateBusy.current=true;lateDefaults.current.delete(ref);setLeaveChoice(null);
     return queue(async act=>{
       const now=current.current.room.state.seats[seat].twin,card=now.find(c=>c.ref===ref);
-      if(!live()||!card||card.zone!=='hand'||!now.some(c=>c.ref===seen.twin.ref)||undoKept.current.has(ref))return;
+      if(!live()||!card||!['hand','extra'].includes(card.zone)||!now.some(c=>c.ref===seen.twin.ref)||undoKept.current.has(ref))return;
       // Always one move: the camera confirmed the pile, so the card drops its field origin and no later second copy can take it.
       const moved=await act({type:'twin.move',source:'auto',confirmed:true,actorSeat:seat,seat,cardRef:ref,zone:seen.zone,faceUp:seen.zone==='banished'?seen.faceUp:true,...(card.faceUp&&card.name?{name:card.name}:{})});
       if(!moved)return;
@@ -1030,13 +1032,14 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     }
     // Cards the camera took off the field and the board holds in the hand: a pile card the camera shows now moves one of them there.
     const late=[...lateDefaults.current].filter(([ref,info])=>{
-      if(now-info.at<=LATE_PILE_MS&&twins.some(c=>c.ref===ref&&c.zone==='hand'))return true;
+      if(now-info.at<=LATE_PILE_MS&&twins.some(c=>c.ref===ref&&['hand','extra'].includes(c.zone)))return true;
       lateDefaults.current.delete(ref);return false;
     });
     const seen=late.length&&!lateBusy.current&&!pendingDepartures.current.size?fieldPileEvidence({twins,tracks,lastSeen:Math.min(...late.map(([,i])=>i.lastSeen)),owns}):undefined;
+    if(!late.length)choiceClosed.current.clear();
     if(!seen){if(leaveChoice&&!late.length)setLeaveChoice(null);return;}
     if(late.length===1)void settleLate(late[0][0],seen);
-    else if(leaveChoice?.twinRef!==seen.twin.ref)setLeaveChoice({twinRef:seen.twin.ref,zone:seen.zone,faceUp:seen.faceUp,options:late.map(([ref])=>({ref,name:twins.find(c=>c.ref===ref)?.name??'Card'}))});
+    else if(leaveChoice?.twinRef!==seen.twin.ref&&!choiceClosed.current.has(seen.twin.ref))setLeaveChoice({twinRef:seen.twin.ref,zone:seen.zone,faceUp:seen.faceUp,options:late.map(([ref])=>({ref,name:twins.find(c=>c.ref===ref)?.name??'Card'}))});
   },[room.state,seat,watch.snapshot]);
   function redirect(zone:string,down=false) {
     void queue(async act=>{
@@ -1223,7 +1226,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
         if(undoKept.current.has(ref)){if(!strict)continue;undoKept.current.delete(ref);}
         // An unnamed Set the camera placed and no longer sees is taken back, not added to the hand as an unknown card.
         const unnamedSet=strict&&!card.faceUp&&!cardCode(card)&&card.ref.startsWith('fw-');
-        const proposal=unnamedSet?{type:'twin.remove' as const,actorSeat:seat,seat,cardRef:card.ref}:fieldDepartureProposal(card,seat);if(!proposal)continue;
+        const proposal=unnamedSet?{type:'twin.remove' as const,actorSeat:seat,seat,cardRef:card.ref}:fieldDepartureProposal(card,seat,undefined,cardInfo(cardCode(card)));if(!proposal)continue;
         const key=`remove:${ref}`;if(!tryFix(key))continue;
         await write(key,proposal);
       }
@@ -1385,7 +1388,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
         <button type="button" disabled={pending} onClick={()=>{const {event,token}=tokenPrompt;setTokenPrompt(null);tokenUndo.current=undefined;void queue(async act=>{const removed=await act({type:'twin.remove',actorSeat:seat,seat,cardRef:token.ref});const actionId=removed?.state.undo?.actionId;if(!removed||!actionId)return;tokenUndo.current={trackId:event.track.id,actionId};setNotice('Token removed · Undo');setUndoId(actionId);},event).then(()=>queue(act=>apply(event,act),event));}} data-testid="token-clash-remove">Remove token</button>
         <button type="button" onClick={()=>setTokenPrompt({...tokenPrompt,choosing:true})} data-testid="token-clash-other">Choose another zone</button></span>:rowPrompts[0]?<span data-testid="monster-in-st">{rowPrompts[0].name} is a monster in {rowZone}.
         <button type="button" disabled={pending} data-testid="monster-in-st-move" onClick={()=>moveFromSpellTrap(rowPrompts[0])}>Move to {rowTarget??'a Monster Zone'}</button>
-        <button type="button" data-testid="monster-in-st-keep" onClick={()=>{const first=rowPrompts[0];rowKept.current.add(first.ref);setRowPrompts(list=>list.filter(p=>p.ref!==first.ref));}}>Keep (equipped or placed by a card)</button></span>:failedUpdate?<>{notice||'Could not save the field update.'}<button type="button" disabled={pending} onClick={()=>void queue(failedUpdate.work,failedUpdate.event,failedUpdate.humanChoice)}>Retry field update</button></>:recovery?<>{recovery.message}<button type="button" onClick={recover}>Remove stale placement</button></>:leaveChoice?<span data-testid="leave-choice">The camera saw a card {leaveChoice.zone==='banished'?`banished${leaveChoice.faceUp?'':' face-down'}`:'in the Graveyard'}. Which card was it?{leaveChoice.options.map(o=><button type="button" key={o.ref} disabled={pending} onClick={()=>chooseLate(o.ref)}>{o.name}</button>)}<button type="button" onClick={()=>setLeaveChoice(null)}>Neither</button></span>:syncHold?<span data-testid="sync-board-hold">Auto-detect is on. The board keeps its cards until you sync it.<button type="button" onClick={()=>{scanField();}}>Sync board to camera</button></span>:shiftHint?<span data-testid="zone-shift-hint">Zones look shifted — Recalibrate?<button type="button" onClick={()=>{setShiftHint(false);setCalibrating(true);}}>Recalibrate</button><button type="button" onClick={()=>setShiftHint(false)}>Dismiss</button></span>:notice?<>{notice}{departure?<span data-leave-tags> → {fieldLeaveLabel(departure.zone,!departure.down)} {attachTargets.map(t=><button type="button" key={`attach-${t.ref}`} disabled={pending} onClick={()=>attachTo(t)}>Attach to {t.name}</button>)}{destinations.map(d=><button type="button" key={d.title} disabled={pending||d.zone===departure.zone&&(d.zone!=='banished'||('down' in d)===!!departure.down)} onClick={()=>redirect(d.zone,'down' in d)}>{d.title}</button>)}</span>:null}
+        <button type="button" data-testid="monster-in-st-keep" onClick={()=>{const first=rowPrompts[0];rowKept.current.add(first.ref);setRowPrompts(list=>list.filter(p=>p.ref!==first.ref));}}>Keep (equipped or placed by a card)</button></span>:failedUpdate?<>{notice||'Could not save the field update.'}<button type="button" disabled={pending} onClick={()=>void queue(failedUpdate.work,failedUpdate.event,failedUpdate.humanChoice)}>Retry field update</button></>:recovery?<>{recovery.message}<button type="button" onClick={recover}>Remove stale placement</button></>:leaveChoice?<span data-testid="leave-choice">The camera saw a card {leaveChoice.zone==='banished'?`banished${leaveChoice.faceUp?'':' face-down'}`:'in the Graveyard'}. Which card was it?{leaveChoice.options.map(o=><button type="button" key={o.ref} disabled={pending} onClick={()=>chooseLate(o.ref)}>{o.name}</button>)}<button type="button" onClick={()=>{choiceClosed.current.add(leaveChoice.twinRef);setLeaveChoice(null);}}>Neither</button></span>:syncHold?<span data-testid="sync-board-hold">Auto-detect is on. The board keeps its cards until you sync it.<button type="button" onClick={()=>{scanField();}}>Sync board to camera</button></span>:shiftHint?<span data-testid="zone-shift-hint">Zones look shifted — Recalibrate?<button type="button" onClick={()=>{setShiftHint(false);setCalibrating(true);}}>Recalibrate</button><button type="button" onClick={()=>setShiftHint(false)}>Dismiss</button></span>:notice?<>{notice}{departure?<span data-leave-tags> → {fieldLeaveLabel(departure.zone,!departure.down)} {attachTargets.map(t=><button type="button" key={`attach-${t.ref}`} disabled={pending} onClick={()=>attachTo(t)}>Attach to {t.name}</button>)}{destinations.map(d=><button type="button" key={d.title} disabled={pending||d.zone===departure.zone&&(d.zone!=='banished'||('down' in d)===!!departure.down)} onClick={()=>redirect(d.zone,'down' in d)}>{d.title}</button>)}</span>:null}
         {departure?.zone==='pending'?<button type="button" disabled={pending} onClick={()=>redirect('hand')}>Retry removal</button>:null}
         {undoId&&room.state.undo?.actionId===undoId&&serverNow()<=room.state.undo.at+5000?<button type="button" onClick={()=>void queue(async act=>{clipAction('undo',{actionId:undoId});const departed=departureRef.current?.ref,link=undoChain.current.after===undoId?undoChain.current:undefined,chain=link?.ids??[];undoChain.current={after:'',ids:[]};let updated=await act({type:'undo',actorSeat:seat,targetActionId:undoId});for(const id of chain)if(updated)updated=await act({type:'undo',actorSeat:seat,targetActionId:id})??updated;if(updated){if(link?.rebind){bindings.current.set(link.rebind.trackId,link.rebind.ref);watch.confirm(link.rebind.trackId,undefined,link.rebind.ref,false);readerRemovals.current.delete(link.rebind.ref);}if(departed&&updated.state.seats[seat].twin.some(card=>card.ref===departed&&publicField(card.zone)))watch.dismiss(departed);setDeparture(null);setNotice('Automatic field change undone');setUndoId('');}})}>Undo</button>:null}</>:tapOffer?<span data-testid="tap-identify-offer">{tournament?'This computer is slow for live tracking. Switch to tap-to-identify? Your opponent will see the switch.':'This computer is slow for live tracking. Switch to tap-to-identify?'}<button type="button" onClick={()=>answerTapOffer('switch')}>Switch</button><button type="button" onClick={()=>answerTapOffer('keep')}>Keep</button></span>:videoOfferShowing?<span data-testid="video-fps-offer">Your computer is struggling with video. Switch to 15 fps to reduce lag?<button type="button" onClick={()=>answerVideoOffer(15)}>Switch</button><button type="button" onClick={()=>answerVideoOffer(30)}>Keep</button></span>:lightHintShowing?<span data-testid="low-light-hint">Camera is slow — add light or turn off auto exposure<button type="button" onClick={()=>setLightHint(false)}>Dismiss</button></span>:softHintShowing?<span data-testid="soft-camera-hint">Camera is out of focus — tap to focus or move closer<button type="button" onClick={()=>setSoftDismissed(true)}>Dismiss</button></span>:undefined}/>
     {calibrating?<FieldCalibrationControl defaultSide={defaultSideFor(phone?'phone':'webcam')} video={video} initialCalibration={watch.calibration} placed={watch.placed} format={room.format?.id??room.state.deckChecks.format.id} detectCalibrationCards={async frame=>{const result=await detectCards(await createImageBitmap(frame));if(result.status!=='ready')throw new Error(result.note);return result.cards;}} onSave={grid=>{updateCalibration(grid,true);setCalibrating(false);}} onCancel={()=>{if(watch.calibrationNeeded&&!watch.calibration?.orientation)setDetection(false);setCalibrating(false);}}/>:null}
