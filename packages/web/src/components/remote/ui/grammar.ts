@@ -213,7 +213,7 @@ export function trySaying(players: { seat: number; displayName: string }[], me: 
   const second = others[1]?.displayName.split(" ")[0] ?? first;
   const cards = [...new Set(cardNames.filter(name => name.trim()))];
   return ["main phase", "battle phase", "go back a phase", `${first} minus five hundred`, `direct attack on ${second}`, "end turn", "undo", "chain",
-    "monster zone two", "set in trap zone one", "field zone", ...cards.slice(0, 3).map(name => `${name} to monster zone two`),
+    "monster zone two", "set", "set in trap zone one", "field zone", ...cards.slice(0, 3).map(name => `${name} to monster zone two`),
     "extra monster zone left", "graveyard", "defense position"];
 }
 

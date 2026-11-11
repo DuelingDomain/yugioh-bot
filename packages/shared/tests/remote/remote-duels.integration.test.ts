@@ -4548,7 +4548,9 @@ describe("remote hand activation (a card held up from the hand)", () => {
     spoken.act({ type: "effect.activated", actorSeat: 0, source: { cardId: CARD } });
     const spokenAt = spoken.room.state.undoHistory!.at(-1)!.at;
     expect(remoteRecentActivation(spoken.room.state, 0, CARD, spokenAt + 1000, false)).toBe(true);
-    expect(remoteHandActivationDecision(spoken.room.state, 0, { cardId: CARD, id: "held-4", at: spokenAt + 1000 })).toBeUndefined();
+    const held = { cardId: CARD, id: "held-4", at: spokenAt + 1000 };
+    expect(remoteHandActivationDecision(spoken.room.state, 0, held)).toMatchObject({ type: "hand.duplicate" });
+    expect(remoteHandActivationDecision(spoken.room.state, 0, held, { duplicateOk: true })).toMatchObject({ type: "effect.activated", fromHand: true });
     s.act({ type: "twin.place", seat: 0, zone: "graveyard", card: { ref: "discarded", cardId: CARD } });
     expect(s.room.state.seats[0].handCount).toBe(count - 1);
     expect(s.room.state.seats[0].knownHand ?? []).toEqual([]);

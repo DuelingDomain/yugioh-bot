@@ -1001,13 +1001,31 @@ test.describe("remote duels screen, moving cards by hand", () => {
     const slug = await soloTable(context.request, 2); const room = await seed(context, slug);
     await page.goto(`/duels/remote/${slug}`);
     await page.getByTestId("phase-main1").click();
-    const say = async (text: string) => { const chip = page.getByRole("button", { name: text, exact: true }); if (await chip.count()) await chip.first().click({ force: true }); else await page.evaluate(() => 0); };
+    // The sample chips sit behind "Try saying…" on a short screen, and a stray empty read from the mic can hide them for a moment: retry.
+    const say = (text: string) => expect(async () => {
+      const chip = page.getByRole("button", { name: text, exact: true });
+      if (!(await chip.count())) await page.getByRole("button", { name: "Try saying…" }).click({ timeout: 1000 });
+      await chip.first().click({ timeout: 1000 });
+    }).toPass({ timeout: 15000 });
+    // The page must show the seeded cards before a spoken move can find "the last card".
+    await expect(page.getByTestId("field-0").locator('[data-zone="s1"]')).toBeVisible();
     await say("monster zone two");
     // The last card placed was the Spell; it is not a monster, so the move is refused and nothing changes.
     expect(find(await room(), "mst").zone).toBe("spell-trap");
     await say("graveyard");
     await expect.poll(async () => find(await room(), "mst").zone).toBe("graveyard");
     await page.getByTestId("undo").click(); await expect.poll(async () => find(await room(), "mst").zone).toBe("spell-trap");
+    // A bare "set" never picks a card on its own: it asks, and Yes sets the last placed face-up monster face down in defense. One undo restores it.
+    const lastSeq = ((await (await context.request.get(`/api/remote/${slug}`)).json()) as { lastSeq: number }).lastSeq;
+    const placed = await context.request.post(`/api/remote/${slug}/actions`, { data: { baseSeq: lastSeq, action: { idempotencyKey: crypto.randomUUID(), type: "twin.place", actorSeat: 0, seat: 0, zone: "monster", card: { ref: "skull", cardId: 70781052, name: "Summoned Skull", slot: 3, faceUp: true, position: "attack" } } } });
+    expect(placed.status(), await placed.text()).toBe(200);
+    await expect(page.getByTestId("field-0").locator('[data-zone="m3"]')).toBeVisible();
+    await say("set");
+    expect(find(await room(), "skull").faceUp).toBe(true);
+    await page.getByTestId("proposal-confirm").click();
+    await expect.poll(async () => find(await room(), "skull")).toMatchObject({ faceUp: false, position: "defense" });
+    await page.getByTestId("undo").click();
+    await expect.poll(async () => find(await room(), "skull")).toMatchObject({ faceUp: true, position: "attack" });
   });
 
 });

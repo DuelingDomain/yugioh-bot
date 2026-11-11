@@ -235,6 +235,8 @@ export function remoteHandActionFromVision(event: RemoteHandVisionEvent, actorSe
 
 /** Local camera suggestion. This is not a server action and must never be POSTed. */
 export type RemoteHandSuggestionEvent = {type:'hand.suggest';actorSeat:number;cardId:number;id:string;at:number};
+/** The held card was activated by voice a moment ago: nothing is recorded, the UI offers a tap. */
+export type RemoteHandDuplicateEvent = {type:'hand.duplicate';actorSeat:number;cardId:number;id:string;at:number};
 export const REMOTE_HAND_SUGGESTION_EVENT='remote:hand-suggestion';
 /** The table asks the field watcher to take a spoken "undo" when the newest action is one it can undo with its own chain. Cancelled by `detail.handled=true`. */
 export const REMOTE_VOICE_UNDO_EVENT='remote:voice-undo';
@@ -264,11 +266,11 @@ export function remoteHandReadDecision(state:RemoteState,actorSeat:number,read:{
  * hand. A card that cannot be activated (`activatable:false`: a Normal or Extra Deck monster) or is not in the Deck keeps the
  * one-tap suggestion. Nothing comes back when the card is already on the field, was just played, or is already public in the hand.
  */
-export function remoteHandActivationDecision(state:RemoteState,actorSeat:number,read:{cardId:number;id:string;at:number},opts:{fieldReadPending?:boolean;activatable?:boolean}={}):RemoteActionProposal|RemoteHandSuggestionEvent|undefined {
+export function remoteHandActivationDecision(state:RemoteState,actorSeat:number,read:{cardId:number;id:string;at:number},opts:{fieldReadPending?:boolean;activatable?:boolean;duplicateOk?:boolean}={}):RemoteActionProposal|RemoteHandSuggestionEvent|RemoteHandDuplicateEvent|undefined {
   const decision=remoteHandReadDecision(state,actorSeat,read,opts.fieldReadPending);
   if(!decision||decision.type!=='hand.suggest'||opts.fieldReadPending)return decision;
-  // A spoken effect for this card was just recorded: the held card is the same activation.
-  if(remoteRecentActivation(state,actorSeat,read.cardId,read.at,false))return;
+  // A spoken effect for this card was just recorded: the held card is probably the same activation. The UI says so and offers a tap to record it anyway.
+  if(!opts.duplicateOk&&remoteRecentActivation(state,actorSeat,read.cardId,read.at,false))return {type:'hand.duplicate',actorSeat,...read};
   const main=state.deckChecks.registrations[actorSeat]?.deck.main;
   if(opts.activatable===false||main&&!main.includes(read.cardId))return decision;
   return {type:'effect.activated',actorSeat,source:{cardId:read.cardId},fromHand:true};

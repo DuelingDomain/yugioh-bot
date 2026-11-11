@@ -936,7 +936,7 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
     }
     return undefined;
   };
-  const spokenMove = (move: MoveIntent, requestId: string): { text: string; ignored?: boolean } => {
+  const spokenMove = (move: MoveIntent, requestId: string, text?: string): { text: string; ignored?: boolean } => {
     const { room: now, state: cur } = R.current; const seat = now.solo ? cur.turnSeat : now.mySeat; const twin = cur.seats[seat]?.twin ?? [];
     if (now.status !== "active" || cur.ended) return { text: "The table is not live", ignored: true };
     let card: TwinCard | undefined;
@@ -949,20 +949,28 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
     if (!card) return { text: "No card to move. Place one first.", ignored: true };
     if (move.flipSummon && !canFlipSummon(card)) return { text: "Flip summon needs a face-down monster in a Monster Zone", ignored: true };
     const dest = move.dest;
+    // A card set to a Monster Zone goes in defense, face down. A move by voice never needs the card to be face up.
+    const extraFor = (zone: string) => {
+      const position = move.position ?? (move.faceUp === false && zone === "monster" ? "defense" as const : undefined);
+      return { ...(move.faceUp !== undefined ? { faceUp: move.faceUp } : {}), ...(position ? { position } : {}) };
+    };
     // A bare "set" (no card, no zone) must not move whatever card was placed last: the camera may have placed it. It asks first.
     if (!move.query && !dest) {
       const who = card.faceUp ? cardName(card, cardInfo(cardCode(card))) : "Face-down card";
-      const extra = { ...(move.faceUp !== undefined ? { faceUp: move.faceUp } : {}), ...(move.position ? { position: move.position } : {}) };
-      propose(move.faceUp === false ? `Set ${who} face down?` : `Change ${who}?`, `Said: “set” with no card name. Say the name to skip this question.`, "Yes", () => void tryMove(seat, card, { zone: card.zone, ...(card.slot ? { slot: card.slot } : {}) }, extra, undefined, true), requestId);
+      const title = move.flipSummon ? `Flip summon ${who}?` : move.faceUp === false ? `Set ${who} face down?` : move.faceUp === true ? `Turn ${who} face up?` : move.position ? `Put ${who} in ${move.position} position?` : `Change ${who}?`;
+      const place = { ref: card.ref, zone: card.zone, slot: card.slot };
+      propose(title, `Said: “${text ?? "set"}” with no card name. Say the name to skip this question.`, "Yes", () => {
+        // The card may have moved while the chip was open: look it up again and stop if it is not where it was.
+        const fresh = R.current.state.seats[seat]?.twin.find(item => item.ref === place.ref);
+        if (!fresh || fresh.zone !== place.zone || fresh.slot !== place.slot) { toast("That card moved. Nothing was changed."); return; }
+        void tryMove(seat, fresh, { zone: fresh.zone, ...(fresh.slot ? { slot: fresh.slot } : {}) }, extraFor(fresh.zone), undefined, true);
+      }, requestId);
       return { text: "Needs a confirm" };
     }
     const emz = dest?.zone === "extra-monster" && !dest.slot ? freeEmzSlot(seat, cur.seats) : dest?.slot;
     const land: Landing = dest ? { zone: dest.zone, ...(dest.zone === "extra-monster" ? (emz ? { slot: emz } : {}) : dest.slot ? { slot: dest.slot } : {}) } : { zone: card.zone, ...(card.slot ? { slot: card.slot } : {}) };
     if (dest?.zone === "extra-monster" && !land.slot) return { text: "Both Extra Monster Zones are taken.", ignored: true };
-    // A card set to a Monster Zone goes in defense, face down. A move by voice never needs the card to be face up.
-    const faceUp = move.faceUp;
-    const position = move.position ?? (faceUp === false && land.zone === "monster" ? "defense" : undefined);
-    const result = tryMove(seat, card, land, { ...(faceUp !== undefined ? { faceUp } : {}), ...(position ? { position } : {}) }, requestId, !dest);
+    const result = tryMove(seat, card, land, extraFor(land.zone), requestId, !dest);
     return { text: result.text, ignored: !result.done };
   };
 
@@ -1013,13 +1021,15 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
         propose(`${best.attacker.name ?? "Monster"} attacks ${best.target?.name ?? name(best.proposal.targetSeat)}`, intent.resolution.status === "unique" ? `Said: “${text}”` : `${intent.resolution.candidates.length} matches. Best guess shown.`, "Declare", () => void act(best.proposal), requestId);
         break;
       }
-      case "move": { const result = spokenMove(intent.move, requestId); set(result.text, result.ignored); break; }
+      case "move": { const result = spokenMove(intent.move, requestId, text); set(result.text, result.ignored); break; }
       case "pick": set("Picked"); document.dispatchEvent(new CustomEvent("remote-tray-pick", { detail: intent.index })); break;
       default: set("Not understood", true);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [act, doUndo, moveCard]);
   const onFinal = useCallback(async (final: SttFinal, gate: MicState) => {
+    // An empty read is silence, not a command: keep what was shown.
+    if (!final.text.trim()) return;
     const heardAt = Date.now();
     const { room: now, state: current } = R.current; const me = now.solo ? current.turnSeat : now.mySeat;
     setTranscript({ requestId: final.requestId, text: final.text, result: "", ignored: false });
