@@ -430,7 +430,7 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
     }
     case "twin.attach": {
       const foreign = action.materialSeat !== undefined && action.materialSeat !== action.seat;
-      if (foreign) remoteAssert(action.actorSeat === action.seat || action.actorSeat === action.materialSeat, "Only the Xyz controller or the material holder can attach it", 403);
+      if (foreign) remoteAssert(action.actorSeat === action.materialSeat, "Only the owner of the card can put it under another player's Xyz Monster", 403);
       const s = foreign ? seat(action.seat) : ownField(action.seat); const card = s.twin.find(c => c.ref === action.cardRef);
       remoteAssert(card && !card.token && MONSTER_ZONES.has(card.zone), "Summon materials need the summoned monster on the field", 409);
       if (foreign) {

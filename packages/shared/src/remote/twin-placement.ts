@@ -92,7 +92,7 @@ export function guardTwinPlacement(state: RemoteState, action: Placement, contex
   const simultaneous = !!proof && proof.simultaneousQuads >= 2 && proof.at <= at && at - proof.at <= 5000;
   // A recent departure wins even while another X remains in GY or banish.
   const recent = matches.filter(t => recentFieldDeparture(t, at) && (t.zone === "hand" || autoLeft(t, at, action))).sort((a,b) => b.departedFrom!.at! - a.departedFrom!.at!)[0] ??
-    ((!context?.replay || (context.twinPlacementGuard ?? 0) >= 7) && action.source === "auto" && pileZone(action.zone) ? matches.filter(t => handLeft(t, at)).sort((a,b) => b.departedFrom!.at! - a.departedFrom!.at!)[0] : undefined);
+    ((!context?.replay || (context.twinPlacementGuard ?? 0) >= 7) && action.source === "auto" && pileZone(action.zone) && !matches.some(t => t.zone === action.zone) ? matches.filter(t => handLeft(t, at)).sort((a,b) => b.departedFrom!.at! - a.departedFrom!.at!)[0] : undefined);
   if ((!context?.replay || context.pileArrivalGuard === 2) && action.source === "auto" && pileZone(action.zone) && matches.some(t => t.zone === action.zone)) {
     if (exact && remoteFieldZone(exact.zone)) return {ref:exact.ref,card:exact};
     if (recent) return {ref:recent.ref,card:recent};

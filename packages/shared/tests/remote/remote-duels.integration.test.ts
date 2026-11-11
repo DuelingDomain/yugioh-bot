@@ -2045,12 +2045,25 @@ describe("tolerant voice attack resolution", () => {
     expect(copies(undone).map(c => [c.ref, c.zone])).toEqual([["blue", "hand"]]);
   });
 
+  it("a named pile read never takes a card that is back in the hand while another copy lies in that pile", () => {
+    const b = board();
+    let n = 0;
+    const act = (state: typeof b.state, action: Record<string, unknown>) => ygoModule.reduce(state, remoteActionSchema.parse({ actorSeat: 0, seat: 0, idempotencyKey: `steal-${++n}`, ...action }));
+    b.place(0, { ref: "blue2", name: "Blue-Eyes White Dragon", cardId: 89631139 }, "graveyard");
+    const at0 = b.state.updatedAt;
+    const inHand = act(b.state, { type: "twin.move", cardRef: "blue", zone: "hand", source: "auto", at: at0 + 100 });
+    const read = act(inHand, { type: "twin.place", source: "auto", zone: "graveyard", card: { ref: "fw-9", cardId: 89631139, name: "Blue-Eyes White Dragon" }, at: at0 + 10_000 });
+    expect(read.seats[0].twin.find(c => c.ref === "blue")?.zone).toBe("hand");
+  });
+
   it("an Xyz takes a monster from the opponent's field as material; detached it goes to its owner's Graveyard", () => {
     const b = board();
     let n = 0;
     const act = (state: typeof b.state, action: Record<string, unknown>) => ygoModule.reduce(state, remoteActionSchema.parse({ actorSeat: 0, seat: 0, idempotencyKey: `foreign-${++n}`, ...action }));
     b.place(0, { ref: "infinity", name: "Cyber Dragon Infinity", slot: 2, cardId: 10443957 });
-    const attached = act(b.state, { type: "twin.attach", cardRef: "infinity", kind: "xyz", materialRefs: ["dark"], materialSeat: 1 });
+    // Only the card's owner sends it; the Xyz controller cannot take the other player's cards.
+    expect(() => act(b.state, { type: "twin.attach", cardRef: "infinity", kind: "xyz", materialRefs: ["dark"], materialSeat: 1 })).toThrow(/owner of the card/);
+    const attached = act(b.state, { type: "twin.attach", actorSeat: 1, cardRef: "infinity", kind: "xyz", materialRefs: ["dark"], materialSeat: 1 });
     expect(attached.seats[1].twin.some(c => c.ref === "dark")).toBe(false);
     expect(attached.seats[0].twin.find(c => c.ref === "dark")).toMatchObject({ zone: "material", materialOf: "infinity", ownerSeat: 1 });
     expect(attached.seats[0].twin.find(c => c.ref === "infinity")?.materials).toEqual(["dark"]);
