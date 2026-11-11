@@ -1675,6 +1675,10 @@ describe("remote board and transactional edge cases", () => {
     expect(room.status).toBe("active");
     expect(() => service.act(table.slug, "g", users[2], { baseSeq: room.lastSeq,
       action: { type: "log.note", actorSeat: 2, idempotencyKey: "undo-win", text: "different" } }, 3001)).toThrow(/different action/);
+    // A request that read its clock before waiting for another writer still lands: event time never goes before the state (was HTTP 400 "Action time precedes state").
+    room = service.act(table.slug, "g", users[2], { baseSeq: room.lastSeq,
+      action: { type: "log.note", actorSeat: 2, idempotencyKey: "late-clock", text: "late" } }, 2500);
+    expect(room.state.updatedAt).toBe(3000);
     expect(service.replay(table.slug, "g", users[2])).toEqual(room.state);
   });
 });
