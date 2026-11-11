@@ -682,10 +682,17 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
           // Only while the shown card is still in the known hand (a field play already took it out) and no field departure is waiting.
           const shown=active&&performance.now()-active.at<HAND_ACTIVATION_MS&&mine.knownHand?.some(c=>c.cardId===active.cardId)&&pendingDepartures.current.size+lateDefaults.current.size===0?active:undefined;
           const place=(named:boolean)=>act({type:'twin.place',source:'auto',actorSeat:seat,seat,zone,card:{ref,faceUp:true,position:'attack',...(named&&shown?{cardId:shown.cardId}:{})}});
+          const inPile=(state:{seats:{twin:readonly {ref:string;zone:string}[]}[]})=>state.seats[seat].twin.filter(c=>c.zone===zone).length;
+          const before=inPile(current.current.room.state);
           let updated=await place(true);
-          // The shown copy merged into a copy that already left the field: no card was added. Place the pile card unnamed instead, as before hand activation, so the pile count stays exact.
           const linked=!!shown&&!!updated&&updated.state.seats[seat].twin.some(c=>c.ref===ref&&c.zone===zone);
-          if(updated&&shown&&!linked)updated=await place(false)??updated;
+          // The named place can merge into a departed copy (no card added) or move another copy into this pile (one more card, a different ref).
+          // Only when the pile did not grow is the pile card placed again unnamed, as before hand activation, so the pile count stays exact.
+          const grew=!!updated&&inPile(updated.state)>before;
+          if(shown&&!linked){
+            handActivation.current=undefined;
+            if(updated&&!grew)updated=await place(false)??updated;
+          }
           if(updated){
             bindings.current.set(event.track.id,ref);
             const pileId=updated.state.undo?.actionId;
