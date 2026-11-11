@@ -32,6 +32,14 @@ const pileZone = (zone: string) => zone === "graveyard" || zone === "banished";
  * origin, but only for 30 s, and (for a card put back on the field) only into the same zone and physical slot. A later second copy is
  * another card. A named read in another pile or the Extra Deck within 30 s is still the departed card.
  */
+/**
+ * Guard 7: a card the camera took off the field with no pile in view is assumed to be in the hand. If the camera then names it on a
+ * pile (GY, banished) within HAND_LEFT_MS, that is the same card (it moves, no copy).
+ */
+/** Same as the watcher's late-pile window (LATE_PILE_MS): the camera shows the pile this soon after the card left. */
+const HAND_LEFT_MS = 5000;
+const handLeft = (t: TwinCard, at: number) => (t.zone === "hand" || t.zone === "extra") && !!t.departedFrom?.auto && remoteFieldZone(t.departedFrom.zone) &&
+  t.departedFrom.at !== undefined && at >= t.departedFrom.at && at - t.departedFrom.at <= HAND_LEFT_MS;
 const autoLeft = (t: TwinCard, at: number, place: { zone: string; card: { slot?: number } }) => (pileZone(t.zone) || t.zone === "extra") && !!t.departedFrom?.auto && remoteFieldZone(t.departedFrom.zone) &&
   t.departedFrom.at !== undefined && at >= t.departedFrom.at && at - t.departedFrom.at <= 30_000 &&
   (!remoteFieldZone(place.zone) || t.departedFrom.zone === place.zone && remotePhysicalSlot(place.zone, t.departedFrom.slot) === remotePhysicalSlot(place.zone, place.card.slot));
@@ -85,7 +93,8 @@ export function guardTwinPlacement(state: RemoteState, action: Placement, contex
   }
   const simultaneous = !!proof && proof.simultaneousQuads >= 2 && proof.at <= at && at - proof.at <= 5000;
   // A recent departure wins even while another X remains in GY or banish.
-  const recent = matches.filter(t => recentFieldDeparture(t, at) && (t.zone === "hand" || autoLeft(t, at, action))).sort((a,b) => b.departedFrom!.at! - a.departedFrom!.at!)[0];
+  const recent = matches.filter(t => recentFieldDeparture(t, at) && (t.zone === "hand" || autoLeft(t, at, action))).sort((a,b) => b.departedFrom!.at! - a.departedFrom!.at!)[0] ??
+    ((!context?.replay || (context.twinPlacementGuard ?? 0) >= 7) && action.source === "auto" && pileZone(action.zone) && !matches.some(t => t.zone === action.zone) ? matches.filter(t => handLeft(t, at)).sort((a,b) => b.departedFrom!.at! - a.departedFrom!.at!)[0] : undefined);
   if ((!context?.replay || context.pileArrivalGuard === 2) && action.source === "auto" && pileZone(action.zone) && matches.some(t => t.zone === action.zone)) {
     if (exact && remoteFieldZone(exact.zone)) return {ref:exact.ref,card:exact};
     if (recent) return {ref:recent.ref,card:recent};

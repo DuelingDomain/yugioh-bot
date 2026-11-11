@@ -8,6 +8,8 @@ export const SUMMON_WINDOW_MS = 5000;
 const MONSTER_ZONES = new Set(['monster', 'extra-monster']);
 /** Same as the server: a monster the camera moved off the field this long ago can still be a material. */
 export const SUMMON_DEPARTURE_MS = 30_000;
+/** A card the camera took off a Monster Zone this long ago (server time) is a material candidate whatever the watcher clocks say: an Extra Deck search is often slower than the 5 s window. */
+export const SUMMON_RECENT_MS = 15_000;
 
 /** Xyz / Synchro / Link / Fusion from the catalog type line, else undefined. Link rating is `level` for Link Monsters. */
 export function fieldSummonKind(facts: FieldZoneFacts | undefined): { kind: RemoteSummonKind; rating?: number } | undefined {
@@ -53,8 +55,11 @@ export function fieldSummonMaterials({ kind, rating, covered, vanished, pending 
     .filter(v => Math.abs(v.at - firstSeen) <= SUMMON_WINDOW_MS).sort((a, b) => b.at - a.at)
     .filter((v, index, all) => all.findIndex(o => o.ref === v.ref) === index)
     .map(v => v.ok(v.ref) ? v.ref : '').filter(ref => ref && !under.includes(ref) && removed(ref));
+  // Cards the board already holds in the hand after a camera lift (the default for a card out of view), newest first, after the window ones.
+  const recent = twins.filter(c => c.zone === 'hand' && !!c.departedFrom?.auto && MONSTER_ZONES.has(c.departedFrom.zone) && c.departedFrom.at !== undefined && now - c.departedFrom.at <= SUMMON_RECENT_MS &&
+    !under.includes(c.ref) && !left.includes(c.ref)).sort((a, b) => b.departedFrom!.at! - a.departedFrom!.at!).map(c => c.ref);
   const want = Math.max(0, (kind === 'link' ? limit : rankUp ? 0 : fieldSummonMinimum(kind)) - under.length);
-  const refs = [...under, ...left.slice(0, kind === 'link' ? Math.max(0, limit - under.length) : want).reverse()].slice(0, kind === 'link' ? limit : undefined);
+  const refs = [...under, ...[...left, ...recent].slice(0, kind === 'link' ? Math.max(0, limit - under.length) : want).reverse()].slice(0, kind === 'link' ? limit : undefined);
   return refs.length && (rankUp || refs.length >= fieldSummonMinimum(kind)) ? refs : undefined;
 }
 

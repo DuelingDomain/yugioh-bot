@@ -429,8 +429,23 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
       break;
     }
     case "twin.attach": {
-      const s = ownField(action.seat); const card = s.twin.find(c => c.ref === action.cardRef);
+      const foreign = action.materialSeat !== undefined && action.materialSeat !== action.seat;
+      if (foreign) remoteAssert(action.actorSeat === action.materialSeat, "Only the owner of the card can put it under another player's Xyz Monster", 403);
+      const s = foreign ? seat(action.seat) : ownField(action.seat); const card = s.twin.find(c => c.ref === action.cardRef);
       remoteAssert(card && !card.token && MONSTER_ZONES.has(card.zone), "Summon materials need the summoned monster on the field", 409);
+      if (foreign) {
+        // A card of the other player goes under this Xyz and stays theirs: detached, it returns to its owner's Graveyard.
+        remoteAssert(action.kind === "xyz", "Only an Xyz Monster takes a card from the other field", 409);
+        const from = seat(action.materialSeat!);
+        for (const ref of action.materialRefs) {
+          const material = from.twin.find(c => c.ref === ref);
+          remoteAssert(validMaterial(material, card, at) && !material.token && !material.materials?.length && !s.twin.some(c => c.ref === ref) && s.twin.length < 100, "A material must be a monster on the field or one that just left it", 409);
+          const owner = material.ownerSeat ?? from.seat;
+          from.twin = from.twin.filter(c => c !== material);
+          if (owner === s.seat) delete material.ownerSeat; else material.ownerSeat = owner;
+          s.twin.push(material);
+        }
+      }
       applySummon(next.seats, s, card, action.kind, action.materialRefs, at, true);
       break;
     }
