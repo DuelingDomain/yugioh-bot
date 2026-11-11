@@ -681,13 +681,16 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
           const active=handActivation.current,mine=current.current.room.state.seats[seat];
           // Only while the shown card is still in the known hand (a field play already took it out) and no field departure is waiting.
           const shown=active&&performance.now()-active.at<HAND_ACTIVATION_MS&&mine.knownHand?.some(c=>c.cardId===active.cardId)&&pendingDepartures.current.size+lateDefaults.current.size===0?active:undefined;
-          const updated=await act({type:'twin.place',source:'auto',actorSeat:seat,seat,zone,card:{ref,faceUp:true,position:'attack',...(shown?{cardId:shown.cardId}:{})}});
+          const place=(named:boolean)=>act({type:'twin.place',source:'auto',actorSeat:seat,seat,zone,card:{ref,faceUp:true,position:'attack',...(named&&shown?{cardId:shown.cardId}:{})}});
+          let updated=await place(true);
+          // The shown copy merged into a copy that already left the field: no card was added. Place the pile card unnamed instead, as before hand activation, so the pile count stays exact.
+          const linked=!!shown&&!!updated&&updated.state.seats[seat].twin.some(c=>c.ref===ref&&c.zone===zone);
+          if(updated&&shown&&!linked)updated=await place(false)??updated;
           if(updated){
             bindings.current.set(event.track.id,ref);
             const pileId=updated.state.undo?.actionId;
-            // A pile card read as a copy that already left the field adds no card: it is not the shown hand copy.
-            if(shown&&pileId&&updated.state.seats[seat].twin.some(c=>c.ref===ref&&c.zone===zone)){handActivation.current=undefined;undoChain.current={after:pileId,ids:[shown.actionId]};setNotice(`${cardInfo(shown.cardId)?.name??'Card'} activated from hand, then sent to the ${zone==='graveyard'?'GY':'banished pile'} · auto`);}
-            else setNotice(`Unknown card added to the ${zone==='graveyard'?'GY':'banished pile'} · name it`);
+            if(linked&&pileId){handActivation.current=undefined;undoChain.current={after:pileId,ids:[shown.actionId]};setNotice(`${cardInfo(shown.cardId)?.name??'Card'} activated from hand, then sent to the ${zone==='graveyard'?'GY':'banished pile'} · auto`);}
+            else if(updated.state.seats[seat].twin.some(c=>c.ref===ref&&c.zone===zone))setNotice(`Unknown card added to the ${zone==='graveyard'?'GY':'banished pile'} · name it`);
             setUndoId(pileId??'');
           }
         },event);

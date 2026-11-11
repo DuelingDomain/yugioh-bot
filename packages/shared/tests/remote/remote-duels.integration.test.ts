@@ -4566,6 +4566,12 @@ describe("remote hand activation (a card held up from the hand)", () => {
     expect(s.room.state.seats[0].knownHand).toEqual([expect.objectContaining({ cardId: CARD })]);
     expect(s.room.state.seats[0].handCount).toBe(count);
     expect(s.room.state.seats[0].twin.some(c => c.ref === "hand-copy")).toBe(false);
+    // The web then places the pile card unnamed (it cannot link the activation, and a hand removal could be false): one more GY card; the hand count and the shown hand copy stay.
+    s.act({ type: "twin.place", seat: 0, zone: "graveyard", source: "auto", card: { ref: "hand-copy" } });
+    expect(s.room.state.seats[0].twin.filter(c => c.zone === "graveyard")).toHaveLength(2);
+    expect(s.room.state.seats[0].twin.find(c => c.ref === "hand-copy")).toMatchObject({ zone: "graveyard" });
+    expect(s.room.state.seats[0].handCount).toBe(count);
+    expect(s.room.state.seats[0].knownHand).toEqual([expect.objectContaining({ cardId: CARD })]);
   });
 
   it("undoes the activation and takes the card out of the known hand", async () => {
