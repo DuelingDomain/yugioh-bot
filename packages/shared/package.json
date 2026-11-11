@@ -193,6 +193,11 @@
       "source": "./src/remote/index.ts",
       "default": "./dist/remote/index.js"
     },
+    "./remote/card-behaviour": {
+      "types": "./dist/remote/card-behaviour.d.ts",
+      "source": "./src/remote/card-behaviour.ts",
+      "default": "./dist/remote/card-behaviour.js"
+    },
     "./deck-legality": {
       "types": "./dist/deck-legality/index.d.ts",
       "source": "./src/deck-legality/index.ts",

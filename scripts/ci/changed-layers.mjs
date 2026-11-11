@@ -208,6 +208,8 @@ export function changedLayers(files, event, { serviceBarrelAppOnly = false } = {
     docTestInputs.get(file) === "engine" || globalInput(file) ||
     (sharedEngineInput(file) && !(event === "pull_request" && focusedInput(file))) ||
     file === "packages/web/src/components/duel/table/seat-state.ts" ||
+    // Remote Duels card logic/behaviour: the generated files are checked against the engine data in the engine shards.
+    /^(packages\/shared\/src\/remote\/card-behaviour\.ts|packages\/web\/src\/lib\/remote\/card-(?:logic|behaviour)-data\.json)$/.test(file) ||
     /^(packages\/duel-server\/(?!domain-core\/proposals\/)|packages\/shared\/(package\.json$|tsconfig[^/]*\.json$)|data\/duel-engine[^/]*\/|patches\/|scripts\/(native\/|ci\/(?:build-core|parallel-emxx|bin\/em\+\+|core-cache-key|assemble-core-bundle|run-engine-tests|select-engine-tests|engine-sequencer|engine-test-plan|engine-test-times|duel-test-files|check-engine-test-coverage|changed-layers|publish-engine-data))|\.github\/actions\/(restore-engine-bundle|prepare-production-bundle|setup-ci-node)\/|\.github\/workflows\/test\.yml$|package(-lock)?\.json$|turbo\.json$|tsconfig[^/]*\.json$|\.nvmrc$)/.test(file)
   ));
   let engine_app = event === "pull_request" && !engine && files.some(file => focusedInput(file) && sharedEngineInput(file));
