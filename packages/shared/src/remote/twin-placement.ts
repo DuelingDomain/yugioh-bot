@@ -27,6 +27,8 @@ export function sameTwinIdentity(state: RemoteState, seat: number, a: Identity, 
 type Placement = Extract<RemoteAction, { type: "twin.place" }>;
 type Reuse = { ref: string; card?: TwinCard } | { pending: true } | { noop: true };
 const pileZone = (zone: string) => zone === "graveyard" || zone === "banished";
+/** Guard 6: a card the camera sent from the field to a pile or the Extra Deck still owns its field origin. */
+const autoLeft = (t: TwinCard) => (pileZone(t.zone) || t.zone === "extra") && !!t.departedFrom?.auto && remoteFieldZone(t.departedFrom.zone);
 const zoneLabel = (card: { zone: string; slot?: number }) => card.zone === "monster" ? `M${card.slot ?? ""}`
   : card.zone === "spell-trap" ? `S${card.slot ?? ""}` : card.zone === "extra-monster" ? `EMZ${card.slot ?? ""}` : card.zone;
 
@@ -43,7 +45,8 @@ export function clearTwinConfirmation(state:RemoteState,seat:number,ref:string) 
 export const REMOTE_TWIN_MOVE_WINDOW_MS = 2500;
 export function recentFieldDeparture(card: TwinCard, at: number): boolean {
   const departedAt = card.departedFrom?.at;
-  return card.zone === "hand" && departedAt !== undefined && at >= departedAt && at - departedAt <= REMOTE_TWIN_MOVE_WINDOW_MS;
+  // Guard 6 data: a card the camera sent to a pile or the Extra Deck keeps its origin like a hand card (the data exists only then).
+  return (card.zone === "hand" || !!card.departedFrom?.auto && (card.zone === "graveyard" || card.zone === "banished" || card.zone === "extra")) && departedAt !== undefined && at >= departedAt && at - departedAt <= REMOTE_TWIN_MOVE_WINDOW_MS;
 }
 
 /** A/B reuse only field origins; C/D leave every pile copy in place. */
@@ -86,10 +89,10 @@ export function guardTwinPlacement(state: RemoteState, action: Placement, contex
   }
   if (simultaneous && matches.some(t => remoteFieldZone(t.zone))) return (!context?.replay || context.handKnowledge === 1) && hand && handDestination ? {ref:hand.ref,card:hand} : undefined;
   if ((!context?.replay || (context.twinPlacementGuard ?? 0) >= 5) && action.source === "auto" && remoteFieldZone(action.zone) &&
-      !matches.some(t => pileZone(t.zone))) {
+      !matches.some(t => pileZone(t.zone) && !autoLeft(t))) {
     // A missed field card still owns its identity, even after a long correction.
     // Automatic departures retain that origin; ordinary hand copies do not.
-    const owner = matches.find(t => remoteFieldZone(t.zone)) ?? matches.find(t => t.zone === "hand" && t.departedFrom && remoteFieldZone(t.departedFrom.zone));
+    const owner = matches.find(t => remoteFieldZone(t.zone)) ?? matches.find(t => t.zone === "hand" && t.departedFrom && remoteFieldZone(t.departedFrom.zone)) ?? matches.find(autoLeft);
     if (owner) return {ref:owner.ref,card:owner};
   }
   if (exact && remoteFieldZone(exact.zone)) return {ref:exact.ref,card:exact};

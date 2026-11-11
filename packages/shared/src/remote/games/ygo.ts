@@ -27,9 +27,12 @@ const MONSTER_ZONES = new Set(["monster", "extra-monster"]);
 const FIELD_ZONES = new Set(["monster", "extra-monster", "spell-trap", "field", "pendulum"]);
 /** A material that the summon may take: on the field, or sent to the hand by the camera moments ago. */
 const SUMMON_DEPARTURE_MS = 30_000;
+/** A card the camera just sent from the field: to the hand, or (guard 6) to the GY, banished or Extra Deck by default. */
+const lifted = (card: TwinCard, at: number, monster: boolean) => (card.zone === "hand" || card.zone === "graveyard" || card.zone === "banished" || card.zone === "extra") &&
+  !!card.departedFrom && (card.zone === "hand" || !!card.departedFrom.auto) && (!monster || MONSTER_ZONES.has(card.departedFrom.zone)) &&
+  card.departedFrom.at !== undefined && at - card.departedFrom.at <= SUMMON_DEPARTURE_MS;
 const validMaterial = (card: TwinCard | undefined, top: TwinCard, at: number): card is TwinCard => !!card && card !== top &&
-  (MONSTER_ZONES.has(card.zone) || card.zone === "hand" && !!card.departedFrom && MONSTER_ZONES.has(card.departedFrom.zone) &&
-    card.departedFrom.at !== undefined && at - card.departedFrom.at <= SUMMON_DEPARTURE_MS);
+  (MONSTER_ZONES.has(card.zone) || lifted(card, at, true));
 function takeMaterial(seat: RemoteSeatState, top: TwinCard, ref: string, at: number): TwinCard {
   const card = seat.twin.find(c => c.ref === ref);
   remoteAssert(validMaterial(card, top, at), "A material must be a monster on the field or one that just left it", 409);
@@ -87,8 +90,7 @@ function clearZoneLinks(state: RemoteState, at: number) {
     if (seat.twin.some(card => card.token && !MONSTER_ZONES.has(card.zone))) seat.twin = seat.twin.filter(card => !card.token || MONSTER_ZONES.has(card.zone));
     for (const card of seat.twin) if (card.zone !== "material") delete card.materialOf;
     for (const card of [...seat.twin]) if (card.materials) {
-      const lifted = card.zone === "hand" && !!card.departedFrom?.auto && MONSTER_ZONES.has(card.departedFrom.zone) && card.departedFrom.at !== undefined && at - card.departedFrom.at <= SUMMON_DEPARTURE_MS;
-      const keep = MONSTER_ZONES.has(card.zone) && card.faceUp || lifted;
+      const keep = MONSTER_ZONES.has(card.zone) && card.faceUp || !!card.departedFrom?.auto && lifted(card, at, true);
       const live = card.materials.map(ref => seat.twin.find(c => c.ref === ref)).filter((m): m is TwinCard => !!m && m.zone === "material" && m.materialOf === card.ref);
       if (!keep) for (const m of live) sendToGrave(state.seats, seat, m);
       if (keep && live.length) card.materials = live.map(m => m.ref); else delete card.materials;
@@ -343,9 +345,12 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
         validZone(action.zone);
         const slot = action.slot ?? (card.zone === action.zone ? card.slot : undefined);
         freeSlot(s, action.zone, slot, card.ref);
-        if ((!context?.replay || (context.twinPlacementGuard ?? 0) >= 2) && action.zone === "hand" && ["monster", "spell-trap", "extra-monster", "field", "pendulum"].includes(card.zone))
+        // Guard 6: a card the camera sends from the field to a pile or the Extra Deck keeps its field origin too, so a card put back
+        // (or taken as a summon material) is the same copy, not a duplicate.
+        const leavesField = FIELD_ZONES.has(card.zone), guardSix = !context?.replay || (context.twinPlacementGuard ?? 0) >= 6;
+        if ((!context?.replay || (context.twinPlacementGuard ?? 0) >= 2) && leavesField && (action.zone === "hand" || guardSix && action.source === "auto" && (action.zone === "graveyard" || action.zone === "banished" || action.zone === "extra")))
           card.departedFrom = { zone: card.zone, ...(card.slot ? { slot: card.slot } : {}), ...(!context?.replay || (context.twinPlacementGuard ?? 0) >= 3 ? {at} : {}), ...(action.source === "auto" ? { auto: true } : {}) };
-        else if (action.zone !== "hand") delete card.departedFrom;
+        else if (action.zone !== "hand" || guardSix && card.zone !== "hand") delete card.departedFrom;
         // A Trap Monster still occupies the Spell & Trap Zone it was activated in.
         if (action.trapMonster && card.zone === "spell-trap" && remotePhysicalSlot(card.zone, card.slot) !== undefined && MONSTER_ZONES.has(action.zone)) card.trapZone = card.slot;
         if (card.zone !== action.zone) delete card.slot;

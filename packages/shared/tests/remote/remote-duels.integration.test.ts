@@ -2498,7 +2498,7 @@ it('moves a physical twin to defense under the same ref, with Undo and owner che
 it('persists one named automatic departure with destination correction and normal owner/Undo rules',()=>{
   const s=deckSession();s.start();s.place('leaving');const before=s.room.state.seats[0].twin[0];
   const departure={type:'twin.move',seat:0,cardRef:'leaving',zone:'graveyard',source:'auto',name:'Varudras'} as const;
-  s.act(departure);expect(s.room.state.seats[0].twin).toEqual([{...before,zone:'graveyard',slot:undefined}]);
+  s.act(departure);expect(s.room.state.seats[0].twin).toEqual([{...before,zone:'graveyard',slot:undefined,departedFrom:expect.objectContaining({zone:'monster',slot:1,auto:true})}]);
   expect(s.room.events.at(-1)?.action).toMatchObject(departure);expect(s.service.replay(s.room.slug,'g',s.users[0])).toEqual(s.room.state);
   const left=s.room.state.undo!.actionId;s.act({type:'undo',targetActionId:left});expect(s.room.state.seats[0].twin[0]).toEqual(before);
   s.act(departure);s.act({...departure,zone:'banished'});const corrected=s.room.state.undo!.actionId;
@@ -3940,6 +3940,27 @@ it.each(["idle", "creator-left"] as const)("expires no-result %s evidence after 
     expect(evidence()).toBeUndefined();
     expect(s.db.pragma("foreign_key_check")).toEqual([]);
   } finally {vi.unstubAllEnvs();}
+});
+
+it('a card the camera sent from the field to a pile is the same copy when put back late, and the pile counts stay exact', () => {
+  let state = ygoModule.initialState({seatCount:2}), at = 0;
+  const act = (input:Record<string,unknown>) => state = ygoModule.reduce(state, remoteActionSchema.parse({actorSeat:0, ...(input.type === 'undo' ? {} : {seat:0}), at, idempotencyKey:crypto.randomUUID(), ...input}));
+  const count = (zone:string) => state.seats[0].twin.filter(c => c.zone === zone).length;
+  const card = {cardId:97522863, name:'The Man with the Mark', faceUp:true, position:'attack'};
+  act({type:'twin.place', zone:'monster', card:{...card, ref:'lifted', slot:3}});
+  at = 1000; act({type:'twin.move', source:'auto', cardRef:'lifted', zone:'graveyard'});
+  expect([count('monster'), count('graveyard'), count('banished')]).toEqual([0, 1, 0]);
+  expect(state.seats[0].twin[0].departedFrom).toMatchObject({zone:'monster', slot:3, auto:true});
+  // Late banish arrival: the camera shows an unread face-down card; the departed card moves there and the stand-in goes (one card, one pile).
+  at = 3000; act({type:'twin.place', source:'auto', zone:'banished', card:{ref:'fw-1', faceUp:false, position:'attack'}});
+  act({type:'twin.move', source:'auto', cardRef:'lifted', zone:'banished', faceUp:false}); act({type:'twin.remove', cardRef:'fw-1'});
+  expect([count('graveyard'), count('banished')]).toEqual([0, 1]);
+  act({type:'undo', targetActionId:state.undo!.actionId}); act({type:'undo', targetActionId:state.undo!.actionId});
+  expect(state.seats[0].twin.filter(c => c.ref === 'lifted')).toHaveLength(1); expect(state.seats[0].twin.find(c => c.ref === 'lifted')!.zone).toBe('graveyard');
+  // Put back long after the window: the same copy returns to the field, no duplicate.
+  at = 1_000_000; act({type:'twin.place', source:'auto', zone:'monster', card:{...card, ref:'new-outline', slot:3}});
+  expect(state.seats[0].twin.filter(c => c.ref === 'lifted' || c.ref === 'new-outline').map(c => [c.ref, c.zone])).toEqual([['lifted', 'monster']]);
+  expect(count('graveyard')).toBe(0);
 });
 
 it('keeps a token as public table state: created, moved and removed by its owner, seen by every viewer, ignored by the camera', () => {
