@@ -201,6 +201,7 @@ jobs:
             ${{ runner.temp }}/check-prod-activity.py
             ${{ runner.temp }}/production-images.sh
             ${{ runner.temp }}/prepare-runtime-data.sh
+            ${{ runner.temp }}/dueling-backup
           if-no-files-found: error
           retention-days: 1
           overwrite: true
@@ -380,6 +381,7 @@ jobs:
           cp "$RUNNER_TEMP/release/check-prod-activity.py" "$RUNNER_TEMP/check-prod-activity.py"
           cp "$RUNNER_TEMP/release/production-images.sh" "$RUNNER_TEMP/production-images.sh"
           cp "$RUNNER_TEMP/release/prepare-runtime-data.sh" "$RUNNER_TEMP/prepare-runtime-data.sh"
+          cp "$RUNNER_TEMP/release/dueling-backup" "$RUNNER_TEMP/dueling-backup"
           : > "$RUNNER_TEMP/release/image-digests"
           for service in duel web worker ws bot; do
             if [ "$service" = bot ] && ! git show "$DEPLOY_COMMIT:docker-compose.yml" | grep -q '^  bot:'; then continue; fi
