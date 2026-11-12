@@ -413,7 +413,15 @@ class BackupTests(unittest.TestCase):
         self.assertTrue((fresh / "online").exists())
         self.assertTrue((fresh / "drained").exists())
 
-    def test_default_release_count_keeps_database_copies_of_the_newest_release_only(self):
+    def test_daily_run_keeps_database_copies_of_every_recent_release(self):
+        # After two failed deploys the older copy may be the only pre-migration one.
+        older = self.seed_release((datetime.now(UTC) - timedelta(hours=5)).strftime("pr2-%Y%m%d-%H%M%SZ"))
+        newest = self.seed_release((datetime.now(UTC) - timedelta(hours=1)).strftime("pr2-%Y%m%d-%H%M%SZ"))
+        self.assert_success(self.run_backup())
+        self.assertTrue((older / "online").exists())
+        self.assertTrue((newest / "online").exists())
+
+    def test_post_deploy_prune_keeps_database_copies_of_the_newest_release_only(self):
         older = self.seed_release((datetime.now(UTC) - timedelta(hours=5)).strftime("pr2-%Y%m%d-%H%M%SZ"))
         newest = self.seed_release((datetime.now(UTC) - timedelta(hours=1)).strftime("pr2-%Y%m%d-%H%M%SZ"))
         result = subprocess.run(
@@ -438,8 +446,7 @@ class BackupTests(unittest.TestCase):
 
         namespace = self.namespace()
         self.assertTrue("prune_releases" in namespace, "release retention helper is missing")
-        with mock.patch.dict(namespace["prune_releases"].__globals__, {"datetime": FixedDateTime}), \
-                mock.patch.dict(os.environ, {"DUELING_RELEASE_KEEP": "10"}):
+        with mock.patch.dict(namespace["prune_releases"].__globals__, {"datetime": FixedDateTime}):
             namespace["prune_releases"]()
         self.assertFalse(expired.exists())
         self.assertTrue((boundary / "online").exists())
