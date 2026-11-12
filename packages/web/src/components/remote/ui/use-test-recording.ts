@@ -12,7 +12,7 @@ const FATAL = new Set([403, 404, 415, 507]);
 /** Wait before the next start after a failed start or a file that took no chunk. After the last step the hook gives up until reload. */
 const BACKOFF_MS = [5_000, 30_000, 120_000, 120_000, 120_000];
 
-type Session = { stop: (reason: string) => Promise<void>; trackId: string; sent: () => number; closed: () => boolean };
+type Session = { stop: (reason: string) => Promise<void>; trackId: string };
 
 /**
  * Test recording (REMOTE_RECORD_USERS only): saves this player's own table camera video, with no audio, on the server for offline
@@ -69,7 +69,8 @@ export function useTestRecording({ enabled, slug, video, backend }: { enabled: b
             if (response.ok) { sent++; return; }
             const code = ((await response.json().catch(() => ({}))) as { code?: string }).code;
             // The server forgot this recording (restart or deploy), lost the header, or the file is full: close it, the poll opens a new file.
-            if (code === "UNKNOWN_RECORDING" || code === "NO_HEADER" || code === "RECORDING_UNAVAILABLE" || response.status === 413) { closed = true; return; }
+            if (code === "UNKNOWN_RECORDING" || code === "NO_HEADER" || code === "RECORDING_UNAVAILABLE" || code === "RECORDING_TOO_LARGE") { closed = true; return; }
+            if (code === "CHUNK_TOO_LARGE") return; // this one chunk is too big: drop it, keep the file
             if (FATAL.has(response.status)) { dead = true; closed = true; return; }
             if (response.status === 409 || response.status === 400) return; // This chunk cannot be accepted: drop it.
           } catch { /* network: retry */ }
@@ -109,10 +110,10 @@ export function useTestRecording({ enabled, slug, video, backend }: { enabled: b
       const watchClosed = setInterval(() => {
         if (!closed || !session) return;
         clearInterval(watchClosed);
-        if (sent === 0) noteFailure(); else failures = 0; // a file that took no chunk must not be reopened every second
+        if (sent < 3) noteFailure(); else failures = 0; // a file with fewer than 3 chunks (a second tab replacing this one) must not be reopened every second
         void end("rotated");
       }, 1000);
-      return { stop: async reason => { clearInterval(watchClosed); await stop(reason); }, trackId: track.id, sent: () => sent, closed: () => closed };
+      return { stop: async reason => { clearInterval(watchClosed); await stop(reason); }, trackId: track.id };
     };
     const end = async (reason: string) => {
       const current = session; session = null; setRecording(false);
