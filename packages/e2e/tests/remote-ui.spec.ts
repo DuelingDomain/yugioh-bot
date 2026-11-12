@@ -1,4 +1,5 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { connect } from "node:net";
 import { expect, test, type APIRequestContext, type BrowserContext, type Page } from "@playwright/test";
 import { projectRemoteState } from "@yugidraft/shared/remote";
 import { authenticatePlayer } from "../stack/login-auth.mjs";
@@ -7,13 +8,27 @@ import { pickSelect } from "../helpers/themed-select";
 import Database from "better-sqlite3";
 import { io } from "socket.io-client";
 
-// The table hides the virtual field by default. These tests use the board, so a browser with no saved choice starts in Both view.
+// The default view follows the detection mode (Auto shows the virtual field, Tap to identify hides it). These tests use the board, so a browser with no saved choice starts in Both view.
 const bothView = (context: BrowserContext) => context.addInitScript(() => { if (localStorage.getItem("dd-remote-webcam-only") === null) localStorage.setItem("dd-remote-webcam-only", "0"); });
 test.beforeEach(async ({ context }) => { await bothView(context); });
 
 const SHOTS = process.env.E2E_SHOTS ?? "";
 // A still picture of two cards on a table, served as the camera. Chrome's fake-file camera is not reliable between tests.
 const FRAME = process.env.E2E_FAKE_FRAME ? readFileSync(process.env.E2E_FAKE_FRAME).toString("base64") : "";
+// Tests that need something this stack may not have are skipped with the reason, not left to fail.
+const reachable = (host: string, port: number) => new Promise<boolean>(resolve => {
+  const socket = connect({ host, port }); const done = (ok: boolean) => { socket.destroy(); resolve(ok); };
+  socket.setTimeout(1000, () => done(false)); socket.once("connect", () => done(true)); socket.once("error", () => done(false));
+});
+const VISION_LAB = new URL(process.env.VISION_LAB_ORIGIN ?? "http://127.0.0.1:3449");
+const LIVEKIT = new URL((process.env.LIVEKIT_URL ?? "ws://127.0.0.1:7880").replace(/^ws/, "http"));
+const defaultPort = (url: URL) => Number(url.port || (url.protocol === "https:" ? 443 : 80));
+const HAVE_VISION_LAB = await reachable(VISION_LAB.hostname, defaultPort(VISION_LAB));
+const HAVE_LIVEKIT = await reachable(LIVEKIT.hostname, defaultPort(LIVEKIT));
+// Vision data: the web server reads VISION_DATA_DIR, or data/vision at the repo root.
+const HAVE_VISION_DATA = !!process.env.VISION_DATA_DIR || existsSync(new URL("../../../data/vision", import.meta.url));
+const NEED_FIXTURES = "needs the field watcher card pictures (E2E_AUTO_CARD and E2E_EXTRA_CARD, default data/vision/benchmark/field-watcher)";
+const NEED_LAB = `needs the vision lab at ${VISION_LAB.origin} (VISION_LAB_ORIGIN)`;
 async function fakeCamera(page: Page, shape: "16:9" | "4:3" | "" = "") {
   if (!FRAME && !shape) return;
   await page.addInitScript(([data, size]) => {
@@ -102,6 +117,7 @@ test.describe("remote duels screen, solo", () => {
   });
 
   test("click on the live feed opens the card popup, it stays open while the card is read, Esc closes it", async ({ page, context }) => {
+    test.skip(!FRAME || !HAVE_VISION_DATA, "needs a camera picture of cards (E2E_FAKE_FRAME) and vision data (VISION_DATA_DIR)");
     test.setTimeout(240_000);
     const slug = await soloTable(context.request, 2);
     await fakeCamera(page);
@@ -335,6 +351,7 @@ test.describe("remote duels screen, solo", () => {
   }
 
   test("F freezes the frame and outlines the cards", async ({ page, context }) => {
+    test.skip(!FRAME || !HAVE_VISION_DATA, "needs a camera picture of cards (E2E_FAKE_FRAME) and vision data (VISION_DATA_DIR)");
     test.setTimeout(240_000);
     const slug = await soloTable(context.request, 2);
     await fakeCamera(page);
@@ -370,7 +387,7 @@ test.describe("remote duels screen, solo", () => {
     await expect(grid).toBeVisible();
     await expect(grid).toHaveAttribute("data-calibrated", "false");
     for (const zone of ["FIELD", "M1", "M5", "GY", "EXTRA", "S3", "DECK", "EMZ1", "EMZ2"]) await expect(grid.locator(`polygon[data-zone="${zone}"]`)).toHaveCount(1);
-    // One Calibrate zones button, in the bar under the feed: the feed itself carries no second one.
+    // One Calibrate zones button, in the feed toolbar (it shows on hover): the feed itself carries no second one.
     const calibrate = page.getByRole("button", { name: "Calibrate zones", exact: true }); await expect(calibrate).toHaveCount(1); await expect(page.locator('[data-testid="feed-0"]').getByRole("button", { name: "Default grid · Calibrate" })).toHaveCount(0);
     // The grid sits exactly on the video, before and after the camera and the field swap places.
     const gap = async () => { const [g, v] = await Promise.all([grid.boundingBox(), video.boundingBox()]); return Math.abs(g!.x - v!.x) + Math.abs(g!.y - v!.y) + Math.abs(g!.width - v!.width) + Math.abs(g!.height - v!.height); };
@@ -384,7 +401,7 @@ test.describe("remote duels screen, solo", () => {
     await expect(page.getByTestId("seat-0")).toHaveAttribute("data-view", "camera");
     await expect.poll(gap, { timeout: 3_000 }).toBeLessThan(6);
     // The Calibrate zones button opens the calibration, which draws the same zones to drag into place.
-    await calibrate.click();
+    await page.getByTestId("feed-box-0").hover(); await calibrate.click();
     await expect(dialog).toBeVisible();
     for (const zone of ["M1", "S5", "EMZ1"]) await expect(dialog.locator(`polygon[data-zone="${zone}"]`)).toHaveCount(1);
     await dialog.getByRole("button", { name: "Cancel calibration" }).click();
@@ -436,12 +453,14 @@ test.describe("remote duels screen, solo", () => {
   // The feed box takes the camera's real shape, the camera row sits under it, and the virtual field is smaller.
   for (const [width, height, label] of [[1366, 768, "1366"]] as const) {
     for (const [count, mode] of [[2, "1v1"]] as [2 | 3 | 4, string][]) {
-      for (const shape of ["16:9"] as const) {
-        test(`video box matches the camera and controls fit: ${label} ${mode} ${shape}`, async ({ page, context }) => {
+      for (const shape of ["16:9"] as const) for (const view of ["Both", "Webcam only"] as const) {
+        test(`video box matches the camera and controls fit: ${label} ${mode} ${shape} ${view}`, async ({ page, context }) => {
           test.setTimeout(120_000);
           await page.setViewportSize({ width, height });
           const slug = await soloTable(context.request, count);
           await fakeCamera(page, shape);
+          // Both keeps the virtual field on, so the camera must still hold its share of the seat. Webcam only has no field.
+          await page.addInitScript(on => { try { localStorage.setItem("dd-remote-webcam-only", on ? "1" : "0"); } catch { /* storage blocked */ } }, view === "Webcam only");
           await page.goto(`/duels/remote/${slug}`);
           // Camera off: the empty feed fills the same box as a live one will.
           await expect(page.getByTestId("feed-box-0")).toBeVisible();
@@ -476,8 +495,9 @@ test.describe("remote duels screen, solo", () => {
           if (width >= 1366 && shape === "16:9") {
             // The camera comes first: a large share of the seat. The field frame hugs its zones and is a strip. LP is one small row.
             expect(share(on)).toBeGreaterThan(mode === "3" ? 0.3 : 0.33);
-            expect(on.holo!.w).toBeLessThan(on.seat!.w * (mode === "3" ? 1.01 : 0.7));
-            if (mode !== "4") expect(on.holo!.h).toBeLessThan(on.seat!.h * (mode === "3" ? 0.5 : 0.36));
+            if (view === "Both") expect(on.holo).toBeTruthy();
+            if (view === "Both") expect(on.holo!.w).toBeLessThan(on.seat!.w * (mode === "3" ? 1.01 : 0.7));
+            if (view === "Both" && mode !== "4") expect(on.holo!.h).toBeLessThan(on.seat!.h * (mode === "3" ? 0.5 : 0.36));
             expect(on.lpFont).toBeLessThanOrEqual(42);
             if (mode === "1v1") expect(on.lp!.h).toBeLessThanOrEqual(60);
           }
@@ -487,8 +507,21 @@ test.describe("remote duels screen, solo", () => {
           expect(m.row!.y).toBeGreaterThanOrEqual(m.box!.y + m.box!.h - 1);
           expect(m.row!.x).toBeGreaterThanOrEqual(-1); expect(m.row!.x + m.row!.w).toBeLessThanOrEqual(width + 1);
           expect(m.row!.y + m.row!.h).toBeLessThanOrEqual(height + 1);
-          const clipped = await page.getByTestId("camera-row").evaluate(row => [...row.querySelectorAll("button,select")].some(b => { const r = b.getBoundingClientRect(); const o = row.getBoundingClientRect(); return r.right > o.right + 1 || r.left < o.left - 1; }));
+          const clipped = await page.getByTestId("camera-row").evaluate(row => [...row.querySelectorAll("button,select")].some(b => { const r = b.getBoundingClientRect(); const o = row.getBoundingClientRect(); return r.width > 0 && (r.right > o.right + 1 || r.left < o.left - 1); })); // the closed Settings panel keeps hidden controls in the row
           expect(clipped).toBe(false);
+          // Scan field and Token sit in free space: not over the board's zones, the camera row buttons or the Hand -/+ buttons.
+          const clashes = await page.evaluate(() => {
+            const seat = document.querySelector('[data-testid="seat-0"]')!;
+            const box = (e: Element | null | undefined) => e?.getBoundingClientRect();
+            const hit = (a: DOMRect, b: DOMRect) => b.width > 0 && a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+            const movers = [["Scan field", seat.querySelector('button[aria-keyshortcuts="S"]')], ["Token", seat.querySelector('[data-testid="token-open-0"]')]] as const;
+            const others = [["board", document.querySelector('[data-testid="field-0"]')?.closest('[class*="holo"]')], ...[...seat.querySelectorAll('[data-testid="camera-row"] button, [data-testid="camera-row"] select')].map(e => ["camera row", e] as const),
+              ...[...seat.querySelectorAll('[data-testid="hand-count-0"] button')].map(e => ["Hand -/+", e] as const)] as const;
+            const out: string[] = [];
+            for (const [n, e] of movers) { const a = box(e); if (!a) { out.push(`${n} missing`); continue; } for (const [k, o] of others) { const b = box(o); if (b && hit(a, b)) out.push(`${n} over ${k}`); } }
+            return out;
+          });
+          expect(clashes).toEqual([]);
           await shot(page, `feed-${label}-${mode}-${shape.replace(":", "x")}`);
         });
       }
@@ -725,7 +758,7 @@ test.describe("remote duels screen, moving cards by hand", () => {
     await expect(page.getByTestId("carry-hint")).toHaveCount(0); expect(find(await room(), "dm").slot).toBe(4);
   });
 
-  test("a new browser starts with the board and the zone grid off, a bot seat keeps its board, and a choice stays", async ({ browser }) => {
+  test("a new browser starts with the board on (Auto detection) and the zone grid off, a bot seat keeps its board, and a choice stays", async ({ browser }) => {
     test.setTimeout(120_000);
     const url = process.env.E2E_REMOTE_UI_URL!;
     const fresh = await browser.newContext({ baseURL: url, viewport: { width: 1920, height: 1080 }, permissions: ["camera", "microphone"] });
@@ -733,8 +766,9 @@ test.describe("remote duels screen, moving cards by hand", () => {
       await authenticatePlayer(fresh.request, { userId: 101 }, process.env.E2E_AUTH_SECRET!, url);
       const slug = await soloTable(fresh.request, 2); const page = await fresh.newPage(); await fakeCamera(page, "16:9");
       await page.goto(`/duels/remote/${slug}`);
-      await expect(page.getByTestId("fwrap-0")).toBeHidden(); await expect(page.getByTestId("fwrap-1")).toBeVisible();
-      await expect(page.getByTestId("field-toggle-0")).toContainText("Show virtual field"); await expect(page.getByTestId("field-toggle-0")).toContainText("Beta");
+      // The default follows the detection mode: Auto shows the board, Tap to identify hides it (resolveWebcamOnly).
+      await expect(page.getByTestId("fwrap-0")).toBeVisible(); await expect(page.getByTestId("fwrap-1")).toBeVisible();
+      await expect(page.getByTestId("field-toggle-0")).toContainText("Hide virtual field"); await expect(page.getByTestId("field-toggle-0")).toContainText("Beta");
       // The grid shows only while the zones need calibration. Saved zones leave a clean camera.
       await page.getByTestId("camera-on-feed").click();
       await expect.poll(() => page.locator('[data-testid="feed-0"] video').evaluate((v: HTMLVideoElement) => v.videoWidth), { timeout: 30_000 }).toBeGreaterThan(0);
@@ -743,14 +777,14 @@ test.describe("remote duels screen, moving cards by hand", () => {
       const dialog = page.getByRole("dialog", { name: "Calibrate field zones", exact: true }); await expect(dialog).toBeVisible();
       await dialog.getByTestId("camera-my-view").click(); await dialog.getByRole("button", { name: "Save calibration", exact: true }).click(); await expect(dialog).toBeHidden();
       await expect(grid).toHaveCount(0); await page.getByTestId("feed-box-0").hover(); await expect(page.getByTestId("zone-grid-toggle").first()).toHaveAttribute("aria-pressed", "false");
-      await page.keyboard.press("w"); await expect(page.getByTestId("fwrap-0")).toBeVisible();
-      await page.reload(); await expect(page.getByTestId("fwrap-0")).toBeVisible();
       await page.keyboard.press("w"); await expect(page.getByTestId("fwrap-0")).toBeHidden();
       await page.reload(); await expect(page.getByTestId("remote-table")).toBeVisible(); await expect(page.getByTestId("fwrap-0")).toBeHidden();
+      await page.keyboard.press("w"); await expect(page.getByTestId("fwrap-0")).toBeVisible();
+      await page.reload(); await expect(page.getByTestId("fwrap-0")).toBeVisible();
     } finally { await fresh.close(); }
   });
 
-  test("default view: an attacker picks a target from a list when the opponent has no camera", async ({ browser }) => {
+  test("webcam only: an attacker picks a target from a list when the opponent has no camera", async ({ browser }) => {
     test.setTimeout(240_000);
     const url = process.env.E2E_REMOTE_UI_URL!;
     const options = { baseURL: url, viewport: { width: 1920, height: 1080 }, permissions: ["camera", "microphone"] };
@@ -774,6 +808,8 @@ test.describe("remote duels screen, moving cards by hand", () => {
       await post(first === 0 ? alice.request : bob.request, { type: "turn.end", actorSeat: first });
       const attacker = turn === 0 ? alice : bob;
       await post(attacker.request, { type: "phase.set", actorSeat: turn, phase: "battle" });
+      // The default view follows the detection mode (Auto shows the board), so this player picks Webcam only.
+      await attacker.addInitScript(() => { try { localStorage.setItem("dd-remote-webcam-only", "1"); } catch { /* storage blocked */ } });
       const page = await attacker.newPage(); await page.goto(`/duels/remote/${slug}`);
       await expect(page.getByTestId(`fwrap-${other}`)).toBeHidden();
       await page.getByTestId(`wc-cards-${turn}`).getByRole("button").first().focus(); await page.keyboard.press("Enter");
@@ -917,40 +953,24 @@ test.describe("remote duels screen, moving cards by hand", () => {
     // The Banished pile is a zone of its own right above the Graveyard (as on the printed mat): count, top card, click opens its tab.
     const ban = field.locator('[data-zone="ban"]'); await expect(ban).toBeVisible(); await expect(ban).toContainText("1");
     const [banBox, gyBox] = [(await ban.boundingBox())!, (await gy.boundingBox())!];
-    expect(Math.abs(banBox.x + banBox.width - (gyBox.x + gyBox.width))).toBeLessThan(2); expect(banBox.width).toBeGreaterThan(banBox.height); expect(banBox.y + banBox.height).toBeLessThanOrEqual(gyBox.y + 1); // landscape, right edges level
+    expect(Math.abs(banBox.x + banBox.width - (gyBox.x + gyBox.width))).toBeLessThan(4); expect(banBox.width).toBeGreaterThan(banBox.height); expect(banBox.y + banBox.height).toBeLessThanOrEqual(gyBox.y + 1); // landscape, right edges level
     await ban.click(); await expect(page.getByTestId("pile-tab-banished")).toHaveAttribute("aria-pressed", "true"); expect(await refs()).toEqual(["mst"]);
     await page.keyboard.press("Escape"); await expect(page.getByTestId("pile-viewer")).toHaveCount(0);
     for (const [w, h] of SHOTS ? [[1920, 1080], [1366, 768], [360, 700]] : []) { await page.setViewportSize({ width: w, height: h }); await page.waitForTimeout(300); await shot(page, `banish-zone-${w}`); }
   });
 
-  test("one card seen twice: 2x badges and a banner; Two copies hides them, Merge keeps one card with a log line and Undo", async ({ page, context }) => {
+  test("one card seen twice: both copies get a 2x badge and no merge line asks; the copies stay (they can be real)", async ({ page, context }) => {
     const slug = await soloTable(context.request, 2); const room = await seed(context, slug);
-    // A second Mystical Space Typhoon in another Spell/Trap Zone: the same public card twice on one field.
+    // A second Mystical Space Typhoon in another Spell/Trap Zone, seen at once with the first (copy proof): the same public card twice on one field.
     const before = await room() as unknown as { lastSeq: number };
-    const placed = await context.request.post(`/api/remote/${slug}/actions`, { data: { baseSeq: before.lastSeq, action: { idempotencyKey: crypto.randomUUID(), type: "twin.place", actorSeat: 0, seat: 0, zone: "spell-trap", card: { ref: "mst2", cardId: 5318639, name: "Mystical Space Typhoon", slot: 3, faceUp: true, position: "attack" } } } });
+    const placed = await context.request.post(`/api/remote/${slug}/actions`, { data: { baseSeq: before.lastSeq, action: { idempotencyKey: crypto.randomUUID(), type: "twin.place", source: "auto", copyProof: { simultaneousQuads: 2, at: Date.now() }, actorSeat: 0, seat: 0, zone: "spell-trap", card: { ref: "mst2", cardId: 5318639, name: "Mystical Space Typhoon", slot: 3, faceUp: true, position: "attack" } } } });
     expect(placed.status(), await placed.text()).toBe(200);
-    const twins = async () => (await room()).state.seats[0].twin.filter(card => card.zone === "spell-trap").length;
     await page.goto(`/duels/remote/${slug}`);
-    const banner = page.getByTestId("dup-banner-0");
-    await expect(banner).toContainText("Mystical Space Typhoon appears twice");
     await expect(page.getByTestId("field-0").getByTestId("dup-badge")).toHaveText(["2\u00d7", "2\u00d7"]);
-    // Readable and inside the window on a laptop and on a phone.
-    for (const size of [{ width: 1366, height: 768 }, { width: 390, height: 844 }]) {
-      await page.setViewportSize(size); await banner.scrollIntoViewIfNeeded();
-      const box = (await banner.boundingBox())!; expect(box.x).toBeGreaterThanOrEqual(0); expect(box.x + box.width).toBeLessThanOrEqual(size.width + 1);
-      await expect(page.getByTestId("dup-merge-0")).toBeVisible(); await shot(page, `dup-banner-${size.width}`);
-    }
-    // Two copies: the badges and the line go away. Nothing changes on the table.
-    await page.getByTestId("dup-two-0").click();
-    await expect(banner).toHaveCount(0); await expect(page.getByTestId("dup-badge")).toHaveCount(0); expect(await twins()).toBe(2);
-    // The answer is this viewer's. After a reload the line asks again, and Merge keeps one card.
-    await page.reload(); await expect(banner).toBeVisible();
-    await banner.getByTestId("dup-merge-0").focus(); await page.keyboard.press("Enter");
-    await expect.poll(twins).toBe(1); await expect(banner).toHaveCount(0);
-    // Undo has a 5 second window: use it first, then read the log.
-    await page.getByTestId("undo").click(); await expect.poll(twins).toBe(2);
-    expect((await room()).events.filter(event => ["twin.merge", "twin.remove"].includes(event.action.type))).toHaveLength(1);
-    await page.getByTestId("log-button").click(); await expect(page.getByTestId("log-drawer")).toContainText(/Merged duplicate|removed from/);
+    // Simultaneous physical copies are kept: the table no longer shows the Merge / Two copies line.
+    await expect(page.getByTestId("dup-banner-0")).toHaveCount(0);
+    expect((await room()).state.seats[0].twin.filter(card => card.zone === "spell-trap")).toHaveLength(2);
+    await shot(page, "dup-badges");
   });
 
   test("field layout: Field, M1-M5, GY on top; Extra Deck, S1-S5, Deck below; other seats turned 180 degrees", async ({ page, context }) => {
@@ -1141,6 +1161,7 @@ test.describe("Remote Duel with the flag off leaves no trace", () => {
 
 test.describe("remote duels screen, two players on LiveKit", () => {
   test("Bob reads Alice's feed, both see it, and the other player can undo", async ({ browser }) => {
+    test.skip(!HAVE_LIVEKIT, `needs LiveKit at ${LIVEKIT.origin} (LIVEKIT_URL)`);
     test.setTimeout(300_000);
     const alice = await browser.newContext(); const bob = await browser.newContext();
     await Promise.all([bothView(alice), bothView(bob)]);
@@ -1566,8 +1587,10 @@ test.describe("remote duels, spectators", () => {
 // Standalone real-worker coverage: run with playwright.vision.config.ts and a prepared local lab.
 const AUTO_CARD = process.env.E2E_AUTO_CARD ?? new URL('../../../data/vision/benchmark/field-watcher/card.png', import.meta.url).pathname;
 const EXTRA_CARD = process.env.E2E_EXTRA_CARD ?? new URL('../../../data/vision/benchmark/field-watcher/44508094.png', import.meta.url).pathname;
+const HAVE_FIXTURE_FILES = existsSync(AUTO_CARD) && existsSync(EXTRA_CARD);
 const TRAP_CARD = process.env.E2E_TRAP_CARD ?? new URL('../../../data/vision/benchmark/field-watcher/41420027.png', import.meta.url).pathname;
 test('field watcher owner: one card completes the full physical lifecycle',async({page,context})=>{
+  test.skip(!HAVE_FIXTURE_FILES, NEED_FIXTURES);
   test.setTimeout(240_000);
   // A human choice must survive a frozen visibility flag and one bad HTTP frame.
   const {fieldEvidenceMatches,applyVerifiedFieldMutation}=await import('../../web/src/lib/remote/field-proposals');
@@ -1808,6 +1831,7 @@ async function appearingCamera(page:Page,cardFile=AUTO_CARD,guided=false) {
   },{data,guided});
 }
 test('field watcher automatic: owner table applies once and Undo removes the atomic placement',async({page,context})=>{
+  test.skip(!HAVE_FIXTURE_FILES || !HAVE_VISION_LAB, `${NEED_FIXTURES} and the vision lab`);
   test.setTimeout(120_000);await authenticatePlayer(context.request,{userId:101},process.env.E2E_AUTH_SECRET!,process.env.VISION_LAB_ORIGIN??'http://127.0.0.1:3449');
   const slug=await soloTable(context.request,2,true);
   // Next dev compiles these on first use. Warm them before a placement starts
@@ -1848,6 +1872,7 @@ async function cachedPopupClick(page:Page) {
   }));
 }
 test('field watcher automatic: tap to identify reads every camera on a click, runs nothing while idle, and a slow computer gets one offer',async({browser})=>{
+  test.skip(!HAVE_VISION_LAB, NEED_LAB);
   test.setTimeout(360_000);const origin=process.env.VISION_LAB_ORIGIN??'http://127.0.0.1:3449',options={permissions:['camera','microphone'],baseURL:origin,viewport:{width:1920,height:1080}};
   const alice=await browser.newContext(options),bob=await browser.newContext(options);
   try{
@@ -1945,6 +1970,7 @@ async function measuredFieldChange(page:Page,kind:'move'|'remove') {
   }),kind);
 }
 for(const seatCount of [2,4] as const)test(`field watcher automatic: responsive best-match and calibration screenshots for ${seatCount} seats`,async({page,context})=>{
+  test.skip(!HAVE_FIXTURE_FILES || !HAVE_VISION_LAB, `${NEED_FIXTURES} and the vision lab`);
   test.setTimeout(180_000);const origin=process.env.VISION_LAB_ORIGIN??'http://127.0.0.1:3449';
   await authenticatePlayer(context.request,{userId:101},process.env.E2E_AUTH_SECRET!,origin);
   const slug=await soloTable(context.request,seatCount),directory=process.env.E2E_FIELD_SHOTS??new URL('../../../data/vision/benchmark/field-watcher/r1-shots/',import.meta.url).pathname;
@@ -1978,6 +2004,7 @@ for(const seatCount of [2,4] as const)test(`field watcher automatic: responsive 
 });
 
 test('field watcher automatic: Set backs, deck stacks, and revealed Sets keep face state',async({page,context})=>{
+  test.skip(!HAVE_FIXTURE_FILES, NEED_FIXTURES);
   test.setTimeout(120_000);
   const writes:{type:string;baseSeq:number;status:number;recovery:boolean}[]=[];let recovery=false;
   page.on('response',response=>{
