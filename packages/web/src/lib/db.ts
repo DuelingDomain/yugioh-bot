@@ -16,7 +16,7 @@ export function getDb(): Database.Database {
   return db;
 }
 
-function resolveDbPath(): string {
+export function resolveDbPath(): string {
   const configuredPath = process.env.DATABASE_PATH;
 
   if (!configuredPath) {

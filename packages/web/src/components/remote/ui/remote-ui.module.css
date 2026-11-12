@@ -1161,6 +1161,10 @@
 
 /* Card recognition: where it runs (GPU or CPU) and the last read time */
 .backendBadge{display:block;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border:1px solid var(--line2);border-radius:4px;padding:3px 6px;background:rgb(7 4 14/.85);color:var(--ink2);font:600 10px/1.2 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif}
+.recBadge{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--line2);border-radius:4px;padding:3px 6px;background:rgb(7 4 14/.85);color:var(--ink2);font:700 10px/1.2 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;letter-spacing:.12em;cursor:default;pointer-events:auto}
+.recBadge::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--lossd,#e5484d);animation:recdot 1.6s ease-in-out infinite}
+@keyframes recdot{50%{opacity:.35}}
+@media (prefers-reduced-motion:reduce){.recBadge::before{animation:none}}
 .peerBadge{flex:0 1 auto;min-width:0;max-width:200px;pointer-events:auto;cursor:default}
 .backendGpu{border-color:rgb(232 185 79/.5);color:var(--gold-ink)}
 .backendNote{display:block;max-width:220px;border:1px solid var(--line2);border-radius:4px;padding:3px 6px;background:rgb(7 4 14/.92);color:var(--ink);font:600 10px/1.3 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;white-space:normal}

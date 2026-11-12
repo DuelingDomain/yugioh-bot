@@ -24,6 +24,11 @@
       "source": "./src/access/remote-duel-users.ts",
       "default": "./dist/access/remote-duel-users.js"
     },
+    "./access/remote-record-users": {
+      "types": "./dist/access/remote-record-users.d.ts",
+      "source": "./src/access/remote-record-users.ts",
+      "default": "./dist/access/remote-record-users.js"
+    },
     "./analytics": {
       "types": "./dist/analytics/index.d.ts",
       "source": "./src/analytics/index.ts",

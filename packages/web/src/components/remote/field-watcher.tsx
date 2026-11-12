@@ -16,11 +16,12 @@ import {createFieldFaceCheck,type FieldFaceFix} from '@/lib/remote/field-face';
 import {fieldTrackMessage} from '@/lib/remote/field-track-cache';
 import {onManualMove} from '@/lib/remote/manual-moves';
 import {projectFieldZone,tokenInCell,freeFieldZones,fieldCandidateFitsZone,hardFieldZone,zoneMoveLabel,equipSourceOnField,becomesTrapMonster,nearestFreeMonsterZone,fieldZoneLabel} from '@/lib/remote/field-legality';
-import {bindFieldTiming,markFieldTiming,bindBackTiming} from '@/lib/remote/field-timing';
+import {bindFieldTiming,markFieldTiming,bindBackTiming,fieldCameraStamp} from '@/lib/remote/field-timing';
 import {behaviourOf} from '@/lib/remote/card-behaviour';
 import {saveLocalFieldDiagnostic} from '@/lib/remote/field-diagnostics';
 import {ownFieldResources,detectCards,prepareOwnReader} from './ui/recognizer';
-import {RecognitionBadge} from './ui/recognition-setting';
+import {RecognitionBadge,RecordingBadge} from './ui/recognition-setting';
+import {useTestRecording} from './ui/use-test-recording';
 import {useRecognitionBackend,gpuLossReason} from './ui/recognition-backend';
 import {useVideoHub} from './ui/video-hub';
 import type {RescanReply} from '@/lib/remote/video-protocol';
@@ -104,6 +105,8 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   },[video,source]);
   const lastWriteError=useRef('');
   const recognition=useRecognitionBackend();
+  // Test recording (REMOTE_RECORD_USERS, decided by the server): saves this table camera for offline recognition tests.
+  const recording=useTestRecording({enabled:!!room.recordingEnabled&&ownsSource&&hub.cameraOn&&room.status==='active'&&!room.state.ended,slug:room.slug,video,backend:recognition.backend??undefined});
   const debugBackend=()=>{const loss=gpuLossReason();return `${recognition.backend==='webgpu'?'GPU':recognition.backend?'CPU':'reader'}${recognition.note?` (${recognition.note})`:''}${loss?` · GPU lost ${new Date(loss.at).toLocaleTimeString()}: ${loss.reason}`:''}`;};
   const prompted=useRef(new Set<string>()),placeholders=useRef(new Map<string,string>()),readerRemovals=useRef(new Set<string>());
   // Summon window: monsters that left the field (watcher time) and Extra Deck summons placed moments ago.
@@ -241,7 +244,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       console.info('[remote field] dequeued',event?.type,event?.track.id,latest.lastSeq);
       const apply:RoomMutation=async (input,idempotencyKey)=>{const actionId=idempotencyKey??crypto.randomUUID();
         // A Trap that the camera sees go from S/T to a Monster Zone is a Trap Monster: it keeps its S/T zone.
-        let proposal=input;if(input.type==='twin.move'&&input.trapMonster===undefined){const moving=current.current.room.state.seats[seat].twin.find(c=>c.ref===input.cardRef);if(becomesTrapMonster(moving,cardInfo(moving&&cardCode(moving)),input.zone))proposal={...input,trapMonster:true};}bindFieldTiming(actionId,current.current.room.slug,event?.timing);
+        let proposal=input;if(input.type==='twin.move'&&input.trapMonster===undefined){const moving=current.current.room.state.seats[seat].twin.find(c=>c.ref===input.cardRef);if(becomesTrapMonster(moving,cardInfo(moving&&cardCode(moving)),input.zone))proposal={...input,trapMonster:true};}if(proposal.type!=='undo'&&!proposal.cam)proposal={...proposal,cam:fieldCameraStamp(event?.timing)};bindFieldTiming(actionId,current.current.room.slug,event?.timing);
         console.info('[remote field] write',proposal.type,actionId);markFieldTiming(event?.timing,'mutation',{actionId});const updated=await retryFieldMutation(act,proposal,actionId,()=>proposal.type==='undo'||live()&&(!event||(event.type==='removed'?watch.isRemoved(event.track.id):fieldEvidenceMatches(event,watch.getTrack(event.track.id),humanChoice))),error=>{const text=error instanceof Error?error.message:String(error);console.warn('[remote field] save failed',proposal.type,text);lastWriteError.current=`${new Date().toLocaleTimeString()} ${text}`;markFieldTiming(event?.timing,'writeFailed',{type:proposal.type});if(!quiet)setNotice(text);});console.info('[remote field] write result',proposal.type,updated?.lastSeq??'not saved');if(!updated)console.info('[remote field] write skipped: the card changed before it was saved',proposal.type);if(updated){current.current.room=updated;prunePhysical();}return updated;};
       await work(apply);console.info('[remote field] flushed',event?.type,event?.track.id,current.current.room.lastSeq);setFailedUpdate(previous=>previous?.work===work?null:previous);
     }).catch(error=>{console.error('[remote field] update failed',error);if(quiet)return;if(error instanceof StaleFieldPlacementError)setRecovery(error);else{setFailedUpdate({work,event,humanChoice});setNotice(error instanceof Error?error.message:'Could not save the field update. Use Retry field update.');}});
@@ -330,7 +333,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     // This intermediate removal belongs to the reader, so the room update
     // must not forget and suppress the live track before its identity is saved.
     readerRemovals.current.add(ref);
-    try{if(card&&!await act({type:'twin.remove',actorSeat:seat,seat,cardRef:ref})){readerRemovals.current.delete(ref);return false;}}
+    try{if(card&&!await act({type:'twin.remove',source:'auto',actorSeat:seat,seat,cardRef:ref})){readerRemovals.current.delete(ref);return false;}}
     catch(error){readerRemovals.current.delete(ref);throw error;}
     placeholders.current.delete(id);bindings.current.delete(id);return true;
   }
@@ -639,7 +642,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
         void queue(async act=>{
           const latest=current.current.room.state.seats[seat].twin.find(c=>c.ref===ref);
           if(!live()||!latest||!publicField(latest.zone)||undoKept.current.has(ref)||!watch.isRemoved(event.track.id))return;
-          const updated=await act({type:'twin.remove',actorSeat:seat,seat,cardRef:ref});
+          const updated=await act({type:'twin.remove',source:'auto',actorSeat:seat,seat,cardRef:ref});
           if(updated){setNotice(`${latest.faceUp?'Unread card':'Face-down card'} removed: nothing on the mat there · auto`);setUndoId(updated.state.undo?.actionId??'');}
         },event);
         return;
@@ -711,7 +714,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       // a pile: drop that unnamed back before the pile ref moves to its slot.
       if(event.type==='moved'&&event.replacesRef){
         const setRef=bindings.current.get(event.replacesRef)??event.replacesRef,provisional=current.current.room.state.seats[seat].twin.find(c=>c.ref===setRef);
-        if(provisional&&!provisional.faceUp&&!cardCode(provisional)&&publicField(provisional.zone)&&!await act({type:'twin.remove',actorSeat:seat,seat,cardRef:provisional.ref}))return;
+        if(provisional&&!provisional.faceUp&&!cardCode(provisional)&&publicField(provisional.zone)&&!await act({type:'twin.remove',source:'auto',actorSeat:seat,seat,cardRef:provisional.ref}))return;
       }
       if(event.type==='reading'){await showPlaceholder(event,act);return;}
       if(event.type==='removed'&&placeholders.current.has(event.track.id)){await removePlaceholder(event.track.id,act);setPrompts(list=>list.filter(p=>p.track.id!==event.track.id));return;}
@@ -1074,7 +1077,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     const pileTrack=watch.getTracks().find(t=>(bindings.current.get(t.id)??t.id)===seen.twin.ref);
     if(pileTrack){bindings.current.set(pileTrack.id,cardRef);watch.confirm(pileTrack.id,undefined,cardRef,false);}
     readerRemovals.current.add(seen.twin.ref);
-    const dropped=await act({type:'twin.remove',actorSeat:seat,seat,cardRef:seen.twin.ref});
+    const dropped=await act({type:'twin.remove',source:'auto',actorSeat:seat,seat,cardRef:seen.twin.ref});
     if(!dropped?.state.undo?.actionId){readerRemovals.current.delete(seen.twin.ref);return;}
     undoChain.current={after:dropped.state.undo.actionId,ids:movedId?[movedId]:[],...(pileTrack?{rebind:{trackId:pileTrack.id,ref:seen.twin.ref}}:{})};
     return {state:dropped,undoTarget:dropped.state.undo.actionId};
@@ -1306,7 +1309,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
         if(undoKept.current.has(ref)){if(!strict)continue;undoKept.current.delete(ref);}
         // An unnamed Set the camera placed and no longer sees is taken back, not added to the hand as an unknown card.
         const unnamedSet=strict&&!card.faceUp&&!cardCode(card)&&card.ref.startsWith('fw-');
-        const proposal=unnamedSet?{type:'twin.remove' as const,actorSeat:seat,seat,cardRef:card.ref}:fieldDepartureProposal(card,seat,undefined,cardInfo(cardCode(card)));if(!proposal)continue;
+        const proposal=unnamedSet?{type:'twin.remove' as const,source:'auto' as const,actorSeat:seat,seat,cardRef:card.ref}:fieldDepartureProposal(card,seat,undefined,cardInfo(cardCode(card)));if(!proposal)continue;
         const key=`remove:${ref}`;if(!tryFix(key))continue;
         await write(key,proposal);
       }
@@ -1451,7 +1454,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   })).join('');
   return <>
     <style>{readingStyles}</style>
-    <FieldWatcherUI dock={dock} host={host} enabled={watch.enabled} onEnabledChange={setDetection} statusLabel={label} attention={attention} onStatusAction={attention?()=>{if(syncHold)scanField();else window.dispatchEvent(new CustomEvent(NOTIFY_OPEN_EVENT,{detail:{seat}}));}:undefined} statusExtra={<RecognitionBadge phoneCamera={hub.phones.some(p=>p.seat===seat)}/>} statusTitle={!watch.enabled?'Auto-detect is off. Click a card in any camera to read it. The board does not follow the cards.':watch.snapshot.error??`Detector ${Math.round(watch.snapshot.metrics.detectorMs)} ms · duty ${watch.snapshot.metrics.dutyPercent.toFixed(1)}%`} calibrated={watch.placed} calibrationDisabled={!video?.videoWidth} onCalibrate={()=>setCalibrating(true)} pending={pending}
+    <FieldWatcherUI dock={dock} host={host} enabled={watch.enabled} onEnabledChange={setDetection} statusLabel={label} attention={attention} onStatusAction={attention?()=>{if(syncHold)scanField();else window.dispatchEvent(new CustomEvent(NOTIFY_OPEN_EVENT,{detail:{seat}}));}:undefined} statusExtra={<><RecognitionBadge phoneCamera={hub.phones.some(p=>p.seat===seat)}/>{recording?<RecordingBadge/>:null}</>} statusTitle={!watch.enabled?'Auto-detect is off. Click a card in any camera to read it. The board does not follow the cards.':watch.snapshot.error??`Detector ${Math.round(watch.snapshot.metrics.detectorMs)} ms · duty ${watch.snapshot.metrics.dutyPercent.toFixed(1)}%`} calibrated={watch.placed} calibrationDisabled={!video?.videoWidth} onCalibrate={()=>setCalibrating(true)} pending={pending}
       prompts={syncHold?[]:promptViews}
       onChoose={(id,cardId)=>{
         console.info('[remote field] candidate click',id,cardId);
