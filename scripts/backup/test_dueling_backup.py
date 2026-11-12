@@ -262,18 +262,16 @@ class BackupTests(unittest.TestCase):
             self.assertEqual((self.destination / name).read_bytes(), b"never remove")
             self.assert_pair_exists(name, True)
 
-    def test_default_retention_keeps_seven_newest_pairs_and_reports_total_bytes(self):
-        names, protected = self.seed_retention(range(1, 10))
+    def test_default_retention_keeps_only_the_newest_pair_and_reports_total_bytes(self):
+        names, protected = self.seed_retention(range(1, 4))
         result = self.run_backup()
         self.assert_success(result)
-        for age, name in names.items():
-            # Today's snapshot plus six fixtures; the eighth-newest pair is removed.
-            self.assert_pair_exists(name, age <= 6)
+        for name in names.values():
+            self.assert_pair_exists(name, False)
         self.assert_protected(protected)
         fresh = next(path for path in self.destination.glob("bot-*.sqlite")
                      if path.name not in names.values() and path.name not in protected)
-        total_bytes = fresh.stat().st_size + 6 * len(b"retention fixture")
-        self.assertTrue(result.stdout.strip().endswith("kept=7 total_bytes={}".format(total_bytes)), result.stdout)
+        self.assertTrue(result.stdout.strip().endswith("kept=1 total_bytes={}".format(fresh.stat().st_size)), result.stdout)
 
     def test_retention_env_override_keeps_two_newest_pairs(self):
         names, protected = self.seed_retention(range(1, 5))
@@ -414,6 +412,27 @@ class BackupTests(unittest.TestCase):
             namespace["prune_releases"]()
         self.assertTrue((fresh / "online").exists())
         self.assertTrue((fresh / "drained").exists())
+
+    def test_daily_run_keeps_database_copies_of_every_recent_release(self):
+        # After two failed deploys the older copy may be the only pre-migration one.
+        older = self.seed_release((datetime.now(UTC) - timedelta(hours=5)).strftime("pr2-%Y%m%d-%H%M%SZ"))
+        newest = self.seed_release((datetime.now(UTC) - timedelta(hours=1)).strftime("pr2-%Y%m%d-%H%M%SZ"))
+        self.assert_success(self.run_backup())
+        self.assertTrue((older / "online").exists())
+        self.assertTrue((newest / "online").exists())
+
+    def test_post_deploy_prune_keeps_database_copies_of_the_newest_release_only(self):
+        older = self.seed_release((datetime.now(UTC) - timedelta(hours=5)).strftime("pr2-%Y%m%d-%H%M%SZ"))
+        newest = self.seed_release((datetime.now(UTC) - timedelta(hours=1)).strftime("pr2-%Y%m%d-%H%M%SZ"))
+        result = subprocess.run(
+            [sys.executable, str(BACKUP_SCRIPT), "--prune-releases"],
+            env=self.environment(), capture_output=True, text=True, timeout=30,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue((newest / "online").exists())
+        self.assertTrue((newest / "drained").exists())
+        self.assertTrue((older / "runtime.env").exists())
+        self.assertEqual(list(older.rglob("*.sqlite*")), [])
 
     def test_release_age_cap_uses_exact_utc_boundary(self):
         newest = self.seed_release("pr2-20261008-120000Z")

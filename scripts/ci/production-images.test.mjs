@@ -50,6 +50,7 @@ esac
 `);
   chmodSync(docker, 0o755);
   return {
+    dir,
     run: (mode, commit = sha, extra = {}, args = []) => spawnSync('sh', [script, mode, commit, ...(['pull', 'promote'].includes(mode) ? [refs] : args)], {
       encoding: 'utf8', env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, TEST_LOG: log, ...extra },
     }),
@@ -106,6 +107,37 @@ test('successful retention prunes only dangling images with this project source 
   const commands = f.commands().trim().split('\n');
   assert.equal(commands.at(-1), 'image prune -f --filter label=org.opencontainers.image.source=https://github.com/DuelingDomain/yugioh-bot');
   assert.equal(commands.filter(line => line.startsWith('image prune')).length, 1);
+});
+
+test('drop-prev leaves only the latest image: :prev, old SHA tags and old digest refs are gone', t => {
+  const f = fixture(t);
+  // Stateful docker mock: one "reference id" line per tag or digest reference.
+  const state = join(f.dir, 'state');
+  const web = `${registry}-web`;
+  const [oldSha, ancientSha] = ['c'.repeat(40), 'd'.repeat(40)];
+  const rows = [
+    ['yugioh-bot-web:latest', 'L'], ['yugioh-bot-web:prev', 'P'], ['caddy:latest', 'P'],
+    [`${web}:${sha}`, 'L'], [`${web}:${oldSha}`, 'P'], [`${web}:${ancientSha}`, 'O'],
+    [`${web}@${digest}`, 'L'], [`${web}@sha256:${'e'.repeat(64)}`, 'P'],
+  ];
+  writeFileSync(state, rows.map(([ref, id]) => `${ref} ${id}\n`).join(''));
+  writeFileSync(join(f.dir, 'docker'), `#!/bin/sh
+printf '%s\\n' "$*" >> "$TEST_LOG"
+case "$1 $2" in
+  'image inspect') for last; do :; done; awk -v r="$last" '$1 == r { print $2; found=1 } END { exit !found }' "${state}" ;;
+  'image rm') grep -v "^$3 " "${state}" > "${state}.new"; mv "${state}.new" "${state}" ;;
+  'image ls')
+    repo=$(eval "printf '%s' \\"\\$$#\\"")
+    case "$*" in
+      *--digests*) awk -v p="$repo@" 'index($1, p) == 1 { print $1, $2 }' "${state}" ;;
+      *) awk -v p="$repo:" 'index($1, p) == 1 { print $1 }' "${state}" ;;
+    esac ;;
+esac
+`);
+  assert.equal(f.run('drop-prev').status, 0);
+  const left = readFileSync(state, 'utf8').trim().split('\n').map(line => line.split(' ')[0]);
+  assert.deepEqual(left.sort(), ['caddy:latest', 'yugioh-bot-web:latest', `${web}:${sha}`, `${web}@${digest}`].sort());
+  assert.match(f.commands().trim().split('\n').at(-1), /^image prune -f --filter/);
 });
 
 test('retention removes old GHCR digest references while keeping latest, prev and other repositories', t => {

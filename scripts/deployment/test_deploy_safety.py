@@ -357,6 +357,17 @@ esac
             "removed", "ownership", "started",
         ])
 
+    def test_disk_slimming_runs_only_after_success_is_recorded_from_staged_scripts(self):
+        remote = self.controls["remote"]
+        drop = remote.index('"$DEPLOY_IMAGES" drop-prev')
+        prune = remote.index('"$DEPLOY_BACKUP" --prune-releases')
+        for record in ('mv data/production-image-ids.tmp data/production-image-ids',
+                       'mv data/production-image-commit.tmp data/production-image-commit'):
+            self.assertLess(remote.index(record), drop)
+        self.assertLess(drop, prune)
+        self.assertIn("trap - EXIT", remote[prune:])
+        self.assertNotIn("python3 scripts/backup/dueling-backup --prune-releases", remote)
+
     def test_ownership_failure_leaves_consumers_stopped(self):
         for failed_preparation in (1, 2):
             with self.subTest(failed_preparation=failed_preparation):

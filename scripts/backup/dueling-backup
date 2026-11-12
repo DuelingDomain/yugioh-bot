@@ -19,6 +19,8 @@ SRC = Path(os.environ.get("DUELING_BACKUP_SRC", "/opt/yugioh-bot/data/bot.sqlite
 DEST_DIR = Path(os.environ.get("DUELING_BACKUP_DIR", "/var/backups/yugioh-bot"))
 KEEP_ENV = "DUELING_BACKUP_KEEP"
 RELEASE_KEEP_ENV = "DUELING_RELEASE_KEEP_DAYS"
+RELEASE_COUNT_ENV = "DUELING_RELEASE_KEEP"
+DEFAULT_KEEP = 1
 MAX_BACKUP_DAYS = 14
 # The timer runs once a day, so expire copies a day early to keep the 14-day promise.
 RUN_INTERVAL = timedelta(days=1)
@@ -62,7 +64,9 @@ def warn_release_pruning(error):
     print("WARNING: dueling-backup: release pruning: " + message, file=sys.stderr)
 
 
-def prune_releases():
+def prune_releases(enforce_count=False):
+    # The count limit applies only after a healthy deploy (--prune-releases). The daily timer
+    # keeps the day rule alone: after two failed deploys the older copy may be the only pre-migration one.
     root = safe_path(DEST_DIR)
     try:
         keep_days = int(os.environ.get(RELEASE_KEEP_ENV, str(MAX_BACKUP_DAYS)))
@@ -71,6 +75,16 @@ def prune_releases():
     except ValueError:
         warn_release_pruning(RELEASE_KEEP_ENV + " must be an integer from 1 to 14; using 14 days")
         keep_days = MAX_BACKUP_DAYS
+
+    keep_count = None
+    if enforce_count:
+        try:
+            keep_count = int(os.environ.get(RELEASE_COUNT_ENV, str(DEFAULT_KEEP)))
+            if keep_count < 1:
+                raise ValueError
+        except ValueError:
+            warn_release_pruning(RELEASE_COUNT_ENV + " must be an integer >= 1; using " + str(DEFAULT_KEEP))
+            keep_count = DEFAULT_KEEP
 
     releases = []
     for path in root.iterdir():
@@ -94,7 +108,8 @@ def prune_releases():
     database_cutoff = now - max(timedelta(days=keep_days) - RUN_INTERVAL, RUN_INTERVAL)
     directory_cutoff = now - timedelta(days=MAX_BACKUP_DAYS) + RUN_INTERVAL
     for index, (stamp, path) in enumerate(releases):
-        if stamp >= database_cutoff:
+        # With the count limit on, only the newest releases keep DB copies; the day limit always applies.
+        if (keep_count is None or index < keep_count) and stamp >= database_cutoff:
             continue
         try:
             paths = release_tree(path, root)
@@ -150,7 +165,7 @@ def prune_backups(keep):
 
 def create_backup():
     try:
-        keep = int(os.environ.get(KEEP_ENV, "7"))
+        keep = int(os.environ.get(KEEP_ENV, str(DEFAULT_KEEP)))
         if keep < 1:
             raise ValueError
     except ValueError:
@@ -264,6 +279,14 @@ def create_backup():
 
 
 def main():
+    if sys.argv[1:] == ["--prune-releases"]:
+        # Deploy calls this after a healthy cutover: strip DB copies of all but the newest release.
+        try:
+            prune_releases(enforce_count=True)
+            return 0
+        except (Exception, KeyboardInterrupt) as error:
+            warn_release_pruning(error)
+            return 1
     try:
         path, size, checksum, kept, total_bytes = create_backup()
         print("{} {} {} kept={} total_bytes={}".format(path, size, checksum, kept, total_bytes))
