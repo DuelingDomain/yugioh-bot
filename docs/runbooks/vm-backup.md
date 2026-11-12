@@ -17,13 +17,15 @@ Makes a safe copy of the SQLite database every day. The app keeps running while 
 ## What it changes
 
 - Writes `/var/backups/yugioh-bot/bot-YYYYmmdd-HHMMSSZ.sqlite` and a `.sha256` file.
-- Deletes automatic backups past the newest 7 (and past 14 days).
+- Deletes automatic backups past the newest 1 (and past 14 days). One daily backup stays.
+- Keeps DB copies of the newest `pr2-*` release only (`DUELING_RELEASE_KEEP`, default 1); older releases keep metadata only. Deploy does the same after a healthy cutover (`dueling-backup --prune-releases`).
 - Deletes `pr2-*` release folders older than 14 days.
+- Rollback does not use local images: it always pulls from GHCR.
 - Never touches other names. Four named pre-alpha files are kept on purpose (list in the runbook).
 
 ## Depends on
 
-`python3` on the VM. Root. Database at `/opt/yugioh-bot/data/bot.sqlite`. Free disk space. Optional overrides: `DUELING_BACKUP_SRC`, `DUELING_BACKUP_DIR`, `DUELING_BACKUP_KEEP`, `DUELING_RELEASE_KEEP_DAYS`.
+`python3` on the VM. Root. Database at `/opt/yugioh-bot/data/bot.sqlite`. Free disk space. Optional overrides: `DUELING_BACKUP_SRC`, `DUELING_BACKUP_DIR`, `DUELING_BACKUP_KEEP` (default 1), `DUELING_RELEASE_KEEP` (default 1), `DUELING_RELEASE_KEEP_DAYS`.
 
 ## Run it by hand
 

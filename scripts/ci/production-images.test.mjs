@@ -108,6 +108,17 @@ test('successful retention prunes only dangling images with this project source 
   assert.equal(commands.filter(line => line.startsWith('image prune')).length, 1);
 });
 
+test('drop-prev untags local :prev for every service, never :latest or caddy, then prunes', t => {
+  const f = fixture(t);
+  assert.equal(f.run('drop-prev').status, 0);
+  const commands = f.commands().trim().split('\n');
+  for (const service of ['duel', 'web', 'worker', 'ws', 'bot']) {
+    assert.ok(commands.includes(`image rm yugioh-bot-${service}:prev`));
+  }
+  assert.doesNotMatch(f.commands(), /image rm .*(:latest|caddy|livekit)/);
+  assert.match(commands.at(-1), /^image prune -f --filter/);
+});
+
 test('retention removes old GHCR digest references while keeping latest, prev and other repositories', t => {
   const f = fixture(t);
   const latestId = `sha256:${'1'.repeat(64)}`;

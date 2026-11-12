@@ -121,8 +121,8 @@ The duel image carries the bundle in `/opt/duel-engine`. Deploy also installs th
 | Time | Daily 07:30 UTC, up to 10 min random delay, catches up after downtime |
 | Method | Python SQLite backup API (includes committed WAL writes, no stop) |
 | Location | `/var/backups/yugioh-bot`, mode 0600 files with SHA-256 sidecars |
-| Retention | 7 newest snapshots (`DUELING_BACKUP_KEEP`), none older than 14 days |
-| Deploy copies | Release directories keep database copies for 14 days |
+| Retention | 1 newest snapshot (`DUELING_BACKUP_KEEP`), none older than 14 days |
+| Deploy copies | Only the newest release directory keeps database copies (`DUELING_RELEASE_KEEP`) |
 
 Backups stay on the same VM. Restore steps: [vm-runbook Backups](../deployment/vm-runbook.md#backups) and [vm-backup runbook](../runbooks/vm-backup.md).
 

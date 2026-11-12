@@ -710,7 +710,11 @@ jobs:
              mv data/production-image-ids.tmp data/production-image-ids
              printf '%s\n' "$DEPLOY_COMMIT" > data/production-image-commit.tmp
              mv data/production-image-commit.tmp data/production-image-commit
-             sh "$DEPLOY_IMAGES" prune
+             # Everything is healthy and recorded: free the disk. Rollbacks pull from GHCR, so the local :prev
+             # images, old SHA tags and old release DB copies are no longer needed. Never fails the deploy.
+             sh "$DEPLOY_IMAGES" drop-prev || echo "WARNING: could not remove previous images" >&2
+             python3 scripts/backup/dueling-backup --prune-releases \
+               || echo "WARNING: could not prune old release DB copies" >&2
              cleanup
              trap - EXIT
              echo "Production deployed SHA: $DEPLOY_COMMIT"

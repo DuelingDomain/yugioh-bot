@@ -16,8 +16,8 @@ case "$operation" in
       exit 1
     }
     ;;
-  prune) ;;
-  *) echo 'Usage: production-images.sh pull|promote <sha> <digest-file> | preserve <sha> <image> <prev-tag> | prune' >&2; exit 1 ;;
+  prune|drop-prev) ;;
+  *) echo 'Usage: production-images.sh pull|promote <sha> <digest-file> | preserve <sha> <image> <prev-tag> | prune | drop-prev' >&2; exit 1 ;;
 esac
 
 image_reference() {
@@ -94,7 +94,17 @@ case "$operation" in
       docker tag "$(image_reference "$service")" "yugioh-bot-$service:latest"
     done
     ;;
-  prune)
+  prune|drop-prev)
+    # drop-prev runs only after every health check passed. Untag :prev first, so the loops below
+    # also remove the old SHA tags and digest references. A tag still used by a running
+    # container is refused by Docker (no force); that only warns. Later rollbacks pull from GHCR.
+    if [ "$operation" = drop-prev ]; then
+      for service in $services; do
+        if docker image inspect "yugioh-bot-$service:prev" >/dev/null 2>&1; then
+          docker image rm "yugioh-bot-$service:prev" || echo "Warning: could not remove yugioh-bot-$service:prev" >&2
+        fi
+      done
+    fi
     for service in $services; do
       latest_id=$(docker image inspect --format '{{.Id}}' "yugioh-bot-$service:latest" 2>/dev/null || true)
       previous_id=$(docker image inspect --format '{{.Id}}' "yugioh-bot-$service:prev" 2>/dev/null || true)
