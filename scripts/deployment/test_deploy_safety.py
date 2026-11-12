@@ -365,7 +365,7 @@ esac
                        'mv data/production-image-commit.tmp data/production-image-commit'):
             self.assertLess(remote.index(record), drop)
         self.assertLess(drop, prune)
-        self.assertLess(prune, remote.index("\ncleanup\n", prune))
+        self.assertIn("trap - EXIT", remote[prune:])
         self.assertNotIn("python3 scripts/backup/dueling-backup --prune-releases", remote)
 
     def test_ownership_failure_leaves_consumers_stopped(self):
