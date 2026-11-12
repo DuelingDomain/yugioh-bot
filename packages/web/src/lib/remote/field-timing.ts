@@ -7,10 +7,14 @@ export function markFieldTiming(timing:FieldTiming|undefined,stage:string,extra:
   if(!timing||typeof window==='undefined')return;
   window.dispatchEvent(new CustomEvent('remote-field-latency',{detail:{...timing,stage,elapsedMs:Math.max(0,performance.timeOrigin+performance.now()-timing.originAt),...extra}}));
 }
-/** Camera timing for the saved event, on the client clock: first sight of the card, its name (when the read finished) and now (the board write). With `v`, the build id. */
+/**
+ * Camera timing for the saved event. All three times are on one clock, `performance.timeOrigin + performance.now()` (what the watcher uses),
+ * so they line up with the recorder start the test recording sends on the same clock: the detector's first outline of the card, the end of the
+ * last read (the name), and now (the board write). With `v`, the build id.
+ */
 export function fieldCameraStamp(timing:FieldTiming|undefined):RemoteCameraStamp {
-  const named=timing?.stagesMs.searchDone,v=process.env.NEXT_PUBLIC_SENTRY_RELEASE?.slice(0,12);
-  return {...(timing?{seenAt:Math.round(timing.originAt)}:{}),...(timing&&named!==undefined?{namedAt:Math.round(timing.originAt+named)}:{}),sentAt:Date.now(),...(v?{v}:{})};
+  const stages=timing?.stagesMs,named=stages?.searchDoneLast??stages?.searchDone,v=process.env.NEXT_PUBLIC_SENTRY_RELEASE?.slice(0,12);
+  return {...(timing?{seenAt:Math.round(timing.originAt+(stages?.firstOutline??0))}:{}),...(timing&&named!==undefined?{namedAt:Math.round(timing.originAt+named)}:{}),sentAt:Math.round(performance.timeOrigin+performance.now()),...(v?{v}:{})};
 }
 export function bindFieldTiming(id:string,slug:string,timing:FieldTiming|undefined) {
   if(!timing)return;

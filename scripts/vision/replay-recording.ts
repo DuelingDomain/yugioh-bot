@@ -3,8 +3,8 @@
  *    [--calibration cal.json] [--format normal] [--data data/vision] [--threads 2] [--read-scale 1] [--keep-frames dir] [--json out.json]
  *  <recording> sits next to its sidecar <same name>.json (written by the server). Needs ffmpeg on PATH and the models in --data
  *  (scripts/vision/prepare.ts and build-index.ts); no other model is downloaded.
- *  --events: the room JSON saved from GET /api/remote/<slug> (an object with `events`, or the event array). The recorded watcher events carry
- *  a camera stamp (cam.seenAt/namedAt, client clock); with the sidecar's recorder start they become video time, and the table below shows the
+ *  --events: the room JSON saved from GET /api/remote/<slug> (an object with `events`, or the event array; that route returns only the last 50 events, so save it soon after the test). The recorded watcher events carry
+ *  a camera stamp (cam.seenAt/namedAt, client clock `performance.timeOrigin + performance.now()`); with the sidecar's video start they become video time, and the table below shows the
  *  live times next to this replay's times. --calibration: a FieldCalibration JSON (the saved clip session.json has one in `calibration`);
  *  without it the whole frame counts as the mat, so zones are only roughly right but detect and name times still hold.
  *  Frames are extracted to a temp folder that is deleted at the end (10 fps at 720p is about 1 GB per 10 minutes). */
@@ -26,7 +26,7 @@ const { positionals, values } = parseArgs({ allowPositionals: true, options: {
 const file = positionals[0];
 if (!file) { console.error('Usage: replay-recording.ts <recording.webm|mp4> [--events room.json] [--fps 10] [--from s] [--duration s] [--calibration cal.json] [--data dir] [--json out.json]'); process.exit(2); }
 const video = resolve(file), sidecarPath = video.slice(0, -extname(video).length) + '.json';
-const sidecar = JSON.parse(await readFile(sidecarPath, 'utf8')) as { tableSlug?: string; seat?: number; video?: { width: number; height: number }; client?: { recorderStartDateNow?: number | null; backend?: string | null; userAgent?: string | null; appVersion?: string | null }; endReason?: string; chunks?: number; droppedChunks?: number };
+const sidecar = JSON.parse(await readFile(sidecarPath, 'utf8')) as { tableSlug?: string; seat?: number; video?: { width: number; height: number }; client?: { recorderStartDateNow?: number | null; videoStartDateNow?: number | null; videoStartPerfNow?: number | null; timeOrigin?: number | null; backend?: string | null; userAgent?: string | null; appVersion?: string | null }; endReason?: string; chunks?: number; droppedChunks?: number };
 const fps = Number(values.fps ?? 10), from = Number(values.from ?? 0), duration = values.duration ? Number(values.duration) : undefined;
 const loaded = await loadNodeRecognizer(values.data ?? defaultDataDir(), Number(values.threads ?? 2));
 if (!loaded) { console.error(`No models in ${values.data ?? defaultDataDir()}: run scripts/vision/prepare.ts and build-index.ts first.`); process.exit(2); }
@@ -61,8 +61,9 @@ try {
   const nameOf = (id?: string) => id ? meta.entries.find(c => c.cardId === id)?.name ?? id : '(not named)';
   const s = (ms?: number) => ms === undefined ? '      -' : `${((ms + from * 1000) / 1000).toFixed(2).padStart(7)}`;
 
-  // The recorder started about `recorderStartDateNow` on the client clock: client times become video seconds.
-  const origin = sidecar.client?.recorderStartDateNow ?? undefined;
+  // Video time 0 is when the recorder started, on the client clock. New files carry `timeOrigin + videoStartPerfNow` (the clock the camera stamps use);
+  // older files only have the start request time, which is a little early.
+  const c = sidecar.client, origin = c?.videoStartPerfNow != null && c.timeOrigin != null ? c.timeOrigin + c.videoStartPerfNow : c?.videoStartDateNow ?? c?.recorderStartDateNow ?? undefined;
   type Live = { type: string; zone?: string; seenT?: number; namedT?: number; sentT?: number; source?: string };
   const live: Live[] = [];
   if (values.events) {
