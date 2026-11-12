@@ -455,8 +455,6 @@ test.describe("remote duels screen, solo", () => {
     for (const [count, mode] of [[2, "1v1"]] as [2 | 3 | 4, string][]) {
       for (const shape of ["16:9"] as const) for (const view of ["Both", "Webcam only"] as const) {
         test(`video box matches the camera and controls fit: ${label} ${mode} ${shape} ${view}`, async ({ page, context }) => {
-          // Known app issue: in Both view with Auto detection the camera is about 9% of the seat at 1366 x 768 (limit 33%). Remove this line when the layout is fixed.
-          test.fixme(view === "Both", "the camera is about 9% of the seat in Both view at 1366 x 768, below the 33% limit");
           test.setTimeout(120_000);
           await page.setViewportSize({ width, height });
           const slug = await soloTable(context.request, count);
@@ -511,6 +509,19 @@ test.describe("remote duels screen, solo", () => {
           expect(m.row!.y + m.row!.h).toBeLessThanOrEqual(height + 1);
           const clipped = await page.getByTestId("camera-row").evaluate(row => [...row.querySelectorAll("button,select")].some(b => { const r = b.getBoundingClientRect(); const o = row.getBoundingClientRect(); return r.width > 0 && (r.right > o.right + 1 || r.left < o.left - 1); })); // the closed Settings panel keeps hidden controls in the row
           expect(clipped).toBe(false);
+          // Scan field and Token sit in free space: not over the board's zones, the camera row buttons or the Hand -/+ buttons.
+          const clashes = await page.evaluate(() => {
+            const seat = document.querySelector('[data-testid="seat-0"]')!;
+            const box = (e: Element | null | undefined) => e?.getBoundingClientRect();
+            const hit = (a: DOMRect, b: DOMRect) => b.width > 0 && a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+            const movers = [["Scan field", seat.querySelector('button[aria-keyshortcuts="S"]')], ["Token", seat.querySelector('[data-testid="token-open-0"]')]] as const;
+            const others = [["board", document.querySelector('[data-testid="field-0"]')?.closest('[class*="holo"]')], ...[...seat.querySelectorAll('[data-testid="camera-row"] button, [data-testid="camera-row"] select')].map(e => ["camera row", e] as const),
+              ...[...seat.querySelectorAll('[data-testid="hand-count-0"] button')].map(e => ["Hand -/+", e] as const)] as const;
+            const out: string[] = [];
+            for (const [n, e] of movers) { const a = box(e); if (!a) { out.push(`${n} missing`); continue; } for (const [k, o] of others) { const b = box(o); if (b && hit(a, b)) out.push(`${n} over ${k}`); } }
+            return out;
+          });
+          expect(clashes).toEqual([]);
           await shot(page, `feed-${label}-${mode}-${shape.replace(":", "x")}`);
         });
       }

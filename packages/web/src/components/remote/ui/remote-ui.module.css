@@ -11,6 +11,8 @@
   color-scheme:dark;
 }
 @media (max-width:1500px),(max-height:900px){.app{--hdr:44px;--rail:54px;--dock:78px;--gap:8px}}
+/* A 768 px tall laptop: the voice and undo row needs 54 px, so it does not take 78. The seats get the rest. */
+@media (max-height:800px) and (min-width:901px){.app{--dock:62px}}
 .app,.app *{box-sizing:border-box}
 .app [hidden]{display:none!important}
 .app{position:fixed;inset:0;z-index:100;background:var(--ground);color:var(--ink);font-family:var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;font-size:15px;line-height:1.25;overflow:hidden}
@@ -386,6 +388,21 @@
   .holo{padding:6px 6px 7px}
 }
 
+/* A short seat with the camera and the board together (a 1366 x 768 laptop: about 670 x 580 px each). The camera keeps a third of the seat
+   and the board is the strip under it. Three rows that sat between them move: Token joins the camera row (right end), Scan field floats in the
+   empty space left of the board, and --fh leaves the camera everything the board does not need (capped so the board leaves room for Scan field). The board still has 7 columns and 3 rows. */
+@container seat (max-aspect-ratio:1.55) and (max-height:640px) and (min-width:520px) and (max-width:799px) {
+  .seat:not([data-view="field"]):not([data-wc]) .feedcol:has(.camsel){position:relative}
+  .seat:not([data-view="field"]):not([data-wc]) .feedcol:has(.camsel)>[data-testid^="token-open-"]{position:absolute;right:0;bottom:2px}
+  .seat:not([data-view="field"]):not([data-wc]) :is(.sbody,.fside){gap:4px}
+  .seat:not([data-view="field"]):not([data-wc]) .feedcol{gap:4px}
+  .seat:not([data-view="field"]):not([data-wc]) .fwrap{--fh:clamp(112px,calc(100cqh - 440px),calc((100cqw - 240px)/2.2))}
+  .seat:not([data-view="field"]):not([data-wc]) .fwrap[data-rail]{--scanh:0px}
+  .seat:not([data-view="field"]):not([data-wc]) .fboard{position:relative}
+  .seat:not([data-view="field"]):not([data-wc]) .fboard>.scanbtn{position:absolute;left:0;top:0;z-index:2;height:30px;padding:0 9px}
+  .seat:not([data-view="field"]):not([data-wc]) .fboard>.scanbtn kbd{display:none}
+}
+
 /* ============ dock: voice + undo ============ */
 .dock{display:grid;grid-template-columns:minmax(360px,.9fr) minmax(0,2fr) minmax(300px,.8fr);gap:var(--gap);padding:0 var(--gap) var(--gap);min-height:0}
 .dock.nomic{grid-template-columns:minmax(0,2fr) minmax(300px,.8fr)}
@@ -429,6 +446,8 @@
 .has .prop{min-height:60px;padding:8px 10px 8px 14px;gap:12px}
 .has .prop .pt{font-size:17px}.has .prop .ps{font-size:13px;color:var(--ink2)}
 .has .prop .btn{height:38px;padding:0 16px;font-size:14px}
+/* The 62 px dock is a 54 px box: a voice proposal drops the heard-text row (the proposal names the command) and uses 30 px buttons so Confirm and Cancel show in full. */
+@media (max-height:800px) and (min-width:901px){.has .tr{display:none}.has .prop{min-height:0;padding:4px 10px 4px 14px}.has .prop .btn{height:30px;padding:0 14px}}
 .samples{display:flex;gap:6px;align-items:center;overflow:hidden;color:var(--ink3);font-size:12.5px;min-height:32px}
 .samples>span{flex:none}
 .samples button{background:none;border:1px solid var(--line2);border-radius:999px;color:var(--ink2);padding:4px 10px;font-size:12.5px;white-space:nowrap;flex:none}
