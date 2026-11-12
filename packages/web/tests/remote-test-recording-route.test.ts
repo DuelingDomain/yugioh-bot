@@ -48,10 +48,11 @@ it("records a seated allowlisted player's camera and refuses everybody else", as
   const opened = await start(101); expect(opened.status).toBe(200);
   const { id } = await opened.json(); expect(id).toMatch(/^[0-9a-f]{24}$/);
   expect((await post(101, `id=${id}&n=1`, new Uint8Array([9]))).status).toBe(409); // chunk 0 holds the header
-  expect((await post(101, `id=${id}&n=0&offset=-40&rtt=25`, new Uint8Array([1, 2, 3]))).status).toBe(200);
+  expect((await post(101, `id=${id}&n=0&offset=-40&rtt=25&startDateNow=1700000000000&startPerfNow=1234.5`, new Uint8Array([1, 2, 3]))).status).toBe(200);
   expect((await post(101, `id=${id}&n=1`, new Uint8Array([4, 5]))).status).toBe(200);
   expect(await (await post(101, `id=${id}&n=1`, new Uint8Array([4, 5]))).json()).toMatchObject({ duplicate: true });
   expect((await post(102, `id=${id}&n=2`, new Uint8Array([7]))).status).toBe(404); // another player cannot add to it
+  expect(await (await post(101, `id=${'0'.repeat(24)}&n=0`, new Uint8Array([1]))).json()).toMatchObject({ code: "UNKNOWN_RECORDING" });
   expect((await post(101, `id=${id}&n=2`, new Uint8Array(8 * 1024 * 1024 + 1))).status).toBe(413);
   const ended = await post(101, `action=end&id=${id}`, JSON.stringify({ reason: "test", backend: "webgpu" }));
   expect(await ended.json()).toMatchObject({ ok: true, chunks: 2, bytes: 5 });
@@ -59,7 +60,7 @@ it("records a seated allowlisted player's camera and refuses everybody else", as
   const files = await readdir(join(dir, slug)), video = files.find(name => name.endsWith(".webm"))!, sidecar = files.find(name => name.endsWith(".json"))!;
   expect(video).toMatch(/^101-0-\d{4}-\d\d-\d\dT\d\d-\d\d-\d\d-\d{3}Z\.webm$/);
   expect([...(await readFile(join(dir, slug, video)))]).toEqual([1, 2, 3, 4, 5]);
-  expect(JSON.parse(await readFile(join(dir, slug, sidecar), "utf8"))).toMatchObject({ tableSlug: slug, userId: 101, seat: 0, chunks: 2, bytes: 5, endReason: "test", client: { clockOffsetMs: -40, rttMs: 25, backend: null }, video: { width: 1280, height: 720 } });
+  expect(JSON.parse(await readFile(join(dir, slug, sidecar), "utf8"))).toMatchObject({ tableSlug: slug, userId: 101, seat: 0, chunks: 2, bytes: 5, endReason: "test", client: { clockOffsetMs: -40, rttMs: 25, videoStartDateNow: 1700000000000, videoStartPerfNow: 1234.5, backend: null }, video: { width: 1280, height: 720 } });
 });
 
 it("accepts the camera timing stamp and the auto removal source on actions", () => {

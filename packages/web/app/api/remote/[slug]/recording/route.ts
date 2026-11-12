@@ -2,7 +2,7 @@
 // variable is unset. Only a seated player can record, and only their own seat. See docs/remote-duels/test-recording.md.
 import { isRemoteRecordUser } from "@yugidraft/shared/access/remote-record-users";
 import { remoteAssert } from "@yugidraft/shared/remote";
-import { appendChunk, endRecording, readChunkBytes, startRecording } from "@/lib/remote/recordings-server";
+import { appendChunk, endRecording, precheckChunk, readChunkBytes, startRecording } from "@/lib/remote/recordings-server";
 import { remoteError, remoteJson, requireRemoteActor, type RemoteRouteContext } from "@/lib/remote-duels";
 import { readSmallJsonObject } from "@/lib/read-small-body";
 export const runtime = "nodejs";
@@ -25,12 +25,14 @@ export async function POST(request: Request, context: RemoteRouteContext) {
       const body = await readSmallJsonObject(request, 8192); remoteAssert(body, "Invalid JSON object");
       if (action === "start") return remoteJson(await startRecording({ userId: who.userId, slug: who.slug, seat: who.seat, userAgent: request.headers.get("user-agent"), body }));
       remoteAssert(id, "Missing recording id");
-      return remoteJson(await endRecording({ id, userId: who.userId, seat: who.seat, body }));
+      return remoteJson(await endRecording({ id, userId: who.userId, seat: who.seat, slug: who.slug, body }));
     }
     remoteAssert(id && /^\d{1,9}$/.test(params.get("n") ?? ""), "Missing recording id or chunk number");
+    const seq = Number(params.get("n")), identity = { id, userId: who.userId, seat: who.seat, slug: who.slug, seq };
+    // A repeat or a chunk without its header is refused before the body is read, so no upload is wasted.
+    if (precheckChunk(identity) === "duplicate") return remoteJson({ ok: true, duplicate: true });
     const bytes = await readChunkBytes(request);
-    const offset = Number(params.get("offset")), rtt = Number(params.get("rtt"));
-    return remoteJson(await appendChunk({ id, userId: who.userId, seat: who.seat, seq: Number(params.get("n")), bytes,
-      clockOffsetMs: params.has("offset") && Number.isFinite(offset) ? offset : undefined, rttMs: params.has("rtt") && Number.isFinite(rtt) ? rtt : undefined }));
+    const num = (key: string) => { const value = params.has(key) ? Number(params.get(key)) : NaN; return Number.isFinite(value) ? value : undefined; };
+    return remoteJson(await appendChunk({ ...identity, bytes, clockOffsetMs: num("offset"), rttMs: num("rtt"), startDateNow: num("startDateNow"), startPerfNow: num("startPerfNow") }));
   } catch (error) { return remoteError(error); }
 }
