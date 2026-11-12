@@ -509,6 +509,19 @@ test.describe("remote duels screen, solo", () => {
           expect(m.row!.y + m.row!.h).toBeLessThanOrEqual(height + 1);
           const clipped = await page.getByTestId("camera-row").evaluate(row => [...row.querySelectorAll("button,select")].some(b => { const r = b.getBoundingClientRect(); const o = row.getBoundingClientRect(); return r.width > 0 && (r.right > o.right + 1 || r.left < o.left - 1); })); // the closed Settings panel keeps hidden controls in the row
           expect(clipped).toBe(false);
+          // Scan field and Token sit in free space: not over the board's zones, the camera row buttons or the Hand -/+ buttons.
+          const clashes = await page.evaluate(() => {
+            const seat = document.querySelector('[data-testid="seat-0"]')!;
+            const box = (e: Element | null | undefined) => e?.getBoundingClientRect();
+            const hit = (a: DOMRect, b: DOMRect) => b.width > 0 && a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+            const movers = [["Scan field", seat.querySelector('button[aria-keyshortcuts="S"]')], ["Token", seat.querySelector('[data-testid="token-open-0"]')]] as const;
+            const others = [["board", document.querySelector('[data-testid="field-0"]')?.closest('[class*="holo"]')], ...[...seat.querySelectorAll('[data-testid="camera-row"] button, [data-testid="camera-row"] select')].map(e => ["camera row", e] as const),
+              ...[...seat.querySelectorAll('[data-testid="hand-count-0"] button')].map(e => ["Hand -/+", e] as const)] as const;
+            const out: string[] = [];
+            for (const [n, e] of movers) { const a = box(e); if (!a) { out.push(`${n} missing`); continue; } for (const [k, o] of others) { const b = box(o); if (b && hit(a, b)) out.push(`${n} over ${k}`); } }
+            return out;
+          });
+          expect(clashes).toEqual([]);
           await shot(page, `feed-${label}-${mode}-${shape.replace(":", "x")}`);
         });
       }
