@@ -43,6 +43,7 @@
 #include "ocgapi_constants.h"
 #include "duel.h"
 #include "field.h"
+#include "effect.h"
 #include "response-order.h"
 
 namespace fs = std::filesystem;
@@ -1094,11 +1095,13 @@ int main(int argc, char** argv) {
 			case MSG_CHAINING: {
 				// MSG_CHAINING names the card's controller, which can differ from its activator.
 				// Automatic and yes/no triggers use the new link's trigger-window player.
-				const int L = activating_player >= 0 ? activating_player :
-					static_cast<::duel*>(duel)->game_field->core.current_chain.back().triggering_player;
+				const auto& link = static_cast<::duel*>(duel)->game_field->core.current_chain.back();
+				const int L = activating_player >= 0 ? activating_player : link.triggering_player;
 				check_response(response_order.chaining(L, turn_player));
 				if(multi && L < n) {
-					if(last_opt_chain) {
+					// Mandatory Quick Effects (e.g. Doomcaliber Knight) respond to a link;
+					// their automatic activation does not make them simultaneous triggers.
+					if(last_opt_chain || !(link.triggering_effect->type & EFFECT_TYPE_TRIGGER_F)) {
 						seg_open = false;
 					} else {
 						const int pos = trigger_pos(turn_player, L);
