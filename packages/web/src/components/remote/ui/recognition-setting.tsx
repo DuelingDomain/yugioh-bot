@@ -91,5 +91,5 @@ export function VideoRateSetting() {
 
 /** Shown to a player whose table camera is being saved for recognition tests (REMOTE_RECORD_USERS). */
 export function RecordingBadge() {
-  return <span className={s.recBadge} data-testid="test-recording" title="Test recording: your table camera is saved for recognition tests">REC</span>;
+  return <span className={s.recBadge} data-testid="test-recording" role="status" aria-label="Test recording on: your table camera is saved, video only, no sound" title="Test recording: your table camera is saved for recognition tests (video only, no sound)">REC</span>;
 }
