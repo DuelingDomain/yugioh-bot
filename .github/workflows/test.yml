@@ -47,6 +47,13 @@ permissions:
   contents: read
 
 env:
+  # onnxruntime-node's install script downloads a CUDA package from nuget.org; CI uses the CPU
+  # binaries bundled in the package; that download timed out in 6 runs in 3 days.
+  ONNXRUNTIME_NODE_INSTALL: skip
+  # Retry registry downloads in npm ci instead of failing on one dropped connection.
+  NPM_CONFIG_FETCH_RETRIES: "5"
+  NPM_CONFIG_FETCH_RETRY_MINTIMEOUT: "2000"
+  NPM_CONFIG_FETCH_RETRY_MAXTIMEOUT: "30000"
   # The engine bundle for CI. Not data/duel-engine (that is the deploy bundle, with no multi cores).
   # data/duel-engine-next is also the folder the native nduel tools read by default.
   BUNDLE_DIR: data/duel-engine-next
@@ -759,7 +766,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release download v1.7.12 --repo rhysd/actionlint --pattern actionlint_1.7.12_linux_amd64.tar.gz --dir "$RUNNER_TEMP"
+          for attempt in 1 2 3; do
+            gh release download v1.7.12 --repo rhysd/actionlint --pattern actionlint_1.7.12_linux_amd64.tar.gz --dir "$RUNNER_TEMP" --clobber && break
+            [ "$attempt" = 3 ] && exit 1
+            sleep $((attempt * 5))
+          done
           tar -xzf "$RUNNER_TEMP/actionlint_1.7.12_linux_amd64.tar.gz" -C "$RUNNER_TEMP" actionlint
           "$RUNNER_TEMP/actionlint" -shellcheck= -pyflakes= .github/workflows/test.yml
 
