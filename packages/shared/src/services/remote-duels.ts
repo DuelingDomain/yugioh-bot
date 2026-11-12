@@ -17,6 +17,7 @@ import { diffView } from "../remote/delta.js";
 import type { RemoteHistoryItem, RemoteHistoryOptions, RemoteHistoryPage, RemoteReplay, RemoteReplayStep } from "../remote/history.js";
 import type Database from "better-sqlite3";
 import { isOwnerUser } from "../access/owner-access.js";
+import { isRemoteRecordUser } from "../access/remote-record-users.js";
 import { generateWebSlug } from "../util/web-slug.js";
 import { REMOTE_DEFAULT_VISIBILITY, getRemoteGame, remoteActionSchema, remoteAssert, type RemoteAction, type RemoteEvent, type RemoteRoom, type RemoteSeat, type RemoteState, type RemotePosition, type RemoteStatus, type RemoteSystemAction, type RemoteTable, type SeatCount } from "../remote/index.js";
 
@@ -244,7 +245,7 @@ export function createRemoteDuelService(db: Database.Database, options: {
       .all(row.id, afterSeq ?? Math.max(0, row.last_seq - 50)) as EventRow[];
     const metadata = liveTable(row);
     const projected=projectRemoteSnapshot({table:metadata,state:knownState ?? readState(row),events:events.map(e=>event(e,metadata.seats))}, privateSeats(row,userId));
-    return {...projected.table,mySeat:viewer.seat,state:projected.state,events:projected.events,isDeveloper:isOwnerUser(userId),spectatorCount:spectatorCount(row)};
+    return {...projected.table,mySeat:viewer.seat,state:projected.state,events:projected.events,isDeveloper:isOwnerUser(userId),...(isRemoteRecordUser(userId)?{recordingEnabled:true}:{}),spectatorCount:spectatorCount(row)};
   }
   function privateSeats(row:Row,userId:number):Set<number> {
     return new Set(seats(row).filter(s=>s.userId===userId || (!!row.solo && row.created_by===userId && s.bot)).map(s=>s.seat));

@@ -633,7 +633,11 @@
 .seat[data-view="field"] .feedcol{flex:0 0 var(--thumb);--cellw:calc(var(--thumb) * var(--vr))}
 .seat[data-view="field"] .feedcol:has(.camsel){flex-basis:calc(var(--thumb) + 34px)}
 .seat[data-view="field"] .fwrap{--fw:calc(100cqw - 16px - var(--scanw,0px));--fh:calc(100cqh - var(--thumb) - 150px - var(--scanh,0px))}
-.seat[data-view="field"] .fctl,.seat[data-view="field"] .ctag,.seat[data-view="field"] .peerBadge{display:none}
+.seat[data-view="field"] .fctl,.seat[data-view="field"] .ctag,.seat[data-view="field"] .recBadge{display:inline-flex;align-items:center;gap:4px;border:1px solid var(--line2);border-radius:4px;padding:3px 6px;background:rgb(7 4 14/.85);color:var(--ink2);font:700 10px/1.2 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;letter-spacing:.12em;cursor:default;pointer-events:auto}
+.recBadge::before{content:"";width:6px;height:6px;border-radius:50%;background:#e5484d;animation:recdot 1.6s ease-in-out infinite}
+@keyframes recdot{50%{opacity:.35}}
+@media (prefers-reduced-motion:reduce){.recBadge::before{animation:none}}
+.peerBadge{display:none}
 .seat[data-view="field"] .nofeed button{position:relative;z-index:9}
 /* The swap runs only while data-swapping is set, so a window resize never animates. Reduced motion shortens every transition to nothing (see the rule near the end). */
 .seat[data-swapping] .feedcol,.seat[data-swapping] .feedcol>.cams,.seat[data-swapping] .fwrap{transition:flex-basis .32s var(--ease),max-height .32s var(--ease),width .32s var(--ease),height .32s var(--ease)}

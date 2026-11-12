@@ -88,3 +88,8 @@ export function VideoRateSetting() {
     <p id={hintId} className={ui.hint} style={{ margin: 0 }}>{hub.videoRate === 30 ? "Opponents see your camera at up to 30 frames per second." : "Uses less of this computer and less network. Opponents see up to 15 frames per second."}</p>
   </div>;
 }
+
+/** Shown to a player whose table camera is being saved for recognition tests (REMOTE_RECORD_USERS). */
+export function RecordingBadge() {
+  return <span className={s.recBadge} data-testid="test-recording" title="Test recording: your table camera is saved for recognition tests">REC</span>;
+}

@@ -20,7 +20,8 @@ import {bindFieldTiming,markFieldTiming,bindBackTiming,fieldCameraStamp} from '@
 import {behaviourOf} from '@/lib/remote/card-behaviour';
 import {saveLocalFieldDiagnostic} from '@/lib/remote/field-diagnostics';
 import {ownFieldResources,detectCards,prepareOwnReader} from './ui/recognizer';
-import {RecognitionBadge} from './ui/recognition-setting';
+import {RecognitionBadge,RecordingBadge} from './ui/recognition-setting';
+import {useTestRecording} from './ui/use-test-recording';
 import {useRecognitionBackend,gpuLossReason} from './ui/recognition-backend';
 import {useVideoHub} from './ui/video-hub';
 import type {RescanReply} from '@/lib/remote/video-protocol';
@@ -104,6 +105,8 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   },[video,source]);
   const lastWriteError=useRef('');
   const recognition=useRecognitionBackend();
+  // Test recording (REMOTE_RECORD_USERS, decided by the server): saves this table camera for offline recognition tests.
+  const recording=useTestRecording({enabled:!!room.recordingEnabled&&ownsSource&&hub.cameraOn&&room.status==='active'&&!room.state.ended,slug:room.slug,video,backend:recognition.backend??undefined});
   const debugBackend=()=>{const loss=gpuLossReason();return `${recognition.backend==='webgpu'?'GPU':recognition.backend?'CPU':'reader'}${recognition.note?` (${recognition.note})`:''}${loss?` · GPU lost ${new Date(loss.at).toLocaleTimeString()}: ${loss.reason}`:''}`;};
   const prompted=useRef(new Set<string>()),placeholders=useRef(new Map<string,string>()),readerRemovals=useRef(new Set<string>());
   // Summon window: monsters that left the field (watcher time) and Extra Deck summons placed moments ago.
@@ -1451,7 +1454,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   })).join('');
   return <>
     <style>{readingStyles}</style>
-    <FieldWatcherUI dock={dock} host={host} enabled={watch.enabled} onEnabledChange={setDetection} statusLabel={label} attention={attention} onStatusAction={attention?()=>{if(syncHold)scanField();else window.dispatchEvent(new CustomEvent(NOTIFY_OPEN_EVENT,{detail:{seat}}));}:undefined} statusExtra={<RecognitionBadge phoneCamera={hub.phones.some(p=>p.seat===seat)}/>} statusTitle={!watch.enabled?'Auto-detect is off. Click a card in any camera to read it. The board does not follow the cards.':watch.snapshot.error??`Detector ${Math.round(watch.snapshot.metrics.detectorMs)} ms · duty ${watch.snapshot.metrics.dutyPercent.toFixed(1)}%`} calibrated={watch.placed} calibrationDisabled={!video?.videoWidth} onCalibrate={()=>setCalibrating(true)} pending={pending}
+    <FieldWatcherUI dock={dock} host={host} enabled={watch.enabled} onEnabledChange={setDetection} statusLabel={label} attention={attention} onStatusAction={attention?()=>{if(syncHold)scanField();else window.dispatchEvent(new CustomEvent(NOTIFY_OPEN_EVENT,{detail:{seat}}));}:undefined} statusExtra={<><RecognitionBadge phoneCamera={hub.phones.some(p=>p.seat===seat)}/>{recording?<RecordingBadge/>:null}</>} statusTitle={!watch.enabled?'Auto-detect is off. Click a card in any camera to read it. The board does not follow the cards.':watch.snapshot.error??`Detector ${Math.round(watch.snapshot.metrics.detectorMs)} ms · duty ${watch.snapshot.metrics.dutyPercent.toFixed(1)}%`} calibrated={watch.placed} calibrationDisabled={!video?.videoWidth} onCalibrate={()=>setCalibrating(true)} pending={pending}
       prompts={syncHold?[]:promptViews}
       onChoose={(id,cardId)=>{
         console.info('[remote field] candidate click',id,cardId);
