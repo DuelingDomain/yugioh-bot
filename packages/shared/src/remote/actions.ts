@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { remoteActionMeta as meta, remoteSeatSchema } from "./action-meta.js";
 import { remoteMatchActionSchemas } from "./match-contract.js";
-export { remoteSeatSchema } from "./action-meta.js";
+export { remoteSeatSchema, remoteCameraStampSchema, type RemoteCameraStamp } from "./action-meta.js";
 
 const id = z.string().min(1).max(100);
 const zone = z.string().min(1).max(40);
@@ -107,7 +107,7 @@ export const remoteActionSchema = z.discriminatedUnion("type", [
   z.strictObject({ ...meta, type: z.literal("twin.flip"), seat: remoteSeatSchema, cardRef: id, faceUp: z.boolean(),
     cardId:cardId.optional(),name:sighting.name,bestMatch:z.boolean().optional(),position:z.enum(['attack','defense']).optional(),source:z.literal('auto').optional() })
     .refine(a=>a.faceUp||a.cardId===undefined&&a.name===undefined&&a.bestMatch===undefined,'Only a reveal can carry identity'),
-  z.strictObject({ ...meta, type: z.literal("twin.remove"), seat: remoteSeatSchema, cardRef: id }),
+  z.strictObject({ ...meta, type: z.literal("twin.remove"), seat: remoteSeatSchema, cardRef: id, source: z.literal("auto").optional() }),
   z.strictObject({ ...meta, type: z.literal("log.note"), text: z.string().trim().min(1).max(500) }),
   z.strictObject({ ...meta, type: z.literal("undo"), targetActionId: id }),
   z.strictObject({ ...meta, type: z.literal("player.concede") }),

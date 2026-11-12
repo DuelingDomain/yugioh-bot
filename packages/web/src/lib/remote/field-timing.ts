@@ -1,11 +1,16 @@
 import type {FieldTiming} from '@yugidraft/vision';
-import type {RemoteRoom} from '@yugidraft/shared/remote';
+import type {RemoteRoom,RemoteCameraStamp} from '@yugidraft/shared/remote';
 
 // Local timing only. No card identity, pixels, or extra network requests.
 const actions=new Map<string,{slug:string;timing:FieldTiming;seq?:number;rendered?:boolean}>();
 export function markFieldTiming(timing:FieldTiming|undefined,stage:string,extra:Record<string,unknown>={}) {
   if(!timing||typeof window==='undefined')return;
   window.dispatchEvent(new CustomEvent('remote-field-latency',{detail:{...timing,stage,elapsedMs:Math.max(0,performance.timeOrigin+performance.now()-timing.originAt),...extra}}));
+}
+/** Camera timing for the saved event, on the client clock: first sight of the card, its name (when the read finished) and now (the board write). With `v`, the build id. */
+export function fieldCameraStamp(timing:FieldTiming|undefined):RemoteCameraStamp {
+  const named=timing?.stagesMs.searchDone,v=process.env.NEXT_PUBLIC_SENTRY_RELEASE?.slice(0,12);
+  return {...(timing?{seenAt:Math.round(timing.originAt)}:{}),...(timing&&named!==undefined?{namedAt:Math.round(timing.originAt+named)}:{}),sentAt:Date.now(),...(v?{v}:{})};
 }
 export function bindFieldTiming(id:string,slug:string,timing:FieldTiming|undefined) {
   if(!timing)return;
