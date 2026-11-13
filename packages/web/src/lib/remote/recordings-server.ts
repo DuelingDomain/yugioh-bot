@@ -34,6 +34,46 @@ const active = (store.__remoteRecordings ??= new Map<string, Active>());
 const fail = (status: number, code: string, message: string): never => { throw new RemoteDuelError(message, status, code); };
 const text = (value: unknown, max: number) => typeof value === "string" && value.length <= max ? value : undefined;
 const number = (value: unknown, min: number, max: number) => typeof value === "number" && Number.isFinite(value) && value >= min && value <= max ? value : undefined;
+const bool = (value: unknown) => (typeof value === "boolean" ? value : null);
+
+/** One clock sample per chunk (10 s each): a 2 GiB file holds about 830 chunks, so this cap is never reached in practice; it only bounds the sidecar. */
+const MAX_CLOCK_SAMPLES = 1000;
+/** Calibration snapshots: the one at the start and each later change. The first is kept; the oldest of the rest is dropped. */
+const MAX_CALIBRATIONS = 20;
+const MAX_CALIBRATION_BYTES = 4096;
+const PLAYER_SIDES = new Set(["bottom", "left", "top", "right"]);
+const ZONE_ID = /^[A-Z][A-Z0-9]{0,5}$/;
+const point = (value: unknown) => {
+  const p = value as Record<string, unknown> | null | undefined, x = number(p?.x, -5, 5), y = number(p?.y, -5, 5);
+  return x === undefined || y === undefined ? null : { x, y };
+};
+/**
+ * The live field calibration of the recorded player (mat corners, orientation, zone spacing, moved zones, format), so the offline tool reads the
+ * mat the way the watcher did. Only known fields with checked types survive, and the result is capped; anything else returns null.
+ */
+export function sanitizeCalibration(raw: unknown, now: number) {
+  const body = raw as Record<string, unknown> | null | undefined, cal = body?.calibration as Record<string, unknown> | null | undefined;
+  if (!body || typeof body !== "object" || !cal || typeof cal !== "object" || !Array.isArray(cal.corners) || cal.corners.length < 4 || cal.corners.length > 8) return null;
+  const corners = cal.corners.map(point); if (corners.some(c => !c)) return null;
+  const orientation = cal.orientation as Record<string, unknown> | undefined;
+  const zones: Record<string, unknown> = {};
+  if (cal.zones && typeof cal.zones === "object") for (const [id, rect] of Object.entries(cal.zones).slice(0, 24)) {
+    const r = rect as Record<string, unknown>, x = number(r?.x, -5, 5), y = number(r?.y, -5, 5), w = number(r?.w, 0, 5), h = number(r?.h, 0, 5);
+    if (ZONE_ID.test(id) && x !== undefined && y !== undefined && w !== undefined && h !== undefined) zones[id] = { x, y, w, h };
+  }
+  const entry = { at: number(body.at, 0, 1e15) ?? null, serverMs: now, format: text(body.format, 24) ?? null, placed: bool(body.placed), needed: bool(body.needed),
+    calibration: { version: number(cal.version, 0, 99) ?? null, layout: number(cal.layout, 0, 99) ?? null, corners,
+      orientation: orientation && typeof orientation.playerSide === "string" && PLAYER_SIDES.has(orientation.playerSide) ? { playerSide: orientation.playerSide, mirrored: orientation.mirrored === true } : null,
+      zoneSpacing: number(cal.zoneSpacing, 0, 5) ?? null, zones } };
+  return JSON.stringify(entry).length <= MAX_CALIBRATION_BYTES ? entry : null;
+}
+const calibrationKey = (entry: object) => JSON.stringify({ ...entry, at: 0, serverMs: 0 }); // a repeat of the last snapshot adds nothing
+function addCalibration(a: Active, entry: NonNullable<ReturnType<typeof sanitizeCalibration>>) {
+  const list = a.sidecar.calibrations as object[], last = list.at(-1);
+  if (last && calibrationKey(last) === calibrationKey(entry)) return;
+  list.push(entry);
+  if (list.length > MAX_CALIBRATIONS) list.splice(1, 1);
+}
 
 /** Reads the request body as bytes and stops at the chunk cap, so a large or never-ending body cannot fill memory. */
 export async function readChunkBytes(request: Request): Promise<Buffer> {
@@ -115,11 +155,16 @@ async function startInner(input: { userId: number; slug: string; seat: number; u
     // which the browser sends with chunk 0 (taken when the recorder started).
     client: { recorderStartDateNow: number(clock?.recorderStartDateNow, 0, 1e15) ?? null, recorderStartPerfNow: number(clock?.recorderStartPerfNow, 0, 1e12) ?? null,
       timeOrigin: number(clock?.timeOrigin, 0, 1e15) ?? null, userAgent: input.userAgent?.slice(0, 300) ?? null, appVersion: text(body.appVersion, 64) ?? null,
-      backend: text(body.backend, 40) ?? null, hardwareConcurrency: number(body.hardwareConcurrency, 0, 1024) ?? null },
+      backend: text(body.backend, 40) ?? null, hardwareConcurrency: number(body.hardwareConcurrency, 0, 1024) ?? null,
+      // One sample per chunk: { n, serverMs (when the server got the chunk), offsetMs (server clock minus client clock), rttMs }, so drift can be corrected.
+      clockSamples: [] as unknown[] },
+    // The live calibration at the start and after each change (see sanitizeCalibration).
+    calibrations: [] as unknown[],
     server: { appVersion: process.env.SENTRY_RELEASE?.trim() || null },
   };
   const a: Active = { id: randomBytes(12).toString("hex"), userId, slug, seat, base, dir, video, sidecar, sidecarPath: join(dir, `${base}.json`), next: 0, chunks: 0, dropped: 0, bytes: 0, lastAt: now, queue: Promise.resolve() };
   active.set(a.id, a);
+  const first = sanitizeCalibration(body.calibration, now); if (first) addCalibration(a, first); // a bad snapshot never stops the recording
   await writeSidecar(a);
   return { id: a.id, serverTime: now, chunkMaxBytes: RECORDING_CHUNK_MAX_BYTES };
 }
@@ -168,10 +213,26 @@ export const appendChunk = (input: { id: string; userId: number; seat: number; s
     if (seq === 0) Object.assign(a.sidecar, { firstChunkAt: new Date(now).toISOString(), firstChunkServerMs: now,
       client: { ...(a.sidecar.client as object), clockOffsetMs: number(input.clockOffsetMs, -1e10, 1e10) ?? null, rttMs: number(input.rttMs, 0, 1e7) ?? null,
         videoStartDateNow: number(input.startDateNow, 0, 1e15) ?? null, videoStartPerfNow: number(input.startPerfNow, 0, 1e12) ?? null } });
-    await writeSidecar(a); // about 1 KB: a closed tab then still leaves the right counts
+    const offsetMs = number(input.clockOffsetMs, -1e10, 1e10), rttMs = number(input.rttMs, 0, 1e7), samples = (a.sidecar.client as { clockSamples: unknown[] }).clockSamples;
+    if (offsetMs !== undefined && rttMs !== undefined && samples.length < MAX_CLOCK_SAMPLES) samples.push({ n: seq, serverMs: now, offsetMs, rttMs });
+    await writeSidecar(a); // a few KB: a closed tab then still leaves the right counts
     if (a.chunks % SWEEP_EVERY === 0) await enforceRecordingsCap(dirname(a.dir)).catch(() => undefined);
     return { ok: true };
   });
+  a.queue = write; return write;
+});
+
+/** A tiny round trip the browser times before each chunk, so every chunk carries a fresh clock sample (the chunk upload itself is too slow to time). */
+export function clockRecording(input: { id: string; userId: number; seat: number; slug: string }) {
+  owned(input.id, input.userId, input.seat, input.slug);
+  return { ok: true, serverTime: Date.now() };
+}
+
+/** Adds a calibration snapshot (the live calibration changed). Invalid or oversized input is refused; the recording goes on. */
+export const noteCalibration = (input: { id: string; userId: number; seat: number; slug: string; body: Record<string, unknown> }) => guarded(async () => {
+  const a = owned(input.id, input.userId, input.seat, input.slug), entry = sanitizeCalibration(input.body, Date.now());
+  if (!entry) return fail(400, "BAD_CALIBRATION", "Invalid calibration");
+  const write = a.queue.catch(() => undefined).then(async () => { addCalibration(a, entry); await writeSidecar(a); return { ok: true }; });
   a.queue = write; return write;
 });
 
