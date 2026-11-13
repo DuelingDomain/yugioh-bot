@@ -1,20 +1,31 @@
 /** Turns a saved Remote Duels test recording plus its room events into a LOCAL set of warped card crops and labels for later vision work.
  *  npx tsx scripts/vision/harvest-labels.ts <recording.webm|mp4> --events room.json [--calibration cal.json] [--recognizer current|name|spec.json]
  *    [--out data/vision-harvest/<room>] [--room <name>] [--fps 2] [--agree-seconds 20] [--max-crops 8] [--empty-cap 12] [--min-sharpness 40]
- *    [--format normal] [--data data/vision] [--threads 2] [--from 0] [--duration s] [--holdout]
+ *    [--format normal] [--data data/vision] [--threads 2] [--from 0] [--duration s] [--holdout] [--allow-partial]
  *  Writes (git-ignored) crops/*.jpg, labels.jsonl, hard.jsonl, summary.json and, with --holdout, a HOLDOUT file. No network, no upload, no training, no index change.
  *  Use it only on recordings of people who agreed (the allowlisted test users, REMOTE_RECORD_USERS). A saved fixed test set must stay out of training and tuning: harvest it with --holdout.
  *
+ *  Event list: it must be COMPLETE (seqs exactly 1..lastSeq; GET /api/remote/<slug> alone returns only the last 50, so save the list with export-room-events.ts). An incomplete list is refused
+ *  unless --allow-partial, which then writes only corrections with a second source and hard crops. When unsure the tool writes NO label: a wrong label is worse than a missing one.
+ *  Who did it: an action is "auto" when source is auto or cam.by is camera, "player" when source is click/voice/typed, cam.by is player or cam.ui is set, else "unknown" (a source-less action is never taken
+ *  as a person; undo too, because the watcher sends undo itself). Unknown names block agreed labels and not-a-card.
+ *  Dropped (no record, counted in the summary gaps): a card with an attach, detach, merge, control change, equip, pile lift or summon material; an undone identify, move or remove; a move with no known place;
+ *  a place in a zone where another card is still open (overlap); several different player names. A place or move in a zone with no slot (hand, pile) stops the empty-zone check from then on.
+ *  Margins: a crop starts 1 s after the card was placed and stops 1 s + half the round trip + 1.5 s before the end event (the server time of an end event is only known to about that much).
  *  Label kinds, most trusted first:
- *   correction  a player named the card (click, typed, voice) after the watcher read it wrong or not at all: the crops BEFORE the rename carry the corrected name (`previous` = the old name).
- *               Kept only when a second source agrees (the reader's top 5 holds the corrected card, or a later automatic event names it); else written as `hard` with label null.
- *               A track the watcher placed and a player removed or undid within 30 s, never named by a player, and not a sure read, gives a `not-a-card` negative.
- *   agreed      an automatic read (sure, not a best guess) that stayed on the board at least --agree-seconds and was never renamed, removed or undone by a player.
+ *   correction  a player named the card (click, typed, voice) after the watcher read it wrong or not at all: the crops BEFORE the rename (on every span of the card, also after a move) carry the corrected name
+ *               (`previous` = the old name). Checked per crop: the reader's top 5 holds the corrected card, or a later automatic event names it; else the crop is `hard` with label null and `proposed`.
+ *   not-a-card  only when ALL hold: the watcher placed it, a player removed it (explicit player mark) or undid the place, no player or unknown name, life <= 30 s, the watcher gave no name or a best guess,
+ *               no other card in the zone within 5 s, and NO crop reads sure here. If any crop reads sure the crops are `hard` with label null (a person may have removed a real card).
+ *   agreed      an automatic read (sure, not a best guess) with trusted names (no unknown origin) that ended by removal, move or clip end, and lay at least --agree-seconds after its last name event.
+ *               A crop is labelled only if this reader's top answer is the same card; else it is `hard` with label null.
  *   hard        the watcher did not name the card, or named it as a best guess: label null, with the guesses recorded. Also flagged `hard: true` (and copied to hard.jsonl): any crop the reader here
  *               does not read as sure, or reads as another card, and every correction crop.
- *   empty-zone  sampled, capped crops of mat zones the events say are empty. Switched off when the event list is incomplete.
+ *   empty-zone  sampled, capped crops of mat zones the events say are empty (5 s slack plus jitter). A crop is dropped if any outline, even partial, covered or face-down, is found in the zone or the cell.
+ *               Off when the event list is incomplete.
+ *  Newer optional fields (cam.by, cam.ui, cam on player actions, sidecar clockSamples with rtt, a live calibration in the sidecar) are read when present; the app is not changed here.
  *  Safeguards: at most --max-crops crops per card per match, spread over the time it lay there; blurred crops are skipped (Laplacian variance of the crop below --min-sharpness);
- *  a player action that contradicts an automatic one always wins; when the events lack what is needed to tie a correction to the earlier card, the summary says exactly what is missing. */
+ *  when the events lack what is needed to tie a correction to the earlier card, the summary says exactly what is missing. */
 import { mkdir, readFile, rm, writeFile, access } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
@@ -23,7 +34,7 @@ import { warpQuadMasked } from '../../packages/vision/src/truncation';
 import type { RGBAImage } from '../../packages/vision/src/pixels';
 import type { DetectedQuad, RecognitionResult } from '../../packages/vision/src/types';
 import { defaultDataDir, jpegDecoder } from './clip-node';
-import { buildTimeline, frameSize, loadCalibration, occupiedAt, parseLiveActions, readSidecar, round, SINGLE_ZONES, withFrames, type NameChange, type TwinSpan } from './recording-lib';
+import { buildTimeline, frameSize, type EventListInfo, loadCalibration, occupiedAt, parseLiveActions, readSidecar, round, sidecarCalibration, SINGLE_ZONES, withFrames, type NameChange, type TwinSpan } from './recording-lib';
 import { loadRecognizer, normName, resolveRecognizerSpec, type LoadedRecognizer } from './recognizer-switch';
 
 export type LabelKind = 'correction' | 'agreed' | 'hard' | 'empty-zone';
@@ -35,12 +46,14 @@ export interface LabelRecord {
 export interface HarvestOptions {
   video: string; events: unknown; recognizer: LoadedRecognizer; calibration?: FieldCalibration; format?: FieldFormat; room?: string; out: string;
   fps?: number; agreeSeconds?: number; maxCrops?: number; emptyCap?: number; minSharpness?: number; holdout?: boolean; from?: number; duration?: number;
+  /** Go on with an incomplete event list (see EventListInfo): only corrections with a second source and hard crops are written. */ allowPartial?: boolean;
   /** Tests: a fake frame detector and reader. */ keepFrames?: string;
 }
 export interface HarvestSummary {
   schema: 'recording-harvest/1'; room: string; recording: string; seat?: number; recognizer: string; holdout: boolean;
-  params: { fps: number; agreeSeconds: number; maxCrops: number; emptyCap: number; minSharpness: number; format: string; calibration: 'file' | 'whole-frame' };
+  params: { fps: number; agreeSeconds: number; maxCrops: number; emptyCap: number; minSharpness: number; format: string; calibration: 'file' | 'sidecar' | 'whole-frame' };
   counts: { total: number; byKind: Record<string, number>; hard: number; byCard: Record<string, number>; notACard: number };
+  /** The saved event list: complete only when its seqs are exactly 1..room.lastSeq. */ eventList: EventListInfo & { allowPartial: boolean };
   skipped: Record<string, number>; /** What the events lacked, and what was assumed. */ gaps: string[];
 }
 
@@ -60,13 +73,17 @@ export const spread = (n: number, count: number) => n <= count ? Array.from({ le
 const CARD_W = 295, CARD_H = 430;
 const quadPx = (q: { x: number; y: number }[], w: number, h: number) => q.map(p => ({ x: p.x * w, y: p.y * h }));
 const sameCard = (label: { cardId?: number; name?: string }, idx: string | undefined, nameOf: (id?: string) => string) => !!idx && ((label.cardId !== undefined && String(label.cardId) === idx) || (!!label.name && normName(label.name) === normName(nameOf(idx))));
+const centreOf = (q: { x: number; y: number }[]) => ({ x: q.reduce((t, p) => t + p.x, 0) / q.length, y: q.reduce((t, p) => t + p.y, 0) / q.length });
+/** Is the point inside the convex quad (any winding)? */
+const inQuad = (p: { x: number; y: number }, q: { x: number; y: number }[]) => { let pos = 0, neg = 0; for (let k = 0; k < q.length; k++) { const a = q[k], b = q[(k + 1) % q.length], c = (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x); if (c > 0) pos++; else if (c < 0) neg++; } return !(pos && neg); };
 const labelOf = (c?: NameChange) => c ? { cardId: c.cardId, name: c.name } : {};
 
 export async function harvestLabels(o: HarvestOptions): Promise<{ records: LabelRecord[]; summary: HarvestSummary }> {
   const fps = o.fps ?? 2, agreeS = o.agreeSeconds ?? 20, maxCrops = o.maxCrops ?? 8, emptyCap = o.emptyCap ?? 12, minSharp = o.minSharpness ?? 40, from = o.from ?? 0, format = o.format ?? 'normal';
-  const video = resolve(o.video), sidecar = await readSidecar(video), room = o.room ?? sidecar.tableSlug ?? 'room', calibration = o.calibration ?? createFieldCalibration([{ x: .04, y: .04 }, { x: .96, y: .04 }, { x: .96, y: .96 }, { x: .04, y: .96 }]);
+  const video = resolve(o.video), sidecar = await readSidecar(video), room = o.room ?? sidecar.tableSlug ?? 'room', sidecarCal = o.calibration ? undefined : sidecarCalibration(sidecar), calibration = o.calibration ?? sidecarCal ?? createFieldCalibration([{ x: .04, y: .04 }, { x: .96, y: .04 }, { x: .96, y: .96 }, { x: .04, y: .96 }]);
   const parse = parseLiveActions(o.events, sidecar), gaps = [...parse.gaps], skipped: Record<string, number> = {}, skip = (k: string) => { skipped[k] = (skipped[k] ?? 0) + 1; };
   const nameOf = (id?: string) => o.recognizer.nameOf(id), records: LabelRecord[] = [];
+  if (!parse.list.complete && !o.allowPartial) throw new Error(`${parse.list.reason} Save the whole list (scripts/vision/export-room-events.ts, or GET /api/remote/<slug>?afterSeq=0 in pages) right after the match, or pass --allow-partial to harvest only corrections and hard crops.`);
   if (sidecar.seat === undefined) gaps.push('The sidecar has no seat: all seats in the events are used, so a card of another seat could be matched to a zone of this camera.');
   await rm(join(o.out, 'crops'), { recursive: true, force: true }); await mkdir(join(o.out, 'crops'), { recursive: true });
   const decode = await jpegDecoder();
@@ -103,62 +120,79 @@ export async function harvestLabels(o: HarvestOptions): Promise<{ records: Label
     const top1 = (r?: RecognitionResult) => { const c = r?.candidates ?? []; return c[0] ? { cardId: c[0].cardId, name: nameOf(c[0].cardId), score: round(c[0].score, 4), margin: round(c[0].score - (c[1]?.score ?? 0), 4) } : undefined; };
     const recInfo = (r?: RecognitionResult) => ({ name: o.recognizer.name, top1: top1(r), tier: r?.tier });
     const push = (r: Omit<LabelRecord, 'room' | 'recognizer'> & { recognizer?: LabelRecord['recognizer'] }) => records.push({ room, recognizer: null, ...r } as LabelRecord);
-    const marginMs = 1000, jitterMs = (sidecar.client?.rttMs ?? 0) / 2 + 1500;
+    const marginMs = 1000, jitterMs = (sidecar.client?.rttMs ?? 0) / 2 + 1500, endMs = marginMs + jitterMs, nearMs = 5000, partial = !parse.list.complete;
+    const named = (n: NameChange) => n.cardId !== undefined || !!n.name, nameKey = (n: { cardId?: number; name?: string }) => n.cardId !== undefined ? String(n.cardId) : normName(n.name ?? '');
+    const sameName = (x: NameChange, y: NameChange) => (x.cardId !== undefined && x.cardId === y.cardId) || (!!x.name && !!y.name && normName(x.name) === normName(y.name));
+    const dropped = new Map<string, number>();
 
     for (const span of tl.spans) {
       if (!SINGLE_ZONES.has(span.zone)) continue;
-      const players = span.names.filter(n => n.origin === 'player'), autos = span.names.filter(n => n.origin === 'auto');
-      const lastPlayer = players[players.length - 1], lastAuto = autos[autos.length - 1], beforePlayer = lastPlayer ? [...span.names].filter(n => n.t < lastPlayer.t).pop() : undefined;
-      const lifeS = (span.to - span.from) / 1000;
-      const window = (a: number, b: number): [number, number] => [a + marginMs, b - marginMs];
-      if (new Set(players.map(p => String(p.cardId ?? normName(p.name ?? '')))).size > 1) { skip('severalPlayerNames'); continue; }
+      const why = tl.tainted.get(span.ref); if (why) { skip('refUnclear'); dropped.set(why, (dropped.get(why) ?? 0) + 1); continue; }
+      if (span.overlap) { skip('zoneOverlap'); continue; }
+      // every identity event of the card over ALL its spans (a rename after a move counts)
+      const names = span.names.filter(named), players = names.filter(n => n.origin === 'player'), autos = names.filter(n => n.origin === 'auto'), trusted = !names.some(n => n.origin === 'unknown');
+      const lastPlayer = players[players.length - 1], live = names.filter(n => n.t <= span.to).pop(), lifeS = (span.to - span.from) / 1000;
+      const winEnd = span.end === 'clip-end' ? span.to : span.to - endMs, winStart = span.from + marginMs;
+      if (new Set(players.map(nameKey)).size > 1) { skip('severalPlayerNames'); continue; }
 
-      if (lastPlayer && (lastPlayer.cardId !== undefined || lastPlayer.name)) {
+      if (lastPlayer) {
         // correction: a player named the card; was the earlier name different?
-        const changed = !beforePlayer || !(sameCard(labelOf(lastPlayer), beforePlayer.cardId !== undefined ? String(beforePlayer.cardId) : undefined, nameOf) || (!!beforePlayer.name && !!lastPlayer.name && normName(beforePlayer.name) === normName(lastPlayer.name)));
+        const beforePlayer = names.filter(n => n.t < lastPlayer.t).pop(), changed = !beforePlayer || !sameName(beforePlayer, lastPlayer);
         if (changed) {
-          const [a, b] = window(span.from, lastPlayer.t - jitterMs);
-          const cs = await crops(span.zone, a, b, maxCrops); if (!cs.length) { skip('correctionNoCrops'); gaps.push(`Correction at ${round(lastPlayer.t / 1000, 1)} s in ${span.zone}: no usable crop before it (the card lay there ${round((lastPlayer.t - span.from) / 1000, 1)} s, or the frames were blurred).`); continue; }
-          const reads = await Promise.all(cs.map(read)), name = lastPlayer.name ?? nameOf(String(lastPlayer.cardId));
-          const secondSource = reads.some(r => (r?.candidates ?? []).slice(0, 5).some(c => sameCard(labelOf(lastPlayer), c.cardId, nameOf))) || autos.some(n => n.t > lastPlayer.t && sameCard(labelOf(lastPlayer), n.cardId !== undefined ? String(n.cardId) : undefined, nameOf) || (n.t > lastPlayer.t && !!n.name && normName(n.name) === normName(name)));
+          if (span.from >= lastPlayer.t - endMs) { skip('afterPlayerName'); continue; }
+          const cs = await crops(span.zone, winStart, Math.min(winEnd, lastPlayer.t - endMs), maxCrops);
+          if (!cs.length) { skip('correctionNoCrops'); gaps.push(`Correction at ${round(lastPlayer.t / 1000, 1)} s in ${span.zone}: no usable crop before it (the card lay there ${round((lastPlayer.t - span.from) / 1000, 1)} s, or the frames were blurred).`); continue; }
+          const reads = await Promise.all(cs.map(read)), name = lastPlayer.name ?? nameOf(String(lastPlayer.cardId)), later = autos.some(n => n.t > lastPlayer.t && sameName(n, lastPlayer));
+          let unconfirmed = 0;
           for (let k = 0; k < cs.length; k++) {
-            const rel = await save(cs[k], secondSource ? 'correction' : 'hard', span.zone, span.ref);
-            push({ clipTimeS: round(cs[k].tS, 2), zone: span.zone, seat: span.seat, label: secondSource ? name : null, cardId: secondSource ? lastPlayer.cardId ?? null : null, labelKind: secondSource ? 'correction' : 'hard',
-              source: secondSource ? 'player-rename' : 'player-rename-unconfirmed', previous: beforePlayer ? beforePlayer.name ?? String(beforePlayer.cardId) : null, ...(secondSource ? {} : { proposed: name }), ref: span.ref, recognizer: recInfo(reads[k]), sharpness: round(cs[k].sharp, 1), crop: rel, hard: true });
+            // second source, per crop: this reader's top 5 holds the corrected card, or the watcher itself later named it
+            const second = later || (reads[k]?.candidates ?? []).slice(0, 5).some(c => sameCard(labelOf(lastPlayer), c.cardId, nameOf)); if (!second) unconfirmed++;
+            const rel = await save(cs[k], second ? 'correction' : 'hard', span.zone, span.ref);
+            push({ clipTimeS: round(cs[k].tS, 2), zone: span.zone, seat: span.seat, label: second ? name : null, cardId: second ? lastPlayer.cardId ?? null : null, labelKind: second ? 'correction' : 'hard',
+              source: second ? 'player-rename' : 'player-rename-unconfirmed', previous: beforePlayer ? beforePlayer.name ?? String(beforePlayer.cardId) : null, ...(second ? {} : { proposed: name }), ref: span.ref, recognizer: recInfo(reads[k]), sharpness: round(cs[k].sharp, 1), crop: rel, hard: true });
           }
-          if (!secondSource) skip('correctionUnconfirmed');
+          if (unconfirmed) skip('correctionUnconfirmed');
           continue;
         }
       }
       if (!span.placedAuto) { skip('placedByPlayer'); continue; }
 
-      if ((span.end === 'removed-player' || span.end === 'undone-player') && !lastPlayer) {
-        // phantom candidate: removed by a person soon after the watcher placed it
+      if (span.end === 'removed-player' || span.end === 'undone-player') {
+        // phantom candidate: the watcher placed it and a person (explicitly marked as one) took it away soon after. Writes not-a-card only when every sign agrees; else no label.
+        if (partial) { skip('phantomPartialList'); continue; }
+        if (lastPlayer || !trusted) { skip('playerRemoved'); continue; }
         if (lifeS > 30) { skip('playerRemovedLate'); continue; }
-        const [a, b] = window(span.from, span.to), cs = await crops(span.zone, a, b, maxCrops); if (!cs.length) { skip('phantomNoCrops'); continue; }
-        const reads = await Promise.all(cs.map(read)), sure = reads.filter(r => r?.tier === 'sure').length;
-        if (lastAuto && !lastAuto.bestMatch && sure * 2 > cs.length) { skip('removalAmbiguous'); continue; }
+        if (live && !live.bestMatch) { skip('removalOfNamedCard'); continue; }
+        if (tl.spans.some(o => o !== span && o.zone === span.zone && o.from <= span.to + nearMs && o.to >= span.from - nearMs)) { skip('zoneBusy'); continue; }
+        const cs = await crops(span.zone, winStart, winEnd, maxCrops); if (!cs.length) { skip('phantomNoCrops'); continue; }
+        const reads = await Promise.all(cs.map(read)), anySure = reads.some(r => !r || r.tier === 'sure');
+        // not-a-card only when NO crop reads sure: a real card that the watcher could not name is read sure by this reader, and then the person removed it for another reason
+        const kind: LabelKind = anySure ? 'hard' : 'correction';
         for (let k = 0; k < cs.length; k++) {
-          const rel = await save(cs[k], 'correction', span.zone, span.ref);
-          push({ clipTimeS: round(cs[k].tS, 2), zone: span.zone, seat: span.seat, label: 'not-a-card', cardId: null, labelKind: 'correction', source: span.end === 'undone-player' ? 'player-undo-of-auto-place' : 'player-removed-auto-place', previous: lastAuto?.name ?? null, ref: span.ref, recognizer: recInfo(reads[k]), sharpness: round(cs[k].sharp, 1), crop: rel, hard: true });
+          const rel = await save(cs[k], kind, span.zone, span.ref);
+          push({ clipTimeS: round(cs[k].tS, 2), zone: span.zone, seat: span.seat, label: anySure ? null : 'not-a-card', cardId: null, labelKind: kind, source: anySure ? 'removed-by-player-but-reader-sure' : span.end === 'undone-player' ? 'player-undo-of-auto-place' : 'player-removed-auto-place',
+            previous: live?.name ?? null, ref: span.ref, recognizer: recInfo(reads[k]), sharpness: round(cs[k].sharp, 1), crop: rel, hard: true });
         }
         continue;
       }
-      if (span.end === 'removed-player' || span.end === 'undone-player') { skip('playerRemoved'); continue; }
+      if (span.end !== 'removed-auto' && span.end !== 'moved' && span.end !== 'clip-end') { skip('endUnclear'); continue; }
 
-      const live = lastAuto ?? undefined, confident = !!live && (live.cardId !== undefined || !!live.name) && !live.bestMatch;
-      if (confident) {
-        if (lifeS < agreeS) { skip('agreedTooShort'); continue; }
-        const [a, b] = window(span.from, span.to), cs = await crops(span.zone, a, b, maxCrops); if (!cs.length) { skip('agreedNoCrops'); continue; }
+      const confident = !!live && !live.bestMatch && trusted && !!(live.cardId !== undefined || live.name);
+      if (confident && !partial) {
+        // agreed: only the time AFTER the last identity event, and only when the reader here does not read another card
+        const a = Math.max(winStart, live!.t + endMs);
+        if (winEnd - a < agreeS * 1000) { skip('agreedTooShort'); continue; }
+        const cs = await crops(span.zone, a, winEnd, maxCrops); if (!cs.length) { skip('agreedNoCrops'); continue; }
         const reads = await Promise.all(cs.map(read)), name = live!.name ?? nameOf(String(live!.cardId));
         for (let k = 0; k < cs.length; k++) {
-          const t1 = top1(reads[k]), agrees = !!t1 && sameCard(labelOf(live), t1.cardId, nameOf), hard = !agrees || reads[k]?.tier !== 'sure';
-          const rel = await save(cs[k], 'agreed', span.zone, span.ref);
-          push({ clipTimeS: round(cs[k].tS, 2), zone: span.zone, seat: span.seat, label: name, cardId: live!.cardId ?? null, labelKind: 'agreed', source: lastPlayer ? 'auto-name-confirmed-by-player' : 'auto-name', ref: span.ref, recognizer: recInfo(reads[k]), sharpness: round(cs[k].sharp, 1), crop: rel, hard });
+          const t1 = top1(reads[k]), agrees = !!t1 && sameCard(labelOf(live), t1.cardId, nameOf), trust = agrees;
+          const rel = await save(cs[k], trust ? 'agreed' : 'hard', span.zone, span.ref);
+          push({ clipTimeS: round(cs[k].tS, 2), zone: span.zone, seat: span.seat, label: trust ? name : null, cardId: trust ? live!.cardId ?? null : null, labelKind: trust ? 'agreed' : 'hard',
+            source: trust ? (live!.origin === 'player' ? 'auto-name-confirmed-by-player' : 'auto-name') : 'auto-name-reader-disagrees', ...(trust ? {} : { proposed: name }), ref: span.ref, recognizer: recInfo(reads[k]), sharpness: round(cs[k].sharp, 1), crop: rel, hard: !trust || reads[k]?.tier !== 'sure' });
         }
       } else {
         // not named, or only a best guess: a hard example with no trusted label
-        const [a, b] = window(span.from, span.to), cs = await crops(span.zone, a, b, maxCrops); if (!cs.length) { skip('hardNoCrops'); continue; }
+        const cs = await crops(span.zone, winStart, winEnd, maxCrops); if (!cs.length) { skip('hardNoCrops'); continue; }
         const reads = await Promise.all(cs.map(read));
         for (let k = 0; k < cs.length; k++) {
           const rel = await save(cs[k], 'hard', span.zone, span.ref);
@@ -166,6 +200,8 @@ export async function harvestLabels(o: HarvestOptions): Promise<{ records: Label
         }
       }
     }
+    for (const [why, n] of dropped) gaps.push(`${n} span${n > 1 ? 's' : ''} dropped: the events touch the card in a way this tool does not follow (${why}); none of its crops are labelled.`);
+    if (partial) gaps.push('Partial event list (--allow-partial): only corrections with a second source and hard crops were written; no agreed label, no not-a-card, no empty-zone crop.');
 
     // empty zones
     if (tl.knownFrom === Infinity) gaps.push('Empty-zone crops are off: the event list holds no twin or identify events for this seat, so no zone can be proven empty.');
@@ -174,9 +210,9 @@ export async function harvestLabels(o: HarvestOptions): Promise<{ records: Label
     else {
       const cells = fieldZoneCells(format, calibration.zoneSpacing, calibration.zones).filter(c => SINGLE_ZONES.has(c.zone) && (!c.zone.startsWith('EMZ') || hasExtraMonsterZones(format)));
       // per zone, frames spread over the time it is empty; then all zones together, spread over time again, so the cap covers many zones and the whole clip
-      const cand: { zone: string; i: number }[] = [], perZone = Math.max(1, Math.ceil(emptyCap * 2 / cells.length));
+      const emptySlack = 5000 + jitterMs, cand: { zone: string; i: number }[] = [], perZone = Math.max(1, Math.ceil(emptyCap * 2 / cells.length));
       for (const c of cells) {
-        const free: number[] = []; for (let i = 0; i < names.length; i++) { const t = (from + i / fps) * 1000; if (t > tl.knownFrom + marginMs && t < spanMs - marginMs && !occupiedAt(tl, c.zone, t, 2500)) free.push(i); }
+        const free: number[] = []; for (let i = 0; i < names.length; i++) { const t = (from + i / fps) * 1000; if (t > tl.knownFrom + marginMs && t < spanMs - marginMs && !occupiedAt(tl, c.zone, t, emptySlack)) free.push(i); }
         for (const k of spread(free.length, perZone)) cand.push({ zone: c.zone, i: free[k] });
       }
       cand.sort((x, y) => x.i - y.i || x.zone.localeCompare(y.zone));
@@ -186,6 +222,8 @@ export async function harvestLabels(o: HarvestOptions): Promise<{ records: Label
         const { zone, i } = cand[k], cell = cells.find(c => c.zone === zone)!, img = await image(i);
         const quad = [{ x: cell.x, y: cell.y }, { x: cell.x + cell.w, y: cell.y }, { x: cell.x + cell.w, y: cell.y + cell.h }, { x: cell.x, y: cell.y + cell.h }].map(p => fieldMatPoint(p, calibration));
         if (quad.some(p => !Number.isFinite(p.x) || p.x < -.05 || p.x > 1.05 || p.y < -.05 || p.y > 1.05)) { skip('emptyOffFrame'); continue; }
+        // pixel check: any outline (also partial, covered or face-down) on this cell, or a detection mapped to this zone, means a card may lie there: drop the crop
+        if ((await detect(i)).some(d => mapFieldZone(d, calibration, [], format).zone === zone || inQuad(centreOf(d.quad), quad) || inQuad(centreOf(quad), d.quad))) { skip('emptyZoneHasOutline'); continue; }
         const warp = warpQuadMasked(img, quadPx(quad, img.width, img.height) as never, CARD_W, CARD_H); if (!warp) { skip('noWarp'); continue; }
         const c: Crop = { i, tS: from + i / fps, img: rgba(warp.image), sharp: sharpnessOf(warp.image) }, rel = await save(c, 'empty-zone', zone, 'empty');
         push({ clipTimeS: round(c.tS, 2), zone, seat: sidecar.seat, label: 'empty', cardId: null, labelKind: 'empty-zone', source: 'events-say-empty', recognizer: null, sharpness: round(c.sharp, 1), crop: rel, hard: false }); kept++;
@@ -198,7 +236,7 @@ export async function harvestLabels(o: HarvestOptions): Promise<{ records: Label
   for (const r of records) { byKind[r.labelKind] = (byKind[r.labelKind] ?? 0) + 1; if (r.label && r.label !== 'empty') byCard[r.label] = (byCard[r.label] ?? 0) + 1; }
   const summary: HarvestSummary = { schema: 'recording-harvest/1', room, recording: video.split('/').pop()!, seat: sidecar.seat, recognizer: o.recognizer.name, holdout: !!o.holdout,
     params: { fps, agreeSeconds: agreeS, maxCrops, emptyCap, minSharpness: minSharp, format, calibration: o.calibration ? 'file' : 'whole-frame' },
-    counts: { total: records.length, byKind, hard: records.filter(r => r.hard).length, byCard, notACard: records.filter(r => r.label === 'not-a-card').length }, skipped, gaps: [...new Set(gaps)] };
+    counts: { total: records.length, byKind, hard: records.filter(r => r.hard).length, byCard, notACard: records.filter(r => r.label === 'not-a-card').length }, eventList: { ...parse.list, allowPartial: !!o.allowPartial }, skipped, gaps: [...new Set(gaps)] };
   await mkdir(o.out, { recursive: true });
   await writeFile(join(o.out, 'labels.jsonl'), records.map(r => JSON.stringify(r)).join('\n') + (records.length ? '\n' : ''));
   await writeFile(join(o.out, 'hard.jsonl'), records.filter(r => r.hard).map(r => JSON.stringify(r)).join('\n') + (records.some(r => r.hard) ? '\n' : ''));
@@ -211,10 +249,10 @@ if (process.argv[1]?.endsWith('harvest-labels.ts')) {
   const { positionals, values } = parseArgs({ allowPositionals: true, options: {
     events: { type: 'string' }, calibration: { type: 'string' }, recognizer: { type: 'string' }, out: { type: 'string' }, room: { type: 'string' }, fps: { type: 'string' }, 'agree-seconds': { type: 'string' },
     'max-crops': { type: 'string' }, 'empty-cap': { type: 'string' }, 'min-sharpness': { type: 'string' }, format: { type: 'string' }, data: { type: 'string' }, threads: { type: 'string' },
-    from: { type: 'string' }, duration: { type: 'string' }, holdout: { type: 'boolean' }, 'keep-frames': { type: 'string' },
+    from: { type: 'string' }, duration: { type: 'string' }, holdout: { type: 'boolean' }, 'allow-partial': { type: 'boolean' }, 'keep-frames': { type: 'string' },
   } });
   const file = positionals[0];
-  if (!file || !values.events) { console.error('Usage: harvest-labels.ts <recording.webm|mp4> --events room.json [--calibration cal.json] [--recognizer current|name|spec.json] [--out dir] [--fps 2] [--agree-seconds 20] [--max-crops 8] [--holdout]'); process.exit(2); }
+  if (!file || !values.events) { console.error('Usage: harvest-labels.ts <recording.webm|mp4> --events room.json [--calibration cal.json] [--recognizer current|name|spec.json] [--out dir] [--fps 2] [--agree-seconds 20] [--max-crops 8] [--holdout] [--allow-partial]'); process.exit(2); }
   const data = values.data ?? defaultDataDir();
   let loaded: LoadedRecognizer;
   try { loaded = await loadRecognizer(await resolveRecognizerSpec(values.recognizer, data), Number(values.threads ?? 2), data); } catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exit(2); }
@@ -223,7 +261,7 @@ if (process.argv[1]?.endsWith('harvest-labels.ts')) {
     const { summary } = await harvestLabels({ video: file, events: JSON.parse(await readFile(values.events, 'utf8')) as unknown, recognizer: loaded, calibration: values.calibration ? await loadCalibration(values.calibration) : undefined,
       format: (values.format ?? 'normal') as FieldFormat, room, out: resolve(values.out ?? join(root, 'data/vision-harvest', room)), fps: values.fps ? Number(values.fps) : undefined, agreeSeconds: values['agree-seconds'] ? Number(values['agree-seconds']) : undefined,
       maxCrops: values['max-crops'] ? Number(values['max-crops']) : undefined, emptyCap: values['empty-cap'] ? Number(values['empty-cap']) : undefined, minSharpness: values['min-sharpness'] ? Number(values['min-sharpness']) : undefined,
-      holdout: values.holdout, from: values.from ? Number(values.from) : undefined, duration: values.duration ? Number(values.duration) : undefined, keepFrames: values['keep-frames'] });
+      holdout: values.holdout, allowPartial: values['allow-partial'], from: values.from ? Number(values.from) : undefined, duration: values.duration ? Number(values.duration) : undefined, keepFrames: values['keep-frames'] });
     console.log(`Harvest ${summary.room}: ${summary.counts.total} crops (${Object.entries(summary.counts.byKind).map(([k, n]) => `${k} ${n}`).join(', ') || 'none'}), ${summary.counts.hard} hard${summary.holdout ? ', HOLDOUT' : ''}`);
     if (Object.keys(summary.skipped).length) console.log(`Skipped: ${Object.entries(summary.skipped).map(([k, n]) => `${k} ${n}`).join(', ')}`);
     for (const g of summary.gaps) console.log(`Gap: ${g}`);
