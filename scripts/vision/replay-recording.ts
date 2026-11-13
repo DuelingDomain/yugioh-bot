@@ -5,7 +5,7 @@
  *  (scripts/vision/prepare.ts and build-index.ts); no model is downloaded.
  *  --recognizer: `current` (default) is the app's own reader. Another reader is a spec file (or <data>/recognizers/<name>.json) that points at its model, index or bank and says
  *  its input size, embedding and normalisation; see recognizer-switch.ts. Other readers are for offline comparison only.
- *  --events: the room JSON saved from GET /api/remote/<slug> (an object with `events`, or the event array; that route returns only the last 50 events, so save it soon after the test). The recorded watcher events carry
+ *  --events: the room JSON saved from GET /api/remote/<slug> (an object with `events`, or the event array; that route returns only the last 50 events by default, so save the complete list with export-room-events.ts; the summary says when the list is not complete). The recorded watcher events carry
  *  a camera stamp (cam.seenAt/namedAt, client clock `performance.timeOrigin + performance.now()`); with the sidecar's video start they become video time, and the table below shows the
  *  live times next to this replay's times. With events the summary also lists phantom reads (reads on zones the events say were empty). --calibration: a FieldCalibration JSON (the saved clip session.json has one in `calibration`);
  *  without it the whole frame counts as the mat, so zones are only roughly right but detect and name times still hold.
@@ -49,7 +49,7 @@ if (import.meta.url === `file://${process.argv[1]}` || process.argv[1]?.endsWith
   try {
     const events = values.events ? JSON.parse(await readFile(values.events, 'utf8')) as unknown : undefined;
     const summary = await runRecording({ video: file, recognizer: loaded, fps: Number(values.fps ?? 10), from: Number(values.from ?? 0), duration: values.duration ? Number(values.duration) : undefined,
-      calibration: await loadCalibration(values.calibration), calibrationFromFile: !!values.calibration, format: (values.format ?? 'normal') as FieldFormat, events, readScale: Number(values['read-scale'] ?? 1), keepFrames: values['keep-frames'] });
+      calibration: values.calibration ? await loadCalibration(values.calibration) : undefined, calibrationFromFile: !!values.calibration, format: (values.format ?? 'normal') as FieldFormat, events, readScale: Number(values['read-scale'] ?? 1), keepFrames: values['keep-frames'] });
     printRun(summary);
     if (values.json) await writeFile(values.json, JSON.stringify(summary, null, 1));
   } finally { await loaded.release(); }

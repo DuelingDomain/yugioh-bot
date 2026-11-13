@@ -22,6 +22,8 @@ export const sidecarPath = (video: string) => video.slice(0, -extname(video).len
 export const readSidecar = async (video: string) => JSON.parse(await readFile(sidecarPath(video), 'utf8')) as Sidecar;
 export const round = (n: number, digits = 2) => Math.round(n * 10 ** digits) / 10 ** digits;
 export const wholeFrameCalibration = () => createFieldCalibration([{ x: .04, y: .04 }, { x: .96, y: .04 }, { x: .96, y: .96 }, { x: .04, y: .96 }]);
+/** Newer recordings may carry the calibration the player used live (`calibration` in the sidecar: a FieldCalibration). It beats the whole-frame guess; a --calibration file beats it. */
+export const sidecarCalibration = (sidecar: Sidecar): FieldCalibration | undefined => { const c = (sidecar as { calibration?: FieldCalibration }).calibration; return c && Array.isArray(c.corners) ? c : undefined; };
 export const loadCalibration = async (file?: string): Promise<FieldCalibration> => {
   if (!file) return wholeFrameCalibration();
   const parsed = JSON.parse(await readFile(file, 'utf8')) as FieldCalibration | { calibration?: FieldCalibration };
@@ -37,49 +39,93 @@ export function videoOrigin(sidecar: Sidecar): number | undefined {
 // ---- room events -> video time -------------------------------------------------------------------------------------------------------------------
 
 export type TimeBasis = 'cam' | 'server-offset' | 'server-start';
+/** Who did it. 'auto' = the field watcher (source 'auto', or cam.by 'camera'). 'player' = a person said so (source click/voice/typed, or cam.by 'player', or a cam.ui). 'unknown' = nothing in the event says:
+ *  a button in the table UI and the watcher's own recovery send the same source-less action, so such an action is never counted as a person's. */
+export type Origin = 'auto' | 'player' | 'unknown';
 export interface LiveAction {
   /** Index in the saved list (after sorting by seq). */ n: number; seq?: number; key?: string; seat?: number; type: string;
   /** Best video time (ms from video start): the camera `sentAt` stamp, else the server `at` mapped with the sidecar clock offset, else `at` minus the server start of the recording (rough). */ t: number; basis: TimeBasis;
-  seenT?: number; namedT?: number; sentT?: number;
-  /** 'auto' = the field watcher sent it; 'player' = a person did (click, voice, typed, drawer, tray). */ origin: 'auto' | 'player'; rawSource?: string;
-  zone?: string; slot?: number; ref?: string; cardId?: number; name?: string; bestMatch?: boolean; faceUp?: boolean; targetKey?: string;
+  seenT?: number; namedT?: number; sentT?: number; origin: Origin; rawSource?: string; ui?: string;
+  zone?: string; slot?: number; ref?: string; /** Every card ref the action touches (card, materials, merge pair, equip target, pile cards). */ refs: string[]; cardId?: number; name?: string; bestMatch?: boolean; faceUp?: boolean; targetKey?: string;
+  /** Set when the action carries instance ids and no refs (a merge by instance id): it touches cards that cannot be named. */ unnamedTargets?: boolean;
 }
-export interface LiveParse { actions: LiveAction[]; gaps: string[]; truncated: boolean; origin?: number }
+/** What the saved event list covers. A list is complete only when its seqs are exactly 1..lastSeq with no hole; GET /api/remote/<slug> alone returns the last 50, so it is rarely complete. */
+export interface EventListInfo { complete: boolean; count: number; firstSeq?: number; lastSeq?: number; roomLastSeq?: number; holes: number; reason?: string }
+export interface LiveParse { actions: LiveAction[]; gaps: string[]; /** True when the list is not complete (see `list`). */ truncated: boolean; origin?: number; list: EventListInfo }
 
-/** `raw` = the object saved from GET /api/remote/<slug> (it has `events`) or the event array. Only twin / identify / undo actions are kept. */
+type Raw = { seq?: number; at?: number; action?: Record<string, unknown> };
+const listOf = (raw: unknown) => (Array.isArray(raw) ? raw : (raw as { events?: unknown[] } | null)?.events ?? []) as Raw[];
+/** Checks the saved list against the room: exactly the seqs 1..lastSeq (`lastSeq` of the saved room object), no hole. */
+export function checkEventList(raw: unknown): EventListInfo {
+  const seqs = listOf(raw).map(e => e.seq).filter((s): s is number => typeof s === 'number').sort((a, b) => a - b), roomLastSeq = typeof (raw as { lastSeq?: unknown } | null)?.lastSeq === 'number' ? (raw as { lastSeq: number }).lastSeq : undefined;
+  const info: EventListInfo = { complete: true, count: seqs.length, firstSeq: seqs[0], lastSeq: seqs[seqs.length - 1], roomLastSeq, holes: 0 };
+  let expect = 1; for (const s of seqs) { if (s !== expect) info.holes += Math.max(1, s - expect); expect = s + 1; }
+  const why: string[] = [];
+  if (!seqs.length) why.push('the list is empty');
+  else {
+    if (info.firstSeq! > 1) why.push(`it starts at seq ${info.firstSeq} (GET /api/remote/<slug> returns only the last 50 events)`);
+    if (info.holes) why.push(`${info.holes} seq number${info.holes > 1 ? 's are' : ' is'} missing between ${info.firstSeq} and ${info.lastSeq}`);
+    if (roomLastSeq === undefined) why.push('the file has no room lastSeq, so its end cannot be checked (save the room object, or use export-room-events.ts)');
+    else if (info.lastSeq !== roomLastSeq) why.push(`it ends at seq ${info.lastSeq} but the room reached ${roomLastSeq}`);
+  }
+  if (why.length) { info.complete = false; info.reason = `The event list is not complete: ${why.join('; ')}.`; }
+  return info;
+}
+
+/** The sidecar clock offset nearest to a video time: new files may carry samples per chunk (`clockSamples`: { atMs (video ms), offsetMs, rttMs }); else the single value. */
+const offsetAt = (sidecar: Sidecar, videoMs: number) => {
+  const s = (sidecar as { clockSamples?: { atMs?: number; offsetMs?: number }[] }).clockSamples?.filter(x => typeof x.atMs === 'number' && typeof x.offsetMs === 'number');
+  return s?.length ? s.reduce((best, x) => Math.abs(x.atMs! - videoMs) < Math.abs(best.atMs! - videoMs) ? x : best).offsetMs! : sidecar.client?.clockOffsetMs;
+};
+const str = (v: unknown) => typeof v === 'string' ? v : undefined, num = (v: unknown) => typeof v === 'number' ? v : undefined, strs = (v: unknown) => Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+
+function originOf(a: Record<string, unknown>, cam: { by?: unknown; ui?: unknown } | undefined): Origin {
+  if (cam?.by === 'camera') return 'auto'; if (cam?.by === 'player' || typeof cam?.ui === 'string') return 'player';
+  const source = str(a.source); return source === 'auto' ? 'auto' : source === 'click' || source === 'voice' || source === 'typed' ? 'player' : 'unknown';
+}
+/** The twin / identify / undo / pile actions: they say what lay on the mat. Others (LP, phases, effects) are not kept. */
+const kept = (type: string) => type.startsWith('twin.') || type === 'card.identified' || type === 'cards.identified' || type === 'undo' || type === 'pile.lift';
+
+/** `raw` = the object saved from GET /api/remote/<slug> (it has `events` and `lastSeq`), or the event array. */
 export function parseLiveActions(raw: unknown, sidecar: Sidecar): LiveParse {
-  const list = (Array.isArray(raw) ? raw : (raw as { events?: unknown[] } | null)?.events ?? []) as { seq?: number; at?: number; action?: Record<string, unknown> }[];
-  const gaps: string[] = [], origin = videoOrigin(sidecar), offset = sidecar.client?.clockOffsetMs;
-  const sorted = [...list].sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0) || (a.at ?? 0) - (b.at ?? 0));
-  const minSeq = sorted.find(e => typeof e.seq === 'number')?.seq, truncated = minSeq !== undefined && minSeq > 1;
-  if (truncated) gaps.push(`The event list starts at seq ${minSeq}: earlier events are missing (GET /api/remote/<slug> returns only the last 50). Cards placed before it have no place event, so they cannot be tied to corrections, and empty zones cannot be proven.`);
+  const gaps: string[] = [], origin = videoOrigin(sidecar), list = checkEventList(raw);
+  const sorted = [...listOf(raw)].sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0) || (a.at ?? 0) - (b.at ?? 0));
+  if (!list.complete) gaps.push(list.reason!);
   if (origin === undefined) gaps.push('The sidecar has no recorder start time, so events cannot be put on video time.');
-  else if (offset == null && sidecar.serverStartMs === undefined) gaps.push('The sidecar has no clock offset and no server start: events without a camera stamp cannot get a video time.');
+  else if (sidecar.client?.clockOffsetMs == null && !(sidecar as { clockSamples?: unknown[] }).clockSamples?.length && sidecar.serverStartMs === undefined) gaps.push('The sidecar has no clock offset and no server start: events without a camera stamp cannot get a video time.');
   const toVideo = (clientMs?: number) => clientMs === undefined || origin === undefined ? undefined : clientMs - origin;
   const actions: LiveAction[] = [];
   sorted.forEach((item, n) => {
-    const a = item.action; if (!a || typeof a.type !== 'string') return;
-    const type = a.type; if (!type.startsWith('twin.') && type !== 'card.identified' && type !== 'undo') return;
-    if (typeof item.at !== 'number' || origin === undefined) return;
-    const cam = a.cam as { seenAt?: number; namedAt?: number; sentAt?: number } | undefined;
+    const a = item.action; if (!a || typeof a.type !== 'string' || !kept(a.type)) return;
+    const type = a.type; if (typeof item.at !== 'number' || origin === undefined) return;
+    const cam = a.cam as { seenAt?: number; namedAt?: number; sentAt?: number; by?: unknown; ui?: unknown } | undefined;
     let t: number, basis: TimeBasis;
     if (cam?.sentAt !== undefined) { t = cam.sentAt - origin; basis = 'cam'; }
-    else if (offset != null) { t = toVideo(item.at - offset)!; basis = 'server-offset'; }
+    else if (offsetAt(sidecar, item.at - origin) != null) { const off = offsetAt(sidecar, item.at - origin)!; t = toVideo(item.at - off)!; basis = 'server-offset'; }
     else if (sidecar.serverStartMs !== undefined) { t = item.at - sidecar.serverStartMs; basis = 'server-start'; }
     else return;
     const card = a.card as { ref?: string; cardId?: number; passcode?: number; name?: string; slot?: number; bestMatch?: boolean; faceUp?: boolean } | undefined;
-    const source = typeof a.source === 'string' ? a.source : undefined;
-    // `source: 'auto'` is set by the field watcher on place, move, flip, remove and identify; a person's action has none (or click/voice/typed).
-    const origin2: LiveAction['origin'] = source === 'auto' ? 'auto' : 'player';
+    const summon = (a.summon ?? (type === 'twin.attach' ? a : undefined)) as { materialRefs?: unknown } | undefined, target = a.target as { ref?: unknown } | null | undefined;
+    const base = {
+      n, seq: item.seq, key: str(a.idempotencyKey), seat: num(a.seat) ?? num(a.actorSeat), type, t, basis, seenT: toVideo(cam?.seenAt), namedT: toVideo(cam?.namedAt), sentT: toVideo(cam?.sentAt),
+      origin: originOf(a, cam), rawSource: str(a.source), ui: str(cam?.ui),
+    };
+    // a batch identify is one action with several cards: one entry per card
+    if (type === 'cards.identified') {
+      for (const c of (Array.isArray(a.cards) ? a.cards : []) as Record<string, unknown>[]) {
+        actions.push({ ...base, type: 'card.identified', zone: str(c.zone), slot: num(c.slot), ref: str(c.cardRef), refs: strs([c.cardRef]), cardId: num(c.cardId) ?? num(c.passcode), name: str(c.name), bestMatch: c.bestMatch as boolean | undefined });
+      }
+      return;
+    }
+    const ref = str(card?.ref) ?? str(a.cardRef);
+    const refs = [...new Set([...strs([ref, a.cardRef, a.removeRef, a.keepRef, a.materialRef, target?.ref]), ...strs(summon?.materialRefs), ...strs(a.cardRefs)])];
     actions.push({
-      n, seq: item.seq, key: typeof a.idempotencyKey === 'string' ? a.idempotencyKey : undefined, seat: typeof a.seat === 'number' ? a.seat : typeof a.actorSeat === 'number' ? a.actorSeat : undefined,
-      type, t, basis, seenT: toVideo(cam?.seenAt), namedT: toVideo(cam?.namedAt), sentT: toVideo(cam?.sentAt), origin: origin2, rawSource: source,
-      zone: typeof a.zone === 'string' ? a.zone : undefined, slot: typeof (a.slot ?? card?.slot) === 'number' ? (a.slot ?? card?.slot) as number : undefined,
-      ref: (card?.ref ?? a.cardRef) as string | undefined, cardId: (card?.cardId ?? card?.passcode ?? a.cardId ?? a.passcode) as number | undefined, name: (card?.name ?? a.name) as string | undefined,
-      bestMatch: (card?.bestMatch ?? a.bestMatch) as boolean | undefined, faceUp: (card?.faceUp ?? a.faceUp) as boolean | undefined, targetKey: type === 'undo' ? a.targetActionId as string : undefined,
+      ...base, zone: str(a.zone), slot: num(a.slot ?? card?.slot), ref, refs, cardId: (card?.cardId ?? card?.passcode ?? a.cardId ?? a.passcode) as number | undefined, name: (card?.name ?? a.name) as string | undefined,
+      bestMatch: (card?.bestMatch ?? a.bestMatch) as boolean | undefined, faceUp: (card?.faceUp ?? a.faceUp) as boolean | undefined, targetKey: type === 'undo' ? str(a.targetActionId) : undefined,
+      ...(type === 'twin.merge' && (a.keepInstanceId || a.removeInstanceId) ? { unnamedTargets: true } : {}),
     });
   });
-  return { actions, gaps, truncated, origin };
+  return { actions, gaps, truncated: !list.complete, origin, list };
 }
 
 /** An event zone name plus slot as a mat zone; undefined off the mat (hand) or when the slot is missing. */
@@ -91,57 +137,81 @@ export function matZone(zone: string | undefined, slot: number | undefined): Fie
   return ({ field: 'FIELD', graveyard: 'GY', banished: 'BANISHED', deck: 'DECK', extra: 'EXTRA' } as Record<string, FieldZone | undefined>)[zone];
 }
 /** Zones where one physical card lies and can be cropped (not piles). */
+/** Event zone names that need a slot to become a mat zone. */
+const MAT_NAMES = new Set(['monster', 'spell-trap', 'extra-monster']);
 export const SINGLE_ZONES = new Set<string>(['M1', 'M2', 'M3', 'M4', 'M5', 'S1', 'S2', 'S3', 'S4', 'S5', 'EMZ1', 'EMZ2', 'FIELD']);
 
-export interface NameChange { t: number; cardId?: number; name?: string; origin: 'auto' | 'player'; bestMatch?: boolean; key?: string }
-export type SpanEnd = 'removed-auto' | 'removed-player' | 'moved' | 'undone-player' | 'clip-end';
-/** One card (twin ref) in one mat zone, from appearing to leaving. `names` is every identity event of the card in order. */
-export interface TwinSpan { ref: string; zone: FieldZone; from: number; to: number; end: SpanEnd; placedAuto: boolean; placeKey?: string; names: NameChange[]; seat?: number }
-export interface Timeline { spans: TwinSpan[]; gaps: string[]; /** Video time before which nothing is known about the board (the first twin event); Infinity when there are no events, so nothing counts as empty. */ knownFrom: number }
+export interface NameChange { t: number; cardId?: number; name?: string; origin: Origin; bestMatch?: boolean; key?: string }
+export type SpanEnd = 'removed-auto' | 'removed-player' | 'removed-unknown' | 'moved' | 'undone-player' | 'undone-unknown' | 'replaced' | 'clip-end';
+/** One card (twin ref) in one mat zone, from appearing to leaving. `names` is every identity event of the card (the same list for all spans of one ref, so a rename after a move still counts), in order.
+ *  `overlap` = another card was put in this zone while this one was still open there (no remove or move between): when the card really left is unknown. */
+export interface TwinSpan { ref: string; zone: FieldZone; from: number; to: number; end: SpanEnd; placedAuto: boolean; placeKey?: string; names: NameChange[]; seat?: number; overlap: boolean }
+export interface Timeline {
+  spans: TwinSpan[]; gaps: string[];
+  /** Video time before which nothing is known about the board (the first twin event); Infinity when there are no events, so nothing counts as empty. */ knownFrom: number;
+  /** Cards (refs) an event touched in a way this tool does not follow (attach, merge, control, equip, detach, pile lift, a move or remove that was undone, an identify that was undone ...), with the reason. All their labels are dropped. */ tainted: Map<string, string>;
+  /** From this video time on an event put a card in a place this tool cannot map to a zone: no zone counts as empty after it. */ blindFrom: number;
+}
 
 /** Builds what the room events say was on the mat (this seat only), by twin ref. `spanMs` is the clip length, for cards still on the mat at the end. */
 export function buildTimeline(actions: LiveAction[], seat: number | undefined, spanMs: number): Timeline {
-  const gaps: string[] = [], spans: TwinSpan[] = [], open = new Map<string, TwinSpan>(), byKey = new Map<string, LiveAction>(), nameKeys = new Map<string, { span: TwinSpan; change: NameChange }>();
+  const gaps: string[] = [], spans: TwinSpan[] = [], open = new Map<string, TwinSpan>(), byKey = new Map<string, LiveAction[]>(), refNames = new Map<string, NameChange[]>(), tainted = new Map<string, string>();
+  let blindFrom = Infinity;
   const mine = actions.filter(a => seat === undefined || a.seat === undefined || a.seat === seat);
   const knownFrom = mine.length ? Math.min(...mine.map(a => a.seenT ?? a.t)) : Infinity;
+  const taint = (ref: string, why: string) => { if (!tainted.has(ref)) tainted.set(ref, why); };
+  const taintAll = (why: string, t: number) => { for (const r of open.keys()) taint(r, why); for (const s of spans) taint(s.ref, why); blindFrom = Math.min(blindFrom, t); };
   const close = (span: TwinSpan, to: number, end: SpanEnd) => { span.to = to; span.end = end; open.delete(span.ref); };
-  const begin = (ref: string, zone: FieldZone, from: number, a: LiveAction, names: NameChange[]) => { const s: TwinSpan = { ref, zone, from, to: spanMs, end: 'clip-end', placedAuto: a.origin === 'auto', placeKey: a.key, names: [...names], seat: a.seat }; spans.push(s); open.set(ref, s); return s; };
-  const addName = (span: TwinSpan, a: LiveAction) => {
-    if (a.cardId === undefined && !a.name) return;
-    const change: NameChange = { t: a.t, cardId: a.cardId, name: a.name, origin: a.origin, bestMatch: a.bestMatch, key: a.key }; span.names.push(change); if (a.key) nameKeys.set(a.key, { span, change });
-  };
+  const namesOf = (ref: string) => { let n = refNames.get(ref); if (!n) { n = []; refNames.set(ref, n); } return n; };
   const ofZone = (zone: FieldZone) => [...open.values()].find(s => s.zone === zone);
+  const begin = (ref: string, zone: FieldZone, from: number, a: LiveAction, placedAuto: boolean) => {
+    const other = ofZone(zone), s: TwinSpan = { ref, zone, from, to: spanMs, end: 'clip-end', placedAuto, placeKey: a.key, names: namesOf(ref), seat: a.seat, overlap: false };
+    if (other && other.ref !== ref) { close(other, from, 'replaced'); other.overlap = true; s.overlap = true; gaps.push(`${zone}: ${ref} was put there while ${other.ref} was still open (no remove or move between): both are dropped`); }
+    spans.push(s); open.set(ref, s); return s;
+  };
+  const addName = (ref: string, a: LiveAction) => { if (a.cardId === undefined && !a.name) return; namesOf(ref).push({ t: a.t, cardId: a.cardId, name: a.name, origin: a.origin, bestMatch: a.bestMatch, key: a.key }); };
   for (const a of mine) {
-    if (a.key) byKey.set(a.key, a);
+    if (a.key) byKey.set(a.key, [...(byKey.get(a.key) ?? []), a]);
+    if (a.unnamedTargets) { taintAll(`${a.type} by instance id: the cards it touches are not named`, a.t); gaps.push(`${a.type} at ${Math.round(a.t / 100) / 10} s names its cards by instance id: every open card is dropped`); continue; }
     if (a.type === 'twin.place') {
       const zone = matZone(a.zone, a.slot); if (!a.ref) continue;
+      if (a.refs.length > 1) for (const r of a.refs.filter(r => r !== a.ref)) { taint(r, 'used as a summon material'); const o = open.get(r); if (o) close(o, a.t, 'moved'); }
       if (open.has(a.ref)) close(open.get(a.ref)!, a.seenT ?? a.t, 'moved');
-      if (!zone) { gaps.push(`twin.place ${a.ref}: zone "${a.zone}" with slot ${a.slot ?? 'none'} is not a mat zone; skipped`); continue; }
-      const s = begin(a.ref, zone, a.seenT ?? a.t, a, []); addName(s, a);
+      if (!zone) { if (MAT_NAMES.has(a.zone ?? '')) { gaps.push(`twin.place ${a.ref}: zone "${a.zone}" has no slot; no zone counts as empty after it`); blindFrom = Math.min(blindFrom, a.seenT ?? a.t); taint(a.ref, 'placed in a zone with no slot'); } continue; }
+      begin(a.ref, zone, a.seenT ?? a.t, a, a.origin === 'auto'); addName(a.ref, a);
     } else if (a.type === 'twin.move' && a.ref) {
       const span = open.get(a.ref), zone = matZone(a.zone, a.slot);
-      if (!span) { if (zone) gaps.push(`twin.move ${a.ref}: no earlier place event for this card (event list incomplete?)`); continue; }
-      if (zone && zone === span.zone) { addName(span, a); continue; }
+      if (!span) { gaps.push(`twin.move ${a.ref}: no earlier place event for this card (event list incomplete?)`); taint(a.ref, 'moved without a known place'); if ((zone && SINGLE_ZONES.has(zone)) || MAT_NAMES.has(a.zone ?? '')) blindFrom = Math.min(blindFrom, a.t); continue; }
+      if (!zone) { close(span, a.t, 'moved'); if (MAT_NAMES.has(a.zone ?? '')) { gaps.push(`twin.move ${a.ref}: zone "${a.zone}" has no slot; no zone counts as empty after it`); taint(a.ref, 'moved to a zone with no slot'); blindFrom = Math.min(blindFrom, a.t); } continue; }
+      if (zone === span.zone) { addName(a.ref, a); continue; }
       close(span, a.t, 'moved');
-      if (zone && SINGLE_ZONES.has(zone)) { const next = begin(a.ref, zone, a.t, { ...a, origin: span.placedAuto ? 'auto' : 'player' }, span.names); next.placedAuto = span.placedAuto; if (a.name || a.cardId) addName(next, a); }
-    } else if (a.type === 'twin.flip' && a.ref) { const span = open.get(a.ref); if (span && a.faceUp !== false) addName(span, a); }
+      if (SINGLE_ZONES.has(zone)) { begin(a.ref, zone, a.t, a, span.placedAuto); addName(a.ref, a); }
+    } else if (a.type === 'twin.flip' && a.ref) { if (open.has(a.ref) && a.faceUp !== false) addName(a.ref, a); }
     else if (a.type === 'card.identified') {
-      let span = a.ref ? open.get(a.ref) : undefined;
-      if (!span && !a.ref) { const zone = matZone(a.zone, a.slot); span = zone ? ofZone(zone) : undefined; if (!span) gaps.push('card.identified has no cardRef and no open card in its zone: it cannot be tied to a tracked card'); }
-      else if (!span) gaps.push(`card.identified for ${a.ref}: no open card with that ref (place event missing?)`);
-      if (span) addName(span, a);
+      let ref = a.ref && open.has(a.ref) ? a.ref : undefined;
+      if (!a.ref) { const zone = matZone(a.zone, a.slot), span = zone ? ofZone(zone) : undefined; ref = span?.ref; if (!span) gaps.push('card.identified has no cardRef and no open card in its zone: it cannot be tied to a tracked card'); }
+      else if (!ref) gaps.push(`card.identified for ${a.ref}: no open card with that ref (place event missing?)`);
+      if (ref) addName(ref, a);
     } else if (a.type === 'twin.remove' && a.ref) {
-      const span = open.get(a.ref); if (span) close(span, a.t, a.origin === 'auto' ? 'removed-auto' : 'removed-player');
+      const span = open.get(a.ref); if (span) close(span, a.t, a.origin === 'auto' ? 'removed-auto' : a.origin === 'player' ? 'removed-player' : 'removed-unknown');
     } else if (a.type === 'undo' && a.targetKey) {
-      const target = byKey.get(a.targetKey); if (!target) { gaps.push(`undo targets ${a.targetKey}, which is not in the list`); continue; }
-      if (target.type === 'twin.place') { const span = spans.find(s => s.placeKey === target.key); if (span && open.get(span.ref) === span) close(span, a.t, 'undone-player'); }
-      else if (target.type === 'card.identified') { const hit = nameKeys.get(a.targetKey); if (hit) hit.span.names.splice(hit.span.names.indexOf(hit.change), 1); }
+      const targets = byKey.get(a.targetKey);
+      if (!targets) { gaps.push(`undo targets ${a.targetKey}, which is not in the list: every open card is dropped`); taintAll(`undo of an action that is not in the list`, a.t); continue; }
+      for (const target of targets) {
+        if (target.type === 'twin.place' && target.ref) { const span = spans.find(s => s.placeKey === target.key); if (span && open.get(span.ref) === span) close(span, a.t, a.origin === 'player' ? 'undone-player' : 'undone-unknown'); }
+        else for (const r of target.refs) taint(r, `undo of ${target.type}`);
+      }
+    } else if (a.type === 'twin.place' || a.type === 'twin.move' || a.type === 'twin.flip' || a.type === 'twin.remove') continue;
+    else {
+      // attach, detach, merge, control, equip, pile lift, ...: the card or its place changed in a way not followed here
+      if (!a.refs.length) { taintAll(`${a.type} with no card ref`, a.t); gaps.push(`${a.type} at ${Math.round(a.t / 100) / 10} s names no card: every open card is dropped`); }
+      for (const r of a.refs) { taint(r, a.type); const o = open.get(r); if (o) close(o, a.t, 'moved'); }
     }
   }
-  return { spans, gaps, knownFrom };
+  return { spans, gaps, knownFrom, tainted, blindFrom };
 }
-/** Does the timeline say a card lay in `zone` at video time `t` (ms), with `slackMs` either side for event and clock lag? Unknown before the first event counts as occupied. */
-export const occupiedAt = (tl: Timeline, zone: string, t: number, slackMs = 2000) => t < tl.knownFrom || tl.spans.some(s => s.zone === zone && t >= s.from - slackMs && t <= s.to + slackMs);
+/** Does the timeline say a card lay in `zone` at video time `t` (ms), with `slackMs` either side for event and clock lag? Unknown before the first event (or after a card of unknown place) counts as occupied. */
+export const occupiedAt = (tl: Timeline, zone: string, t: number, slackMs = 4000) => t < tl.knownFrom || t >= tl.blindFrom - slackMs || tl.spans.some(s => s.zone === zone && t >= s.from - slackMs && t <= s.to + slackMs);
 
 // ---- frames, bundle, replay -----------------------------------------------------------------------------------------------------------------------
 
@@ -168,7 +238,7 @@ export interface Stats { n: number; p50: number; p95: number; mean: number }
 export const stats = (v: number[], digits = 2): Stats => ({ n: v.length, p50: round(percentile(v, .5), digits), p95: round(percentile(v, .95), digits), mean: v.length ? round(v.reduce((a, b) => a + b, 0) / v.length, digits) : 0 });
 export interface RunSummary {
   schema: 'recording-run/1'; recording: { file: string; tableSlug?: string; seat?: number; width: number; height: number };
-  params: { fps: number; from: number; duration?: number; format: string; calibration: 'file' | 'whole-frame'; readScale: number };
+  params: { fps: number; from: number; duration?: number; format: string; calibration: 'file' | 'sidecar' | 'whole-frame'; readScale: number };
   recognizer: { name: string; threads: number; settings: Record<string, unknown> };
   frames: number; spanS: number; wallS: number; errors: number; detects: number;
   /** Every card read, video seconds. margin = best score minus second score. */ reads: ReadRecord[]; readMs: Stats; sure: { n: number; pct: number };
@@ -194,7 +264,7 @@ export async function runRecording(o: RunOptions): Promise<RunSummary> {
   return withFrames(video, { fps, from, duration: o.duration, keep: o.keepFrames }, async (dir, names) => {
     const { width, height } = await frameSize(dir, names[0]), spanMs = (names.length - 1) * 1000 / fps;
     const frames: ClipFrameMeta[] = names.map((name, i) => ({ at: i * 1000 / fps, name, width, height, bytes: 0 }));
-    const calibration = o.calibration ?? wholeFrameCalibration(), format = o.format ?? 'normal';
+    const sidecarCal = o.calibration ? undefined : sidecarCalibration(sidecar), calibration = o.calibration ?? sidecarCal ?? wholeFrameCalibration(), format = o.format ?? 'normal';
     const session: ClipSession = { version: 1, savedAt: new Date().toISOString(), clipStartAt: 0, clipEndAt: spanMs, windowMs: spanMs, camera: { width, height }, frame: { width, height, fps, type: 'image/jpeg' },
       calibration, frameCalibration: calibration, format, cost: { frames: names.length, bytes: 0, events: 0, encodeMsMean: 0, encodeMsMax: 0, encodeMsTotal: 0, dropped: 0, activeS: 0 }, note: 'Built from a test recording' };
     const bundle: ClipBundle = { session, frames, events: [], truth: { version: 1, draft: true, events: [] }, frameBytes: name => { try { return new Uint8Array(readFileSync(join(dir, name))); } catch { return undefined; } } };
@@ -222,7 +292,7 @@ export async function runRecording(o: RunOptions): Promise<RunSummary> {
     if (timeline && timeline.knownFrom === Infinity) gaps.push('The event list holds no twin or identify events for this seat: no zone can be proven empty.');
     const phantom: RunSummary['phantom'] = { checked: false, reads: [], tracks: [] };
     if (!timeline || !parse) phantom.reason = 'no events given';
-    else if (parse.truncated) phantom.reason = 'the event list is incomplete, so a zone cannot be proven empty';
+    else if (parse.truncated) phantom.reason = parse.list.reason ?? 'the event list is incomplete, so a zone cannot be proven empty';
     else if (parse.origin === undefined) phantom.reason = 'events cannot be put on video time';
     else {
       phantom.checked = true;
@@ -236,7 +306,7 @@ export async function runRecording(o: RunOptions): Promise<RunSummary> {
     const okReads = reads.filter(r => !r.error);
     return {
       schema: 'recording-run/1', recording: { file: basename(video), tableSlug: sidecar.tableSlug, seat: sidecar.seat, width, height },
-      params: { fps, from, duration: o.duration, format, calibration: o.calibrationFromFile ? 'file' : 'whole-frame', readScale: o.readScale ?? 1 },
+      params: { fps, from, duration: o.duration, format, calibration: o.calibrationFromFile ? 'file' : sidecarCal ? 'sidecar' : 'whole-frame', readScale: o.readScale ?? 1 },
       recognizer: { name: o.recognizer.name, threads: o.recognizer.threads, settings: o.recognizer.settings },
       frames: result.frames, spanS: round(spanMs / 1000, 1), wallS: round(result.wallMs / 1000, 2), errors: result.errors, detects: result.detects,
       reads, readMs: stats(okReads.map(r => r.ms), 1), sure: { n: okReads.filter(r => r.sure).length, pct: okReads.length ? round(100 * okReads.filter(r => r.sure).length / okReads.length, 1) : 0 },
