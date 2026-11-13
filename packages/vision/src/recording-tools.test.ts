@@ -10,8 +10,9 @@ import { compareSummaries, formatComparison, hasFfmpeg, runRecording } from '../
 import { decodeBank, resolveRecognizerSpec, searchBank, type LoadedRecognizer } from '../../../scripts/vision/recognizer-switch';
 import { harvestLabels } from '../../../scripts/vision/harvest-labels';
 import { createFieldCalibration } from './field-zones';
+import { remoteActionSchema } from '../../shared/src/remote/actions';
 
-// A 14 s, 5 fps, 320x240 clip made with ffmpeg at test time (nothing binary in git): coloured boxes stand for cards on a whole-frame mat. One row per case; the events are in makeFixture.
+// A 26 s, 5 fps, 320x240 clip made with ffmpeg at test time (nothing binary in git): coloured boxes stand for cards on a whole-frame mat. One row per case; the events are in makeFixture.
 //  A red    M1 all clip     watcher read it right, nobody touched it                       -> agreed (only after its last name event)
 //  B green  M3              watcher read "Wrong Name", a player renamed it at 9 s          -> correction (second source: this reader reads green)
 //  C teal   M2 -> M4        watcher "Wrong Two", moved at 5 s, player renamed it at 11 s   -> correction on BOTH spans (a rename after a move)
@@ -22,6 +23,10 @@ import { createFieldCalibration } from './field-zones';
 //  H lime   M5              an Xyz attach names it                                         -> dropped (an event not followed)
 //  J pink / K cyan  S3      K put in S3 while J was still open                             -> both dropped (overlap)
 //  L brown  EMZ2            a card on the mat that no event mentions                      -> never an empty-zone crop
+//  N blue   M2 (15 s on)    watcher "Blue Card", swapped for another card, a player named it "Cyan Card" at 21.5 s, the watcher named it so too at 22.5 s
+//                                                                                          -> hard crop, NO label (the later watcher name is not a second source)
+//  P red    S5 -> S2        named "Red Card" (right), moved at 24 s, the watcher renamed it "Blue Card" at 25.5 s -> no agreed label (a later different name)
+//  Q red    S4 (16 s on)    placed, then an action type this tool does not know names it     -> dropped, counted in summary.unknownActions
 const calibration = createFieldCalibration([{ x: .04, y: .04 }, { x: .96, y: .04 }, { x: .96, y: .96 }, { x: .04, y: .96 }]);
 const W = 320, H = 240, cells = fieldZoneCells('normal');
 const centre = (zone: string) => { const c = cells.find(x => x.zone === zone)!; return fieldMatPoint({ x: c.x + c.w / 2, y: c.y + c.h / 2 }, calibration); };
@@ -31,10 +36,12 @@ const PALETTE: Record<string, { rgb: number[]; hex: string; id: string; name: st
   lime: { rgb: [170, 220, 40], hex: '0xaadc28', id: '1006', name: 'Lime Card' }, pink: { rgb: [240, 140, 200], hex: '0xf08cc8', id: '1007', name: 'Pink Card' }, cyan: { rgb: [40, 220, 230], hex: '0x28dce6', id: '1008', name: 'Cyan Card' },
   brown: { rgb: [130, 80, 30], hex: '0x82501e', id: '1009', name: 'Brown Card' },
 };
+const END = 26; // seconds
 const BOXES: { colour: string; zone: string; from: number; to: number }[] = [
-  { colour: 'red', zone: 'M1', from: .5, to: 14 }, { colour: 'green', zone: 'M3', from: .5, to: 14 }, { colour: 'teal', zone: 'M2', from: .5, to: 5 }, { colour: 'teal', zone: 'M4', from: 5, to: 14 },
-  { colour: 'blue', zone: 'S2', from: 2, to: 9 }, { colour: 'orange', zone: 'S4', from: 2, to: 9 }, { colour: 'violet', zone: 'S1', from: 2, to: 14 }, { colour: 'orange', zone: 'S5', from: 2, to: 9 },
-  { colour: 'lime', zone: 'M5', from: .5, to: 14 }, { colour: 'pink', zone: 'S3', from: .5, to: 7 }, { colour: 'cyan', zone: 'S3', from: 7, to: 14 }, { colour: 'brown', zone: 'EMZ2', from: .5, to: 14 },
+  { colour: 'red', zone: 'M1', from: .5, to: END }, { colour: 'green', zone: 'M3', from: .5, to: END }, { colour: 'teal', zone: 'M2', from: .5, to: 5 }, { colour: 'teal', zone: 'M4', from: 5, to: END },
+  { colour: 'blue', zone: 'S2', from: 2, to: 9 }, { colour: 'orange', zone: 'S4', from: 2, to: 9 }, { colour: 'violet', zone: 'S1', from: 2, to: END }, { colour: 'orange', zone: 'S5', from: 2, to: 9 },
+  { colour: 'lime', zone: 'M5', from: .5, to: END }, { colour: 'pink', zone: 'S3', from: .5, to: 7 }, { colour: 'cyan', zone: 'S3', from: 7, to: END }, { colour: 'brown', zone: 'EMZ2', from: .5, to: END },
+  { colour: 'blue', zone: 'M2', from: 15.4, to: END }, { colour: 'red', zone: 'S5', from: 14.8, to: 24 }, { colour: 'red', zone: 'S2', from: 24, to: END }, { colour: 'red', zone: 'S4', from: 15.9, to: END },
 ];
 const ZONES = [...new Set(BOXES.map(b => b.zone))];
 const quadAt = (zone: string): DetectedQuad => { const c = centre(zone), hw = 16 / W, hh = 24 / H; return { kind: 'face-up', confidence: .9, partial: false, quad: [{ x: c.x - hw, y: c.y - hh }, { x: c.x + hw, y: c.y - hh }, { x: c.x + hw, y: c.y + hh }, { x: c.x - hw, y: c.y + hh }] }; };
@@ -63,10 +70,12 @@ const analyze = () => { const w = 120, h = 176, data = new Uint8ClampedArray(w *
 
 async function makeFixture(dir: string) {
   const boxes = BOXES.map(c => { const p = centre(c.zone); return `drawbox=x=${Math.round(p.x * W - 16)}:y=${Math.round(p.y * H - 24)}:w=32:h=48:color=${PALETTE[c.colour].hex}:t=fill:enable='between(t,${c.from},${c.to})'`; });
-  const out = join(dir, 'clip.webm'), r = spawnSync('ffmpeg', ['-v', 'error', '-f', 'lavfi', '-i', `color=c=0x1e1e1e:s=${W}x${H}:r=5:d=14`, '-vf', [...boxes, 'drawgrid=w=8:h=8:t=1:c=white@0.35'].join(','), '-c:v', 'libvpx', '-b:v', '600k', '-an', out], { stdio: 'inherit' });
+  const out = join(dir, 'clip.webm'), r = spawnSync('ffmpeg', ['-v', 'error', '-f', 'lavfi', '-i', `color=c=0x1e1e1e:s=${W}x${H}:r=5:d=${END}`, '-vf', [...boxes, 'drawgrid=w=8:h=8:t=1:c=white@0.35'].join(','), '-c:v', 'libvpx', '-b:v', '600k', '-an', out], { stdio: 'inherit' });
   assert.equal(r.status, 0, 'ffmpeg made the fixture clip');
-  const origin = 1_700_000_000_000, at = (s: number) => origin + s * 1000, cam = (seen: number, sent: number, extra: Record<string, unknown> = {}) => ({ seenAt: at(seen), namedAt: at(sent - .1), sentAt: at(sent), v: 1, ...extra });
-  await writeFile(join(dir, 'clip.json'), JSON.stringify({ tableSlug: 'testroom', seat: 0, userId: 7, video: { width: W, height: H }, client: { timeOrigin: origin, videoStartPerfNow: 0, clockOffsetMs: 0, rttMs: 20 } }));
+  const origin = 1_700_000_000_000, at = (s: number) => origin + s * 1000, cam = (seen: number, sent: number, extra: Record<string, unknown> = {}) => ({ seenAt: at(seen), namedAt: at(sent - .1), sentAt: at(sent), v: '1', ...extra });
+  await writeFile(join(dir, 'clip.json'), JSON.stringify({ tableSlug: 'testroom', seat: 0, userId: 7, video: { width: W, height: H }, client: { timeOrigin: origin, videoStartPerfNow: 0, clockOffsetMs: 0, rttMs: 20, clockSamples: [{ n: 1, serverMs: at(0), offsetMs: 0, rttMs: 20 }, { n: 2, serverMs: at(7), offsetMs: 0, rttMs: 30 }] },
+    // the shape the recording sidecar has (PR #605): a list of live calibrations; this one = the whole frame, placed by the player
+    calibrations: [{ at: origin, serverMs: at(0), format: 'normal', placed: true, needed: false, calibration: { version: 1, layout: 'field', corners: [{ x: .04, y: .04 }, { x: .96, y: .04 }, { x: .96, y: .96 }, { x: .04, y: .96 }], orientation: null, zoneSpacing: null, zones: {} } }] }));
   const where = (z: string) => ({ zone: z.startsWith('EMZ') ? 'extra-monster' : z[0] === 'M' ? 'monster' : 'spell-trap', slot: Number(z.replace(/\D/g, '')) });
   const PLAYER = { by: 'player', ui: 'popup-remove' };
   // [video seconds, action]: seqs are given in time order below
@@ -90,8 +99,22 @@ async function makeFixture(dir: string) {
     [9.02, { type: 'twin.remove', idempotencyKey: 'xG', cardRef: 'rG' }],
     [9.05, { type: 'card.identified', idempotencyKey: 'iB', source: 'click', cardRef: 'rB', cardId: 1002, name: 'Green Card' }],
     [11, { type: 'card.identified', idempotencyKey: 'iC', source: 'click', cardRef: 'rC', cardId: 1004, name: 'Teal Card' }],
+    [15.6, { type: 'twin.place', idempotencyKey: 'pN', source: 'auto', ...where('M2'), card: { ref: 'rN', slot: 2, cardId: 1003, name: 'Blue Card' }, cam: cam(15.4, 15.55) }],
+    [21.5, { type: 'card.identified', idempotencyKey: 'iN', source: 'click', cardRef: 'rN', cardId: 1008, name: 'Cyan Card' }],
+    [22.5, { type: 'card.identified', idempotencyKey: 'iN2', source: 'auto', cardRef: 'rN', cardId: 1008, name: 'Cyan Card' }],
+    [15.1, { type: 'twin.place', idempotencyKey: 'pP', source: 'auto', ...where('S5'), card: { ref: 'rP', slot: 5, cardId: 1001, name: 'Red Card' }, cam: cam(14.8, 15.05) }],
+    [24, { type: 'twin.move', idempotencyKey: 'mP', source: 'auto', cardRef: 'rP', ...where('S2'), cam: cam(23.7, 24) }],
+    [25.5, { type: 'card.identified', idempotencyKey: 'iP', source: 'auto', cardRef: 'rP', cardId: 1003, name: 'Blue Card' }],
+    [16.1, { type: 'twin.place', idempotencyKey: 'pQ', source: 'auto', ...where('S4'), card: { ref: 'rQ', slot: 4, cardId: 1001, name: 'Red Card' }, cam: cam(15.9, 16.05) }],
+    [18, { type: 'board.future-thing', idempotencyKey: 'fQ', cardRef: 'rQ' }],
   ];
-  const events = list.sort((x, y) => x[0] - y[0]).map(([s, action], i) => ({ id: `e${i + 1}`, seq: i + 1, actorSeat: 0, userId: 7, at: at(s), action: { seat: 0, ...action } }));
+  const events = list.sort((x, y) => x[0] - y[0]).map(([s, action], i) => ({ id: `e${i + 1}`, seq: i + 1, actorSeat: 0, userId: 7, at: at(s), action: { ...(action.type === 'undo' ? {} : { seat: 0 }), actorSeat: 0, ...(action.type === 'twin.place' ? (({ slot: _slot, ...rest }) => rest)(action) : action) } }));
+  // every fixture action is checked against the real schema (cam.by / cam.ui come from a newer web build than this branch's schema, so they are stripped first; the one made-up type is skipped on purpose)
+  for (const e of events) {
+    const a = e.action as unknown as { type: string; idempotencyKey: string; cam?: Record<string, unknown> }; if (a.type === 'board.future-thing') continue;
+    const { by: _by, ui: _ui, ...cleanCam } = a.cam ?? {}, r = remoteActionSchema.safeParse({ ...a, ...(a.cam ? { cam: cleanCam } : {}) });
+    assert.ok(r.success, `fixture action ${a.idempotencyKey} fits the schema: ${r.success ? '' : JSON.stringify(r.error.issues[0])}`);
+  }
   const room = { slug: 'testroom', lastSeq: events.length, events };
   await writeFile(join(dir, 'room.json'), JSON.stringify(room));
   return { video: out, events: JSON.parse(await readFile(join(dir, 'room.json'), 'utf8')) as { lastSeq: number; events: { seq: number }[] } };
@@ -134,7 +157,7 @@ test('harvest labels only what the events and the reader both support', skipNoFf
   const dir = await mkdtemp(join(tmpdir(), 'dd-rt-'));
   try {
     const { video, events } = await makeFixture(dir), out = join(dir, 'out');
-    const { records, summary } = await harvestLabels({ video, events, recognizer: fakeReader('current'), calibration, room: 'testroom', out, fps: 2, agreeSeconds: 4, minSharpness: 2, holdout: true });
+    const { records, summary } = await harvestLabels({ video, events, recognizer: fakeReader('current'), room: 'testroom', out, fps: 2, agreeSeconds: 4, minSharpness: 2, holdout: true });
     const inZone = (...z: string[]) => records.filter(r => z.includes(r.zone)), kinds = (k: string) => records.filter(r => r.labelKind === k);
     // agreed: red only, only after its name event (1 s) plus the margins, at most 8 crops
     const agreed = kinds('agreed'); assert.ok(agreed.length >= 1 && agreed.length <= 8 && agreed.every(r => r.zone === 'M1' && r.label === 'Red Card' && r.cardId === 1001 && !r.hard && r.clipTimeS >= 3.5), 'agreed: red card, late enough');
@@ -144,19 +167,34 @@ test('harvest labels only what the events and the reader both support', skipNoFf
     assert.ok(!records.some(r => r.labelKind === 'agreed' && ['M2', 'M3', 'M4'].includes(r.zone)), 'a corrected card is never an agreed label');
     // not-a-card: orange at S4 (undo marked as a person, reader not sure) only; blue (reader sure), orange at S5 (source-less remove) never
     const neg = records.filter(r => r.label === 'not-a-card'); assert.ok(neg.length >= 1 && neg.every(r => r.zone === 'S4' && r.source === 'player-undo-of-auto-place'), 'phantom only where every sign agrees');
-    assert.ok(inZone('S2').length >= 1 && inZone('S2').every(r => r.label === null && r.hard), 'a card the reader reads sure is never not-a-card');
-    assert.equal(inZone('S5').length, 0, 'a source-less remove is not a person');
+    const s2 = inZone('S2').filter(r => r.clipTimeS < 14); assert.ok(s2.length >= 1 && s2.every(r => r.label === null && r.hard), 'a card the reader reads sure is never not-a-card');
+    assert.equal(inZone('S5').filter(r => r.clipTimeS < 14).length, 0, 'a source-less remove is not a person');
+    // the sidecar (PR #605 shape) gave the clock samples and the live calibration; no --calibration file was passed
+    assert.deepEqual([summary.params.calibration, summary.clock.source, summary.clock.samples, summary.clock.rttMs, summary.calibrations.entries], ['sidecar', 'samples', 2, 30, 1]);
+    // N: the card was swapped, a player named the new one, a later watcher name agrees: the old card's crops get NO label (the later watcher name is not a second source)
+    const swapped = records.filter(r => r.zone === 'M2' && r.clipTimeS > 14 && r.label !== 'empty'); assert.ok(swapped.length >= 1 && swapped.every(r => r.label === null && r.hard && r.source === 'player-rename-unconfirmed'), 'swap then rename: hard crops, no label');
+    // P: a later automatic rename to another name means no agreed label on the earlier span; Q: an action type this tool does not know taints the card it names
+    assert.ok(!records.some(r => r.zone === 'S5' && r.clipTimeS > 14) && summary.skipped.renamedLater >= 1, 'a later different name blocks agreed');
+    assert.deepEqual(summary.unknownActions, { 'board.future-thing': 1 }); assert.ok(!records.some(r => r.zone === 'S4' && r.clipTimeS > 14 && r.label !== 'empty'), 'an unknown action type taints its card');
     // dropped: undone identify, Xyz attach, overlap
     assert.equal(inZone('S1', 'M5', 'S3').length, 0, 'undone identify, attach and zone overlap leave no label');
     assert.ok(summary.skipped.refUnclear >= 2 && summary.skipped.zoneOverlap >= 2 && summary.gaps.some(g => /undo of card\.identified/.test(g)) && summary.gaps.some(g => /twin\.attach/.test(g)), 'the summary says why');
     // empty zones: never an occupied one, never the zone with an unexplained card
-    const empty = kinds('empty-zone'); assert.ok(empty.length >= 1 && empty.length <= 12 && empty.every(r => r.label === 'empty' && ['EMZ1', 'FIELD', 'M2'].includes(r.zone)), 'empty zones only where nothing is');
+    const empty = kinds('empty-zone'); assert.ok(empty.length >= 1 && empty.length <= 12 && empty.every(r => r.label === 'empty' && ['EMZ1', 'FIELD', 'M2', 'S2'].includes(r.zone)), 'empty zones only where nothing is');
     assert.ok(!inZone('EMZ2').length && summary.skipped.emptyZoneHasOutline >= 1, 'an unexplained card on the mat drops the crop');
     assert.deepEqual([summary.eventList.complete, summary.eventList.holes, summary.eventList.allowPartial], [true, 0, false]);
     const lines = (await readFile(join(out, 'labels.jsonl'), 'utf8')).trim().split('\n').map(l => JSON.parse(l) as { crop: string }); assert.equal(lines.length, records.length);
     assert.ok((await readFile(join(out, lines[0].crop))).length > 100, 'crop image written');
     assert.match(await readFile(join(out, 'HOLDOUT'), 'utf8'), /never use/);
     assert.equal(JSON.parse(await readFile(join(out, 'summary.json'), 'utf8')).holdout, true);
+    // a player mark with another ui (not undo / popup-remove) gives no not-a-card
+    const otherUi = { ...events, events: events.events.map(e => (e as unknown as { action: { idempotencyKey?: string } }).action.idempotencyKey === 'uE' ? { ...e, action: { ...(e as unknown as { action: object }).action, cam: { sentAt: 1_700_000_008_900, by: 'player', ui: 'tap' } } } : e) };
+    const tapped = await harvestLabels({ video, events: otherUi, recognizer: fakeReader('current'), room: 'testroom', out: join(dir, 'tapped'), fps: 2, agreeSeconds: 4, minSharpness: 2 });
+    assert.ok(tapped.summary.skipped.playerRemovedOtherUi >= 1 && !tapped.records.some(r => r.label === 'not-a-card'), 'another ui gives no not-a-card');
+    // an unknown action type with no card ref may have moved any card: nothing is labelled
+    const blind = { ...events, events: [...events.events, { id: 'e99', seq: events.lastSeq + 1, actorSeat: 0, userId: 7, at: 1_700_000_025_000, action: { type: 'board.future-thing', idempotencyKey: 'fZ', actorSeat: 0 } }], lastSeq: events.lastSeq + 1 };
+    const blinded = await harvestLabels({ video, events: blind, recognizer: fakeReader('current'), room: 'testroom', out: join(dir, 'blind'), fps: 2, agreeSeconds: 4, minSharpness: 2 });
+    assert.ok(!blinded.records.some(r => r.label && r.label !== 'empty') && blinded.summary.unknownActions['board.future-thing'] === 2, 'an unknown action without a ref labels nothing');
     // a list cut to the last events (what GET /api/remote/<slug> returns) is refused; --allow-partial says so in the summary
     const cut = { ...events, events: events.events.filter(e => e.seq > 5) };
     await assert.rejects(harvestLabels({ video, events: cut, recognizer: fakeReader('current'), calibration, room: 'testroom', out: join(dir, 'cut') }), /not complete: it starts at seq 6/);

@@ -69,19 +69,23 @@ Writes `data/vision-harvest/<room>/` (git-ignored; `--out` and `--room` change i
 
 | Kind | Meaning |
 | --- | --- |
-| `correction` | A player named the card (click, typed, voice) and the earlier name was different or missing: crops from before the rename get the corrected name (`previous` is the old one), on every span of the card, also after a move. Checked per crop: the reader's top 5 holds the card, or a later automatic event names it; otherwise the crop is `hard` with no label (and `proposed`). |
+| `correction` | A player named the card (click, typed, voice) and the earlier name was different or missing: crops from before the rename get the corrected name (`previous` is the old one), on every span of the card, also after a move. Checked per crop, always: the reader's top 5 holds the card; otherwise the crop is `hard` with no label (and `proposed`). A later watcher name is not a second source: if card A was swapped for B and then named B, A's crops must not get B's name. |
 | `not-a-card` | Only when all hold: the watcher placed the card, a player removed it (explicit player mark) or undid the place, no player or unknown name, life of 30 s or less, no name or only a best guess from the watcher, no other card in the zone within 5 s, and no crop reads sure here. If a crop reads sure, the crops are `hard` with no label. |
-| `agreed` | An automatic read (not a best guess) with trusted names that ended by removal, move or clip end and lay at least `--agree-seconds` (default 20) after its last name event. A crop is labelled only when the reader here gives the same card; else it is `hard` with no label. |
+| `agreed` | An automatic read (not a best guess) with trusted names that ended by removal, move or clip end and lay at least `--agree-seconds` (default 20) after its last name event. A crop is labelled only when the reader here gives the same card; else it is `hard` with no label. No `agreed` label when the card gets any later name that differs (an automatic rename after a move, say). |
 | `hard` | The watcher did not name the card, or only guessed: no label, the guesses are recorded. `hard.jsonl` lists every record with `hard: true`. |
 | `empty-zone` | Sampled, capped crops of mat zones the events say are empty (5 s slack plus jitter). A crop is dropped if the reader finds any outline in the zone or the cell, even a partial, covered or face-down one. |
 
 When unsure, the tool writes no label: a wrong label is worse than a missing one.
 
-**Who did it.** An action is `auto` when `source` is `auto` or `cam.by` is `camera`; `player` when `source` is click, voice or typed, `cam.by` is `player`, or `cam.ui` is set; otherwise `unknown`. A source-less action is never taken as a person (the watcher itself sends undo and removes). Unknown names block `agreed` and `not-a-card`.
+**Who did it.** An action is `auto` when `source` is `auto` or `cam.by` is `camera`; `player` when `source` is click, voice or typed, `cam.by` is `player`, or `cam.ui` is set; otherwise `unknown`. A source-less action is never taken as a person (the watcher itself sends undo and removes). Unknown names block `agreed` and `not-a-card`. A player mark gives `not-a-card` only with the matching `cam.ui`: `undo` for an undone place, `popup-remove` for a removal; another `ui` (or none) gives no `not-a-card`.
 
 **Dropped cards.** A card gets no record (the summary `gaps` counts why) if it had an attach, detach, merge, control change, equip, pile lift or summon material; if an identify, move or remove was undone; if a move has no known place; if another card was put in its zone while it was open (overlap); or if players gave it several different names. A place or move in a zone with no slot (hand, pile) switches the empty-zone check off from then on.
 
-**Margins.** A crop starts 1 s after the card was placed and stops 1 s + half the round trip + 1.5 s before the end event, because the server time of an end event is only known to about that much. The round trip comes from the sidecar (`clockSamples` when present, else `client.rttMs`).
+**Unknown action types.** Default deny. Only a short list of types known to leave the cards alone (hand, deck count, effect, phase, LP, log and similar) is ignored. Any other type that this tool does not handle taints every card it names; one with no card ref taints all cards and stops labels after it. The summary counts them in `unknownActions` and `gaps`.
+
+**Margins.** A crop starts 1 s after the card was placed and stops 1 s + half the round trip + 1.5 s before the end event, because the server time of an end event is only known to about that much. The round trip is the largest of the sidecar `client.clockSamples` and `client.rttMs`.
+
+**Sidecar.** The names follow the recording sidecar of PR #605: `client.clockSamples[{n, serverMs, offsetMs, rttMs}]` (offset = server minus client clock; the sample nearest to an event is used, else the single `client.clockOffsetMs`, and the summary says so) and `calibrations[{at, serverMs, format, placed, needed, calibration}]`. Each frame uses the calibration in force at its time. Frames within 3 s of a calibration change, or on a first-guess grid the player never placed (`placed` false), give no crop. `--calibration` beats the sidecar. `summary.json` has `clock`, `calibrations` and `params.calibration` (`file`, `sidecar` or `whole-frame`). The readers are one small group of functions in `scripts/vision/recording-lib.ts`, so a later rename in the app is a small fix. `replay-recording.ts` uses the calibration in force at the start of the clip (a gap says when it changes).
 
 Safeguards: at most 8 crops per card per match, spread over the time the card lay there; blurred crops are skipped (Laplacian variance, `--min-sharpness`); when the events cannot tie a correction to the earlier card, `summary.json` `gaps` says what is missing.
 
@@ -101,10 +105,11 @@ Consent: only harvest recordings of people who agreed (the allowlisted test user
 ### Limits and event-format gaps
 
 - The live card id is the watcher's own ref, so the link between an event and the video is by zone and time only. Zone matching needs the same calibration as the live run (`--calibration`); without it the whole frame counts as the mat.
-- Correction events (a player naming, moving or removing a card, undo) carry no camera stamp, only the server time, so their video time uses the sidecar `clockOffsetMs` (about plus or minus half the round trip). Without that offset or the server start time the events are dropped and a gap is reported.
+- Correction events (a player naming, moving or removing a card, undo) carry no camera stamp, only the server time, so their video time uses the sidecar clock (the nearest `clockSamples` entry, else `clockOffsetMs`; about plus or minus half the round trip). Without that offset or the server start time the events are dropped and a gap is reported.
 - The previous name before a correction is not in the event; it is taken from the earlier events of the same card.
 - The harvest refuses an incomplete event list (see Complete event list above). `replay-recording.ts` accepts one but the summary says that phantom reads are not checked.
-- A player removal that carries no player mark looks the same as a watcher removal, so it is `unknown` and never gives `not-a-card`. Newer optional fields (`cam.by`, `cam.ui`, `cam` on player actions, `clockSamples` and a live calibration in the sidecar) are read when present; their names must match the app change that adds them.
+- A player removal that carries no player mark looks the same as a watcher removal, so it is `unknown` and never gives `not-a-card`. Newer optional fields (`cam.by`, `cam.ui`, `cam` on player actions) are read when present; their names must match the app change that adds them. The sidecar names were matched to PR #605 when this was written and may still change there.
+- `export-room-events.ts` has no test and was never run against a real server.
 - Event card ids are numbers and index ids are strings; they are compared by id and by name. The sidecar has no decklist.
 - Only the `current` reader was run for real in the checks of this change; the other kinds have a spec, a bank decoder and tests with fake readers, but no real model files were available.
 
