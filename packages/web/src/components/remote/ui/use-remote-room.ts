@@ -142,7 +142,7 @@ export function useRemoteRoom(slug: string, options: { watchAsAdmin?: boolean } 
   /** Posts one action; resolves to the updated room, or null when the foundation refused it. */
   const postAction = useCallback(async (payload: RemoteActionProposal, idempotencyKey = crypto.randomUUID()): Promise<RemoteRoom | null> => {
     const current = roomRef.current; if (tableKey.current!==slug||!current||current.slug!==slug) return null;
-    const input = { baseSeq: Math.max(current.lastSeq, lastSeq.current), action: { ...stampedProposal(payload, idempotencyKey), idempotencyKey } as RemoteAction };
+    const input = { baseSeq: Math.max(current.lastSeq, lastSeq.current), action: { ...stampedProposal(payload, idempotencyKey, !!current.seats.find(seat => seat.seat === payload.actorSeat)?.bot), idempotencyKey } as RemoteAction };
     setError("");
     try {
       markFieldAction(idempotencyKey,'httpStart');

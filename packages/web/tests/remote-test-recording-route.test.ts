@@ -34,7 +34,7 @@ async function post(userId: number, query: string, body: BodyInit) {
     headers: { "content-type": isJson ? "application/json" : "application/octet-stream" } }), { params: Promise.resolve({ slug }) });
 }
 const calibration = (corner: number) => ({ at: 1700000000100, note: "not stored", format: "normal", placed: true, needed: false,
-  calibration: { version: 1, layout: 3, corners: [{ x: corner, y: 0.1 }, { x: 0.9, y: 0.1 }, { x: 0.9, y: 0.9 }, { x: 0.1, y: 0.9 }], orientation: { playerSide: "bottom", mirrored: false }, zoneSpacing: 1.1, zones: { M1: { x: 0.2, y: 0.3, w: 0.1, h: 0.2 } } } });
+  calibration: { version: 1, layout: 3, corners: [{ x: corner, y: 0.1 }, { x: 0.9, y: 0.1 }, { x: 0.9, y: 0.9 }, { x: 0.1, y: 0.9 }], orientation: { playerSide: "bottom", mirrored: false }, zoneSpacing: 1.1, zones: { M1: { x: 0.2, y: 0.3, w: 0.1, h: 0.2 }, BANISHED: { x: 0.8, y: 0.3, w: 0.1, h: 0.2 }, EVIL: { x: 0, y: 0, w: 1, h: 1 } } } });
 const start = (userId: number) => post(userId, "action=start", JSON.stringify({ mime: "video/webm;codecs=vp9", width: 1280, height: 720, fps: 30, clock: { recorderStartDateNow: 1, recorderStartPerfNow: 2, timeOrigin: 3 }, calibration: calibration(0.1) }));
 
 it("records a seated allowlisted player's camera and refuses everybody else", async () => {
@@ -74,27 +74,29 @@ it("records a seated allowlisted player's camera and refuses everybody else", as
   expect(saved.client.clockSamples).toMatchObject([{ n: 0, offsetMs: -40, rttMs: 25 }, { n: 1, offsetMs: -35, rttMs: 8 }]);
   expect(saved.calibrations).toHaveLength(2);
   expect(JSON.stringify(saved.calibrations)).not.toContain("not stored"); // only known fields are kept
-  expect(saved.calibrations[0]).toMatchObject({ format: "normal", placed: true, needed: false, calibration: { layout: 3, zoneSpacing: 1.1, orientation: { playerSide: "bottom" }, zones: { M1: { x: 0.2, w: 0.1 } } } });
+  expect(saved.calibrations[0]).toMatchObject({ format: "normal", placed: true, needed: false, calibration: { layout: 3, zoneSpacing: 1.1, orientation: { playerSide: "bottom" }, zones: { M1: { x: 0.2, w: 0.1 }, BANISHED: { x: 0.8, w: 0.1 } } } });
+  expect(Object.keys(saved.calibrations[0].calibration.zones).sort()).toEqual(["BANISHED", "M1"]); // the unknown id EVIL is dropped
   expect(saved.calibrations[0].calibration.corners[0]).toEqual({ x: 0.1, y: 0.1 });
   expect(saved.calibrations[1].calibration.corners[0]).toEqual({ x: 0.2, y: 0.1 });
   expect((await readFile(join(dir, slug, sidecar))).length).toBeLessThan(8 * 1024); // the sidecar stays small
 });
 
-it("accepts the camera timing stamp and the auto removal source on actions", () => {
+it("accepts the camera timing stamp, and stamps a table action once per idempotency key with only the by it knows", async () => {
   expect(remoteActionSchema.safeParse({ type: "twin.remove", idempotencyKey: "a1", actorSeat: 0, seat: 0, cardRef: "c1", source: "auto",
-    cam: { seenAt: 1, namedAt: 2, sentAt: 3, v: "abc123def456" } }).success).toBe(true);
-});
-
-it("stamps a player action once per idempotency key and keeps the same stamp on every retry", async () => {
-  const { stampedProposal, playerStamp } = await import("@/lib/remote/field-timing");
+    cam: { seenAt: 1, namedAt: 2, sentAt: 3, v: "abc123def456", by: "camera", ui: "auto-undo" } }).success).toBe(true);
+  const { stampedProposal } = await import("@/lib/remote/field-timing");
   const remove: RemoteActionProposal = { type: "twin.remove", actorSeat: 0, seat: 0, cardRef: "c1" };
   const first = stampedProposal(remove, "key-1");
   expect(first.cam).toMatchObject({ by: "player" });
   await new Promise(resolve => setTimeout(resolve, 5)); // time passes before the retry
   expect(stampedProposal(remove, "key-1").cam).toBe(first.cam); // same sentAt: the server sees the same action, not a 409
+  expect(remoteActionSchema.safeParse({ ...first, idempotencyKey: "key-1" }).success).toBe(true);
   expect(stampedProposal({ ...remove, type: "card.identified", source: "voice" } as unknown as RemoteActionProposal, "key-2").cam).toMatchObject({ by: "player", ui: "voice" });
-  expect(stampedProposal({ type: "side.timeout", actorSeat: 0 }, "key-3")).not.toHaveProperty("cam"); // timers are no person's choice
+  expect(stampedProposal({ ...remove, source: "auto" }, "key-3").cam).toMatchObject({ by: "camera" }); // a camera reading, not a choice
+  expect(stampedProposal(remove, "phone:scan:identify").cam).toMatchObject({ by: "camera" }); // phone scan
+  const bot = stampedProposal(remove, "key-5", true).cam; // a test bot seat: nobody to name
+  expect(bot).toHaveProperty("sentAt"); expect(bot).not.toHaveProperty("by");
+  expect(stampedProposal({ type: "side.timeout", actorSeat: 0 }, "key-6")).not.toHaveProperty("cam"); // timers are no person's choice
   const watcher: RemoteActionProposal = { ...remove, cam: { sentAt: 9, by: "camera" } };
-  expect(stampedProposal(watcher, "key-4").cam).toEqual({ sentAt: 9, by: "camera" }); // the watcher's own stamp is kept
-  expect(remoteActionSchema.safeParse({ ...first, idempotencyKey: "r1", cam: playerStamp("popup-remove") }).success).toBe(true);
+  expect(stampedProposal(watcher, "key-7").cam).toEqual({ sentAt: 9, by: "camera" }); // the watcher's own stamp is kept
 });

@@ -908,7 +908,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       sentMode.current=mode;
       if(known===mode){modeReason.current='player';return;}
       const reason=known?modeReason.current:'start';modeReason.current='player';
-      void transaction(async(_latest,act)=>{await act({type:'detection.mode',actorSeat:modeSeat,mode,reason,cam:reason==='player'?playerStamp('detection-mode'):fieldCameraStamp(undefined,'camera','detection-mode')});}).then(()=>{attempts.current=0;}).catch(()=>{
+      void transaction(async(_latest,act)=>{await act({type:'detection.mode',actorSeat:modeSeat,mode,reason,cam:reason==='start'?fieldCameraStamp(undefined,'camera','detection-mode'):playerStamp(reason==='slow-offer'?'prompt':'detection-mode')});}).then(()=>{attempts.current=0;}).catch(()=>{
         sentMode.current=null;if(reason!=='player')modeReason.current=reason;
         if(attempts.current>=3)return;
         retryTimer.current=setTimeout(()=>setRetry(count=>count+1),2000*2**attempts.current++);

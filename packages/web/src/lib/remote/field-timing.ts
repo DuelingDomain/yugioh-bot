@@ -26,14 +26,18 @@ const uiOf=(p:RemoteActionProposal):string|undefined=>{
   return source==='voice'||source==='typed'?source:p.type==='card.identified'&&source==='click'?'identify':undefined;
 };
 /**
- * The stamp a player action carries. It is made ONCE per idempotency key and the same object comes back for every retry of that key:
+ * The stamp a table action carries. It is made ONCE per idempotency key and the same object comes back for every retry of that key:
  * the server compares a repeated key with the saved action field by field, so a stamp with a new `sentAt` would be refused (409).
+ * `by` is only set when the code knows: a write with `source: 'auto'` or from a phone scan (key `phone:...`) is the camera's reading, not a choice
+ * (`camera`); an action for a test bot seat has no person behind it, so `by` is left out; everything else comes from a person (`player`).
  * A timer (`side.timeout`) is no person's choice and stays unstamped. A proposal that already has a stamp (the watcher's, or a call site's) keeps it.
  */
 const stamps=new Map<string,RemoteCameraStamp|null>();
-export function stampedProposal<T extends RemoteActionProposal>(payload:T,key:string):T {
+export function stampedProposal<T extends RemoteActionProposal>(payload:T,key:string,botSeat=false):T {
   if(!stamps.has(key)){
-    stamps.set(key,payload.cam??(payload.type==='side.timeout'?null:playerStamp(uiOf(payload))));
+    const sentAt=Math.round(performance.timeOrigin+performance.now());
+    const automatic=(payload as {source?:string}).source==='auto'||key.startsWith('phone:');
+    stamps.set(key,payload.cam??(payload.type==='side.timeout'?null:automatic?{sentAt,by:'camera'}:botSeat?{sentAt}:playerStamp(uiOf(payload))));
     while(stamps.size>256)stamps.delete(stamps.keys().next().value!);
   }
   const cam=stamps.get(key);return cam?{...payload,cam}:payload;

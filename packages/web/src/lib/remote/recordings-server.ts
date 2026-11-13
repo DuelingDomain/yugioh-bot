@@ -6,6 +6,7 @@ import { appendFile, mkdir, open, readdir, rm, rmdir, stat, statfs, writeFile } 
 import { dirname, join, resolve } from "node:path";
 import { log } from "@yugidraft/shared/observability";
 import { RemoteDuelError } from "@yugidraft/shared/remote";
+import { FIELD_ZONE_IDS } from "@yugidraft/vision";
 import { resolveDbPath } from "../db";
 
 const GiB = 1024 ** 3;
@@ -42,7 +43,8 @@ const MAX_CLOCK_SAMPLES = 1000;
 const MAX_CALIBRATIONS = 20;
 const MAX_CALIBRATION_BYTES = 4096;
 const PLAYER_SIDES = new Set(["bottom", "left", "top", "right"]);
-const ZONE_ID = /^[A-Z][A-Z0-9]{0,5}$/;
+/** The zone ids the watcher knows (BANISHED, EMZ1, ...). A Set lookup of an own key: an id like `__proto__` is never a zone. */
+const ZONE_IDS: ReadonlySet<string> = new Set(FIELD_ZONE_IDS);
 const point = (value: unknown) => {
   const p = value as Record<string, unknown> | null | undefined, x = number(p?.x, -5, 5), y = number(p?.y, -5, 5);
   return x === undefined || y === undefined ? null : { x, y };
@@ -59,7 +61,7 @@ export function sanitizeCalibration(raw: unknown, now: number) {
   const zones: Record<string, unknown> = {};
   if (cal.zones && typeof cal.zones === "object") for (const [id, rect] of Object.entries(cal.zones).slice(0, 24)) {
     const r = rect as Record<string, unknown>, x = number(r?.x, -5, 5), y = number(r?.y, -5, 5), w = number(r?.w, 0, 5), h = number(r?.h, 0, 5);
-    if (ZONE_ID.test(id) && x !== undefined && y !== undefined && w !== undefined && h !== undefined) zones[id] = { x, y, w, h };
+    if (ZONE_IDS.has(id) && x !== undefined && y !== undefined && w !== undefined && h !== undefined) zones[id] = { x, y, w, h };
   }
   const entry = { at: number(body.at, 0, 1e15) ?? null, serverMs: now, format: text(body.format, 24) ?? null, placed: bool(body.placed), needed: bool(body.needed),
     calibration: { version: number(cal.version, 0, 99) ?? null, layout: number(cal.layout, 0, 99) ?? null, corners,
