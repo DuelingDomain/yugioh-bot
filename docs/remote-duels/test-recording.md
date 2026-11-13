@@ -62,19 +62,39 @@ npx tsx scripts/vision/compare-recordings.ts run-current.json run-other.json [--
 ### Label harvest
 
 ```sh
-npx tsx scripts/vision/harvest-labels.ts clip.webm --events room.json --calibration cal.json [--agree-seconds 20] [--max-crops 8] [--fps 2] [--holdout]
+npx tsx scripts/vision/harvest-labels.ts clip.webm --events room.json --calibration cal.json [--agree-seconds 20] [--max-crops 8] [--fps 2] [--holdout] [--allow-partial]
 ```
 
 Writes `data/vision-harvest/<room>/` (git-ignored; `--out` and `--room` change it): `crops/*.jpg` (warped card crops), `labels.jsonl`, `hard.jsonl`, `summary.json`, and a `HOLDOUT` file with `--holdout`. Local only: no network, no upload, no training, no index change. Each record has the room, clip time, zone, seat, label, label kind, source, the reader's top answer (score, margin, tier), sharpness, the crop path and a `hard` flag. Label kinds, most trusted first:
 
 | Kind | Meaning |
 | --- | --- |
-| `correction` | A player named the card (click, typed, voice) and the earlier name was different or missing: crops from before the rename get the corrected name (`previous` is the old one). Kept only when a second source agrees (the reader's top 5 holds the card, or a later automatic event names it); otherwise written as `hard` with no label. A card the watcher placed and a player removed or undid within 30 s, never named by a player and not a sure read, gives a `not-a-card` negative. |
-| `agreed` | An automatic read (not a best guess) that stayed on the board at least `--agree-seconds` (default 20) and no player renamed, removed or undid. Crops where the reader here disagrees or is unsure are flagged `hard`. |
+| `correction` | A player named the card (click, typed, voice) and the earlier name was different or missing: crops from before the rename get the corrected name (`previous` is the old one), on every span of the card, also after a move. Checked per crop: the reader's top 5 holds the card, or a later automatic event names it; otherwise the crop is `hard` with no label (and `proposed`). |
+| `not-a-card` | Only when all hold: the watcher placed the card, a player removed it (explicit player mark) or undid the place, no player or unknown name, life of 30 s or less, no name or only a best guess from the watcher, no other card in the zone within 5 s, and no crop reads sure here. If a crop reads sure, the crops are `hard` with no label. |
+| `agreed` | An automatic read (not a best guess) with trusted names that ended by removal, move or clip end and lay at least `--agree-seconds` (default 20) after its last name event. A crop is labelled only when the reader here gives the same card; else it is `hard` with no label. |
 | `hard` | The watcher did not name the card, or only guessed: no label, the guesses are recorded. `hard.jsonl` lists every record with `hard: true`. |
-| `empty-zone` | Sampled, capped crops of mat zones the events say are empty. |
+| `empty-zone` | Sampled, capped crops of mat zones the events say are empty (5 s slack plus jitter). A crop is dropped if the reader finds any outline in the zone or the cell, even a partial, covered or face-down one. |
 
-Safeguards: at most 8 crops per card per match, spread over the time the card lay there; blurred crops are skipped (Laplacian variance, `--min-sharpness`); a player action that contradicts an automatic one always wins; when the events cannot tie a correction to the earlier card, `summary.json` `gaps` says what is missing. A rename time comes from the server clock, so crops stop 1.5 s (plus half the round trip) before it.
+When unsure, the tool writes no label: a wrong label is worse than a missing one.
+
+**Who did it.** An action is `auto` when `source` is `auto` or `cam.by` is `camera`; `player` when `source` is click, voice or typed, `cam.by` is `player`, or `cam.ui` is set; otherwise `unknown`. A source-less action is never taken as a person (the watcher itself sends undo and removes). Unknown names block `agreed` and `not-a-card`.
+
+**Dropped cards.** A card gets no record (the summary `gaps` counts why) if it had an attach, detach, merge, control change, equip, pile lift or summon material; if an identify, move or remove was undone; if a move has no known place; if another card was put in its zone while it was open (overlap); or if players gave it several different names. A place or move in a zone with no slot (hand, pile) switches the empty-zone check off from then on.
+
+**Margins.** A crop starts 1 s after the card was placed and stops 1 s + half the round trip + 1.5 s before the end event, because the server time of an end event is only known to about that much. The round trip comes from the sidecar (`clockSamples` when present, else `client.rttMs`).
+
+Safeguards: at most 8 crops per card per match, spread over the time the card lay there; blurred crops are skipped (Laplacian variance, `--min-sharpness`); when the events cannot tie a correction to the earlier card, `summary.json` `gaps` says what is missing.
+
+### Complete event list
+
+The harvest needs every event of the room: seqs exactly 1..`lastSeq`. A list with holes, or one that starts after seq 1, is refused (the error names `export-room-events.ts` and `--allow-partial`). `GET /api/remote/<slug>` returns only the last 50 events unless `afterSeq` is used, so save the list with:
+
+```sh
+DD_SESSION_COOKIE='<Cookie header value of the player in that room>' \
+  npx tsx scripts/vision/export-room-events.ts --base https://<app-domain> --slug <room-slug> --out room.json
+```
+
+The script pages `?afterSeq=N` (up to 200 events per page) and writes `{slug, lastSeq, exportedAt, events}` with mode 0600. It reads the cookie from the environment, never prints or writes it, and makes this one network read (the only network use of these tools). The output holds only the events that player's seat may see, so keep it local. It exits 1 when the list is not complete. With `--allow-partial` the harvest goes on with an incomplete list but writes only corrections with a second source and hard crops (no `agreed`, `not-a-card` or empty zones), and the summary says so.
 
 Consent: only harvest recordings of people who agreed (the allowlisted test users). Use `--holdout` for a fixed test set: the `HOLDOUT` file marks the folder, and training or threshold tuning must never read a folder that has it. A player correction can be wrong, so a label counts only with a second source.
 
@@ -83,8 +103,8 @@ Consent: only harvest recordings of people who agreed (the allowlisted test user
 - The live card id is the watcher's own ref, so the link between an event and the video is by zone and time only. Zone matching needs the same calibration as the live run (`--calibration`); without it the whole frame counts as the mat.
 - Correction events (a player naming, moving or removing a card, undo) carry no camera stamp, only the server time, so their video time uses the sidecar `clockOffsetMs` (about plus or minus half the round trip). Without that offset or the server start time the events are dropped and a gap is reported.
 - The previous name before a correction is not in the event; it is taken from the earlier events of the same card.
-- `GET /api/remote/<slug>` returns only the last 50 events. When the list starts after seq 1, place events are missing: corrections cannot be tied, and empty zones and phantom reads are not checked. Save the events soon after the test.
-- A player removal looks the same as a normal card removal, so a `not-a-card` needs a short life (30 s) and a reader that was not sure.
+- The harvest refuses an incomplete event list (see Complete event list above). `replay-recording.ts` accepts one but the summary says that phantom reads are not checked.
+- A player removal that carries no player mark looks the same as a watcher removal, so it is `unknown` and never gives `not-a-card`. Newer optional fields (`cam.by`, `cam.ui`, `cam` on player actions, `clockSamples` and a live calibration in the sidecar) are read when present; their names must match the app change that adds them.
 - Event card ids are numbers and index ids are strings; they are compared by id and by name. The sidecar has no decklist.
 - Only the `current` reader was run for real in the checks of this change; the other kinds have a spec, a bank decoder and tests with fake readers, but no real model files were available.
 
