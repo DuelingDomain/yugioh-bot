@@ -17,7 +17,7 @@ if (candidate.changed) {
   const failures = evaluation ? bridgeQualityFailures(evaluation) : [];
   const bytes = readFileSync(join(root, "packages/shared/data/effects/bridges-manifest.json"));
   const manifest = JSON.parse(bytes.toString("utf8"));
-  candidate.bridge = { files: BRIDGE_FILES, version: manifest.version, manifest_sha256: bridgeHash(bytes.toString("utf8")), ...(evaluation ? { qualityGatePassed: failures.length === 0 } : {}) };
+  candidate.bridge = { files: BRIDGE_FILES, version: manifest.version, manifest_sha256: bridgeHash(bytes.toString("utf8")), ...(evaluation ? { qualityGatePassed: failures.length === 0, qualityGateFindingCount: failures.length } : {}) };
   for (const file of BRIDGE_FILES) {
     mkdirSync(dirname(join(output, file)), { recursive: true }); copyFileSync(join(root, file), join(output, file));
   }

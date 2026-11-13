@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, existsSync, readFileSync, rmSync, writeFileSync
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
-import { evaluateBridges } from "../evaluate-bridges.js";
+import { bridgeQualityFailures, evaluateBridges } from "../evaluate-bridges.js";
 
 describe("bridge golden evaluation", () => {
   it("counts deep positives separately from strict Suggestions recall", () => {
@@ -72,7 +72,9 @@ describe("bridge golden evaluation", () => {
       writeFileSync(join(directory, "report.md"), "# Candidate engine data\n");
       const stage = spawnSync(process.execPath, ["--conditions=source", "--import", "tsx", join(root, "scripts/effects/stage-bridges.ts"), "--output", directory, "--kind", "engine", "--evaluation", evaluation], { cwd: root, encoding: "utf8", timeout: 20_000 });
       expect(stage.status, stage.stderr).toBe(0);
-      expect(JSON.parse(readFileSync(join(directory, "update.json"), "utf8")).bridge.qualityGatePassed).toBe(false);
+      expect(JSON.parse(readFileSync(join(directory, "update.json"), "utf8")).bridge).toMatchObject({
+        qualityGatePassed: false, qualityGateFindingCount: bridgeQualityFailures(report).length,
+      });
       expect(readFileSync(join(directory, "report.md"), "utf8")).toContain("Draft: bridge quality gate failed");
       expect(readFileSync(join(directory, "report.md"), "utf8")).toContain("synergy_recall=0.5");
       expect(report.advanced).toMatchObject({ precision_at_5: 1, judgement_coverage_at_5: 1, deep_recall_at_10: 1,

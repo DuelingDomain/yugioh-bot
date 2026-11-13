@@ -1,6 +1,6 @@
 /** Publish the reviewed data-only artifact. Uses Node builtins and git/gh; never installs or executes candidate code. */
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -48,6 +48,11 @@ export function validateArtifact(artifact) {
   }
   if (artifact.files.some(file => BRIDGE_FILES.includes(file)) && !artifact.bridge) throw new Error("Bridge changes require their validated manifest");
   if (artifact.bridge?.qualityGatePassed !== undefined && typeof artifact.bridge.qualityGatePassed !== "boolean") throw new Error("Bridge qualityGatePassed must be boolean");
+  if (artifact.bridge?.qualityGatePassed !== undefined &&
+      (!Number.isSafeInteger(artifact.bridge.qualityGateFindingCount) || artifact.bridge.qualityGateFindingCount < 0 ||
+       artifact.bridge.qualityGatePassed !== (artifact.bridge.qualityGateFindingCount === 0))) {
+    throw new Error("Bridge qualityGateFindingCount must match the gate result");
+  }
   if (!artifact.next || Object.keys(artifact.next).length !== pinKeys.length ||
       pinKeys.some((key) => !/^[a-f0-9]{40}$/.test(artifact.next[key] ?? ""))) {
     throw new Error("Artifact next must contain exactly three full data pin SHAs");
@@ -114,7 +119,9 @@ export async function publishEngineData({ cwd = process.cwd(), env = process.env
   validateBridgeCandidate(cwd, artifactDir, artifact.bridge);
   const compatibilityChanged = artifact.files?.some(file => COMPATIBILITY_FILES.includes(file));
   const bridgeChanged = artifact.files?.some(file => BRIDGE_FILES.includes(file));
+  const hasBridgeEvaluation = artifact.bridge?.qualityGatePassed !== undefined;
   const bridgeReviewRequired = artifact.bridge?.qualityGatePassed === false;
+  const bridgeFindingCount = bridgeReviewRequired ? artifact.bridge.qualityGateFindingCount : 0;
   const logicChanged = artifact.files?.some(file => LOGIC_FILES.includes(file));
   const skip = (reason) => { log(`::warning::Engine data publication skipped: ${reason}`); return { status: "skipped", reason, pushed: false }; };
   if (!artifact.changed) return skip("unchanged");
@@ -134,6 +141,18 @@ export async function publishEngineData({ cwd = process.cwd(), env = process.env
   // ls-remote distinguishes a genuinely absent branch from a failed fetch (which must fail publication).
   const branchExists = Boolean(git("ls-remote", "--heads", "origin", `refs/heads/${branch}`).trim());
   const pr = gh("pr", "list", "--repo", repo, "--head", branch, "--base", base, "--state", "open", "--json", "url", "--jq", ".[0].url // empty").trim();
+  const body = join(artifactDir, existsSync(join(artifactDir, "pr-body.md")) ? "pr-body.md" : "report.md");
+  const restoreReadiness = (url) => {
+    if (artifact.bridge?.qualityGatePassed === true && gh("pr", "view", url, "--repo", repo, "--json", "isDraft", "--jq", ".isDraft").trim() === "true") {
+      gh("pr", "ready", url, "--repo", repo);
+    }
+  };
+  const skipExisting = (reason) => {
+    if (bridgeReviewRequired) gh("pr", "ready", pr, "--repo", repo, "--undo");
+    if (artifact.bridge?.qualityGatePassed !== undefined) gh("pr", "edit", pr, "--repo", repo, "--body-file", body);
+    restoreReadiness(pr);
+    return { ...skip(reason), prUrl: pr, bridgeFindingCount };
+  };
   let updateSha = "";
   let historyRepair = null;
   if (branchExists) {
@@ -162,14 +181,14 @@ export async function publishEngineData({ cwd = process.cwd(), env = process.env
         if (!Array.isArray(published)) throw new Error("Invalid card data history");
         if (!published.some(entry => entry.pullRequest.url === pr)) historyRepair = published;
       }
-      if (historyRepair === null && !compatibilityChanged && !bridgeChanged && !logicChanged) return skip("identical-pins");
+      if (historyRepair === null && !compatibilityChanged && !bridgeChanged && !logicChanged && !hasBridgeEvaluation) return skipExisting("identical-pins");
     }
-    if (historyRepair === null && artifact.matchingPrHead === updateSha && !compatibilityChanged && !bridgeChanged && !logicChanged) return skip("identical-data");
+    if (historyRepair === null && artifact.matchingPrHead === updateSha && !compatibilityChanged && !bridgeChanged && !logicChanged && !hasBridgeEvaluation) return skipExisting("identical-data");
   }
   const original = git("show", `${baseSha}:${PIN_FILE}`);
   const old = readPinsFromSource(original);
   const pinsChanged = pinKeys.some((key) => old[key] !== artifact.next[key]);
-  if (!pinsChanged && !compatibilityChanged && !bridgeChanged && !logicChanged) return skip("identical-pins");
+  if (!pinsChanged && !compatibilityChanged && !bridgeChanged && !logicChanged && !hasBridgeEvaluation) return pr ? skipExisting("identical-pins") : skip("identical-pins");
   if (!pinsChanged) historyRepair = null;
   let expected = original;
   for (const key of pinKeys) expected = expected.replace(pinPattern(key), (_, prefix, _old, suffix) => `${prefix}${artifact.next[key]}${suffix}`);
@@ -222,7 +241,9 @@ export async function publishEngineData({ cwd = process.cwd(), env = process.env
     }
   } finally { rmSync(temporary, { recursive: true, force: true }); }
 
-  if (pr && updateSha && (compatibilityChanged || bridgeChanged || logicChanged)) {
+  // A completed gate evaluates the whole bridge snapshot, even when it matches base.
+  // Compare the PR too: matching pins must not leave stale failing bridges ready.
+  if (pr && updateSha && (compatibilityChanged || bridgeChanged || logicChanged || hasBridgeEvaluation)) {
     const identical = DATA_FILES.every(file => {
       const source = expectedSources.get(file);
       // Older bases may predate optional artifacts. Unchanged missing files
@@ -235,11 +256,10 @@ export async function publishEngineData({ cwd = process.cwd(), env = process.env
     });
     // History-only recovery is valid only for the same candidate, including both JSON files.
     if (!identical) historyRepair = null;
-    else if (historyRepair === null) return skip("identical-data");
+    else if (historyRepair === null) return skipExisting("identical-data");
   }
 
   if (git("status", "--porcelain", "--untracked-files=no").trim()) throw new Error("Publication requires a clean tracked checkout");
-  const body = join(artifactDir, existsSync(join(artifactDir, "pr-body.md")) ? "pr-body.md" : "report.md");
   readFileSync(body, "utf8"); // Require a usable report before publishing the branch.
   // Older checkouts/artifacts can still publish pins. History is generated here by trusted
   // code, never accepted as a writable path in the untrusted candidate patch.
@@ -279,11 +299,16 @@ export async function publishEngineData({ cwd = process.cwd(), env = process.env
   }
   const labels = gh("api", "--paginate", `repos/${repo}/labels?per_page=100`, "--jq", ".[].name").trim().split("\n");
   if (labels.includes("engine-data")) gh("pr", "edit", prUrl, "--repo", repo, "--add-label", "engine-data");
+  restoreReadiness(prUrl);
   if (env.HAS_PR_TOKEN !== "true") gh("workflow", "run", "test.yml", "--repo", repo, "--ref", branch, "-f", "nightly=false", "-f", "new_card_smoke=true");
   log(`Engine data update published: ${prUrl}`);
-  return { status: "published", pushed: true, prUrl };
+  return { status: "published", pushed: true, prUrl, bridgeFindingCount };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  publishEngineData().catch((error) => { console.error(error.message); process.exitCode = 1; });
+  publishEngineData().then((result) => {
+    if (process.env.GITHUB_OUTPUT && result.prUrl) {
+      appendFileSync(process.env.GITHUB_OUTPUT, `pr_url=${result.prUrl}\nbridge_finding_count=${result.bridgeFindingCount}\n`);
+    }
+  }).catch((error) => { console.error(error.message); process.exitCode = 1; });
 }

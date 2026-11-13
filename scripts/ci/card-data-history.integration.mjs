@@ -4,7 +4,7 @@
  */
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -12,6 +12,7 @@ import { fileURLToPath } from "node:url";
 import { publishEngineData, readPinsFromSource, PIN_FILE, BOT } from "./publish-engine-data.mjs";
 import { BRIDGE_FILES } from "./bridge-artifacts.mjs";
 import { HISTORY_FILE } from "./engine-data-history.mjs";
+import { parse } from "yaml";
 
 const sourceRoot = fileURLToPath(new URL("../../", import.meta.url));
 const root = mkdtempSync(join(tmpdir(), "card-data-history-integration-"));
@@ -26,6 +27,7 @@ const prCalls = [];
 const run = (command, args, options) => {
   if (command === "gh") {
     if (args[0] === "pr") prCalls.push([...args]);
+    if (args[0] === "pr" && args[1] === "view") return "true";
     if (args[0] === "pr" && args[1] === "list") return openPr ? url : "";
     if (args[0] === "pr" && args[1] === "create") { openPr = true; return url; }
     if (args[0] === "api") return "engine-data\n";
@@ -77,7 +79,7 @@ try {
       writeFileSync(join(artifactDir, file), readFileSync(join(sourceRoot, file)));
     }
     metadata.bridge = { files: BRIDGE_FILES, version: manifest.version,
-      manifest_sha256: createHash("sha256").update(manifestBytes).digest("hex"), qualityGatePassed: false };
+      manifest_sha256: createHash("sha256").update(manifestBytes).digest("hex"), qualityGatePassed: false, qualityGateFindingCount: 3 };
     writeFileSync(join(artifactDir, "update.json"), JSON.stringify(metadata));
   }
   bridgeFinding(candidate(originalPins.scripts[0] === "a" ? "b" : "a"));
@@ -87,7 +89,7 @@ try {
   assert.deepEqual(historyAtHead(), originalHistory, "failed second push leaves the remote pin commit intact");
   git("switch", "main");
   const pinOnlyHead = git("rev-parse", "origin/chore/engine-data-update").trim();
-  assert.equal((await publishEngineData({ cwd, env, run })).status, "published");
+  assert.deepEqual(await publishEngineData({ cwd, env, run }), { status: "published", pushed: true, prUrl: url, bridgeFindingCount: 3 });
   assert.equal(pushes, 3, "a retry repairs missing history even when PR pins already match");
   assert.equal(git("rev-parse", "HEAD^").trim(), pinOnlyHead, "repair preserves the published pin commit");
   assert.equal(git("diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD").trim(), HISTORY_FILE);
@@ -111,6 +113,22 @@ try {
   assert.equal(historyAtHead().length, first.length);
   assert.equal(historyAtHead()[0].counts.changedCards, 9);
   assert.equal(git("log", "-1", "--format=%an <%ae>").trim(), `${BOT.name} <${BOT.email}>`);
+  git("switch", "main");
+  assert.equal((await publishEngineData({ cwd, env, run })).bridgeFindingCount, 3, "identical findings remain red");
+  // A later passing gate restores readiness even when the candidate data is identical.
+  metadata.bridge.qualityGatePassed = true; metadata.bridge.qualityGateFindingCount = 0;
+  writeFileSync(join(artifactDir, "update.json"), JSON.stringify(metadata));
+  git("switch", "main");
+  assert.equal((await publishEngineData({ cwd, env, run })).reason, "identical-data");
+  assert.ok(prCalls.some(args => args[1] === "ready" && !args.includes("--undo")), "a passing gate restores draft readiness");
+  git("switch", "--detach", "origin/chore/engine-data-update");
+  // Matching pins alone cannot make stale PR bridge data ready after a passing rebuild.
+  writeFileSync(join(cwd, BRIDGE_FILES[0]), "stale bridge snapshot\n");
+  git("add", "--", BRIDGE_FILES[0]); git("commit", "-qm", "simulate stale draft bridges");
+  git("push", "origin", "HEAD:refs/heads/chore/engine-data-update");
+  git("switch", "main");
+  assert.equal((await publishEngineData({ cwd, env, run })).status, "published");
+  assert.equal(git("rev-parse", `origin/chore/engine-data-update:${BRIDGE_FILES[0]}`), git("rev-parse", `${baseSha}:${BRIDGE_FILES[0]}`));
   // A branch made by the old publisher may not contain a history file at all.
   git("rm", "--", HISTORY_FILE); git("commit", "-qm", "simulate legacy pin-only tree");
   git("push", "origin", "HEAD:refs/heads/chore/engine-data-update");
@@ -135,7 +153,16 @@ try {
   assert.equal((await publishEngineData({ cwd, env, run, log: () => {} })).reason, "human-commits");
   assert.equal(pushes, beforeReject);
   if (process.env.HISTORY_INTEGRATION_OUTPUT) writeFileSync(process.env.HISTORY_INTEGRATION_OUTPUT, JSON.stringify(first, null, 2) + "\n");
-  console.log("PASS: real-file publication, failed-push repair, exact PR link, counts/card fields, backfill retention, replacement, draft publication for bridge findings, patch rejection and human-commit protection");
+  const steps = parse(readFileSync(join(sourceRoot, ".github/workflows/engine-data-update.yml"), "utf8")).jobs.publish.steps;
+  const final = steps.at(-1), cleanup = steps.at(-2);
+  assert.equal(steps.at(-3).id, "publication");
+  assert.equal(cleanup.if, "always()");
+  assert.equal(final.if, "always() && steps.publication.outputs.bridge_finding_count > 0");
+  execFileSync("bash", ["-e", "-o", "pipefail", "-c", cleanup.run], { env });
+  const failed = spawnSync("bash", ["-e", "-o", "pipefail", "-c", final.run], { env: { ...env, FINDING_COUNT: "3", DRAFT_PR_URL: url }, encoding: "utf8" });
+  assert.equal(failed.status, 1);
+  assert.equal(failed.stdout, `::error::Engine data has 3 bridge quality findings. Review draft PR: ${url}\n`);
+  console.log("PASS: real-file publication, failed-push repair, exact PR link, counts/card fields, backfill retention, replacement, draft publication, readiness recovery, final red annotation after cleanup, patch rejection and human-commit protection");
 } finally {
   rmSync(root, { recursive: true, force: true });
 }
