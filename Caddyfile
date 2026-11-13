@@ -75,6 +75,15 @@ Allow: /
     }
     import posthog_ingest
     handle {
+        # Scanners send a made-up Server Action id (Next-Action: x) to look for
+        # old React/Next holes. Next rejects it, but each one writes an error
+        # to the web log. Stop them here. Real ids are long hex strings (Clerk
+        # uses Server Actions), so those pass.
+        @badServerAction {
+            header Next-Action *
+            not header_regexp Next-Action ^[0-9a-f]{40,64}$
+        }
+        respond @badServerAction 404
         reverse_proxy web:3000 {
             # Hold through a web-only restart. Keep the default GET-only
             # round-trip retries: POST may retry only if dialing failed.
