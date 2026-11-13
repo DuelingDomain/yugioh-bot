@@ -3,25 +3,29 @@
  * against a disposable local bare remote. Only GitHub PR operations are simulated.
  */
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { publishEngineData, readPinsFromSource, PIN_FILE, BOT } from "./publish-engine-data.mjs";
+import { BRIDGE_FILES } from "./bridge-artifacts.mjs";
 import { HISTORY_FILE } from "./engine-data-history.mjs";
 
 const sourceRoot = fileURLToPath(new URL("../../", import.meta.url));
 const root = mkdtempSync(join(tmpdir(), "card-data-history-integration-"));
 const cwd = join(root, "checkout"), remote = join(root, "remote.git"), artifactDir = join(root, "artifact");
 const coreFiles = ["packages/duel-server/domain-core/pins.json", "packages/duel-server/legacy-1v1/domain-core/pins.json"];
-const baseFiles = [PIN_FILE, ...coreFiles, HISTORY_FILE];
+const baseFiles = [...new Set([PIN_FILE, ...coreFiles, HISTORY_FILE, ...BRIDGE_FILES])];
 const url = "https://github.com/DuelingDomain/yugioh-bot/pull/999999";
 const git = (...args) => execFileSync("git", args, { cwd, encoding: "utf8", stdio: "pipe" });
 const env = { ...process.env, UPDATE_ARTIFACT_DIR: artifactDir, GH_REPO: "DuelingDomain/yugioh-bot", HAS_PR_TOKEN: "true" };
 let openPr = false, pushes = 0;
+const prCalls = [];
 const run = (command, args, options) => {
   if (command === "gh") {
+    if (args[0] === "pr") prCalls.push([...args]);
     if (args[0] === "pr" && args[1] === "list") return openPr ? url : "";
     if (args[0] === "pr" && args[1] === "create") { openPr = true; return url; }
     if (args[0] === "api") return "engine-data\n";
@@ -65,9 +69,21 @@ try {
     writeFileSync(join(artifactDir, "pr-body.md"), "Integration update report\n");
     return metadata;
   }
-  candidate(originalPins.scripts[0] === "a" ? "b" : "a");
+  function bridgeFinding(metadata) {
+    const manifestBytes = readFileSync(join(sourceRoot, "packages/shared/data/effects/bridges-manifest.json"));
+    const manifest = JSON.parse(manifestBytes);
+    for (const file of BRIDGE_FILES) {
+      mkdirSync(dirname(join(artifactDir, file)), { recursive: true });
+      writeFileSync(join(artifactDir, file), readFileSync(join(sourceRoot, file)));
+    }
+    metadata.bridge = { files: BRIDGE_FILES, version: manifest.version,
+      manifest_sha256: createHash("sha256").update(manifestBytes).digest("hex"), qualityGatePassed: false };
+    writeFileSync(join(artifactDir, "update.json"), JSON.stringify(metadata));
+  }
+  bridgeFinding(candidate(originalPins.scripts[0] === "a" ? "b" : "a"));
   const historyAtHead = () => JSON.parse(git("show", `origin/chore/engine-data-update:${HISTORY_FILE}`));
   await assert.rejects(publishEngineData({ cwd, env, run }), /Simulated network failure/);
+  assert.ok(prCalls.some(args => args[1] === "create" && args.includes("--draft")), "quality findings create a draft PR");
   assert.deepEqual(historyAtHead(), originalHistory, "failed second push leaves the remote pin commit intact");
   git("switch", "main");
   const pinOnlyHead = git("rev-parse", "origin/chore/engine-data-update").trim();
@@ -87,8 +103,10 @@ try {
   const metadata = candidate("c");
   metadata.relevance.changedCards = 9;
   writeFileSync(join(artifactDir, "update.json"), JSON.stringify(metadata));
+  bridgeFinding(metadata);
   const beforeUpdate = pushes;
   assert.equal((await publishEngineData({ cwd, env, run })).status, "published");
+  assert.ok(prCalls.some(args => args[1] === "ready" && args.includes("--undo")), "quality findings convert an existing PR to draft");
   assert.equal(pushes - beforeUpdate, 1, "existing PR history is included in the pin commit");
   assert.equal(historyAtHead().length, first.length);
   assert.equal(historyAtHead()[0].counts.changedCards, 9);
@@ -117,7 +135,7 @@ try {
   assert.equal((await publishEngineData({ cwd, env, run, log: () => {} })).reason, "human-commits");
   assert.equal(pushes, beforeReject);
   if (process.env.HISTORY_INTEGRATION_OUTPUT) writeFileSync(process.env.HISTORY_INTEGRATION_OUTPUT, JSON.stringify(first, null, 2) + "\n");
-  console.log("PASS: real-file publication, failed-push repair, exact PR link, counts/card fields, backfill retention, replacement, patch rejection and human-commit protection");
+  console.log("PASS: real-file publication, failed-push repair, exact PR link, counts/card fields, backfill retention, replacement, draft publication for bridge findings, patch rejection and human-commit protection");
 } finally {
   rmSync(root, { recursive: true, force: true });
 }

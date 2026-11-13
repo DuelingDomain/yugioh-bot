@@ -18,7 +18,7 @@ Only one run at a time (group `engine-data-update`).
 ## What it changes
 
 - Branch and PR `chore/engine-data-update`, label `engine-data`.
-- Pin files and the Dueling Book passcode JSON files. Nothing else.
+- Data pins, Dueling Book passcode JSON, rebuilt bridge artifacts and their integrity pin, and generated Remote Duels card logic/behaviour JSON.
 - Artifact `engine-data-update-report` (kept 14 days).
 - If a person has pushed to the branch, the job does not overwrite it.
 - Without `ENGINE_DATA_PR_TOKEN` it starts Test with `new_card_smoke=true` itself.
@@ -56,6 +56,13 @@ gh pr list -R DuelingDomain/yugioh-bot --head chore/engine-data-update
 
 Open the PR. Read the report. Wait for Test and the new-card smoke to pass. Then merge.
 
+A completed bridge evaluation with quality findings opens or updates a **draft** PR.
+The PR includes the rebuilt candidate, failing metrics and affected pairs; the report
+artifact also contains `bridge-evaluation.json`. Fix the findings in that update PR
+and rerun Test before marking it ready. Test still runs the same blocking bridge
+quality gate. Generation errors, incomplete evaluation and bundle integrity errors
+still stop preparation. The updater does not substitute an old bridge snapshot.
+
 ## When it fails
 
 | Sign | Cause | Action |
@@ -66,6 +73,14 @@ Open the PR. Read the report. Wait for Test and the new-card smoke to pass. Then
 | Branch not updated | A person committed to it | Merge or close that PR, then run again. |
 
 History: red on 10-12, 10-15, 10-19 (token missing). Green on 10-22 after the token was set.
+The next failure was run `40317202096` on 10-26: upstream restored the Princess Cologne
+constant, invalidating the shared patch's exact stock hash. Runs on 10-29, 11-02,
+11-05 and 11-09 stopped at the same patch review. Manual PR #572 retired the redundant
+patch and updated the data on 11-09, retaining the committed bridge snapshot after
+fresh generation failed quality evaluation (see [its review](../audits/2026-11-09-engine-data-review.md)).
+Run `43234053667` on 11-12 consequently reached bridge evaluation: both formats had
+precision 0.8667, one false Blue-Eyes → Toon bridge, and zero deep recall. This was a
+quality finding, not a timeout; the previous four runs had not reached bridges.
 
 ## Cost/limits
 

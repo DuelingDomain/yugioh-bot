@@ -123,11 +123,14 @@ it("lists disappeared codes without a remap, including renamed releases with mat
  expect(withExistingMatch.split("Removed preview codes with no remap")[1]).not.toContain("12 Official name");
 });
 
-it("retains patch review details when the weekly failure summary is truncated", () => {
-  const report = "BLOCKING: 1 patch needs review\n" + "data\n".repeat(20000) + "\n## Card script patches\n\n**patch needs review**: official/c3743515.lua; pins unchanged.\n";
+it("retains patch and bridge review details when the weekly report is truncated", () => {
+  const report = "BLOCKING: 1 patch needs review\n" + "data\n".repeat(20000) + "\n## Card script patches\n\n**patch needs review**: official/c3743515.lua; pins unchanged.\n\n## Archetype bridges\n\n**Draft: bridge quality gate failed. Do not merge.**\n\n- advanced: false bridge Blue-Eyes → Toon\n- genesys: deep_recall_at_10=0\n";
   const summary = boundedReport(report, run, 60000);
   expect(summary).toContain("official/c3743515.lua");
   expect(summary).toContain("pins unchanged");
+  expect(summary).toContain("Draft: bridge quality gate failed");
+  expect(summary).toContain("false bridge Blue-Eyes → Toon");
+  expect(summary).toContain("deep_recall_at_10=0");
   expect(Buffer.byteLength(summary)).toBeLessThanOrEqual(60000);
 });
 

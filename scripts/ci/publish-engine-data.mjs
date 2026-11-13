@@ -47,6 +47,7 @@ export function validateArtifact(artifact) {
     throw new Error(`Artifact files must match the exact allowlist: ${DATA_FILES.join(", ")}`);
   }
   if (artifact.files.some(file => BRIDGE_FILES.includes(file)) && !artifact.bridge) throw new Error("Bridge changes require their validated manifest");
+  if (artifact.bridge?.qualityGatePassed !== undefined && typeof artifact.bridge.qualityGatePassed !== "boolean") throw new Error("Bridge qualityGatePassed must be boolean");
   if (!artifact.next || Object.keys(artifact.next).length !== pinKeys.length ||
       pinKeys.some((key) => !/^[a-f0-9]{40}$/.test(artifact.next[key] ?? ""))) {
     throw new Error("Artifact next must contain exactly three full data pin SHAs");
@@ -113,6 +114,7 @@ export async function publishEngineData({ cwd = process.cwd(), env = process.env
   validateBridgeCandidate(cwd, artifactDir, artifact.bridge);
   const compatibilityChanged = artifact.files?.some(file => COMPATIBILITY_FILES.includes(file));
   const bridgeChanged = artifact.files?.some(file => BRIDGE_FILES.includes(file));
+  const bridgeReviewRequired = artifact.bridge?.qualityGatePassed === false;
   const logicChanged = artifact.files?.some(file => LOGIC_FILES.includes(file));
   const skip = (reason) => { log(`::warning::Engine data publication skipped: ${reason}`); return { status: "skipped", reason, pushed: false }; };
   if (!artifact.changed) return skip("unchanged");
@@ -259,11 +261,13 @@ export async function publishEngineData({ cwd = process.cwd(), env = process.env
   if (details && pr) recordHistory(pr);
   const authorEnv = { ...env, GIT_AUTHOR_NAME: BOT.name, GIT_AUTHOR_EMAIL: BOT.email, GIT_COMMITTER_NAME: BOT.name, GIT_COMMITTER_EMAIL: BOT.email };
   run("git", ["-c", "commit.gpgsign=false", "commit", "-m", historyRepair === null ? title : "chore(engine): record card data update history"], { cwd, env: authorEnv });
+  // Make an existing PR a draft before exposing candidate files with quality findings.
+  if (pr && bridgeReviewRequired) gh("pr", "ready", pr, "--repo", repo, "--undo");
   // An explicit empty lease protects branch creation too. A new commit after our fetch makes the push fail.
   git("push", `--force-with-lease=refs/heads/${branch}:${updateSha}`, "origin", `HEAD:refs/heads/${branch}`);
   let prUrl = pr;
   if (prUrl && historyRepair === null) gh("pr", "edit", prUrl, "--repo", repo, "--title", title, "--body-file", body);
-  else if (!prUrl) prUrl = gh("pr", "create", "--repo", repo, "--base", base, "--head", branch, "--title", title, "--body-file", body).trim();
+  else if (!prUrl) prUrl = gh("pr", "create", "--repo", repo, "--base", base, "--head", branch, "--title", title, "--body-file", body, ...(bridgeReviewRequired ? ["--draft"] : [])).trim();
   if (!/^https:\/\/\S+\/pull\/\d+$/.test(prUrl)) throw new Error("gh did not return a pull request URL");
   if (details && !pr) {
     // A new PR number exists only after the first push. Store its exact link in a
