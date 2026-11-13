@@ -109,10 +109,10 @@ async function makeFixture(dir: string) {
     [18, { type: 'board.future-thing', idempotencyKey: 'fQ', cardRef: 'rQ' }],
   ];
   const events = list.sort((x, y) => x[0] - y[0]).map(([s, action], i) => ({ id: `e${i + 1}`, seq: i + 1, actorSeat: 0, userId: 7, at: at(s), action: { ...(action.type === 'undo' ? {} : { seat: 0 }), actorSeat: 0, ...(action.type === 'twin.place' ? (({ slot: _slot, ...rest }) => rest)(action) : action) } }));
-  // every fixture action is checked against the real schema (cam.by / cam.ui come from a newer web build than this branch's schema, so they are stripped first; the one made-up type is skipped on purpose)
+  // every fixture action is checked against the real schema (the one made-up type is skipped on purpose)
   for (const e of events) {
     const a = e.action as unknown as { type: string; idempotencyKey: string; cam?: Record<string, unknown> }; if (a.type === 'board.future-thing') continue;
-    const { by: _by, ui: _ui, ...cleanCam } = a.cam ?? {}, r = remoteActionSchema.safeParse({ ...a, ...(a.cam ? { cam: cleanCam } : {}) });
+    const r = remoteActionSchema.safeParse(a);
     assert.ok(r.success, `fixture action ${a.idempotencyKey} fits the schema: ${r.success ? '' : JSON.stringify(r.error.issues[0])}`);
   }
   const room = { slug: 'testroom', lastSeq: events.length, events };
