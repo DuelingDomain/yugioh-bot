@@ -510,7 +510,7 @@ it('GY and banished arrivals place either face; private piles and absent twins n
 });
 it('sideways cards: Defense, Set, banished and GY read from the mat; a pile never keeps the sideways pose',async()=>{
  const {createFieldCalibration,fieldMatPoint,fieldZoneCells,mapFieldZone,fieldOrientation}=await import('@yugidraft/vision');
- const {fieldPlacementProposals,fieldPileEvidence,fieldDepartureProposal}=await import('../src/lib/remote/field-proposals');
+ const {fieldPlacementProposals,fieldPileEvidence,fieldDepartureProposal,fieldTwinPosition,fieldPositionMatches}=await import('../src/lib/remote/field-proposals');
  const {ygoModule}=await import('@yugidraft/shared/remote');
  // Flat 16:9 camera, mat 86% x 90% of the picture, so one cell is card-shaped (59:86). A card is 95% of a cell wide.
  const W=1280,H=720,mw=.86*W,mh=.9*H,cal=createFieldCalibration([{x:.07,y:.05},{x:.93,y:.95}]),cells=fieldZoneCells('normal',1);
@@ -546,6 +546,11 @@ it('sideways cards: Defense, Set, banished and GY read from the mat; a pile neve
  // A Defense monster that goes to the GY and is then seen there sideways needs no second write: its pile form already matches.
  const left={ref:'fw-M3',zone:'monster',faceUp:true,position:'defense',name:'Card'} as any;
  expect(fieldDepartureProposal(left,0,{zone:'graveyard'})).toMatchObject({zone:'graveyard',position:'attack'});
+ // Old rows and Synchro/Link materials keep `defense` in a pile: the watcher sends no position-only move for them, sideways or upright; a field card still does.
+ const needsMove=(zone:string,stored:string,track:any)=>!fieldPositionMatches(zone,stored,fieldTwinPosition(track));
+ expect([true,false].map(sideways=>needsMove('graveyard','defense',lying('GY',sideways,.1,0,3)))).toEqual([false,false]);
+ expect([true,false].map(sideways=>needsMove('banished','defense',lying('BANISHED',sideways,.1,0,3)))).toEqual([false,false]);
+ expect(needsMove('monster','attack',lying('M3',true,.1,0,3))).toBe(true);
  // Seen-first rule: a face-down banished card is where a departed card went only when the camera saw it arrive; without it the card goes to the hand.
  const seen=lying('BANISHED',true,.2,0,5,true),owns=(t:any)=>t.id,wait={ref:seen.id,zone:'banished',faceUp:false,position:'attack'} as any;
  expect(fieldPileEvidence({twins:[wait],tracks:[seen],lastSeen:900,owns})).toMatchObject({zone:'banished',faceUp:false});

@@ -30,6 +30,8 @@ export function distinctFieldQuads(a:readonly {x:number;y:number}[],b:readonly {
 export function fieldTwinPosition(track:Pick<FieldTrack,'faceDown'|'zone'|'position'>):FieldTrack['position'] {
   return /^(GY|BANISHED|DECK|EXTRA)$/.test(track.zone)?'attack':track.faceDown&&/^M[1-5]$|^EMZ[12]$/.test(track.zone)?'defense':track.faceDown&&/^S[1-5]$|^FIELD$/.test(track.zone)?'attack':track.position;
 }
+/** A pile card has no battle position (old rows and Synchro/Link materials can still hold `defense`): only a field card compares position. */
+export const fieldPositionMatches=(zone:string,stored:string|undefined,wanted:string|undefined)=>/^(graveyard|banished|deck|extra)$/.test(zone)||stored===wanted;
 /** A board card and its track may disagree on face this long, on still frames, before the board follows the track. */
 export const FIELD_FACE_WAIT_MS=600;
 /** A track that speaks for the face of its board card: settled on a field zone, on a box that rests on the mat now. A weak box counts; a front needs its read. */

@@ -11,7 +11,7 @@ import {remoteHandActivationDecision,remoteHandReadDecision,remotePhysicalSlot,R
 import type {RoomMutation,RoomTransaction} from '@/lib/remote/room-mutations';
 import {useFieldWatcher} from '@/lib/remote/use-field-watcher';
 import {e2eFieldHook} from '@/lib/remote/e2e-field-hook';
-import {applyFieldFaceFlip,fieldFaceProposal,fieldStrongBack,fieldTwinPosition,fieldDepartureProposal,fieldDepartureStillMissing,fieldPileEvidence,fieldLeaveLabel,FIELD_LEAVE_DESTINATIONS,heldFieldReadPending,fieldPlacementProposals,fieldEvidenceMatches,simultaneousFieldCopies,applyVerifiedFieldMutation,StaleFieldPlacementError,observedFieldZone,staleFieldOccupant,retryFieldMutation} from '@/lib/remote/field-proposals';
+import {fieldPositionMatches,applyFieldFaceFlip,fieldFaceProposal,fieldStrongBack,fieldTwinPosition,fieldDepartureProposal,fieldDepartureStillMissing,fieldPileEvidence,fieldLeaveLabel,FIELD_LEAVE_DESTINATIONS,heldFieldReadPending,fieldPlacementProposals,fieldEvidenceMatches,simultaneousFieldCopies,applyVerifiedFieldMutation,StaleFieldPlacementError,observedFieldZone,staleFieldOccupant,retryFieldMutation} from '@/lib/remote/field-proposals';
 import {createFieldFaceCheck,type FieldFaceFix} from '@/lib/remote/field-face';
 import {fieldTrackMessage} from '@/lib/remote/field-track-cache';
 import {onManualMove} from '@/lib/remote/manual-moves';
@@ -520,11 +520,11 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
         if(tokenClash(event,target.zone,twins,entry?.name,entry?cardInfo(catalogCardId(entry)):undefined))return;
         return {observed:observed!,card,location:fieldZoneLocation(target.zone),position:fieldTwinPosition({...observed!,zone:target.zone})};
       };
-      const matches=(target:NonNullable<ReturnType<typeof currentTarget>>)=>target.card.zone===target.location.zone&&target.card.slot===target.location.slot&&target.card.position===target.position;
+      const matches=(target:NonNullable<ReturnType<typeof currentTarget>>)=>target.card.zone===target.location.zone&&target.card.slot===target.location.slot&&fieldPositionMatches(target.location.zone,target.card.position,target.position);
       let target=currentTarget();if(!target)return;
       if(!matches(target)&&!(existing&&keepsManual(existing.ref,fieldZoneLocation(target.observed.zone),target.observed.position))){
         const physicallyMoved=target.observed.zone!==physicalAtSave.zone||target.observed.position!==physicalAtSave.position;
-        const initialCorrection=!!existing&&!keepsManual(existing.ref,location,track.position)&&(existing.zone!==location.zone||existing.slot!==location.slot||existing.position!==fieldTwinPosition(track));
+        const initialCorrection=!!existing&&!keepsManual(existing.ref,location,track.position)&&(existing.zone!==location.zone||existing.slot!==location.slot||!fieldPositionMatches(location.zone,existing.position,fieldTwinPosition(track)));
         if(!physicallyMoved&&!initialCorrection){setNotice('The placement changed. Check this card.');return;}
         // A genuine move is separate from the atomic placement and keeps its ref.
         updated=await mutate({type:'twin.move',source:'auto',actorSeat:seat,seat,cardRef:target.card.ref,...target.location,position:target.position});
@@ -828,7 +828,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
           return;
         }
         stackKept.current.delete(card.ref);
-        if(card.zone!==location.zone||card.slot!==location.slot||card.position!==fieldTwinPosition({...observed,zone:projected.zone})){
+        if(card.zone!==location.zone||card.slot!==location.slot||!fieldPositionMatches(location.zone,card.position,fieldTwinPosition({...observed,zone:projected.zone}))){
           const updated=await act({type:'twin.move',source:'auto',actorSeat:seat,seat,cardRef:card.ref,...location,position:fieldTwinPosition({...observed,zone:projected.zone})});
           if(!updated)return;
           if(departureRef.current?.ref===card.ref){setDeparture(null);setNotice('');}
@@ -836,7 +836,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
         const after=watch.getTrack(event.track.id)??watch.getTrack(ref);if(!live()||!fieldEvidenceMatches(event,after))return;
         const twins=current.current.room.state.seats[seat].twin,persisted=twins.find(c=>c.ref===card.ref);if(!persisted)return;
         const target=projectObserved(after!,twins,persisted,cardInfo(code));
-        if(target.zone){const latest=fieldZoneLocation(target.zone);if(persisted.zone===latest.zone&&persisted.slot===latest.slot&&persisted.position===fieldTwinPosition({...after!,zone:target.zone}))rememberPhysical(card.ref,after!.zone);}
+        if(target.zone){const latest=fieldZoneLocation(target.zone);if(persisted.zone===latest.zone&&persisted.slot===latest.slot&&fieldPositionMatches(latest.zone,persisted.position,fieldTwinPosition({...after!,zone:target.zone})))rememberPhysical(card.ref,after!.zone);}
       }else if(event.type==='flipped'&&event.track.faceDown)await apply(event,act);
     },event);
   }
