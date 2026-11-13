@@ -35,17 +35,20 @@ it("journals an answer while another connection tries to commit between its read
     // commits there; with the lock already held it must fail fast instead of slipping in.
     other.pragma("busy_timeout = 0");
     let otherCommitted = false;
+    let otherError: unknown = null;
     const command = {
       promptId: "p", revision: 1, answer: { choice: "a" },
       toJSON() {
         try { other.prepare("insert into duel_host_heartbeat (id, last_tick_at) values (1, 1) on conflict(id) do update set last_tick_at = last_tick_at + 1").run(); otherCommitted = true; }
-        catch { /* The writer slot is held by the answer, as intended. */ }
+        catch (error) { otherError = error; } // The writer slot is held by the answer, as intended.
         return { promptId: "p", revision: 1, answer: { choice: "a" } };
       },
     } as unknown as DuelCommand;
 
     duels.recordCommand(slug, "g", 0, command, null);
     expect(otherCommitted).toBe(false);
+    // The competing commit must have been refused for being busy, not for some unrelated error.
+    expect((otherError as { code?: string } | null)?.code).toMatch(/^SQLITE_BUSY/);
     expect(duels.privateState(slug, "g").commands.map(entry => entry.command.promptId)).toEqual(["p"]);
   } finally {
     other.close();
