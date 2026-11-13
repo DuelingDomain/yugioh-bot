@@ -29,7 +29,7 @@
  *               Off when the event list is incomplete.
  *  Newer optional fields (cam.by, cam.ui, cam on player actions) are read when present. Sidecar (PR #605 names; the readers are one small group of functions in recording-lib.ts, so a rename is a small fix):
  *  client.clockSamples[{n, serverMs, offsetMs, rttMs}] (the sample nearest to an event is used; else the single client.clockOffsetMs, said in the gaps) and calibrations[{at, serverMs, format, placed, needed,
- *  calibration}] (the entry in force is used for each frame; frames within 3 s of a change, or on a first-guess grid the player never placed (placed false), give no crop; --calibration beats the sidecar).
+ *  calibration}] (the entry in force is used for each frame; frames within 3 s of a change, on a first-guess grid the player never placed (placed false), or under an entry this tool cannot read (needs 4 corners; counted in calibrations.unreadable, WARNING gap) give no crop; --calibration beats the sidecar).
  *  The app is not changed here.
  *  Safeguards: at most --max-crops crops per card per match, spread over the time it lay there; blurred crops are skipped (Laplacian variance of the crop below --min-sharpness);
  *  when the events lack what is needed to tie a correction to the earlier card, the summary says exactly what is missing. */
@@ -41,7 +41,7 @@ import { warpQuadMasked } from '../../packages/vision/src/truncation';
 import type { RGBAImage } from '../../packages/vision/src/pixels';
 import type { DetectedQuad, RecognitionResult } from '../../packages/vision/src/types';
 import { defaultDataDir, jpegDecoder } from './clip-node';
-import { buildTimeline, frameSize, type EventListInfo, occupiedAt, parseLiveActions, loadCalibration, readSidecar, readSidecarCalibrations, round, SINGLE_ZONES, withFrames, type NameChange, type TwinSpan } from './recording-lib';
+import { buildTimeline, frameSize, type EventListInfo, occupiedAt, parseLiveActions, loadCalibration, readSidecar, readSidecarCalibrationsDetailed, round, SINGLE_ZONES, withFrames, type NameChange, type TwinSpan } from './recording-lib';
 import { loadRecognizer, normName, resolveRecognizerSpec, type LoadedRecognizer } from './recognizer-switch';
 
 export type LabelKind = 'correction' | 'agreed' | 'hard' | 'empty-zone';
@@ -60,7 +60,7 @@ export interface HarvestSummary {
   schema: 'recording-harvest/1'; room: string; recording: string; seat?: number; recognizer: string; holdout: boolean;
   params: { fps: number; agreeSeconds: number; maxCrops: number; emptyCap: number; minSharpness: number; format: string; calibration: 'file' | 'sidecar' | 'whole-frame' };
   /** How server-stamped events were put on video time, and the round trip used for the margins. */ clock: { source: 'samples' | 'single-offset' | 'none'; samples: number; rttMs: number };
-  /** Live calibrations read from the sidecar (changes during the clip are followed; frames near a change or on a never-placed grid give no crop). */ calibrations: { entries: number; changes: number; unplaced: number };
+  /** Live calibrations read from the sidecar (changes during the clip are followed; frames near a change or on a never-placed grid give no crop). */ calibrations: { entries: number; changes: number; unplaced: number; unreadable: number };
   /** Action types this tool does not know, with counts. */ unknownActions: Record<string, number>;
   counts: { total: number; byKind: Record<string, number>; hard: number; byCard: Record<string, number>; notACard: number };
   /** The saved event list: complete only when its seqs are exactly 1..room.lastSeq. */ eventList: EventListInfo & { allowPartial: boolean };
@@ -90,7 +90,7 @@ const labelOf = (c?: NameChange) => c ? { cardId: c.cardId, name: c.name } : {};
 
 export async function harvestLabels(o: HarvestOptions): Promise<{ records: LabelRecord[]; summary: HarvestSummary }> {
   const fps = o.fps ?? 2, agreeS = o.agreeSeconds ?? 20, maxCrops = o.maxCrops ?? 8, emptyCap = o.emptyCap ?? 12, minSharp = o.minSharpness ?? 40, from = o.from ?? 0, format = o.format ?? 'normal';
-  const video = resolve(o.video), sidecar = await readSidecar(video), room = o.room ?? sidecar.tableSlug ?? 'room', calList = o.calibration ? [] : readSidecarCalibrations(sidecar), wholeFrame = createFieldCalibration([{ x: .04, y: .04 }, { x: .96, y: .04 }, { x: .96, y: .96 }, { x: .04, y: .96 }]);
+  const video = resolve(o.video), sidecar = await readSidecar(video), room = o.room ?? sidecar.tableSlug ?? 'room', calDetail = o.calibration ? { list: [], unreadable: 0 } : readSidecarCalibrationsDetailed(sidecar), calList = calDetail.list, wholeFrame = createFieldCalibration([{ x: .04, y: .04 }, { x: .96, y: .04 }, { x: .96, y: .96 }, { x: .04, y: .96 }]);
   const parse = parseLiveActions(o.events, sidecar), gaps = [...parse.gaps], skipped: Record<string, number> = {}, skip = (k: string) => { skipped[k] = (skipped[k] ?? 0) + 1; };
   const nameOf = (id?: string) => o.recognizer.nameOf(id), records: LabelRecord[] = [];
   /** The calibration and format in force at a video time (ms): --calibration beats the sidecar, the sidecar beats the whole frame. A string = no usable one (the reason): within 3 s of a change, or a grid the player never placed. */
@@ -100,7 +100,8 @@ export async function harvestLabels(o: HarvestOptions): Promise<{ records: Label
     if (!calList.length) return { calibration: wholeFrame, format };
     let k = 0; calList.forEach((e, j) => { if (e.fromMs <= tMs) k = j; });
     if (calList.some((e, j) => j > 0 && Math.abs(tMs - e.fromMs) < calMarginMs)) return 'calibrationChange';
-    return calList[k].placed === false ? 'calibrationNotPlaced' : { calibration: calList[k].calibration, format: o.format ?? calList[k].format ?? 'normal' };
+    if (calList[k].unreadable || !calList[k].calibration) return 'calibrationUnreadable';
+    return calList[k].placed === false ? 'calibrationNotPlaced' : { calibration: calList[k].calibration!, format: o.format ?? calList[k].format ?? 'normal' };
   };
   if (!parse.list.complete && !o.allowPartial) throw new Error(`${parse.list.reason} Save the whole list (scripts/vision/export-room-events.ts, or GET /api/remote/<slug>?afterSeq=0 in pages) right after the match, or pass --allow-partial to harvest only corrections and hard crops.`);
   if (sidecar.seat === undefined) gaps.push('The sidecar has no seat: all seats in the events are used, so a card of another seat could be matched to a zone of this camera.');
@@ -226,6 +227,7 @@ export async function harvestLabels(o: HarvestOptions): Promise<{ records: Label
     }
     if (Object.keys(parse.unknownTypes).length) gaps.push(`Unknown action types in the events (treated as maybe moving the cards they name; with no card ref, no label after them): ${Object.entries(parse.unknownTypes).map(([k, n]) => `${k} x${n}`).join(', ')}.`);
     if (calList.length > 1) gaps.push(`The live calibration changed ${calList.length - 1} time(s) during the recording: each frame uses the entry in force, and frames within ${calMarginMs / 1000} s of a change give no crop.`);
+    if (calDetail.unreadable) gaps.push(`WARNING: ${calDetail.unreadable} sidecar calibration entr${calDetail.unreadable === 1 ? 'y is' : 'ies are'} unreadable here (this tool needs 4 valid corners): no crop is taken in ${calList.length === 1 && calList[0].unreadable ? 'the whole recording (pass --calibration to use a file instead)' : 'its period'}.`);
     if (calList.some(e => e.placed === false)) gaps.push('Part of the recording used a first-guess grid the player never placed: no crop is taken then.');
     if (parse.clock.source !== 'samples') gaps.push(`No per-chunk clock samples in the sidecar (clock: ${parse.clock.source}): margins use the single round trip value.`);
     for (const [why, n] of dropped) gaps.push(`${n} span${n > 1 ? 's' : ''} dropped: the events touch the card in a way this tool does not follow (${why}); none of its crops are labelled.`);
@@ -266,7 +268,7 @@ export async function harvestLabels(o: HarvestOptions): Promise<{ records: Label
   const summary: HarvestSummary = { schema: 'recording-harvest/1', room, recording: video.split('/').pop()!, seat: sidecar.seat, recognizer: o.recognizer.name, holdout: !!o.holdout,
     params: { fps, agreeSeconds: agreeS, maxCrops, emptyCap, minSharpness: minSharp, format, calibration: o.calibration ? 'file' : calList.length ? 'sidecar' : 'whole-frame' },
     counts: { total: records.length, byKind, hard: records.filter(r => r.hard).length, byCard, notACard: records.filter(r => r.label === 'not-a-card').length }, eventList: { ...parse.list, allowPartial: !!o.allowPartial },
-    clock: { source: parse.clock.source, samples: parse.clock.samples.length, rttMs: parse.clock.rttMs }, calibrations: { entries: calList.length, changes: Math.max(0, calList.length - 1), unplaced: calList.filter(e => e.placed === false).length }, unknownActions: parse.unknownTypes, skipped, gaps: [...new Set(gaps)] };
+    clock: { source: parse.clock.source, samples: parse.clock.samples.length, rttMs: parse.clock.rttMs }, calibrations: { entries: calList.length, changes: Math.max(0, calList.length - 1), unplaced: calList.filter(e => e.placed === false).length, unreadable: calDetail.unreadable }, unknownActions: parse.unknownTypes, skipped, gaps: [...new Set(gaps)] };
   await mkdir(o.out, { recursive: true });
   await writeFile(join(o.out, 'labels.jsonl'), records.map(r => JSON.stringify(r)).join('\n') + (records.length ? '\n' : ''));
   await writeFile(join(o.out, 'hard.jsonl'), records.filter(r => r.hard).map(r => JSON.stringify(r)).join('\n') + (records.some(r => r.hard) ? '\n' : ''));

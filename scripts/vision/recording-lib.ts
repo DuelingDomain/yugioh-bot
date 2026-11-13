@@ -41,28 +41,31 @@ export const clockOffsetAt = (clock: SidecarClock, serverMs: number): number | u
   clock.samples.length ? clock.samples.reduce((best, x) => Math.abs(x.serverMs - serverMs) < Math.abs(best.serverMs - serverMs) ? x : best).offsetMs : clock.offsetMs ?? undefined;
 
 const FORMATS: FieldFormat[] = ['normal', 'domain', 'genesys', 'genesys-domain'];
-/** One live calibration and the video time (ms) from which it was in force (-Infinity for the first). Entries that do not make a valid FieldCalibration are dropped; an unchanged repeat is merged. */
-export interface SidecarCalibration { fromMs: number; format?: FieldFormat; /** false = the first-guess grid, never placed by the player. null = not said. */ placed: boolean | null; needed: boolean | null; calibration: FieldCalibration }
-export function readSidecarCalibrations(sidecar: Sidecar): SidecarCalibration[] {
-  const raw = (sidecar as { calibrations?: unknown }).calibrations; if (!Array.isArray(raw)) return [];
-  const clock = readSidecarClock(sidecar), origin = videoOrigin(sidecar), out: (SidecarCalibration & { serverMs: number })[] = [];
+/** One live calibration and the video time (ms) from which it was in force (-Infinity for the first). An entry that does not make a valid FieldCalibration is kept as `unreadable` (no calibration; harvest takes no crop in its period); an unchanged repeat is merged. */
+export interface SidecarCalibration { fromMs: number; format?: FieldFormat; /** false = the first-guess grid, never placed by the player. null = not said. */ placed: boolean | null; needed: boolean | null; calibration?: FieldCalibration; unreadable?: boolean }
+export function readSidecarCalibrationsDetailed(sidecar: Sidecar): { list: SidecarCalibration[]; unreadable: number } {
+  const raw = (sidecar as { calibrations?: unknown }).calibrations; if (!Array.isArray(raw)) return { list: [], unreadable: 0 };
+  const clock = readSidecarClock(sidecar), origin = videoOrigin(sidecar), out: (SidecarCalibration & { serverMs: number })[] = []; let unreadable = 0;
   for (const e of raw as Record<string, unknown>[]) {
-    const c = e?.calibration as Record<string, unknown> | null | undefined; if (!c || !Array.isArray(c.corners)) continue;
-    const orientation = c.orientation as { playerSide?: never; mirrored?: boolean } | null | undefined, zones = c.zones && typeof c.zones === 'object' && Object.keys(c.zones).length ? c.zones : undefined;
-    let calibration: FieldCalibration; try { calibration = createFieldCalibration(c.corners as never, (orientation ?? undefined) as never, finite(c.zoneSpacing) ? c.zoneSpacing : 1, zones as never); } catch { continue; }
-    const serverMs = finite(e.serverMs) ? e.serverMs : 0, offset = clockOffsetAt(clock, serverMs), clientMs = finite(e.at) && e.at > 1e11 ? e.at : offset !== undefined ? serverMs - offset : undefined;
+    const c = e?.calibration as Record<string, unknown> | null | undefined;
+    const orientation = c?.orientation as { playerSide?: never; mirrored?: boolean } | null | undefined, zones = c?.zones && typeof c.zones === 'object' && Object.keys(c.zones).length ? c.zones : undefined;
+    // the reader needs 4 corners; the app's writer may accept more (4-8): such an entry is unreadable here, not silently skipped
+    let calibration: FieldCalibration | undefined; if (c && Array.isArray(c.corners)) { try { calibration = createFieldCalibration(c.corners as never, (orientation ?? undefined) as never, finite(c.zoneSpacing) ? c.zoneSpacing : 1, zones as never); } catch { /* unreadable */ } }
+    if (!calibration) unreadable++;
+    const serverMs = finite(e?.serverMs) ? e.serverMs : 0, offset = clockOffsetAt(clock, serverMs), clientMs = finite(e?.at) && e.at > 1e11 ? e.at : offset !== undefined ? serverMs - offset : undefined;
     const fromMs = origin !== undefined && clientMs !== undefined ? clientMs - origin : serverMs - (sidecar.serverStartMs ?? serverMs);
-    out.push({ fromMs, serverMs, format: FORMATS.find(f => f === e.format), placed: typeof e.placed === 'boolean' ? e.placed : null, needed: typeof e.needed === 'boolean' ? e.needed : null, calibration });
+    out.push({ fromMs, serverMs, format: FORMATS.find(f => f === e?.format), placed: typeof e?.placed === 'boolean' ? e.placed : null, needed: typeof e?.needed === 'boolean' ? e.needed : null, ...(calibration ? { calibration } : { unreadable: true }) });
   }
   out.sort((x, y) => x.serverMs - y.serverMs);
-  const key = (x: SidecarCalibration) => JSON.stringify([x.calibration, x.format, x.placed]), merged: SidecarCalibration[] = [];
-  for (const x of out) { if (merged.length && key(merged[merged.length - 1]) === key(x)) continue; merged.push({ fromMs: merged.length ? x.fromMs : -Infinity, format: x.format, placed: x.placed, needed: x.needed, calibration: x.calibration }); }
-  return merged;
+  const key = (x: SidecarCalibration) => JSON.stringify([x.calibration, x.format, x.placed, x.unreadable]), merged: SidecarCalibration[] = [];
+  for (const x of out) { if (merged.length && key(merged[merged.length - 1]) === key(x)) continue; merged.push({ fromMs: merged.length ? x.fromMs : -Infinity, format: x.format, placed: x.placed, needed: x.needed, calibration: x.calibration, ...(x.unreadable ? { unreadable: true } : {}) }); }
+  return { list: merged, unreadable };
 }
+export const readSidecarCalibrations = (sidecar: Sidecar): SidecarCalibration[] => readSidecarCalibrationsDetailed(sidecar).list;
 /** The live calibration in force at a video time (ms), or undefined when the sidecar has none or that one was never placed (a first-guess grid). It beats the whole-frame guess; a --calibration file beats it. */
 export const sidecarCalibration = (sidecar: Sidecar, atMs = 0): FieldCalibration | undefined => {
   const list = readSidecarCalibrations(sidecar); let e: SidecarCalibration | undefined; for (const x of list) if (x.fromMs <= atMs) e = x; e ??= list[0];
-  return e && e.placed !== false ? e.calibration : undefined;
+  return e && e.placed !== false && !e.unreadable ? e.calibration : undefined;
 };
 export const loadCalibration = async (file?: string): Promise<FieldCalibration> => {
   if (!file) return wholeFrameCalibration();
@@ -356,6 +359,7 @@ export async function runRecording(o: RunOptions): Promise<RunSummary> {
     const live = (parse?.actions ?? []).filter(a => a.type.startsWith('twin.') || a.type === 'card.identified').map(a => ({ type: a.type, zone: a.zone, ref: a.ref, origin: a.origin, basis: a.basis, tS: round(a.t / 1000, 3),
       seenS: a.seenT === undefined ? undefined : round(a.seenT / 1000, 3), namedS: a.namedT === undefined ? undefined : round(a.namedT / 1000, 3), sentS: a.sentT === undefined ? undefined : round(a.sentT / 1000, 3) }));
     const liveGaps = live.filter(l => l.seenS !== undefined && l.namedS !== undefined).map(l => ({ zone: l.zone, ref: l.ref, seenS: l.seenS!, namedS: l.namedS!, gapS: round(l.namedS! - l.seenS!, 3) }));
+    if (!o.calibration && readSidecarCalibrationsDetailed(sidecar).unreadable) gaps.push('WARNING: the sidecar holds a live calibration this tool cannot read (it needs 4 valid corners); the whole frame is used as the mat unless --calibration is given.');
     if (!o.calibration && readSidecarCalibrations(sidecar).length > 1) gaps.push('The sidecar holds several live calibrations: this replay used the one in force at the clip start. Pass --calibration, or use harvest-labels.ts, which follows the changes.');
     if (parse && !liveGaps.length) gaps.push('No recorded event carries both cam.seenAt and cam.namedAt (older build, or no card was named): live seen-to-named time is not available.');
     const okReads = reads.filter(r => !r.error);

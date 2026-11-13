@@ -75,7 +75,7 @@ async function makeFixture(dir: string) {
   const origin = 1_700_000_000_000, at = (s: number) => origin + s * 1000, cam = (seen: number, sent: number, extra: Record<string, unknown> = {}) => ({ seenAt: at(seen), namedAt: at(sent - .1), sentAt: at(sent), v: '1', ...extra });
   await writeFile(join(dir, 'clip.json'), JSON.stringify({ tableSlug: 'testroom', seat: 0, userId: 7, video: { width: W, height: H }, client: { timeOrigin: origin, videoStartPerfNow: 0, clockOffsetMs: 0, rttMs: 20, clockSamples: [{ n: 1, serverMs: at(0), offsetMs: 0, rttMs: 20 }, { n: 2, serverMs: at(7), offsetMs: 0, rttMs: 30 }] },
     // the shape the recording sidecar has (PR #605): a list of live calibrations; this one = the whole frame, placed by the player
-    calibrations: [{ at: origin, serverMs: at(0), format: 'normal', placed: true, needed: false, calibration: { version: 1, layout: 'field', corners: [{ x: .04, y: .04 }, { x: .96, y: .04 }, { x: .96, y: .96 }, { x: .04, y: .96 }], orientation: null, zoneSpacing: null, zones: {} } }] }));
+    calibrations: [{ at: origin, serverMs: at(0), format: 'normal', placed: true, needed: false, calibration: { version: 1, layout: null, corners: [{ x: .04, y: .04 }, { x: .96, y: .04 }, { x: .96, y: .96 }, { x: .04, y: .96 }], orientation: null, zoneSpacing: null, zones: {} } }] }));
   const where = (z: string) => ({ zone: z.startsWith('EMZ') ? 'extra-monster' : z[0] === 'M' ? 'monster' : 'spell-trap', slot: Number(z.replace(/\D/g, '')) });
   const PLAYER = { by: 'player', ui: 'popup-remove' };
   // [video seconds, action]: seqs are given in time order below
@@ -195,6 +195,15 @@ test('harvest labels only what the events and the reader both support', skipNoFf
     const blind = { ...events, events: [...events.events, { id: 'e99', seq: events.lastSeq + 1, actorSeat: 0, userId: 7, at: 1_700_000_025_000, action: { type: 'board.future-thing', idempotencyKey: 'fZ', actorSeat: 0 } }], lastSeq: events.lastSeq + 1 };
     const blinded = await harvestLabels({ video, events: blind, recognizer: fakeReader('current'), room: 'testroom', out: join(dir, 'blind'), fps: 2, agreeSeconds: 4, minSharpness: 2 });
     assert.ok(!blinded.records.some(r => r.label && r.label !== 'empty') && blinded.summary.unknownActions['board.future-thing'] === 2, 'an unknown action without a ref labels nothing');
+    // a calibration entry this tool cannot read (the app's writer takes 4-8 corners, this reader needs 4) is never skipped silently: no crop in its period, a WARNING gap, a count in summary.json
+    const sidecarFile = join(dir, 'clip.json'), good = JSON.parse(await readFile(sidecarFile, 'utf8')) as { calibrations: { at: number; serverMs: number; calibration: { corners: unknown[] } }[] };
+    const five = { ...good.calibrations[0], at: good.calibrations[0].at + 12_000, serverMs: good.calibrations[0].serverMs + 12_000, calibration: { ...good.calibrations[0].calibration, corners: [...good.calibrations[0].calibration.corners, { x: .5, y: .97 }] } };
+    await writeFile(sidecarFile, JSON.stringify({ ...good, calibrations: [good.calibrations[0], five] }));
+    const later = await harvestLabels({ video, events, recognizer: fakeReader('current'), room: 'testroom', out: join(dir, 'later'), fps: 2, agreeSeconds: 4, minSharpness: 2 });
+    assert.ok(later.records.length >= 1 && later.records.every(r => r.clipTimeS < 12) && later.summary.calibrations.unreadable === 1 && later.summary.skipped.calibrationUnreadable >= 1 && later.summary.gaps.some(g => /^WARNING: 1 sidecar calibration entry is unreadable/.test(g)), 'an unreadable later entry: no crop from then on');
+    await writeFile(sidecarFile, JSON.stringify({ ...good, calibrations: [five] }));
+    const none = await harvestLabels({ video, events, recognizer: fakeReader('current'), room: 'testroom', out: join(dir, 'none'), fps: 2, agreeSeconds: 4, minSharpness: 2 });
+    assert.ok(none.records.length === 0 && none.summary.calibrations.unreadable === 1 && none.summary.gaps.some(g => /whole recording/.test(g)), 'all entries unreadable: no crop at all, never the whole-frame guess');
     // a list cut to the last events (what GET /api/remote/<slug> returns) is refused; --allow-partial says so in the summary
     const cut = { ...events, events: events.events.filter(e => e.seq > 5) };
     await assert.rejects(harvestLabels({ video, events: cut, recognizer: fakeReader('current'), calibration, room: 'testroom', out: join(dir, 'cut') }), /not complete: it starts at seq 6/);
