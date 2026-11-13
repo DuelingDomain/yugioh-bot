@@ -87,6 +87,23 @@ the GitHub Actions workflow token described below.
 
 The **Engine data update** workflow runs **Monday and Thursday at 06:00 UTC** (`0 6 * * 1,4`), with checks three or four days apart. `workflow_dispatch` remains available for manual checks and exact-SHA inputs. It advances only Project Ignis CardScripts, BabelCDB and Distribution, with an exact pin-file allowlist of `packages/duel-server/scripts/prepare-data.ts`, `packages/duel-server/domain-core/pins.json` and `packages/duel-server/legacy-1v1/domain-core/pins.json`. If an old data SHA appears in another tracked file, the updater fails before writing anything. Both core-build `pins.json` files retain their `cardScripts` record and advance it together with the scripts pin in `prepare-data.ts`. Those records are part of `bundleVersion`. A real CardScripts bump invalidates both core build caches; the resulting multicore rebuild during deployment is accepted. The updater never advances ygopro-core, ocgcore-wasm, Lua or Emscripten. The workflow also refreshes the two generated Dueling Book compatibility JSON files after preparation, including table-only changes when Ignis pins are unchanged. Its single public GET is best-effort: a failed or invalid response retains both committed files. See [Simulator deck imports](../specs/deck-import-formats.md#alternate-artwork-policy) for sources, filtering and refresh instructions.
 
+## Bridge findings in update PRs
+
+After preparation, `scripts/effects/rebuild-bridges.ts` regenerates the full bridge
+candidate, then `evaluate-bridges.ts --check --report` saves the completed evaluation.
+Quality findings are review work for the weekly update PR: the publisher opens it
+as a draft, or converts an existing bot-owned update PR to draft before pushing.
+The report lists failing metrics and affected pairs and links the full evaluation
+in the workflow artifact. The candidate files and integrity pin are included for
+review; the last accepted snapshot is not silently retained.
+
+The thresholds, golden labels and Test workflow's blocking `--check` remain in
+force. Fix the candidate findings and pass Test before marking the PR ready or
+merging. Existing human-commit protection still prevents overwriting reviewed edits.
+A generation error or an evaluation exception without a complete report stops the
+prepare job, as do the existing bundle/artifact integrity checks. A successful
+scheduled preparation means a reviewable candidate, not approval to merge it.
+
 ## Relevance gate and review counts
 
 A moved upstream pin does not by itself justify a data bump. Before rewriting any

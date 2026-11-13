@@ -1,8 +1,8 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
-import { evaluateBridges } from "../evaluate-bridges.js";
+import { bridgeQualityFailures, evaluateBridges } from "../evaluate-bridges.js";
 
 describe("bridge golden evaluation", () => {
   it("counts deep positives separately from strict Suggestions recall", () => {
@@ -44,6 +44,10 @@ describe("bridge golden evaluation", () => {
     try {
       writeFileSync(path, JSON.stringify({ ...golden, pairs: [{ ...golden.pairs[0], target: "Missing engine fixture" }] }));
       expect(() => evaluateBridges(path)).toThrow("Golden target group does not exist");
+      const evaluation = join(directory, "bridge-evaluation.json");
+      const invalid = spawnSync(process.execPath, ["--conditions=source", "--import", "tsx", join(root, "scripts/effects/evaluate-bridges.ts"), path, "--check", "--report", evaluation], { cwd: root, encoding: "utf8", timeout: 20_000 });
+      expect(invalid.status).toBe(1);
+      expect(existsSync(evaluation)).toBe(false);
       writeFileSync(path, JSON.stringify({ ...golden, pairs: [{ ...golden.pairs[0], target: "Argostars", expected: "not_bridge", excluded_group: true }] }));
       expect(() => evaluateBridges(path)).toThrow("Excluded label group is still an engine");
       writeFileSync(path, JSON.stringify({ ...golden, pairs: [{ ...golden.pairs[0], source: "Toy", target: "Ashtra", expected: "synergy", tier: "deep", access_path: true }] }));
@@ -59,9 +63,20 @@ describe("bridge golden evaluation", () => {
     try {
       writeFileSync(path, JSON.stringify({ ...golden, pairs: [...golden.pairs, { source: "Toy", target: "Argostars", format: "advanced",
         expected: "synergy", tier: "deep", why: "Regression fixture: no checked resource consumer exists.", source_url: "https://db.ygoprodeck.com/api/v7/cardinfo.php?name=Toy%20Box" }] }));
-      const result = spawnSync(process.execPath, ["--conditions=source", "--import", "tsx", join(root, "scripts/effects/evaluate-bridges.ts"), path, "--check"], { cwd: root, encoding: "utf8", timeout: 20_000 });
+      const evaluation = join(directory, "bridge-evaluation.json");
+      const result = spawnSync(process.execPath, ["--conditions=source", "--import", "tsx", join(root, "scripts/effects/evaluate-bridges.ts"), path, "--check", "--report", evaluation], { cwd: root, encoding: "utf8", timeout: 20_000 });
       expect(result.status).toBe(1);
       const report = JSON.parse(result.stdout);
+      expect(JSON.parse(readFileSync(evaluation, "utf8"))).toEqual(report);
+      writeFileSync(join(directory, "update.json"), JSON.stringify({ changed: true, files: [] }));
+      writeFileSync(join(directory, "report.md"), "# Candidate engine data\n");
+      const stage = spawnSync(process.execPath, ["--conditions=source", "--import", "tsx", join(root, "scripts/effects/stage-bridges.ts"), "--output", directory, "--kind", "engine", "--evaluation", evaluation], { cwd: root, encoding: "utf8", timeout: 20_000 });
+      expect(stage.status, stage.stderr).toBe(0);
+      expect(JSON.parse(readFileSync(join(directory, "update.json"), "utf8")).bridge).toMatchObject({
+        qualityGatePassed: false, qualityGateFindingCount: bridgeQualityFailures(report).length,
+      });
+      expect(readFileSync(join(directory, "report.md"), "utf8")).toContain("Draft: bridge quality gate failed");
+      expect(readFileSync(join(directory, "report.md"), "utf8")).toContain("synergy_recall=0.5");
       expect(report.advanced).toMatchObject({ precision_at_5: 1, judgement_coverage_at_5: 1, deep_recall_at_10: 1,
         access_path_recall: 1, known_false_bridges: 0, synergy_labels: 2, synergy_hits: 1, synergy_recall: 0.5 });
       expect(report.advanced.outcomes).toContainEqual(expect.objectContaining({ target: "Argostars", expected: "synergy", synergy_ok: false, grade: null, matched_evidence_cards: [] }));

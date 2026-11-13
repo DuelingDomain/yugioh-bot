@@ -197,8 +197,13 @@ jobs:
         run: |
           prlimit --core=0 -- npx tsx scripts/effects/rebuild-bridges.ts --engine-directory "$DUEL_DATA_DIR"
           prlimit --core=0 -- npm run build --workspace=packages/shared
-          prlimit --core=0 -- npx tsx scripts/effects/evaluate-bridges.ts --check
-          prlimit --core=0 -- npx tsx scripts/effects/stage-bridges.ts --output "$UPDATE_ARTIFACT_DIR" --kind engine
+          # Completed quality findings belong in the review PR. Script/infrastructure errors still stop preparation.
+          rm -f -- "$UPDATE_ARTIFACT_DIR/bridge-evaluation.json"
+          result=0
+          prlimit --core=0 -- npx tsx scripts/effects/evaluate-bridges.ts --check --report "$UPDATE_ARTIFACT_DIR/bridge-evaluation.json" || result=$?
+          if [ "$result" -ne 0 ] && [ "$result" -ne 1 ]; then exit "$result"; fi
+          test -s "$UPDATE_ARTIFACT_DIR/bridge-evaluation.json"
+          prlimit --core=0 -- npx tsx scripts/effects/stage-bridges.ts --output "$UPDATE_ARTIFACT_DIR" --kind engine --evaluation "$UPDATE_ARTIFACT_DIR/bridge-evaluation.json"
 
       # Remote Duels card logic (Equip, control change) is generated from the same card data and scripts.
       - name: Regenerate Remote Duels card logic
@@ -305,9 +310,24 @@ jobs:
           path: .status/engine-data-update
 
       - name: Preserve reviewed edits or publish the candidate
+        id: publication
         env:
           GH_TOKEN: ${{ secrets.ENGINE_DATA_PR_TOKEN || github.token }}
           HAS_PR_TOKEN: ${{ secrets.ENGINE_DATA_PR_TOKEN != '' }}
         run: |
           gh auth setup-git
           prlimit --core=1:1 -- node scripts/ci/publish-engine-data.mjs
+
+      - name: Remove prepared publication artifacts
+        if: always()
+        run: rm -rf -- "$UPDATE_ARTIFACT_DIR"
+
+      # Findings stay visible as a red run, after the review PR exists and cleanup has finished.
+      - name: Fail on published bridge quality findings
+        if: always() && steps.publication.outputs.bridge_finding_count > 0
+        env:
+          FINDING_COUNT: ${{ steps.publication.outputs.bridge_finding_count }}
+          DRAFT_PR_URL: ${{ steps.publication.outputs.pr_url }}
+        run: |
+          printf '::error::Engine data has %s bridge quality findings. Review draft PR: %s\n' "$FINDING_COUNT" "$DRAFT_PR_URL"
+          exit 1

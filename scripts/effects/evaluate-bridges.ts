@@ -1,5 +1,5 @@
 import Database from "better-sqlite3";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { migrate } from "@yugidraft/shared/db";
@@ -92,9 +92,33 @@ export function evaluateBridges(path = resolve(import.meta.dirname, "../../packa
   } finally { db.close(); }
 }
 
+/** Shared by the blocking CLI gate and the engine update's review report. */
+export function bridgeQualityFailures(result: ReturnType<typeof evaluateBridges>): string[] {
+  return Object.entries(result).flatMap(([format, row]) => {
+    const failures: string[] = [];
+    const check = (failed: boolean, metric: string, value: number | null) => { if (failed) failures.push(`${format}: ${metric}=${value}`); };
+    check(row.known_false_bridges > 0, "known_false_bridges", row.known_false_bridges);
+    check(row.judgement_coverage_at_5 < 0.8, "judgement_coverage_at_5", row.judgement_coverage_at_5);
+    check(row.precision_at_5 === null || row.precision_at_5 < 0.9, "precision_at_5", row.precision_at_5);
+    check(row.recall_at_10 !== null && row.recall_at_10 < 0.6, "recall_at_10", row.recall_at_10);
+    for (const metric of ["deep_recall_at_10", "access_path_recall", "synergy_recall"] as const) check(row[metric] !== null && row[metric] < 1, metric, row[metric]);
+    for (const pair of row.outcomes) {
+      if (pair.false_bridge) failures.push(`${format}: false bridge ${pair.source} → ${pair.target}`);
+      if (pair.tier === "deep" && !pair.grade_ok) failures.push(`${format}: missing or insufficient grade for ${pair.source} → ${pair.target}`);
+      if (pair.expected === "bridge" && pair.tier === "deep" && !pair.access_path && pair.rank === null) failures.push(`${format}: missing deep result ${pair.source} → ${pair.target}`);
+    }
+    return failures;
+  });
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  const result = evaluateBridges(process.argv.find(arg => arg.endsWith(".json")));
-  console.log(JSON.stringify(result, null, 2));
-  if (process.argv.includes("--check") && Object.values(result).some(row => row.known_false_bridges > 0 || row.judgement_coverage_at_5 < 0.8 || row.precision_at_5 === null || row.precision_at_5 < 0.9 || row.recall_at_10 !== null && row.recall_at_10 < 0.6 || row.deep_recall_at_10 !== null && row.deep_recall_at_10 < 1 || row.access_path_recall !== null && row.access_path_recall < 1 || row.synergy_recall !== null && row.synergy_recall < 1 || row.outcomes.some(pair => pair.tier === "deep" && !pair.grade_ok))) process.exitCode = 1;
-  if (process.argv.includes("--strict-precision") && Object.values(result).some(row => row.precision_at_5 === null || row.judgement_coverage_at_5 !== 1)) process.exitCode = 1;
+  const args = process.argv.slice(2), reportIndex = args.indexOf("--report");
+  if (reportIndex >= 0 && (!args[reportIndex + 1] || args[reportIndex + 1]!.startsWith("--"))) throw new Error("Pass --report FILE");
+  const result = evaluateBridges(args.find((arg, i) => arg.endsWith(".json") && args[i - 1] !== "--report"));
+  const report = JSON.stringify(result, null, 2) + "\n";
+  // Written only after evaluation completes: an exception is not a reviewable quality finding.
+  if (reportIndex >= 0) writeFileSync(args[reportIndex + 1]!, report);
+  console.log(report.trimEnd());
+  if (args.includes("--check") && bridgeQualityFailures(result).length) process.exitCode = 1;
+  if (args.includes("--strict-precision") && Object.values(result).some(row => row.precision_at_5 === null || row.judgement_coverage_at_5 !== 1)) process.exitCode = 1;
 }
