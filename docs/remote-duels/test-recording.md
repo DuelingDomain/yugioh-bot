@@ -36,6 +36,58 @@ npx tsx scripts/vision/replay-recording.ts <file.webm> [--events room.json] [--f
 
 It needs `ffmpeg` on PATH and the models from `scripts/vision/prepare.ts` and `build-index.ts`; it downloads nothing else. It extracts frames to a temp folder (deleted at the end), runs the current detector, embedder and field watcher on them through onnxruntime-node, and prints for every card the time it was first seen and the time it was named. With `--events` (the JSON of `GET /api/remote/<slug>`, or the event array) it also lists the live watcher actions with their camera stamps converted to video time, so live and replay times can be compared. Without `--calibration` the whole frame counts as the mat. Node CPU times are not browser times: use `--read-scale` to stand in for a slower machine.
 
+### Other readers and run summaries
+
+`--recognizer <name|path>` picks the card reader. `current` (default) is the app's own reader and runs the unchanged loader. Another reader is a small spec file (or `<data>/recognizers/<name>.json`), paths relative to the file:
+
+```json
+{ "name": "other", "kind": "ddindex", "embedder": "m/other.onnx", "index": "other.bin", "meta": "other.meta.json", "input": { "size": 224, "mean": [0.485, 0.456, 0.406], "std": [0.229, 0.224, 0.225] } }
+```
+
+- `kind: "ddindex"`: the app's index format. Embedding settings come from the index meta (`layoutKey`) and can be overridden in `input` (`size`, `mean`, `std`, `dim`, `inputName`, `outputName`, `pooling`).
+- `kind: "whole-card-bank"`: a whole-card fp16 bank (`bank`, `catalog`; `input.size`, `inputName` and `outputName` are required, optional `thresholds.score` and `thresholds.margin`). The card is warped to 295x430 and box-averaged to `input.size`.
+
+Other readers are for offline comparison only. Do not ship their model files or wire them into the app; where a model's training data comes from is still an open question (plan decision F.1).
+
+`--json out.json` writes the run summary: every card read (video seconds, zone, name, score, margin, sure or not), time per read, tracks with the time from first seen to named, and, with `--events`, phantom reads (reads on zones the events say were empty) and the live seen-to-named gaps from the camera stamps. Phantom reads are only checked when the event list is complete (see Limits).
+
+```sh
+npx tsx scripts/vision/replay-recording.ts clip.webm --events room.json --calibration cal.json --json run-current.json
+npx tsx scripts/vision/replay-recording.ts clip.webm --events room.json --calibration cal.json --recognizer ./other.json --json run-other.json
+npx tsx scripts/vision/compare-recordings.ts run-current.json run-other.json [--window 1.5] [--json compare.json]
+```
+
+`compare-recordings.ts` needs two or more summaries of the same clip (same file, `--fps`, `--from`). It prints reads, sure %, time per read, wall time, phantom reads and time to name per reader, then agreement per pair (reads paired by zone and nearest time within `--window` seconds, names compared) and the reads that differ.
+
+### Label harvest
+
+```sh
+npx tsx scripts/vision/harvest-labels.ts clip.webm --events room.json --calibration cal.json [--agree-seconds 20] [--max-crops 8] [--fps 2] [--holdout]
+```
+
+Writes `data/vision-harvest/<room>/` (git-ignored; `--out` and `--room` change it): `crops/*.jpg` (warped card crops), `labels.jsonl`, `hard.jsonl`, `summary.json`, and a `HOLDOUT` file with `--holdout`. Local only: no network, no upload, no training, no index change. Each record has the room, clip time, zone, seat, label, label kind, source, the reader's top answer (score, margin, tier), sharpness, the crop path and a `hard` flag. Label kinds, most trusted first:
+
+| Kind | Meaning |
+| --- | --- |
+| `correction` | A player named the card (click, typed, voice) and the earlier name was different or missing: crops from before the rename get the corrected name (`previous` is the old one). Kept only when a second source agrees (the reader's top 5 holds the card, or a later automatic event names it); otherwise written as `hard` with no label. A card the watcher placed and a player removed or undid within 30 s, never named by a player and not a sure read, gives a `not-a-card` negative. |
+| `agreed` | An automatic read (not a best guess) that stayed on the board at least `--agree-seconds` (default 20) and no player renamed, removed or undid. Crops where the reader here disagrees or is unsure are flagged `hard`. |
+| `hard` | The watcher did not name the card, or only guessed: no label, the guesses are recorded. `hard.jsonl` lists every record with `hard: true`. |
+| `empty-zone` | Sampled, capped crops of mat zones the events say are empty. |
+
+Safeguards: at most 8 crops per card per match, spread over the time the card lay there; blurred crops are skipped (Laplacian variance, `--min-sharpness`); a player action that contradicts an automatic one always wins; when the events cannot tie a correction to the earlier card, `summary.json` `gaps` says what is missing. A rename time comes from the server clock, so crops stop 1.5 s (plus half the round trip) before it.
+
+Consent: only harvest recordings of people who agreed (the allowlisted test users). Use `--holdout` for a fixed test set: the `HOLDOUT` file marks the folder, and training or threshold tuning must never read a folder that has it. A player correction can be wrong, so a label counts only with a second source.
+
+### Limits and event-format gaps
+
+- The live card id is the watcher's own ref, so the link between an event and the video is by zone and time only. Zone matching needs the same calibration as the live run (`--calibration`); without it the whole frame counts as the mat.
+- Correction events (a player naming, moving or removing a card, undo) carry no camera stamp, only the server time, so their video time uses the sidecar `clockOffsetMs` (about plus or minus half the round trip). Without that offset or the server start time the events are dropped and a gap is reported.
+- The previous name before a correction is not in the event; it is taken from the earlier events of the same card.
+- `GET /api/remote/<slug>` returns only the last 50 events. When the list starts after seq 1, place events are missing: corrections cannot be tied, and empty zones and phantom reads are not checked. Save the events soon after the test.
+- A player removal looks the same as a normal card removal, so a `not-a-card` needs a short life (30 s) and a reader that was not sure.
+- Event card ids are numbers and index ids are strings; they are compared by id and by name. The sidecar has no decklist.
+- Only the `current` reader was run for real in the checks of this change; the other kinds have a spec, a bank decoder and tests with fake readers, but no real model files were available.
+
 ## Prod
 
 Set `REMOTE_RECORD_USERS=2,3` in the VM `.env` and recreate `web`. To stop, empty it and recreate `web`; files stay until deleted by hand or by the cap. The files can show the player's hands, room and screen glare: copy them off the VM only for the people who agreed.
