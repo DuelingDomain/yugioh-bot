@@ -26,9 +26,9 @@ export function distinctFieldQuads(a:readonly {x:number;y:number}[],b:readonly {
   const x=box(a),y=box(b),area=Math.max(0,Math.min(x.right,y.right)-Math.max(x.left,y.left))*Math.max(0,Math.min(x.bottom,y.bottom)-Math.max(x.top,y.top));
   return area/Math.min((x.right-x.left)*(x.bottom-x.top),(y.right-y.left)*(y.bottom-y.top))<.04;
 }
-/** Physical orientation never makes an illegal face-down Attack Position Set. */
+/** Physical orientation never makes an illegal face-down Attack Position Set, and a pile card has no battle position (players lay banished cards sideways). */
 export function fieldTwinPosition(track:Pick<FieldTrack,'faceDown'|'zone'|'position'>):FieldTrack['position'] {
-  return track.faceDown&&/^M[1-5]$|^EMZ[12]$/.test(track.zone)?'defense':track.faceDown&&/^S[1-5]$|^FIELD$/.test(track.zone)?'attack':track.position;
+  return /^(GY|BANISHED|DECK|EXTRA)$/.test(track.zone)?'attack':track.faceDown&&/^M[1-5]$|^EMZ[12]$/.test(track.zone)?'defense':track.faceDown&&/^S[1-5]$|^FIELD$/.test(track.zone)?'attack':track.position;
 }
 /** A board card and its track may disagree on face this long, on still frames, before the board follows the track. */
 export const FIELD_FACE_WAIT_MS=600;
