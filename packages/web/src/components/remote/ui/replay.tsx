@@ -19,7 +19,7 @@ function Cell({ zone, cell, down }: { zone: ZoneKey; cell: ReturnType<typeof cel
   const card = cell.card, pile = zone === "gy" || zone === "ban" || zone === "ex" || zone === "deck";
   const code = card ? cardCode(card) : undefined;
   const faceUp = card?.faceUp !== false;
-  return <div className={s.cell} data-wide={zone === "ban"} data-filled={!!card || cell.count > 0} data-pos={card?.position} data-down={!!card && !faceUp || down}
+  return <div className={s.cell} data-wide={zone === "ban"} data-filled={!!card || cell.count > 0} data-pos={pile?undefined:card?.position} data-down={!!card && !faceUp || down}
     title={card ? (faceUp ? cardName(card) : "Face-down card") : undefined}>
     <span className={s.zl}>{zoneLabel(zone)}</span>
     {card && faceUp && code ? <img src={cardArt(code, "small")} alt="" draggable={false} loading="lazy" /> : null}
