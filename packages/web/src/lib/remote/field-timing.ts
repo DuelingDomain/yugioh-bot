@@ -1,5 +1,5 @@
 import type {FieldTiming} from '@yugidraft/vision';
-import type {RemoteRoom,RemoteCameraStamp} from '@yugidraft/shared/remote';
+import type {RemoteRoom,RemoteCameraStamp,RemoteActionProposal} from '@yugidraft/shared/remote';
 
 // Local timing only. No card identity, pixels, or extra network requests.
 const actions=new Map<string,{slug:string;timing:FieldTiming;seq?:number;rendered?:boolean}>();
@@ -10,11 +10,37 @@ export function markFieldTiming(timing:FieldTiming|undefined,stage:string,extra:
 /**
  * Camera timing for the saved event. All three times are on one clock, `performance.timeOrigin + performance.now()` (what the watcher uses),
  * so they line up with the recorder start the test recording sends on the same clock: the detector's first outline of the card, the end of the
- * last read (the name), and now (the board write). With `v`, the build id.
+ * last read (the name), and now (the board write). With `v`, the build id. `by` and `ui` say who made the change and with which control
+ * (evidence only; the default is the camera on its own).
  */
-export function fieldCameraStamp(timing:FieldTiming|undefined):RemoteCameraStamp {
+export function fieldCameraStamp(timing:FieldTiming|undefined,by:'camera'|'player'='camera',ui?:string):RemoteCameraStamp {
   const stages=timing?.stagesMs,named=stages?.searchDoneLast??stages?.searchDone,v=process.env.NEXT_PUBLIC_SENTRY_RELEASE?.slice(0,12);
-  return {...(timing?{seenAt:Math.round(timing.originAt+(stages?.firstOutline??0))}:{}),...(timing&&named!==undefined?{namedAt:Math.round(timing.originAt+named)}:{}),sentAt:Math.round(performance.timeOrigin+performance.now()),...(v?{v}:{})};
+  return {...(timing?{seenAt:Math.round(timing.originAt+(stages?.firstOutline??0))}:{}),...(timing&&named!==undefined?{namedAt:Math.round(timing.originAt+named)}:{}),sentAt:Math.round(performance.timeOrigin+performance.now()),...(v?{v}:{}),by,...(ui?{ui}:{})};
+}
+/** A person's change: the same clock as the watcher stamps, no build id (small). */
+export const playerStamp=(ui?:string):RemoteCameraStamp=>({sentAt:Math.round(performance.timeOrigin+performance.now()),by:'player',...(ui?{ui}:{})});
+/** The control, when the proposal itself tells it. Most player actions give no name; that is fine. */
+const uiOf=(p:RemoteActionProposal):string|undefined=>{
+  if(p.type==='undo')return 'undo';
+  const source=(p as {source?:string}).source;
+  return source==='voice'||source==='typed'?source:p.type==='card.identified'&&source==='click'?'identify':undefined;
+};
+/**
+ * The stamp a table action carries. It is made ONCE per idempotency key and the same object comes back for every retry of that key:
+ * the server compares a repeated key with the saved action field by field, so a stamp with a new `sentAt` would be refused (409).
+ * `by` is only set when the code knows: a write with `source: 'auto'` or from a phone scan (key `phone:...`) is the camera's reading, not a choice
+ * (`camera`); an action for a test bot seat has no person behind it, so `by` is left out; everything else comes from a person (`player`).
+ * A timer (`side.timeout`) is no person's choice and stays unstamped. A proposal that already has a stamp (the watcher's, or a call site's) keeps it.
+ */
+const stamps=new Map<string,RemoteCameraStamp|null>();
+export function stampedProposal<T extends RemoteActionProposal>(payload:T,key:string,botSeat=false):T {
+  if(!stamps.has(key)){
+    const sentAt=Math.round(performance.timeOrigin+performance.now());
+    const automatic=(payload as {source?:string}).source==='auto'||key.startsWith('phone:');
+    stamps.set(key,payload.cam??(payload.type==='side.timeout'?null:automatic?{sentAt,by:'camera'}:botSeat?{sentAt}:playerStamp(uiOf(payload))));
+    while(stamps.size>256)stamps.delete(stamps.keys().next().value!);
+  }
+  const cam=stamps.get(key);return cam?{...payload,cam}:payload;
 }
 export function bindFieldTiming(id:string,slug:string,timing:FieldTiming|undefined) {
   if(!timing)return;

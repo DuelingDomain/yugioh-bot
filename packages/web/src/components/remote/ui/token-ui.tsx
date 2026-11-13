@@ -9,6 +9,7 @@ import type { Verdict } from "./placement";
 import type { useLayers } from "./use-layers";
 import s from "./remote-ui.module.css";
 import t from "./stats-tokens.module.css";
+import { playerStamp } from "@/lib/remote/field-timing";
 
 type Act = (action: RemoteActionProposal) => Promise<RemoteRoom | null>;
 type Position = "attack" | "defense";
@@ -56,7 +57,7 @@ export function useTokens({ act, room, live, extraZones, layers, info }: {
     void act({ type: "twin.move", actorSeat: actor(seat), seat, zone: "monster", slot: Number(key[1]), cardRef: card.ref });
   };
   const turn = (seat: number, card: TwinCard) => void act({ type: "twin.flip", actorSeat: actor(seat), seat, cardRef: card.ref, faceUp: true, position: card.position === "defense" ? "attack" : "defense" });
-  const remove = (seat: number, card: TwinCard) => { void act({ type: "twin.remove", actorSeat: actor(seat), seat, cardRef: card.ref }); close(); };
+  const remove = (seat: number, card: TwinCard) => { void act({ type: "twin.remove", actorSeat: actor(seat), seat, cardRef: card.ref, cam: playerStamp("token-remove") }); close(); };
 
   /** Drag and drop: a token only lands on a free Main Monster Zone cell. Leaving the field is Remove, so a drop elsewhere says so. */
   const judge = (seat: number, card: TwinCard, key: ZoneKey | "hand"): Verdict => {
