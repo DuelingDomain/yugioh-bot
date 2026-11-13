@@ -271,6 +271,38 @@ it('rolls a public opening die for game 1: the winner chooses who goes first, an
   expect(ygoModule.reduce(three, { type: 'side.timeout', actorSeat: 0, idempotencyKey: 'late', at: 24000 })).toMatchObject({ turnSeat: 2, match: { opening: { chosenSeat: 2 } } });
 });
 
+it('keeps who-made-it stamps as evidence only: old actions stay valid, a retry with the same stamp is no conflict, the board is the same', () => {
+  const s = deckSession('normal',false);
+  s.select(s.save().id);
+  s.service.join(s.room.slug,'g',s.users[1],'Opponent',1,2001);
+  s.service.ready(s.room.slug,'g',s.users[1],true,2002); s.start();
+  const place = (cam?:Record<string,unknown>) => ({type:'twin.place',seat:0,zone:'monster',card:{ref:'stamp-card',cardId:1,name:'Stamped',faceUp:true,slot:1},
+    actorSeat:0,idempotencyKey:'stamp-place',...(cam?{cam}:{})});
+  const player = {sentAt:5000,by:'player',ui:'popup-remove'}, camera = {seenAt:4000,namedAt:4500,sentAt:5000,v:'build-1',by:'camera'};
+  // An old action (no cam, or a cam without by/ui) still parses; a bad ui or an unknown by does not.
+  expect(remoteActionSchema.safeParse(place()).success).toBe(true);
+  expect(remoteActionSchema.safeParse(place({sentAt:5000,v:'old'})).success).toBe(true);
+  expect(remoteActionSchema.safeParse(place({...player,ui:'Bad Name'})).success).toBe(false);
+  expect(remoteActionSchema.safeParse(place({...player,by:'robot'})).success).toBe(false);
+  // The reducer gives the same board with and without a stamp (the state log only repeats the stamp inside the action it records).
+  const noCam = (value:unknown) => JSON.parse(JSON.stringify(value),(key,item)=>key==='cam'?undefined:item);
+  const state = s.service.snapshot(s.room.slug,'g').state;
+  const plain = ygoModule.reduce(state,remoteActionSchema.parse({...place(),at:3000}));
+  expect(noCam(ygoModule.reduce(state,remoteActionSchema.parse({...place(player),at:3000})))).toEqual(noCam(plain));
+  expect(noCam(ygoModule.reduce(state,remoteActionSchema.parse({...place(camera),at:3000})))).toEqual(noCam(plain));
+  // The player stamp is kept on the event; the same stamp on a retry returns the same room, a new stamp on the same key is refused.
+  const baseSeq = s.room.lastSeq, input = {baseSeq,action:remoteActionSchema.parse(place(player))};
+  const first = s.service.act(s.room.slug,'g',s.users[0],input,3000);
+  expect(s.service.act(s.room.slug,'g',s.users[0],input,3001).lastSeq).toBe(first.lastSeq);
+  expect(() => s.service.act(s.room.slug,'g',s.users[0],{baseSeq,action:remoteActionSchema.parse(place({...player,sentAt:5001}))},3002)).toThrow(/idempotency/i);
+  const events = s.service.snapshot(s.room.slug,'g').events;
+  expect(events.at(-1)).toMatchObject({id:'stamp-place',action:{cam:{by:'player',ui:'popup-remove'}}});
+  // A watcher action keeps by:'camera' and the same board result.
+  const other = s.service.act(s.room.slug,'g',s.users[1],{baseSeq:first.lastSeq,action:remoteActionSchema.parse({...place(camera),actorSeat:1,seat:1,idempotencyKey:'stamp-camera'})},3003);
+  expect(s.service.snapshot(s.room.slug,'g').events.at(-1)).toMatchObject({id:'stamp-camera',action:{cam:{by:'camera'}}});
+  expect(s.service.replay(s.room.slug,'g',s.users[1])).toEqual(other.state);
+});
+
 it('logs detection mode per seat as a public fact without changing the board or private information', () => {
   const s = deckSession('normal',false);
   s.select(s.save().id);

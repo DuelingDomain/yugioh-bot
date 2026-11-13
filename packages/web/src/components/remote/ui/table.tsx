@@ -78,6 +78,7 @@ import { handAdd, handCount, handCountOf, handReveal, knownHandOf, openSearch, S
 import type { HandProps } from "./hand-ui";
 import { ThemedSelect } from "@/components/ui/themed-select";
 import { isTypingTarget } from "@/lib/typing-target";
+import { playerStamp } from "@/lib/remote/field-timing";
 const REMOTE_IDLE_CLOSE_MS = 10 * 60_000; // the server closes a table after 10 idle minutes (shared services constant)
 
 const MARK_LIFE_MS = 4000; // an outline and its label on the feed fade after this, unless its popup is open
@@ -1259,7 +1260,7 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
           announceManualMove({ slug: now.slug, seat: subject.seat, ref: latest.ref });
           void act({ type: "twin.flip", actorSeat: now.solo ? subject.seat : now.mySeat, seat: subject.seat, cardRef: latest.ref, faceUp: true, position: latest.position === "defense" ? "attack" : "defense" });
         } } } : {}),
-      onRemove: () => { void act({ type: "twin.remove", actorSeat: solo ? subject.seat : mySeat, seat: subject.seat, cardRef: subjectCard.ref }); layers.close(); setSubject(null); },
+      onRemove: () => { void act({ type: "twin.remove", actorSeat: solo ? subject.seat : mySeat, seat: subject.seat, cardRef: subjectCard.ref, cam: playerStamp("popup-remove") }); layers.close(); setSubject(null); },
       ...(subjectCard.faceUp !== false && subjectCard.zone === "spell-trap" ? { equip: equipChoice(subject.seat, subjectCard) } : {}),
     } } : {}),
   };
@@ -1502,10 +1503,10 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
       {...(live && (solo || pile.seat === mySeat) ? {
         onOrder: (zone, cardRefs) => act({ type: "pile.order", actorSeat: solo ? pile.seat : mySeat, seat: pile.seat, zone: zone as "graveyard" | "banished", cardRefs }),
         onName: (card, cardId, cardName) => void act({ type: "card.identified", actorSeat: solo ? pile.seat : mySeat, seat: pile.seat, cardId, name: cardName, source: "typed", cardRef: card.ref }),
-        onRemove: card => void act({ type: "twin.remove", actorSeat: solo ? pile.seat : mySeat, seat: pile.seat, cardRef: card.ref }),
+        onRemove: card => void act({ type: "twin.remove", actorSeat: solo ? pile.seat : mySeat, seat: pile.seat, cardRef: card.ref, cam: playerStamp("popup-remove") }),
       } : {})} /> : null}
     {layers.layer === "card" && subjectDetails ? <CardPopover subject={subjectDetails} info={subjectInfo} at={popAt} warning={deckFlag(room, subjectDetails.seat)?.message} actions={shownActions} onClose={() => layers.close("card")} /> : null}
-    {tray ? <RecognitionTray dock={seatDocks[tray.seat] ?? null} key={readCounter.current} tray={tray} aiAllowed={aiAllowed} onClose={closeTray} onRemovePlaced={ref => { void act({ type: "twin.remove", actorSeat: solo ? tray.seat : mySeat, seat: tray.seat, cardRef: ref }); closeTray(); setSubject(null); }} saying={micState === "listen"} onSay={voiceRecognition ? () => toast("Say the card name, or “number two”.") : undefined}
+    {tray ? <RecognitionTray dock={seatDocks[tray.seat] ?? null} key={readCounter.current} tray={tray} aiAllowed={aiAllowed} onClose={closeTray} onRemovePlaced={ref => { void act({ type: "twin.remove", actorSeat: solo ? tray.seat : mySeat, seat: tray.seat, cardRef: ref, cam: playerStamp("popup-remove") }); closeTray(); setSubject(null); }} saying={micState === "listen"} onSay={voiceRecognition ? () => toast("Say the card name, or “number two”.") : undefined}
       inDeck={id => { const flag = flagFor(tray.seat, id); return flag === null ? null : !flag; }} onPick={pick => { if (tray.intent === "hand") { addToHand(tray.seat, { cardId: pick.cardId, name: pick.name }, tray.originId ? tray.source ?? "deck" : "unknown", tray.by, tray.originId); closeTray(); return; } void identify(pick, pick.via === "typed" ? "typed" : pick.via); }} /> : null}
     {layers.layer==="effect" && effectOrigin ? (()=>{
       const origin=state.effectTracking?.origins.find(o=>o.id===effectOrigin);
