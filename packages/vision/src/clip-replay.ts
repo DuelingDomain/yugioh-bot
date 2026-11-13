@@ -37,6 +37,8 @@ export interface ReplayOptions {
   /** Real mode runs one detect and one read on the first frame before the clock starts, so the cold first model run does not set read p95 (default on). */
   warmUp?: boolean;
   onEvent?: (event: ReplayEvent) => void;
+  /** Observer only (recording tools): called after each read with its time, result (absent on a failure) and request. Changes nothing in the replay. */
+  onRead?: (read: ReplayRead, result: RecognitionResult | undefined, request: Parameters<NonNullable<FieldWatcherOptions['recognizer']>['recognize']>[1]) => void;
 }
 
 const FIELD_ZONES = new Set<string>(['M1', 'M2', 'M3', 'M4', 'M5', 'S1', 'S2', 'S3', 'S4', 'S5', 'FIELD', 'EMZ1', 'EMZ2']);
@@ -128,6 +130,7 @@ export async function replayClip(options: ReplayOptions): Promise<ReplayResult> 
       // Recorded mode reports the time of the read it answered with; real mode the time this machine took.
       const ms = recorded ? recorded.usedMs : (performance.now() - wall) * (options.readScale ?? 1), unreplayable = !!recorded && recorded.unreplayable > missesBefore;
       reads.push(result ? { t, ms, tier: result.tier, backend: result.backend, embeds: result.timingsMs?.embedCount ?? result.quality?.framesUsed, closedSet: ['deck','dynamic','likely'].includes(result.quality?.searchSource ?? '') } : { t, ms, error: true, unreplayable });
+      options.onRead?.(reads[reads.length - 1], result, o);
       if (ms > 0) await new Promise<void>(release => pending.push({ due: start + ms, release }));
       if (failure) throw failure; return result!;
     },
