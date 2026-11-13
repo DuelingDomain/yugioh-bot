@@ -107,7 +107,9 @@ Without the flag they print one `NDUEL NOTE` line per check and run.
 - `eliminated-cards`: after `MSG_DUELIST_ELIMINATED` (200) for p, no `MSG_MOVE`, `MSG_SET`, `MSG_SUMMONING` or
   `MSG_SPSUMMONING` puts a card with controller p on the field.
 - `segoc-order`: consecutive forced trigger links (no prompt between, or only forced `SELECT_CHAIN` prompts) follow
-  the trigger order: FFA tp, tp+1, ...; Tag tp, tp+2, tp+1, tp+3. Optional trigger prompts end the batch.
+  the trigger order: FFA tp, tp+1, ...; Tag tp, tp+2, tp+1, tp+3. Only `EFFECT_TYPE_TRIGGER_F` links
+  belong to this batch. Mandatory Quick Effects such as Doomcaliber Knight respond to an existing link and
+  end the batch, even when they activate without a prompt. Optional trigger prompts also end the batch.
 - `field-disabled-n`: `MSG_FIELD_DISABLED_N` (202) is `u8 count, count x (u8 duelist, u32 mask)`, duelists in play.
 - `msg-format`: lengths of messages 200 (2 bytes) and 201 (1 byte).
 

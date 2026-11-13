@@ -312,6 +312,7 @@ Remote tables, including active solo tables, never enter engine `duels`/`drafts`
 | --- | --- |
 | `REMOTE_DUELS=1` | Web and ws. Off by default (`0` in `.env.example` and Compose). Gates UI/nav/API/room registration/sweep. |
 | `REMOTE_DUELS_USERS` | Web and ws, the same value. See [Per-user rollout](#per-user-rollout). |
+| `REMOTE_RECORD_USERS` | Web only. Test recording allowlist (`users.id` list, no `*`); unset or empty = off. See [test-recording.md](test-recording.md). |
 | `DUEL_DATA_DIR` | Web read-only card bundle (`cards.cdb`, `strings.conf`, `card-scripts`). Uses the existing deck data-directory resolver if omitted. Needed for selected-deck validation and live identity/banlist facts; not a running engine. |
 | `DATABASE_PATH` | Web and ws; **same absolute path** recommended. Web migrates automatically; ws never creates/migrates DB. Use a worktree-local file for local work. |
 | `DISCORD_GUILD_ID` | Web configured data scope. |

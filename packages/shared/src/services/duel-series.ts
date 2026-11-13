@@ -1205,7 +1205,7 @@ export function createDuelSeriesService(db: Database.Database, engine?: DeckType
     }
     resetToActive.run(row.id);
     return duels.get(game.slug, guildId);
-  });
+  }).immediate;
 
   return {
     createChallenge(input) {

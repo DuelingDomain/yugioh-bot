@@ -10,6 +10,7 @@ export function boundedReport(report: string, runUrl: string, maxBytes: number):
   const golden = report.match(/\n## Golden hashes\n[\s\S]*?(?=\n## |$)/)?.[0] ?? "";
   const artwork = report.match(/\n## Artwork script safety\n[\s\S]*?(?=\n## |$)/)?.[0] ?? "";
   const patches = report.match(/\n## Card script patches\n[\s\S]*?(?=\n## |$)/)?.[0] ?? "";
+  const bridges = report.match(/\n## Archetype bridges\n[\s\S]*?(?=\n## |$)/)?.[0] ?? "";
   const smoke = report.match(/\n## Prerelease script safety\n[\s\S]*?(?=\n## |$)/)?.[0] ?? "";
   const notice = `\n\n_Report truncated. Full report: [run summary](${runUrl}#summary) and [engine-data-update-report artifact](${runUrl}#artifacts)._\n`;
   const prefix = (value: string, budget: number) => {
@@ -21,7 +22,7 @@ export function boundedReport(report: string, runUrl: string, maxBytes: number):
   const prod = report.match(/\n## Script errors in prod \(last 7 days\)\n[\s\S]*?(?=\n## |$)/)?.[0] ?? "";
   const relevance = report.match(/\n## Relevance gate\n[\s\S]*?(?=\n## |$)/)?.[0] ?? "";
   const releasedSets = report.match(/\n## Released TCG sets still in pre-release CDBs\n[\s\S]*?(?=\n## |$)/)?.[0] ?? "";
-  const sections = [warnings, golden, artwork, patches, smoke, prod, relevance, releasedSets].filter(Boolean);
+  const sections = [warnings, golden, artwork, patches, bridges, smoke, prod, relevance, releasedSets].filter(Boolean);
   const sectionLimit = Math.floor(Math.max(0, maxBytes - Buffer.byteLength(notice)) / (2 * Math.max(1, sections.length)));
   const limited = sections.map(section => {
     if (Buffer.byteLength(section) <= sectionLimit) return section;

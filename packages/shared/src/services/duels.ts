@@ -993,7 +993,7 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
     const state = format === "1v1" ? newOpening(actorPlayerId, at) : newDiceOpening(actorPlayerId, seatCount, at, rollDie);
     storeOpening(row.id, state);
     return state;
-  });
+  }).immediate;
 
   const openingStepTx = db.transaction(
     (slug: string, guildId: string, step: (state: DuelOpeningState, seatCount: number) => DuelOpeningState) => {
@@ -1006,7 +1006,7 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
       if (after !== before) storeOpening(row.id, after);
       return after;
     },
-  );
+  ).immediate;
 
   const createTx = db.transaction(
     (input: {
@@ -1310,8 +1310,11 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
       const attached = selectDuelById.get(row.id);
       return mapSession(attached ?? updated);
     },
-  );
+  ).immediate;
 
+  // Live-duel writers read before they write. A deferred transaction that reads first and then writes fails at once with
+  // SQLITE_BUSY_SNAPSHOT when another process commits in between (busy_timeout is not honoured), which surfaced as
+  // "database is locked" on a player's answer. `.immediate` takes the writer slot first, so busy_timeout applies.
   const recordCommandTx = db.transaction(
     (slug: string, guildId: string, seat: number, command: DuelCommand, clock: DuelClockState | null, touch: boolean) => {
       const row = loadDuelRow(slug, guildId);
@@ -1327,7 +1330,7 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
       updateClock.run(serializeClock(storedClock), row.id);
       if (touch) touchActivity(row.id);
     },
-  );
+  ).immediate;
 
   const finalizeTx = db.transaction(
     (
@@ -1416,7 +1419,7 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
       }
       return mapSession(updated);
     },
-  );
+  ).immediate;
 
   const cancelRow = db.prepare<[string, number | null, number]>(`
     update duels
@@ -2026,7 +2029,7 @@ export function createDuelService(db: Database.Database, options: { rollDie?: ()
         }
         if (!isDuelKindSetup(row.kind, checked, rowFormat(row))) throw new DuelServiceError("Duel setup record is invalid", 400);
         updateSetup.run(checked === null ? null : JSON.stringify(checked), row.id);
-      })();
+      }).immediate();
     },
 
     dueClocks(now, limit) {

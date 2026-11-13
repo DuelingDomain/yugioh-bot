@@ -508,6 +508,54 @@ it('GY and banished arrivals place either face; private piles and absent twins n
  expect(fieldTrackMessage(snapshot,entries,[]).cards).toEqual([]);
  expect(fieldTrackMessage(snapshot,entries,[{id:'a',zone:'DECK',cardId:'1'}]).cards).toEqual([]);
 });
+it('sideways cards: Defense, Set, banished and GY read from the mat; a pile never keeps the sideways pose',async()=>{
+ const {createFieldCalibration,fieldMatPoint,fieldZoneCells,mapFieldZone,fieldOrientation}=await import('@yugidraft/vision');
+ const {fieldPlacementProposals,fieldPileEvidence,fieldDepartureProposal,fieldTwinPosition,fieldPositionMatches}=await import('../src/lib/remote/field-proposals');
+ const {ygoModule}=await import('@yugidraft/shared/remote');
+ // Flat 16:9 camera, mat 86% x 90% of the picture, so one cell is card-shaped (59:86). A card is 95% of a cell wide.
+ const W=1280,H=720,mw=.86*W,mh=.9*H,cal=createFieldCalibration([{x:.07,y:.05},{x:.93,y:.95}]),cells=fieldZoneCells('normal',1);
+ // A card lying in `zone`, moved `dx`/`dy` of a cell off the cell centre and turned `tilt` degrees; sideways = a quarter turn.
+ let serial=0;
+ const lying=(zone:string,sideways:boolean,dx:number,dy:number,tilt:number,faceDown=false)=>{
+  const c=cells.find(cell=>cell.zone===zone)!,cx=c.x+(.5+dx)*c.w,cy=c.y+(.5+dy)*c.h,cw=c.w*mw*.95,ch=cw*86/59,[w,h]=sideways?[ch,cw]:[cw,ch],a=tilt*Math.PI/180;
+  const quad=[[-w/2,-h/2],[w/2,-h/2],[w/2,h/2],[-w/2,h/2]].map(([x,y])=>fieldMatPoint({x:cx+(x*Math.cos(a)-y*Math.sin(a))/mw,y:cy+(x*Math.sin(a)+y*Math.cos(a))/mh},cal));
+  const card={kind:faceDown?'face-down':'face-up',confidence:.9,partial:false,quad} as any;
+  return {id:`fw-${zone}-${++serial}`,zone:mapFieldZone(card,cal).zone,position:fieldOrientation(card,W,H,cal),faceDown,visible:true,removed:false,firstSeen:1000} as any;
+ };
+ let state=ygoModule.initialState({seatCount:2}),n=0;
+ const place=(track:any,cardId?:number)=>{const proposals=fieldPlacementProposals({track,seat:0,cardId,name:cardId?'Card':undefined});expect(proposals).toHaveLength(1);state=ygoModule.reduce(state,{...proposals[0],at:1000,idempotencyKey:`sideways-${++n}`} as any);return proposals[0] as any;};
+ const pile=(zone:string)=>state.seats[0].twin.filter(c=>c.zone===zone);
+ // Hand-placed, off-centre and a few degrees turned, as on a real table: each card still lands in its own cell.
+ for(const [dx,dy,tilt] of [[0,0,0],[.25,-.2,6],[-.25,.2,-6]]){
+  const defense=lying('M3',true,dx,dy,tilt),set=lying('M4',true,dx,dy,tilt,true),banished=lying('BANISHED',true,dx,dy,tilt),graveyard=lying('GY',true,dx,dy,tilt);
+  expect([defense.zone,defense.position,set.zone,set.position,banished.zone,graveyard.zone]).toEqual(['M3','defense','M4','defense','BANISHED','GY']);
+  // The pile card is not a Defense Position monster of the Monster Zone next to it (GY sits beside M5, Banished beside the Extra Monster Zones).
+  expect(lying('M3',false,dx,dy,tilt).position).toBe('attack');
+ }
+ // Field: a face-up Defense monster keeps its name and pose; a Set monster is face-down Defense with no name.
+ expect(place(lying('M3',true,.2,0,5),46986414)).toMatchObject({zone:'monster',card:{slot:3,faceUp:true,position:'defense',cardId:46986414}});
+ const setCard=place(lying('M4',true,.2,0,5,true),46986414);
+ expect(setCard).toMatchObject({zone:'monster',card:{slot:4,faceUp:false,position:'defense'}});expect(setCard.card.cardId).toBeUndefined();
+ // Piles: exactly one more card, same name, normal pile form (no Defense Position), face-down banished stays face-down and nameless.
+ const up=place(lying('BANISHED',true,.2,-.2,5),89631139),gy=place(lying('GY',true,-.2,.2,-5),89631139),down=place(lying('BANISHED',true,0,0,0,true),89631139);
+ expect([up.card.position,gy.card.position,down.card.position]).toEqual(['attack','attack','attack']);
+ expect([up.card.faceUp,gy.card.faceUp,down.card.faceUp]).toEqual([true,true,false]);expect(down.card.cardId).toBeUndefined();
+ expect([pile('banished').length,pile('graveyard').length]).toEqual([2,1]);
+ expect(pile('banished').concat(pile('graveyard')).map(c=>c.position)).toEqual(['attack','attack','attack']);
+ expect(pile('banished').filter(c=>c.faceUp).map(c=>c.cardId)).toEqual([89631139]);
+ // A Defense monster that goes to the GY and is then seen there sideways needs no second write: its pile form already matches.
+ const left={ref:'fw-M3',zone:'monster',faceUp:true,position:'defense',name:'Card'} as any;
+ expect(fieldDepartureProposal(left,0,{zone:'graveyard'})).toMatchObject({zone:'graveyard',position:'attack'});
+ // Old rows and Synchro/Link materials keep `defense` in a pile: the watcher sends no position-only move for them, sideways or upright; a field card still does.
+ const needsMove=(zone:string,stored:string,track:any)=>!fieldPositionMatches(zone,stored,fieldTwinPosition(track));
+ expect([true,false].map(sideways=>needsMove('graveyard','defense',lying('GY',sideways,.1,0,3)))).toEqual([false,false]);
+ expect([true,false].map(sideways=>needsMove('banished','defense',lying('BANISHED',sideways,.1,0,3)))).toEqual([false,false]);
+ expect(needsMove('monster','attack',lying('M3',true,.1,0,3))).toBe(true);
+ // Seen-first rule: a face-down banished card is where a departed card went only when the camera saw it arrive; without it the card goes to the hand.
+ const seen=lying('BANISHED',true,.2,0,5,true),owns=(t:any)=>t.id,wait={ref:seen.id,zone:'banished',faceUp:false,position:'attack'} as any;
+ expect(fieldPileEvidence({twins:[wait],tracks:[seen],lastSeen:900,owns})).toMatchObject({zone:'banished',faceUp:false});
+ expect(fieldPileEvidence({twins:[],tracks:[],lastSeen:900,owns})).toBeUndefined();
+});
 it('review S5: cached receiver checks present public face-up twin and uses its corrected identity',async()=>{
  const {publicTrackedTwin}=await import('../src/lib/remote/field-track-cache');
  const cached={ref:'a',cardId:1,name:'Stale',quad:[]} as any;

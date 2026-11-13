@@ -357,6 +357,27 @@ esac
             "removed", "ownership", "started",
         ])
 
+    def test_disk_slimming_runs_only_after_success_is_recorded_from_staged_scripts(self):
+        remote = self.controls["remote"]
+        drop = remote.index('"$DEPLOY_IMAGES" drop-prev')
+        prune = remote.index('"$DEPLOY_BACKUP" --prune-releases')
+        for record in ('mv data/production-image-ids.tmp data/production-image-ids',
+                       'mv data/production-image-commit.tmp data/production-image-commit'):
+            self.assertLess(remote.index(record), drop)
+        self.assertLess(drop, prune)
+        self.assertIn("trap - EXIT", remote[prune:])
+        self.assertNotIn("python3 scripts/backup/dueling-backup --prune-releases", remote)
+
+    def test_every_staged_helper_travels_in_the_release_artifact(self):
+        # Helpers are copied in the prepare job but sent to the VM by the deploy job on another runner.
+        import re
+        workflow = (ROOT / ".github/workflows/deploy.yml").read_text()
+        staged = set(re.findall(r'cp scripts/[\w/.-]+ "\$RUNNER_TEMP/([\w.-]+)"', workflow))
+        self.assertIn("dueling-backup", staged)
+        for name in staged:
+            self.assertIn("${{ runner.temp }}/" + name, workflow, name + " missing from the release artifact")
+            self.assertIn('cp "$RUNNER_TEMP/release/' + name + '" "$RUNNER_TEMP/' + name + '"', workflow, name + " not restored in the deploy job")
+
     def test_ownership_failure_leaves_consumers_stopped(self):
         for failed_preparation in (1, 2):
             with self.subTest(failed_preparation=failed_preparation):

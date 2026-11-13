@@ -116,6 +116,11 @@ services:
     environment:
       - REMOTE_DUELS=${REMOTE_DUELS:-0}
       - REMOTE_DUELS_USERS=${REMOTE_DUELS_USERS:-}
+      # Test recording of the table camera for the listed users.id values (no `*`). Empty = off. Files go to <data>/remote-recordings.
+      - REMOTE_RECORD_USERS=${REMOTE_RECORD_USERS:-}
+      - REMOTE_RECORDINGS_DIR=${REMOTE_RECORDINGS_DIR:-}
+      - REMOTE_RECORDINGS_MAX_BYTES=${REMOTE_RECORDINGS_MAX_BYTES:-}
+      - REMOTE_RECORDINGS_MIN_FREE_BYTES=${REMOTE_RECORDINGS_MIN_FREE_BYTES:-}
       - SENTRY_DSN=${SENTRY_DSN:-}
       - SENTRY_ENVIRONMENT=${SENTRY_ENVIRONMENT:-}
       - SENTRY_RELEASE=${SENTRY_RELEASE:-}

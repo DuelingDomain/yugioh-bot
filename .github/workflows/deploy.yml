@@ -125,6 +125,7 @@ jobs:
           cp scripts/deployment/check-prod-activity.py "$RUNNER_TEMP/check-prod-activity.py"
           cp scripts/deployment/production-images.sh "$RUNNER_TEMP/production-images.sh"
           cp scripts/deployment/prepare-runtime-data.sh "$RUNNER_TEMP/prepare-runtime-data.sh"
+          cp scripts/backup/dueling-backup "$RUNNER_TEMP/dueling-backup"
 
       - name: Checkout deploy ref
         if: ${{ steps.superseded.outputs.skip != 'true' && env.VM_DEPLOY_ENABLED == 'true' }}
@@ -200,6 +201,7 @@ jobs:
             ${{ runner.temp }}/check-prod-activity.py
             ${{ runner.temp }}/production-images.sh
             ${{ runner.temp }}/prepare-runtime-data.sh
+            ${{ runner.temp }}/dueling-backup
           if-no-files-found: error
           retention-days: 1
           overwrite: true
@@ -379,6 +381,7 @@ jobs:
           cp "$RUNNER_TEMP/release/check-prod-activity.py" "$RUNNER_TEMP/check-prod-activity.py"
           cp "$RUNNER_TEMP/release/production-images.sh" "$RUNNER_TEMP/production-images.sh"
           cp "$RUNNER_TEMP/release/prepare-runtime-data.sh" "$RUNNER_TEMP/prepare-runtime-data.sh"
+          cp "$RUNNER_TEMP/release/dueling-backup" "$RUNNER_TEMP/dueling-backup"
           : > "$RUNNER_TEMP/release/image-digests"
           for service in duel web worker ws bot; do
             if [ "$service" = bot ] && ! git show "$DEPLOY_COMMIT:docker-compose.yml" | grep -q '^  bot:'; then continue; fi
@@ -422,6 +425,7 @@ jobs:
           remote_guard=
           remote_prepare=
           remote_images=
+          remote_backup=
           remote_refs=
           cleanup_transfer() {
             rm -f "$bundle_tar"
@@ -440,6 +444,10 @@ jobs:
             if [ -n "$remote_images" ]; then
               ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -p "$VM_PORT" "$VM_USER@$VM_HOST" \
                 "rm -f -- '$remote_images'" || true
+            fi
+            if [ -n "$remote_backup" ]; then
+              ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -p "$VM_PORT" "$VM_USER@$VM_HOST" \
+                "rm -f -- '$remote_backup'" || true
             fi
             if [ -n "$remote_refs" ]; then
               ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -p "$VM_PORT" "$VM_USER@$VM_HOST" \
@@ -465,6 +473,11 @@ jobs:
           printf '%s' "$remote_images" | grep -Eq '^/tmp/yugidraft-images\.[A-Za-z0-9]{6}\.sh$' || exit 1
           scp -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -P "$VM_PORT" \
             "$RUNNER_TEMP/production-images.sh" "$VM_USER@$VM_HOST:$remote_images"
+          remote_backup=$(ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -p "$VM_PORT" "$VM_USER@$VM_HOST" \
+            'mktemp /tmp/yugidraft-backup.XXXXXX.py')
+          printf '%s' "$remote_backup" | grep -Eq '^/tmp/yugidraft-backup\.[A-Za-z0-9]{6}\.py$' || exit 1
+          scp -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -P "$VM_PORT" \
+            "$RUNNER_TEMP/dueling-backup" "$VM_USER@$VM_HOST:$remote_backup"
           remote_refs=$(ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -p "$VM_PORT" "$VM_USER@$VM_HOST" \
             'mktemp /tmp/yugidraft-image-digests.XXXXXX.txt')
           printf '%s' "$remote_refs" | grep -Eq '^/tmp/yugidraft-image-digests\.[A-Za-z0-9]{6}\.txt$' || exit 1
@@ -477,14 +490,14 @@ jobs:
           ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key \
             -p "$VM_PORT" \
             "$VM_USER@$VM_HOST" \
-            "env DEPLOY_COMMIT='$DEPLOY_COMMIT' DEPLOY_BUNDLE='$remote_bundle' DEPLOY_GUARD='$remote_guard' DEPLOY_RUNTIME_PREPARE='$remote_prepare' DEPLOY_IMAGES='$remote_images' DEPLOY_IMAGE_REFS='$remote_refs' DEPLOY_FORCE='$DEPLOY_FORCE' DEPLOY_ROLLBACK='$DEPLOY_ROLLBACK' DEPLOY_WAIT_SECONDS='$DEPLOY_WAIT_SECONDS' DEPLOY_LIVE_ONLY='$DEPLOY_LIVE_ONLY' NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY='$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY' sh -s" <<'REMOTE'
+            "env DEPLOY_COMMIT='$DEPLOY_COMMIT' DEPLOY_BUNDLE='$remote_bundle' DEPLOY_GUARD='$remote_guard' DEPLOY_RUNTIME_PREPARE='$remote_prepare' DEPLOY_IMAGES='$remote_images' DEPLOY_BACKUP='$remote_backup' DEPLOY_IMAGE_REFS='$remote_refs' DEPLOY_FORCE='$DEPLOY_FORCE' DEPLOY_ROLLBACK='$DEPLOY_ROLLBACK' DEPLOY_WAIT_SECONDS='$DEPLOY_WAIT_SECONDS' DEPLOY_LIVE_ONLY='$DEPLOY_LIVE_ONLY' NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY='$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY' sh -s" <<'REMOTE'
              set -eu
              bundle_src=
              installer=
              runtime_compose=
              resolved_compose=
              cleanup() {
-               rm -f "$DEPLOY_BUNDLE" "$DEPLOY_GUARD" "$DEPLOY_RUNTIME_PREPARE" "$DEPLOY_IMAGES" "$DEPLOY_IMAGE_REFS"
+               rm -f "$DEPLOY_BUNDLE" "$DEPLOY_GUARD" "$DEPLOY_RUNTIME_PREPARE" "$DEPLOY_IMAGES" "$DEPLOY_BACKUP" "$DEPLOY_IMAGE_REFS"
                if [ -n "$installer" ]; then rm -rf "$installer"; fi
                if [ -n "$bundle_src" ]; then rm -rf "$bundle_src"; fi
                if [ -n "$runtime_compose" ]; then rm -f "$runtime_compose"; fi
@@ -710,7 +723,12 @@ jobs:
              mv data/production-image-ids.tmp data/production-image-ids
              printf '%s\n' "$DEPLOY_COMMIT" > data/production-image-commit.tmp
              mv data/production-image-commit.tmp data/production-image-commit
-             sh "$DEPLOY_IMAGES" prune
+             # Everything is healthy and recorded: free the disk. Rollbacks pull from GHCR, so the local :prev
+             # images, old SHA tags and old release DB copies are no longer needed. Never fails the deploy.
+             # DEPLOY_BACKUP is the workflow revision's script; an older rollback checkout may lack the flag.
+             sh "$DEPLOY_IMAGES" drop-prev || echo "WARNING: could not remove previous images" >&2
+             python3 "$DEPLOY_BACKUP" --prune-releases \
+               || echo "WARNING: could not prune old release DB copies" >&2
              cleanup
              trap - EXIT
              echo "Production deployed SHA: $DEPLOY_COMMIT"

@@ -1165,13 +1165,14 @@ export function createDuelHost(options: {
       graceEndsAt,
     ));
     // The journal keeps the reason of a scripted bot in `note`. Replay reads promptId, revision, answer and sortOrderVersion.
+    // Immediate: the writer slot is taken before the first read, so busy_timeout applies (see recordCommandTx).
     options.db.transaction(() => {
       service.recordCommand(slug, guildId, seat, note ? ({ ...command, note } as DuelCommand) : command, clock, {
         touchActivity: touchActivity && !state.session.seats.some(s => s.seat === seat && s.isBot)
           && !(state.setup?.surrenderedSeats ?? []).includes(seat),
       });
       persistEliminatedSeats(slug, guildId, state, after);
-    })();
+    }).immediate();
     rememberReportCapture(slug, guildId, after);
     if (entry) entry.fxReadyAt = presentationEndsAt;
   }

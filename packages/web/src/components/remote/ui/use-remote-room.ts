@@ -8,7 +8,7 @@ import { io, type Socket } from "socket.io-client";
 import { remoteApi, tabId } from "./api";
 import type { RemoteAction, RemoteActionProposal, RemoteBestOf, RemoteClientEvents, RemoteRoom, RemoteServerEvents } from "@yugidraft/shared/remote";
 
-import {markFieldAction,markFieldState} from '@/lib/remote/field-timing';
+import {markFieldAction,markFieldState,stampedProposal} from '@/lib/remote/field-timing';
 import {applyRoomPatch,classifyPatch,createRepairScheduler,createRoomMutationQueue,remoteChangeNeedsFetch} from '@/lib/remote/room-mutations';
 export type RoomController = ReturnType<typeof useRemoteRoom>;
 
@@ -92,7 +92,7 @@ export function useRemoteRoom(slug: string, options: { watchAsAdmin?: boolean } 
       markFieldState({...snapshot.table,state:snapshot.state} as RemoteRoom,'wsState');
       const held=roomRef.current;
       if(held&&held.slug===slug&&held.lastSeq<=snapshot.table.lastSeq)socketSeq.current=Math.max(socketSeq.current,snapshot.table.lastSeq);
-      const fromSnapshot = (current: RemoteRoom): RemoteRoom => ({ ...snapshot.table, state: snapshot.state, events: snapshot.events, mySeat: current.mySeat, isDeveloper: current.isDeveloper, spectator: current.spectator, spectatorCount: snapshot.table.spectatorCount ?? current.spectatorCount });
+      const fromSnapshot = (current: RemoteRoom): RemoteRoom => ({ ...snapshot.table, state: snapshot.state, events: snapshot.events, mySeat: current.mySeat, isDeveloper: current.isDeveloper, recordingEnabled: current.recordingEnabled, spectator: current.spectator, spectatorCount: snapshot.table.spectatorCount ?? current.spectatorCount });
       // The held room moves now, so a patch that follows at once builds on this snapshot.
       const built=held&&held.slug===slug&&held.lastSeq<=snapshot.table.lastSeq?fromSnapshot(held):undefined;
       if(built)roomRef.current=built;
@@ -142,7 +142,7 @@ export function useRemoteRoom(slug: string, options: { watchAsAdmin?: boolean } 
   /** Posts one action; resolves to the updated room, or null when the foundation refused it. */
   const postAction = useCallback(async (payload: RemoteActionProposal, idempotencyKey = crypto.randomUUID()): Promise<RemoteRoom | null> => {
     const current = roomRef.current; if (tableKey.current!==slug||!current||current.slug!==slug) return null;
-    const input = { baseSeq: Math.max(current.lastSeq, lastSeq.current), action: { ...payload, idempotencyKey } as RemoteAction };
+    const input = { baseSeq: Math.max(current.lastSeq, lastSeq.current), action: { ...stampedProposal(payload, idempotencyKey, !!current.seats?.find(seat => seat.seat === payload.actorSeat)?.bot), idempotencyKey } as RemoteAction };
     setError("");
     try {
       markFieldAction(idempotencyKey,'httpStart');

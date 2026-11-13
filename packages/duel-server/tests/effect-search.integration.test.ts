@@ -1065,10 +1065,25 @@ it('applies release words to real cards, including usage-ranked results in both 
     expect(shared.total).toBeGreaterThan(0);
     expect(shared.cards.every(card=>!!card.release?.date && (!from||card.release.date>=from) && card.release.date<=to)).toBe(true);
   }
-  expect(search('newest').cards).toEqual([]);
-  const newest=search('newest').effectHits!;
-  expect(newest.length).toBeGreaterThan(0);
-  expect(newest.map(card=>card.release!.date)).toEqual(newest.map(card=>card.release!.date).sort().reverse());
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date('2026-11-13T12:00:00Z'));
+  try {
+    expect(search('newest').cards).toEqual([]);
+    for (const rows of [search('newest').effectHits!, sql.effectSearch('newest', undefined, { limit: 30 }).cards]) {
+      expect(rows.length).toBeGreaterThan(0);
+      // Pending first prints lead later regional debuts, even when the latter
+      // have a newer selected month. Derive groups from each pin's release facts.
+      const pending = rows.map(({ release }) => {
+        const first = [release!.tcgDate, release!.ocgDate].filter((month): month is string => !!month).sort()[0] ?? release!.date;
+        return !!first && (first > '2026-11' || (!!release!.prerelease && first === '2026-11'));
+      });
+      expect(pending).toEqual([...pending].sort().reverse());
+      for (const group of [true, false]) {
+        const dates = rows.filter((_, i) => pending[i] === group).map(card => card.release!.date);
+        expect(dates).toEqual([...dates].sort((a, b) => (b ?? '').localeCompare(a ?? '')));
+      }
+    }
+  } finally { vi.useRealTimers(); }
   for(const text of ['hand traps before 2015','Blue-Eyes hand traps before 2015']){
     for(const rows of [search(text).effectHits!,sql.effectSearch(text).cards]){
       const expectedVeiler = text === 'hand traps before 2015' || (formatStaples('normal').playShares.get(code('Effect Veiler')) ?? 0) > 0;

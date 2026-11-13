@@ -181,6 +181,9 @@ def main():
     assert headers.get("content-type") == "text/plain; charset=utf-8"
     check(p, "app.localhost", "/robots.txt?from=crawler", body=ROBOTS)
     check(p, "app.localhost", "/needs-login", status=302, location="/login")
+    # Scanner probe with a made-up Server Action id stops at Caddy; a real id passes.
+    check(p, "app.localhost", status=404, body="", extra=["-H", "Next-Action: x"])
+    check(p, "app.localhost", body="web GET /", extra=["-H", "Next-Action: " + "0a" * 21])
     check(p, "app.localhost", "/socket.io/?EIO=4&transport=polling", body="ws GET /socket.io/?EIO=4&transport=polling")
     check(p, "www.app.localhost", "/draft/abc?x=1", status=308, location="https://app.localhost/draft/abc?x=1")
     _, headers, _ = check(p, "marketing.localhost", body="marketing index")
