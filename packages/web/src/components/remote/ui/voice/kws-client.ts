@@ -1,17 +1,16 @@
 "use client";
 
 import type { KwsHit } from "./kws-glue";
-import { resumeAudioContext } from "./audio-resume";
-import type { KwsWorkerIn, KwsWorkerOut } from "./kws-worker";
-import type { AsrWorkerOut } from "./asr-worker";
+import { AudioInput, joinAudio, type AudioEnd } from "./audio-input";
+import { SpeechWorker, type WorkerUtterance } from "./worker-client";
+import { VoiceMetrics } from "./metrics";
+import type { Verification } from "./two-stage";
 
-/** Where prepare.mts puts the module, the model and the worker; served by /dev/vision-assets. */
 export const KWS_BASE = "/dev/vision-assets/kws/";
-/** Where prepare-asr.mts puts the speech model worker (Method B of the voice check); it speaks the same messages. */
 export const ASR_BASE = "/dev/vision-assets/asr/";
 
 /** `text` and `passes` come from the speech model worker only. */
-export type KwsUtterance = { id: number; hits: KwsHit[]; speechMs: number; busyMs: number; audioMs: number; text?: string; passes?: number; startedAt?: number; endedAt?: number };
+export type KwsUtterance = { id: number; hits: KwsHit[]; speechMs: number; busyMs: number; audioMs: number; text?: string; passes?: number; startedAt?: number; endedAt?: number; decisionMs?: number; verification?: Verification };
 export type KwsReady = { fetchMs: number; initMs: number; totalMs: number; bytes: number; heapBytes: number; accepted: boolean };
 /** What the mic path is doing right now, so a silent mic can be told apart from a suspended context or a muted track. */
 export type KwsStatus = { micName: string; contextState: AudioContextState; sampleRate: number; muted: boolean; enabled: boolean; framesPerSecond: number; silentMs: number };
@@ -33,137 +32,48 @@ export type KwsClientOptions = {
   onError(message: string): void;
 };
 
-// 20 ms frames at 16 kHz. Keep short commands together across pauses up to 0.9 s (previously 0.56 s).
-const WORKLET = `class T extends AudioWorkletProcessor{process(i){const c=i[0]&&i[0][0];if(c)this.port.postMessage(c.slice(0));return true}}registerProcessor('pcm-tap',T)`;
-const FRAME = 320; const PREROLL = 15; const START_FRAMES = 3; const END_FRAMES = 45; const MIN_SPEECH = 8; const MAX_FRAMES = 700;
-
-/** Mic -> worker. The worker only hears audio while the energy gate is open (plus preroll), so a silent player costs little. Audio stays in the page. */
+/** Single-stage listener. Capture and gating are also used by the two-stage coordinator. */
 export class KwsClient {
-  private worker: Worker | null = null;
-  private stream: MediaStream | undefined;
-  private context: AudioContext | undefined;
+  readonly metrics = new VoiceMetrics();
+  private readonly worker: SpeechWorker;
+  private readonly input: AudioInput;
   private disposed = false;
-  private frames = 0;
-  private lastFrameAt = performance.now();
-  private statusTimer: ReturnType<typeof setInterval> | undefined;
-  private serial = 0;
-  private readonly started = performance.now();
-  private spoken = new Map<number, { speechMs: number; startedAt: number; endedAt: number }>();
-  private inputPcm: ((samples: Float32Array) => void) | undefined;
-  constructor(private readonly options: KwsClientOptions) {}
-
-  private send(message: KwsWorkerIn, transfer: Transferable[] = []) { this.worker?.postMessage(message, transfer); }
-
-  async start(): Promise<void> {
-    const o = this.options; const base = o.base ?? KWS_BASE;
-    const worker = new Worker(`${base}worker.js`, { type: "module" });
-    this.worker = worker;
-    worker.onerror = event => o.onError(event.message || "Speech worker failed");
-    worker.onmessage = (event: MessageEvent<KwsWorkerOut | AsrWorkerOut>) => {
-      const m = event.data;
-      if (m.type === "ready") o.onReady({ fetchMs: m.fetchMs, initMs: m.initMs, totalMs: performance.now() - this.started, bytes: m.bytes, heapBytes: m.heapBytes, accepted: m.accepted });
-      else if (m.type === "keywords") o.onKeywords?.(m.accepted);
-      else if (m.type === "utterance") {
-        const timing = this.spoken.get(m.id); this.spoken.delete(m.id);
-        o.onUtterance({ id: m.id, hits: m.hits, speechMs: 0, ...timing, busyMs: m.busyMs, audioMs: m.audioMs, ...("text" in m ? { text: m.text, passes: m.passes } : {}) });
-      }
-      else if (m.type === "error") o.onError(m.message);
-    };
-    this.send({ type: "init", base, defaultKeywords: o.defaultKeywords, keywords: o.keywords, boost: o.boost, threshold: o.threshold });
-    if (o.pcmInput) { this.inputPcm = this.tap(1); return; }
-    try {
-      this.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, ...(o.deviceId ? { deviceId: { ideal: o.deviceId } } : {}) } });
-      if (this.disposed) { this.stream.getTracks().forEach(track => track.stop()); return; }
-      const context = this.context = new AudioContext();
-      context.addEventListener("statechange", () => this.report());
-      await resumeAudioContext(context);
-      if (this.disposed) return;
-      const url = URL.createObjectURL(new Blob([WORKLET], { type: "text/javascript" }));
-      await context.audioWorklet.addModule(url); URL.revokeObjectURL(url);
-      const source = context.createMediaStreamSource(this.stream);
-      const node = new AudioWorkletNode(context, "pcm-tap");
-      const mute = context.createGain(); mute.gain.value = 0; source.connect(node); node.connect(mute).connect(context.destination);
-      this.inputPcm = this.tap(context.sampleRate / 16000);
-      node.port.onmessage = event => this.inputPcm?.(event.data);
-      this.lastFrameAt = performance.now(); this.frames = 0;
-      let counted = 0; let countedAt = performance.now(); this.fps = 0;
-      this.statusTimer = setInterval(() => {
-        const now = performance.now();
-        this.fps = (this.frames - counted) / Math.max(0.001, (now - countedAt) / 1000); counted = this.frames; countedAt = now;
-        this.report();
-      }, 500);
-    } catch (error) { o.onError((error as Error).message || "Microphone unavailable"); }
-  }
-
-  private fps = 0;
-  private report() {
-    const track = this.stream?.getAudioTracks()[0]; const context = this.context;
-    if (!track || !context || this.disposed) return;
-    this.options.onStatus?.({ micName: track.label || "default microphone", contextState: context.state, sampleRate: context.sampleRate, muted: track.muted, enabled: track.enabled,
-      framesPerSecond: this.fps, silentMs: performance.now() - this.lastFrameAt });
-  }
-
-  /** New phrase list (a different deck, or new boost and threshold values). */
-  setKeywords(keywords: string) { this.send({ type: "keywords", keywords }); }
-
-  /** Returns the last queued utterance id, so replay can await decoding before feeding more audio. */
-  pushPcm(samples: Float32Array): number {
-    if (!this.options.pcmInput || this.disposed) throw new Error("PCM input is not active");
-    this.inputPcm?.(samples); return this.serial;
-  }
-
-  resetPcm() {
-    if (!this.options.pcmInput || this.disposed) throw new Error("PCM input is not active");
-    this.inputPcm = this.tap(1);
-    this.send({ type: "keywords", keywords: this.options.keywords });
-    this.send({ type: "reset" });
-  }
-
-  private tap(ratio: number) {
-    let position = 0; let last = 0; const samples: number[] = [];
-    let noise = 0.01; let loud = 0; let quiet = 0; let inSpeech = false; let spoken = 0; let total = 0; let lastLevelAt = 0;
-    let startedAt = 0; let endedAt = 0;
-    const preroll: Float32Array[] = [];
-    const frame = (pcm: Float32Array) => {
-      let sum = 0; for (const value of pcm) sum += value * value;
-      const rms = Math.sqrt(sum / pcm.length);
-      const now = performance.now();
-      if (now - lastLevelAt > 60) { lastLevelAt = now; this.options.onLevel?.(Math.min(1, rms * 8), inSpeech); }
-      if (!inSpeech) {
-        noise = Math.min(0.05, noise * 0.995 + rms * 0.005);
-        loud = rms > Math.max(0.018, noise * 3.2) ? loud + 1 : 0;
-        preroll.push(pcm); if (preroll.length > PREROLL) preroll.shift();
-        if (loud >= START_FRAMES) {
-          inSpeech = true; spoken = START_FRAMES; total = preroll.length; quiet = 0; loud = 0;
-          startedAt = (this.frames - START_FRAMES) * 20; endedAt = this.frames * 20;
-          for (const old of preroll.splice(0)) this.send({ type: "frames", samples: old }, [old.buffer]);
+  private chunks: Float32Array[] = [];
+  private queue = Promise.resolve();
+  constructor(private readonly options: KwsClientOptions) {
+    const stage = options.base === ASR_BASE ? "stage2" : "stage1";
+    this.worker = new SpeechWorker({ type: "init", base: options.base ?? KWS_BASE, defaultKeywords: options.defaultKeywords,
+      keywords: options.keywords, boost: options.boost, threshold: options.threshold }, {
+      work: (busyMs, audioMs) => this.metrics.work({ stage, busyMs, audioMs }), keywords: options.onKeywords, error: options.onError,
+    });
+    this.input = new AudioInput({ ...options,
+      onFrames: samples => { if (stage === "stage1") this.worker.send({ type: "frames", samples }); else this.chunks.push(samples); },
+      onReset: () => { this.chunks = []; if (stage === "stage1") this.worker.send({ type: "reset" }); },
+      onEnd: timing => {
+        if (stage === "stage1") void this.worker.end(timing.id).then(result => this.deliver(result, timing)).catch(() => {});
+        else {
+          const samples = joinAudio(this.chunks); this.chunks = [];
+          this.queue = this.queue.then(async () => { if (!this.disposed) { this.metrics.run(); this.deliver(await this.worker.decode(timing.id, samples), timing); } }).catch(error => { if (!this.disposed) options.onError(String(error)); });
         }
-        return;
-      }
-      this.send({ type: "frames", samples: pcm }, [pcm.buffer]); total++;
-      if (rms > Math.max(0.018, noise * 2.4)) { spoken++; quiet = 0; endedAt = this.frames * 20; } else quiet++;
-      if (quiet >= END_FRAMES || total >= MAX_FRAMES) {
-        inSpeech = false;
-        if (spoken < MIN_SPEECH) this.send({ type: "reset" });
-        else { const id = ++this.serial; this.spoken.set(id, { speechMs: spoken * 20, startedAt, endedAt }); this.send({ type: "end", id }); }
-        spoken = 0; total = 0; quiet = 0; loud = 0;
-      }
-    };
-    return (input: Float32Array) => {
-      for (const value of input) {
-        while (position < 1) { samples.push(last + (value - last) * position); position += ratio; }
-        position -= 1; last = value;
-      }
-      this.lastFrameAt = performance.now();
-      while (samples.length >= FRAME) { this.frames++; frame(Float32Array.from(samples.splice(0, FRAME))); }
-    };
+      },
+    });
   }
-
-  stop() {
-    this.disposed = true;
-    clearInterval(this.statusTimer);
-    this.stream?.getTracks().forEach(track => track.stop());
-    void this.context?.close();
-    this.worker?.terminate(); this.worker = null;
+  async start() {
+    const info = await this.worker.start();
+    if (this.disposed) return;
+    this.metrics.load(this.options.base === ASR_BASE ? "stage2" : "stage1", info);
+    await this.input.start(); if (this.disposed) return;
+    this.metrics.start(); this.options.onReady(info);
   }
+  private deliver(result: WorkerUtterance, timing: AudioEnd) {
+    if (this.disposed) return;
+    const decisionMs = timing.tailMs + performance.now() - timing.submittedAt;
+    this.metrics.decision(decisionMs);
+    if (this.options.base !== ASR_BASE) this.metrics.hit(result.hits.filter(hit => hit.keyword !== "_").length);
+    this.options.onUtterance({ ...result, ...timing, decisionMs });
+  }
+  setKeywords(keywords: string) { this.worker.send({ type: "keywords", keywords }); }
+  pushPcm(samples: Float32Array) { return this.input.pushPcm(samples); }
+  resetPcm() { this.input.resetPcm(); }
+  stop() { this.disposed = true; this.input.stop(); this.worker.stop(); this.chunks = []; this.metrics.stop(); }
 }

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { ygoModule } from "@yugidraft/shared/remote";
 import { interpret } from "@/components/remote/ui/grammar";
 import { PHASE_TURN_PHRASES, buildPhrases } from "@/components/remote/ui/voice/phrases";
@@ -8,8 +8,13 @@ import vocab from "@/components/remote/ui/voice/sp-vocab.json";
 import { generateScript, scriptSummary } from "@/components/remote/ui/voice/test-set/script";
 import { decodeWav, encodeWav, exportTestSet, importTestSet } from "@/components/remote/ui/voice/test-set/format";
 import { score } from "@/components/remote/ui/voice/test-set/scoring";
-import { decideUtterance } from "@/components/remote/ui/voice/test-set/replay";
+import { checkAssets, decideUtterance } from "@/components/remote/ui/voice/test-set/replay";
 import { type ClipResult, type Observation, type Prompt, type TestSet } from "@/components/remote/ui/voice/test-set/model";
+
+import type { GrammarContext } from "@/components/remote/ui/grammar";
+import type { KwsUtterance } from "@/components/remote/ui/voice/kws-client";
+import { cpuShare, latencySummary, VoiceMetrics } from "@/components/remote/ui/voice/metrics";
+import { buildGatePhrases, verifyKeywordHit } from "@/components/remote/ui/voice/two-stage";
 
 const sim = { phase: "main1", turn: 2, mine: true } as const;
 function prompt(id: string, category: Prompt["category"], expected: Prompt["expected"]): Prompt {
@@ -129,5 +134,99 @@ describe("shared replay decision path", () => {
     expect(decision("I think the battle phase rules changed").intent).toBe("none");
     expect(decision("end turn", { ...p, sim: { ...sim, mine: false } }).intent).toBe("none");
     expect(decision("attack directly").intent).toBe("none");
+  });
+});
+
+
+describe("voice asset availability", () => {
+  it("reports a missing verifier dependency plainly before starting a two-stage replay", async () => {
+    vi.stubGlobal("fetch", async (url: string) => ({ ok: !url.includes("asr/model/"), status: url.includes("asr/model/") ? 404 : 200 }));
+    try {
+      expect(await checkAssets("kws")).toBeNull();
+      expect(await checkAssets("two-stage")).toContain("assets missing: /dev/vision-assets/asr/model/encoder_model_quantized.onnx (HTTP 404)");
+    } finally { vi.unstubAllGlobals(); }
+  });
+});
+
+const phrases = buildGatePhrases(createSentencePiece(vocab));
+const battle = phrases.entries.find(e => e.spoken === "BATTLE PHASE");
+if (!battle) throw new Error("Missing battle phase keyword");
+const keyword = battle.tag;
+const utterance = (hits: string[]): KwsUtterance => ({ id: 1, hits: hits.map(keyword => ({ keyword, startTime: 0, timestamps: [], tokens: [] })), speechMs: 600, audioMs: 1500, busyMs: 20 });
+function context(phase = "main1", mine = true, turn = 2): GrammarContext {
+  return { state: { ...ygoModule.initialState({ seatCount: 2 }), phase, turn, turnSeat: mine ? 0 : 1 },
+    players: [{ seat: 0, displayName: "Me" }, { seat: 1, displayName: "Opponent" }], me: 0, trayOpen: false };
+}
+
+describe("keyword gate verification", () => {
+  it("never activates the decoder for silence, unknown keywords or the placeholder", async () => {
+    let decodes = 0; const metrics = new VoiceMetrics();
+    for (const hits of [[], ["_"], ["a card name"]]) {
+      const result = await verifyKeywordHit({ utterance: utterance(hits), phrases, metrics, context,
+        decode: async () => { decodes++; throw new Error("Decoder must remain idle"); } });
+      expect(result.verification).toMatchObject({ stage1: "miss", stage2: "skipped", intent: { kind: "none" } });
+    }
+    expect(decodes).toBe(0);
+    expect(metrics.snapshot()).toMatchObject({ stage1Hits: 0, stage2Runs: 0, stage2Confirmations: 0, stage2Rejections: 0 });
+  });
+
+  it("decodes a hit utterance once and rejects chatter without an action", async () => {
+    let decodes = 0; const metrics = new VoiceMetrics();
+    const result = await verifyKeywordHit({ utterance: utterance([keyword, keyword]), phrases, metrics, context,
+      decode: async () => { decodes++; return { text: "I think the battle phase rules changed", busyMs: 80, audioMs: 1500 }; } });
+    expect(decodes).toBe(1);
+    expect(result.verification).toMatchObject({ stage1: "hit", stage2: "rejected", intent: { kind: "none" }, reason: expect.stringContaining("not a whole phase/turn phrase") });
+    expect(result.busyMs).toBe(100);
+    expect(metrics.snapshot()).toMatchObject({ stage1Hits: 2, stage2Runs: 1, stage2Confirmations: 0, stage2Rejections: 1 });
+  });
+
+  it.each([
+    { text: "battle phase", phase: "main1", mine: true, turn: 2, expected: { kind: "phase", phase: "battle" } },
+    { text: "end turn", phase: "main1", mine: true, turn: 2, expected: { kind: "turn" } },
+    { text: "battle phase", phase: "main1", mine: false, turn: 2, expected: { kind: "none" } },
+    { text: "battle phase", phase: "draw", mine: true, turn: 2, expected: { kind: "none" } },
+    { text: "battle phase", phase: "main1", mine: true, turn: 1, expected: { kind: "none" } },
+    { text: "end turn", phase: "draw", mine: true, turn: 2, expected: { kind: "none" } },
+    { text: "go back a phase", phase: "main1", mine: false, turn: 2, expected: { kind: "none" } },
+    { text: "activate effect", phase: "main1", mine: true, turn: 2, expected: { kind: "none" } },
+  ])("confirms only legal phase/turn actions: $text, $phase, mine=$mine, turn=$turn", async ({ text, phase, mine, turn, expected }) => {
+    const metrics = new VoiceMetrics();
+    const result = await verifyKeywordHit({ utterance: utterance([keyword]), phrases, metrics, context: () => context(phase, mine, turn),
+      decode: async () => ({ text, busyMs: 80, audioMs: 1500 }) });
+    expect(result.verification.intent).toEqual(expected);
+    expect(result.verification.stage2).toBe(expected.kind === "none" ? "rejected" : "confirmed");
+    expect(metrics.snapshot()).toMatchObject({ stage2Runs: 1, stage2Confirmations: expected.kind === "none" ? 0 : 1, stage2Rejections: expected.kind === "none" ? 1 : 0 });
+  });
+
+  it("checks game state after decoding and fails closed on a decoder failure", async () => {
+    const metrics = new VoiceMetrics(); let mine = true;
+    const changed = await verifyKeywordHit({ utterance: utterance([keyword]), phrases, metrics, context: () => context("main1", mine),
+      decode: async () => { mine = false; return { text: "battle phase", busyMs: 80, audioMs: 1500 }; } });
+    expect(changed.verification).toMatchObject({ intent: { kind: "none" }, reason: expect.stringContaining("not your turn") });
+    const failed = await verifyKeywordHit({ utterance: utterance([keyword]), phrases, metrics, context,
+      decode: async () => { throw new Error("assets missing"); } });
+    expect(failed.verification).toMatchObject({ stage2: "rejected", intent: { kind: "none" }, reason: expect.stringContaining("assets missing") });
+    expect(metrics.snapshot()).toMatchObject({ stage2Runs: 2, stage2Rejections: 2 });
+  });
+});
+
+describe("voice measurement arithmetic", () => {
+  it("uses wall time and a separate no-command interval for stage CPU shares, retaining model loads and decision latency", () => {
+    const metrics = new VoiceMetrics(); metrics.start(1000);
+    metrics.load("stage1", { totalMs: 90, fetchMs: 60, initMs: 30, bytes: 5000 });
+    metrics.work({ stage: "stage1", busyMs: 100, audioMs: 100 });
+    metrics.setIdle(true, 2000);
+    metrics.work({ stage: "stage1", busyMs: 20, audioMs: 100 });
+    metrics.work({ stage: "stage2", busyMs: 200, audioMs: 100 });
+    metrics.decision(900); metrics.decision(1100);
+    metrics.setIdle(false, 3000); metrics.stop(3000);
+    expect(metrics.snapshot(9000)).toMatchObject({ wallMs: 2000, idleWallMs: 1000, idleActive: false,
+      stage1: { busyMs: 120, cpu: { msPerSecond: 60, percent: 6 }, idleCpu: { msPerSecond: 20, percent: 2 }, load: { bytes: 5000 } },
+      stage2: { busyMs: 200, cpu: { msPerSecond: 100, percent: 10 }, idleCpu: { msPerSecond: 200, percent: 20 }, load: null },
+      latency: { count: 2, meanMs: 1000, p95Ms: 1100 } });
+    expect(cpuShare(50, 0)).toBeNull();
+    expect(cpuShare(2500, 1000)).toEqual({ msPerSecond: 2500, percent: 250 });
+    expect(latencySummary([])).toEqual({ count: 0, meanMs: null, p95Ms: null });
+    expect(latencySummary(Array.from({ length: 20 }, (_, i) => i + 1))).toEqual({ count: 20, meanMs: 10.5, p95Ms: 19 });
   });
 });

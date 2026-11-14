@@ -15,6 +15,7 @@ export type KwsWorkerIn =
 export type KwsWorkerOut =
   | { type: "ready"; fetchMs: number; initMs: number; bytes: number; heapBytes: number; accepted: boolean }
   | { type: "keywords"; accepted: boolean }
+  | { type: "work"; busyMs: number; audioMs: number }
   | { type: "utterance"; id: number; hits: KwsHit[]; busyMs: number; audioMs: number }
   | { type: "error"; message: string };
 
@@ -40,7 +41,9 @@ function work(samples: Float32Array) {
   stream!.accept(samples);
   // No reset on a hit: a reset drops the word said right after it ("activate" + name, "main" + "two").
   hits.push(...kws!.run(stream!, false));
-  busyMs += performance.now() - started; audioMs += samples.length / 16;
+  const elapsed = performance.now() - started;
+  busyMs += elapsed; audioMs += samples.length / 16;
+  post({ type: "work", busyMs: elapsed, audioMs: samples.length / 16 });
 }
 
 self.onmessage = async (event: MessageEvent<KwsWorkerIn>) => {
@@ -79,6 +82,7 @@ self.onmessage = async (event: MessageEvent<KwsWorkerIn>) => {
       if (stream) kws.reset(stream);
     } else if (message.type === "reset") {
       hits = []; busyMs = 0; audioMs = 0;
+      if (stream) kws.reset(stream);
     }
   } catch (error) {
     post({ type: "error", message: (error as Error).message || String(error) });

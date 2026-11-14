@@ -6,7 +6,8 @@ import { createTestSet, scriptSummary } from "@/components/remote/ui/voice/test-
 import { decodeWav, encodeWav, exportTestSet, importTestSet } from "@/components/remote/ui/voice/test-set/format";
 import { loadSession, saveSession } from "@/components/remote/ui/voice/test-set/storage";
 import { recordMicrophone, type Recording } from "@/components/remote/ui/voice/test-set/recorder";
-import { checkAssets, METHODS, replay, type RunResult } from "@/components/remote/ui/voice/test-set/replay";
+import { checkAssets, METHOD_IDS, METHODS, replay, type RunResult } from "@/components/remote/ui/voice/test-set/replay";
+import { METRICS_NOTE, VoiceMeasurements } from "../metrics";
 import { errorText, intentKey, type Method, type TestSet } from "@/components/remote/ui/voice/test-set/model";
 
 const cell = { border: "1px solid #444", padding: "5px 8px", textAlign: "left" as const, verticalAlign: "top" };
@@ -28,6 +29,7 @@ export function VoiceTestSet() {
   const [error, setError] = useState(""); const [notice, setNotice] = useState("Loading local session…");
   const [busy, setBusy] = useState<"idle" | "saving" | "opening-mic" | "recording" | "replaying">("idle");
   const [progress, setProgress] = useState(""); const [level, setLevel] = useState(0);
+  const [assetRevision, setAssetRevision] = useState(0);
   const [assets, setAssets] = useState<Partial<Record<Method, string>>>({});
   const [method, setMethod] = useState<Method>("asr"); const [runs, setRuns] = useState<RunResult[]>([]);
   const recording = useRef<Recording | null>(null); const operation = useRef<AbortController | null>(null);
@@ -44,12 +46,12 @@ export function VoiceTestSet() {
   }, []);
 
   useEffect(() => {
-    const controller = new AbortController();
-    for (const candidate of ["asr", "kws"] as const) void checkAssets(candidate, controller.signal).then(message => {
+    const controller = new AbortController(); setAssets({});
+    for (const candidate of METHOD_IDS) void checkAssets(candidate, controller.signal).then(message => {
       if (!controller.signal.aborted) setAssets(old => ({ ...old, [candidate]: message ?? "Local assets available" }));
     }).catch(e => { if (!controller.signal.aborted) setAssets(old => ({ ...old, [candidate]: `Asset check failed: ${errorText(e)}` })); });
     return () => controller.abort();
-  }, []);
+  }, [assetRevision]);
 
   const persist = async (next: TestSet, message: string) => {
     setSession(next); setBusy("saving");
@@ -142,29 +144,36 @@ export function VoiceTestSet() {
     </section>
     <section style={{ display: "grid", gap: 8 }}>
       <h2>Replay and compare</h2>
-      {(["asr", "kws"] as const).map(candidate => <div key={candidate}>{METHODS[candidate]}: {assets[candidate] ?? "Checking local assets…"}</div>)}
-      <div><select aria-label="Replay method" value={method} disabled={disabled} onChange={event => { if (event.target.value === "asr" || event.target.value === "kws") setMethod(event.target.value); }}>
-        <option value="asr">{METHODS.asr}</option><option value="kws">{METHODS.kws}</option>
+      <div><button disabled={disabled} onClick={() => setAssetRevision(value => value + 1)}>Recheck assets</button></div>
+      {METHOD_IDS.map(candidate => <div key={candidate}>{METHODS[candidate]}: {assets[candidate] ?? "Checking local assets…"}</div>)}
+      <div><select aria-label="Replay method" value={method} disabled={disabled} onChange={event => { if (event.target.value === "asr" || event.target.value === "kws" || event.target.value === "two-stage") setMethod(event.target.value); }}>
+        {METHOD_IDS.map(id => <option key={id} value={id}>{METHODS[id]}</option>)}
       </select>{" "}<button disabled={disabled || !session.clips.length || assets[method] !== "Local assets available"} onClick={() => void run()}>Replay recorded clips</button>{" "}
       {busy === "replaying" && <button onClick={() => operation.current?.abort()}>Cancel replay</button>}{" "}
       <button disabled={!runs.length || disabled} onClick={async () => {
         try { await navigator.clipboard.writeText(JSON.stringify(ranked, null, 2)); setNotice("Results JSON copied."); } catch (e) { setError(`Copy failed: ${errorText(e)}`); }
       }}>Copy results JSON</button></div>
-      <p>Partial sets are allowed and counts are shown. Ranking: command accuracy, then fewer near-miss activations, then chatter actions/minute. No preferred method is assumed. Processing mean/p95 is worker busy time per gated utterance, excluding model load. Worker RTF = busy / gated audio (includes worker padding); corpus RTF = busy / recorded audio. Each utterance uses the item’s label state, without advancing it, to avoid suppressing subsequent false activations.</p>
+      <p>Partial sets are allowed and counts are shown. Ranking: command accuracy, then fewer near-miss activations, then chatter actions/minute. No preferred method is assumed. Latency is the gate’s audio-clock silence tail plus elapsed wall time from submission to decision, including queue and first-hit model load. Replay feeds audio faster than real time: wall CPU describes this replay run; corpus CPU estimates busy time per second of recorded audio. Idle replay includes no-command near-miss/chatter clips. Record actual idle listening on the check page. Worker RTF = busy / gated audio (includes worker padding). Each utterance uses the item’s label state, without advancing it, to avoid suppressing subsequent false activations.</p>
+      <p style={{ fontSize: 12 }}>{METRICS_NOTE}</p>
       <div style={{ overflowX: "auto" }}><table style={{ borderCollapse: "collapse", width: "100%" }}>
-        <thead><tr>{["Rank / method", "Command accuracy", "Near-miss false activations", "Chatter actions/min", "Mean / p95 ms", "Worker / corpus RTF", "Utterances / clips"].map(title => <th style={cell} key={title}>{title}</th>)}</tr></thead>
+        <thead><tr>{["Rank / method", "Command accuracy", "Near-miss false activations", "Chatter actions/min", "Decision mean / p95 ms", "CPU % of one core (S1 / S2, wall)", "CPU % (S1 / S2, recorded audio estimate)", "Utterances / clips"].map(title => <th style={cell} key={title}>{title}</th>)}</tr></thead>
         <tbody>{ranked.map((r, index) => <tr key={r.method}>
           <td style={cell}>{index + 1}. {METHODS[r.method]}</td><td style={cell}>{percent(r.scores.commandAccuracy)} ({r.scores.correctCommands}/{r.scores.commands})</td>
           <td style={cell}>{percent(r.scores.falseActivationRate)} ({r.scores.falseActivatedItems}/{r.scores.nearMissItems} items; {r.scores.nearMissActions} actions)</td>
           <td style={cell}>{number(r.scores.chatterActionsPerMinute)} ({r.scores.chatterActions} / {seconds(r.scores.chatterMs)})</td>
-          <td style={cell}>{number(r.scores.meanProcessingMs)} / {number(r.scores.p95ProcessingMs)}</td>
-          <td style={cell}>{number(r.scores.workerRealTimeFactor, 3)} / {number(r.scores.corpusRealTimeFactor, 3)}</td><td style={cell}>{r.scores.utterances} / {r.recordedClips}</td>
-        </tr>)}</tbody>
+          <td style={cell}>{number(r.measurements.latency.meanMs)} / {number(r.measurements.latency.p95Ms)}</td>
+          <td style={cell}>{number(r.measurements.stage1.cpu?.percent ?? null)} / {number(r.measurements.stage2.cpu?.percent ?? null)}</td>
+          <td style={cell}>{number(r.recordedAudioCpu.stage1?.percent ?? null)} / {number(r.recordedAudioCpu.stage2?.percent ?? null)}</td><td style={cell}>{r.scores.utterances} / {r.recordedClips}</td>
+        </tr>)}{METHOD_IDS.filter(id => !runs.some(run => run.method === id)).map(id => <tr key={id}><td style={cell}>{METHODS[id]}</td><td style={cell} colSpan={7}>{assets[id] === "Local assets available" ? "Not run on this corpus yet" : assets[id] ?? "Checking assets…"}</td></tr>)}</tbody>
       </table></div>
       {ranked.map(run => <details key={run.method}><summary>{METHODS[run.method]}: per-phrase accuracy and heard text / keyword hits for misses</summary>
+        <VoiceMeasurements value={run.measurements} />
+        <p>No-command corpus CPU estimate (S1 / S2): {number(run.idleRecordedAudioCpu.stage1?.percent ?? null)}% / {number(run.idleRecordedAudioCpu.stage2?.percent ?? null)}%.</p>
+        <details><summary>Exact keyword lines and stage-1 settings</summary><pre style={{ whiteSpace: "pre-wrap" }}>{run.settings.keywordLines.join("\n")}</pre></details>
         <table style={{ borderCollapse: "collapse", width: "100%" }}><thead><tr><th style={cell}>Phrase</th><th style={cell}>Correct</th><th style={cell}>Misses: expected, heard → intent</th></tr></thead>
           <tbody>{run.scores.perPhrase.map(row => <tr key={row.phrase}><td style={cell}>{row.phrase}</td><td style={cell}>{row.correct}/{row.total}</td><td style={cell}>{row.misses.map(miss => <div key={miss.promptId}>{miss.expected}: {miss.heard.join(" | ") || "(no gated speech / no hit)"} → {miss.intents.join(" | ") || "none"}</div>)}</td></tr>)}</tbody>
         </table>
+        <details><summary>All decisions with stage acceptance / rejection reasons</summary>{run.scores.items.map(item => <div key={item.promptId}><b>{item.phrase}</b>{item.observations.map((o, i) => <div key={i}>{o.heard || "(no hit)"} → {o.intent}: {o.note ?? "single stage"}</div>)}</div>)}</details>
         <h3>No-action items with activations</h3>
         {run.scores.items.filter(item => item.category !== "command" && item.actions > 0).map(item => <div key={item.promptId}><b>{item.phrase}</b>: {item.observations.filter(o => o.intent !== "none").map(o => `${o.heard || "(no hit)"} → ${o.intent}`).join(" | ")}</div>)}
       </details>)}

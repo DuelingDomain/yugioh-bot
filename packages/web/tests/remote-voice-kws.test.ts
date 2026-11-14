@@ -2,8 +2,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { createElement } from "react";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
-import type { KwsClientOptions, KwsUtterance } from "@/components/remote/ui/voice/kws-client";
-import type { KwsWorkerIn } from "@/components/remote/ui/voice/kws-worker";
+import type { KwsClientOptions } from "@/components/remote/ui/voice/kws-client";
 import { parsePhaseCommand, remoteActionSchema, ygoModule, type RemoteState } from "@yugidraft/shared/remote";
 import { canFlipSummon, interpret } from "@/components/remote/ui/grammar";
 import { buildMatcher, PHASE_JOIN_GAP_MS } from "@/components/remote/ui/voice/speech-matcher";
@@ -185,17 +184,10 @@ describe("browser voice commands (KWS)", () => {
     });
 
     it("keeps speech across a 700 ms pause together, then closes after 900 ms of silence", async () => {
-      const { KwsClient: RealClient } = await vi.importActual<typeof import("@/components/remote/ui/voice/kws-client")>("@/components/remote/ui/voice/kws-client");
-      vi.stubGlobal("Worker", class {
-        onmessage: ((event: { data: unknown }) => void) | null = null;
-        postMessage(message: KwsWorkerIn) {
-          if (message.type === "end") this.onmessage?.({ data: { type: "utterance", id: message.id, hits: [], busyMs: 0, audioMs: 0 } });
-        }
-        terminate() {}
-      });
-      const utterances: KwsUtterance[] = [];
-      const listener = new RealClient({ pcmInput: true, defaultKeywords: "", keywords: "", boost: 1, threshold: 0.5,
-        onReady() {}, onError(message) { throw new Error(message); }, onUtterance: utterance => utterances.push(utterance) });
+      const { AudioInput } = await import("@/components/remote/ui/voice/audio-input");
+      const utterances: { speechMs: number; startedAt: number; endedAt: number }[] = [];
+      const listener = new AudioInput({ pcmInput: true, onFrames() {}, onReset() {},
+        onError(message) { throw new Error(message); }, onEnd: utterance => utterances.push(utterance) });
       try {
         await listener.start();
         const feed = (frames: number, amplitude: number) => {

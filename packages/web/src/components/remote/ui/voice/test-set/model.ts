@@ -17,8 +17,8 @@ export const promptSchema = z.object({
 export type Prompt = z.infer<typeof promptSchema>;
 export type Clip = { promptId: string; recordedAt: string; pcm: Float32Array };
 export type TestSet = { id: string; revision: number; createdAt: string; prompts: Prompt[]; clips: Clip[]; skipped: string[]; cursor: number };
-export type Method = "asr" | "kws";
-export type Observation = { intent: string; heard: string; canonical: string; busyMs: number; audioMs: number; speechMs: number };
+export type Method = "asr" | "kws" | "two-stage";
+export type Observation = { intent: string; heard: string; canonical: string; busyMs: number; audioMs: number; speechMs: number; decisionMs?: number; note?: string };
 export type ClipResult = { promptId: string; durationMs: number; observations: Observation[] };
 export const intentKey = (intent: ExpectedIntent) => intent.kind === "phase" ? `phase:${intent.phase}` : intent.kind;
 export const errorText = (error: unknown) => error instanceof Error ? error.message : String(error);

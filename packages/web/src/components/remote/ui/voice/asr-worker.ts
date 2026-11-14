@@ -16,6 +16,7 @@ export type AsrWorkerIn =
   | { type: "reset" };
 export type AsrWorkerOut =
   | { type: "ready"; fetchMs: number; initMs: number; bytes: number; heapBytes: number; accepted: boolean }
+  | { type: "work"; busyMs: number; audioMs: number }
   | { type: "utterance"; id: number; hits: []; text: string; passes: number; busyMs: number; audioMs: number }
   | { type: "error"; message: string };
 
@@ -68,7 +69,9 @@ self.onmessage = async (event: MessageEvent<AsrWorkerIn>) => {
         text = await model.transcribe(padded(all, lead, tail));
         if (text) break;
       }
-      post({ type: "utterance", id: message.id, hits: [], text, passes, busyMs: performance.now() - started, audioMs: all.length / (rate / 1000) });
+      const busyMs = performance.now() - started; const audioMs = all.length / (rate / 1000);
+      post({ type: "work", busyMs, audioMs });
+      post({ type: "utterance", id: message.id, hits: [], text, passes, busyMs, audioMs });
     } else if (message.type === "reset") {
       chunks = [];
     }

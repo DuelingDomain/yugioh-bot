@@ -5,12 +5,17 @@ import { ygoModule, remoteActionSchema, type RemoteState } from "@yugidraft/shar
 import { interpret, type GrammarContext, type VoiceIntent } from "@/components/remote/ui/grammar";
 import { cardInfo, loadCards } from "@/components/remote/ui/catalog";
 import { createSentencePiece, type SentencePieceVocab } from "@/components/remote/ui/voice/sentencepiece";
-import { DEFAULT_PHRASE_OPTIONS, buildPhrases, combineHits, isChatter, placeholderLine, type Combined, type PhraseSet } from "@/components/remote/ui/voice/phrases";
+import { DEFAULT_PHRASE_OPTIONS, buildPhrases, combineHits, isChatter, type Combined, type PhraseSet } from "@/components/remote/ui/voice/phrases";
 import { HEARD_PHASES, PHASE_LABEL, VOICE_PHASES, heardPhaseOf, judgePhaseWord, type HeardPhase, type VoicePhase } from "@/components/remote/ui/voice/phase-plausibility";
 import { ASR_BASE, KwsClient, type KwsReady, type KwsStatus, type KwsUtterance } from "@/components/remote/ui/voice/kws-client";
 import { buildMatcher } from "@/components/remote/ui/voice/speech-matcher";
 import { NATURAL_PHRASES, SOFT_PHRASES } from "@/components/remote/ui/voice/natural-phrases";
 import vocab from "@/components/remote/ui/voice/sp-vocab.json";
+import { buildGatePhrases, GATE_PHRASE_OPTIONS, TwoStageClient } from "@/components/remote/ui/voice/two-stage";
+import { checkAssets } from "@/components/remote/ui/voice/test-set/replay";
+import type { Method } from "@/components/remote/ui/voice/test-set/model";
+import type { MetricsSnapshot } from "@/components/remote/ui/voice/metrics";
+import { METRICS_NOTE, VoiceMeasurements } from "./metrics";
 
 const sp = createSentencePiece(vocab as SentencePieceVocab);
 const MIC_KEY = "voice-check-mic";
@@ -19,7 +24,7 @@ const CHAT_MS = 10 * 60 * 1000;
 const PLAYERS = [{ seat: 0, displayName: "Me" }, { seat: 1, displayName: "Opponent" }];
 
 /** "kws" = Method A, keyword spotting (old). "asr" = Method B, speech model + grammar matcher (new). */
-type Method = "kws" | "asr";
+
 const METHOD_KEY = "voice-check-method";
 type Row = { id: number; method: Method; at: string; heard: string; tags: string; canonical: string; intent: string; acts: boolean; note: string; busyMs: number; audioMs: number; speechMs: number };
 type SavedDeck = { id: number; name: string; deck: { main: number[]; extra: number[]; side: number[] } };
@@ -56,6 +61,7 @@ function decide(combined: Combined, meanings: PhraseSet["meanings"], speechMs: n
   let intent: VoiceIntent = { kind: "none" }; let note = "";
   if (combined.canonical) {
     if (gateBare && isChatter(combined, meanings, speechMs)) note = `ignored: bare word in a ${(speechMs / 1000).toFixed(1)} s utterance`;
+    else if (c.state.turnSeat !== c.me) note = "ignored: not your turn";
     else {
       intent = interpret(combined.canonical, c);
       if (intent.kind === "phase") {
@@ -79,15 +85,15 @@ const HEARD_LABEL: Record<HeardPhase, string> = { draw: "draw phase", standby: "
 const HEARD_TARGET: Partial<Record<HeardPhase, VoicePhase>> = { draw: "draw", standby: "standby", main1: "main1", battle: "battle", main2: "main2", end: "end" };
 
 export function VoiceCheck() {
-  const [phasesAndTurnsOnly, setPhasesAndTurnsOnly] = useState(true);
+  const phasesAndTurnsOnly = true;
   const [text, setText] = useState("Kashtira Fenrir\nKashtira Unicorn\nApophis the Dark\nBlue-Eyes White Dragon\nGhost Belle & Haunted Mansion\nNumber 39: Utopia");
   const [decks, setDecks] = useState<SavedDeck[]>([]);
   const [deckNote, setDeckNote] = useState("");
-  const [boost, setBoost] = useState(DEFAULT_PHRASE_OPTIONS.boost);
-  const [nameBoost, setNameBoost] = useState(DEFAULT_PHRASE_OPTIONS.nameBoost);
-  const [nameShift, setNameShift] = useState(DEFAULT_PHRASE_OPTIONS.nameShift);
+  const boost = GATE_PHRASE_OPTIONS.boost;
+  const nameBoost = DEFAULT_PHRASE_OPTIONS.nameBoost;
+  const nameShift = DEFAULT_PHRASE_OPTIONS.nameShift;
   const [listFilter, setListFilter] = useState("");
-  const [shift, setShift] = useState(DEFAULT_PHRASE_OPTIONS.thresholdShift);
+  const shift = GATE_PHRASE_OPTIONS.thresholdShift;
   const [trayOpen, setTrayOpen] = useState(false);
   const [method, setMethod] = useState<Method>("asr");
   const [status, setStatus] = useState<"off" | "loading" | "listening">("off");
@@ -104,7 +110,9 @@ export function VoiceCheck() {
   const [micStatus, setMicStatus] = useState<KwsStatus | null>(null);
   const [chatLeft, setChatLeft] = useState<number | null>(null);
   const [chat, setChat] = useState({ utterances: 0, hits: 0, acts: 0 });
-  const client = useRef<KwsClient | null>(null);
+  const client = useRef<KwsClient | TwoStageClient | null>(null);
+  const activeMethod = useRef<Method>("asr");
+  const [measurements, setMeasurements] = useState<MetricsSnapshot | null>(null);
   const rowSeq = useRef(0);
   const meaningsRef = useRef<PhraseSet["meanings"]>(new Map());
   const names = useMemo(() => phasesAndTurnsOnly ? [] : [...new Set(text.split("\n").map(line => line.trim()).filter(Boolean))], [text, phasesAndTurnsOnly]);
@@ -112,7 +120,7 @@ export function VoiceCheck() {
   const lines = useMemo(() => set.lines.join("/"), [set]);
   const ctx = useMemo<GrammarContext>(() => ({ state: fixture(names, simPhase, simTurn, simMine), players: PLAYERS, me: 0, trayOpen: !phasesAndTurnsOnly && trayOpen, cardNames: names, now: 1100 }), [names, trayOpen, simPhase, simTurn, simMine, phasesAndTurnsOnly]);
   const sim = useMemo(() => ({ phase: simPhase, turn: simTurn, mine: simMine }), [simPhase, simTurn, simMine]);
-  const matcher = useMemo(() => (method === "asr" ? buildMatcher(names, { phasesAndTurnsOnly }) : null), [method, names, phasesAndTurnsOnly]);
+  const matcher = useMemo(() => (method !== "kws" ? buildMatcher(names, { phasesAndTurnsOnly }) : null), [method, names, phasesAndTurnsOnly]);
   const naturalPhrases = phasesAndTurnsOnly ? NATURAL_PHRASES.filter(([, canonical]) => heardPhaseOf(canonical) !== null) : NATURAL_PHRASES;
   const live = useRef({ ctx, set, chatLeft, sim, matcher }); live.current = { ctx, set, chatLeft, sim, matcher };
   meaningsRef.current = set.meanings;
@@ -120,7 +128,7 @@ export function VoiceCheck() {
   useEffect(() => { client.current?.setKeywords(lines); }, [lines]);
   useEffect(() => () => client.current?.stop(), []);
   useEffect(() => {
-    try { setMicId(localStorage.getItem(MIC_KEY) ?? ""); const saved = localStorage.getItem(METHOD_KEY); if (saved === "kws" || saved === "asr") setMethod(saved); } catch { /* private window: default mic and method */ }
+    try { setMicId(localStorage.getItem(MIC_KEY) ?? ""); const saved = localStorage.getItem(METHOD_KEY); if (saved === "kws" || saved === "asr" || saved === "two-stage") setMethod(saved); } catch { /* private window: default mic and method */ }
   }, []);
   useEffect(() => {
     const list = async () => {
@@ -140,6 +148,12 @@ export function VoiceCheck() {
     return () => clearTimeout(timer);
   }, [chatLeft]);
 
+  useEffect(() => {
+    if (status === "off") return;
+    const timer = setInterval(() => setMeasurements(client.current?.metrics?.snapshot() ?? null), 500);
+    return () => clearInterval(timer);
+  }, [status]);
+
   const applySim = (move: { kind: "phase"; phase: VoicePhase } | { kind: "turn" }) => {
     const current = live.current;
     const next = move.kind === "phase" ? { ...current.sim, phase: move.phase }
@@ -153,7 +167,12 @@ export function VoiceCheck() {
     setBusyTotal(total => ({ busy: total.busy + u.busyMs, audio: total.audio + u.audioMs }));
     let combined: Combined; let heard: string; let tags: string; let gateBare = true; let extra = "";
     let matched = false;
-    if (m && u.text !== undefined) {
+    if (u.verification) {
+      const v = u.verification;
+      combined = { canonical: v.canonical, heard: [u.text ?? ""], tags: u.hits.map(h => h.keyword), ambiguous: [] };
+      heard = u.text ?? (combineHits(u.hits, s.meanings).heard.join(" + ") || "(no keyword)");
+      tags = `stage 1: ${v.stage1}; stage 2: ${v.stage2}`; extra = v.reason; matched = v.stage1 === "hit";
+    } else if (m && u.text !== undefined) {
       // Method B: transcript -> grammar matcher -> the same Combined shape the keyword path makes.
       if (u.startedAt === undefined || u.endedAt === undefined) m.resetUtterances();
       const r = u.startedAt !== undefined && u.endedAt !== undefined
@@ -169,14 +188,20 @@ export function VoiceCheck() {
       combined = combineHits(hits, s.meanings);
       heard = combined.heard.join(" + ") || "(no keyword)"; tags = combined.tags.join(" "); matched = hits.length > 0;
     }
-    const { intent, note: decided } = decide(combined, s.meanings, u.speechMs, gateBare, c, simNow, applySim);
+    let intent: VoiceIntent; let decided = "";
+    if (u.verification) {
+      intent = u.verification.intent;
+      if (intent.kind === "phase") { const target = intent.phase; const phase = VOICE_PHASES.find(p => p === target); if (phase) applySim({ kind: "phase", phase }); }
+      else if (intent.kind === "turn") applySim({ kind: "turn" });
+    } else ({ intent, note: decided } = decide(combined, s.meanings, u.speechMs, gateBare, c, simNow, applySim));
     const note = [decided, extra].filter(Boolean).join("; ");
     const acts = intent.kind !== "none" && intent.kind !== "name";
+    if (!u.verification && activeMethod.current === "asr") client.current?.metrics?.verification(acts);
     if (left !== null) setChat(counts => ({ utterances: counts.utterances + 1, hits: counts.hits + (matched ? 1 : 0), acts: counts.acts + (acts ? 1 : 0) }));
     // Method A lists only utterances with a keyword hit; Method B lists every transcript so the misses can be read.
-    if (!matched && !(m && u.text !== undefined) && left === null) return;
+    if (!matched && !u.verification && !(m && u.text !== undefined) && left === null) return;
     const id = ++rowSeq.current;
-    setRows(old => [{ id, method: (m ? "asr" : "kws") as Method, at: new Date().toLocaleTimeString(), heard, tags, canonical: combined.canonical,
+    setRows(old => [{ id, method: activeMethod.current, at: new Date().toLocaleTimeString(), heard, tags, canonical: combined.canonical,
       intent: describe(intent), acts, note, busyMs: u.busyMs, audioMs: u.audioMs, speechMs: u.speechMs }, ...old].slice(0, 200));
   }, []);
 
@@ -201,18 +226,25 @@ export function VoiceCheck() {
   const start = (deviceId = micId, which: Method = method) => {
     live.current.matcher?.resetUtterances();
     setError(""); setReady(null); setMicStatus(null); setStatus("loading");
-    const kws = new KwsClient({
-      ...(which === "asr" ? { base: ASR_BASE } : {}),
+    activeMethod.current = which; setMeasurements(null); setBusyTotal({ busy: 0, audio: 0 });
+    const common = {
       deviceId: deviceId || undefined, onStatus: setMicStatus,
-      defaultKeywords: placeholderLine(sp), keywords: lines, boost: 1.5, threshold: 0.25,
-      onReady: info => { setReady(info); setStatus("listening"); },
-      onUtterance, onLevel: value => setLevel(value),
-      onError: message => { setError(message); },
+      onReady: (info: KwsReady) => { setReady(info); setStatus("listening"); },
+      onUtterance, onLevel: (value: number) => setLevel(value),
+      onError: (message: string) => { setError(message); },
+    };
+    const kws = which === "two-stage" ? new TwoStageClient({ ...common, phrases: buildGatePhrases(sp), context: () => live.current.ctx }) : new KwsClient({
+      ...common, ...(which === "asr" ? { base: ASR_BASE } : {}),
+      defaultKeywords: set.lines.join("\n"), keywords: "", boost: 1.5, threshold: 0.25,
     });
     client.current = kws;
-    void kws.start();
+    void checkAssets(which).then(missing => {
+      if (client.current !== kws) return;
+      if (missing) { setError(missing); kws.stop(); client.current = null; setStatus("off"); return; }
+      return kws.start();
+    }).catch(error => { if (client.current === kws) { setError(String(error)); kws.stop(); client.current = null; setStatus("off"); } });
   };
-  const stop = () => { client.current?.stop(); client.current = null; live.current.matcher?.resetUtterances(); setStatus("off"); setLevel(0); setChatLeft(null); setMicStatus(null); };
+  const stop = () => { client.current?.stop(); setMeasurements(client.current?.metrics?.snapshot() ?? null); client.current = null; live.current.matcher?.resetUtterances(); setStatus("off"); setLevel(0); setChatLeft(null); setMicStatus(null); };
   const pickMic = (deviceId: string) => {
     setMicId(deviceId);
     try { localStorage.setItem(MIC_KEY, deviceId); } catch { /* the choice just is not remembered */ }
@@ -223,6 +255,7 @@ export function VoiceCheck() {
     setMethod(next);
     try { localStorage.setItem(METHOD_KEY, next); } catch { /* the choice just is not remembered */ }
     if (client.current) { stop(); start(micId, next); }
+    else { setReady(null); setMeasurements(null); setBusyTotal({ busy: 0, audio: 0 }); }
   };
   const micName = micStatus?.micName ?? "the microphone";
   const micProblem = !micStatus ? "" : micStatus.contextState !== "running" ? "Click anywhere to start audio"
@@ -237,15 +270,16 @@ export function VoiceCheck() {
       <style>{`[data-testid="voice-check"] button{padding:8px 16px;margin:2px 6px 2px 0;border:1px solid #8ab4f8;border-radius:6px;background:#1a3a6b;color:#fff;font-weight:600;cursor:pointer}[data-testid="voice-check"] button:disabled{opacity:.45;cursor:not-allowed}[data-testid="voice-check"] button:hover:not(:disabled){background:#25508f}`}</style>
       <h1 style={{ fontSize: 22 }}>Voice command check</h1>
       <p><a href="/dev/voice-check/test-set">Record and replay an audio test set</a></p>
-      <p style={{ opacity: 0.8 }}>Two ways to hear commands, in this page only. Keywords (old): sherpa-onnx keyword spotting in a worker. Speech model (new): Moonshine Tiny q8 turns each gated utterance into text (onnxruntime-web, WASM, one thread), then a grammar matcher picks the command or card. Audio never leaves the page; only the model files are downloaded. Not wired to any table.</p>
+      <p style={{ opacity: 0.8 }}>Three methods for the same fixed phase/turn vocabulary. Keywords: continuous sherpa-onnx on energy-gated audio. Speech model: Moonshine Tiny q8 decodes every gated utterance. Keyword gate + verify: only keyword-hit utterances reach Moonshine, then whole-phrase matching and game-state checks confirm the action. Audio never leaves the page; only the model files are downloaded. Not wired to any table.</p>
       <section style={{ display: "grid", gap: 8 }}>
         <div data-testid="method" role="radiogroup" aria-label="Method" style={{ border: "1px solid #444", borderRadius: 6, padding: 8 }}>
           <b>Method</b>{" "}
-          <label><input type="radio" name="method" checked={method === "kws"} onChange={() => pickMethod("kws")} data-testid="method-kws" /> Keywords (old)</label>{" "}
-          <label><input type="radio" name="method" checked={method === "asr"} onChange={() => pickMethod("asr")} data-testid="method-asr" /> Speech model (new)</label>
+          <label><input type="radio" name="method" checked={method === "kws"} onChange={() => pickMethod("kws")} data-testid="method-kws" /> Keywords</label>{" "}
+          <label><input type="radio" name="method" checked={method === "asr"} onChange={() => pickMethod("asr")} data-testid="method-asr" /> Speech model</label>{" "}
+          <label><input type="radio" name="method" checked={method === "two-stage"} onChange={() => pickMethod("two-stage")} data-testid="method-two-stage" /> Keyword gate + verify</label>
           {status !== "off" && <span style={{ opacity: 0.7 }}> (switching restarts the listener)</span>}
         </div>
-        <label><input type="checkbox" checked={phasesAndTurnsOnly} onChange={e => setPhasesAndTurnsOnly(e.target.checked)} /> Phases and turns only</label>
+        <label><input type="checkbox" checked={phasesAndTurnsOnly} disabled /> Phases and turns only</label>
         {phasesAndTurnsOnly && <span>Card names are ignored. Only phase changes and ending the turn are enabled.</span>}
         <label>Deck card names (one per line, or pick a saved deck)
           <textarea disabled={phasesAndTurnsOnly} value={text} onChange={e => setText(e.target.value)} rows={8} style={{ width: "100%", background: "#1c1c1c", color: "#eee" }} data-testid="names" />
@@ -255,12 +289,8 @@ export function VoiceCheck() {
           <select disabled={phasesAndTurnsOnly} onChange={e => void pickDeck(Number(e.target.value))} defaultValue=""><option value="" disabled>Saved deck...</option>{decks.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}</select>{" "}
           <span>{deckNote}</span>
         </div>
-        {method === "kws" && <div>
-          <label>Boost {boost.toFixed(1)} <input type="range" min={0} max={4} step={0.1} value={boost} onChange={e => setBoost(Number(e.target.value))} /></label>{" "}
-          <label>Threshold shift {shift >= 0 ? "+" : ""}{shift.toFixed(2)} <input type="range" min={-0.4} max={0.4} step={0.05} value={shift} onChange={e => setShift(Number(e.target.value))} /></label>{" "}
-          <label>Name boost {nameBoost >= 0 ? "+" : ""}{nameBoost.toFixed(1)} <input type="range" min={-1} max={2} step={0.1} value={nameBoost} onChange={e => setNameBoost(Number(e.target.value))} /></label>{" "}
-          <label>Name threshold shift {nameShift >= 0 ? "+" : ""}{nameShift.toFixed(2)} <input type="range" min={-0.2} max={0.4} step={0.05} value={nameShift} onChange={e => setNameShift(Number(e.target.value))} /></label>{" "}
-        </div>}
+        <div>Keyword settings (both keyword methods): boost 1.5; threshold shift −0.25; one-word lines boost 2 / threshold 0.15, multiword lines boost 1.5 / threshold 0.05. Recall-oriented starting values; compare on recorded audio.</div>
+        {method === "two-stage" && <p>The speech worker loads on the first hit, then decodes only hit utterances. This keeps model loading and decoding out of idle listening; the first confirmation includes load latency.</p>}
         <div><label><input type="checkbox" disabled={phasesAndTurnsOnly} checked={trayOpen} onChange={e => setTrayOpen(e.target.checked)} /> card tray open</label></div>
         <div data-testid="phase-sim" style={{ border: "1px solid #444", borderRadius: 6, padding: 8 }}>
           <b>Phase simulator</b> (spoken phase words are judged against this; an accepted word moves it)<br />
@@ -277,7 +307,7 @@ export function VoiceCheck() {
             })}</tbody>
           </table>
         </div>
-        {method === "kws" && <><div data-testid="phrase-counts">
+        {method !== "asr" && <><div data-testid="phrase-counts">
           {set.lines.length} phrases: {set.counts.fixed} fixed, {set.counts.fullNames} full names, {set.counts.runs} word runs, {set.counts.words} one-word partials, {set.counts.ambiguous} shared by 2+ cards
           {set.counts.skipped.length ? `, skipped ${set.counts.skipped.length}: ${set.counts.skipped.slice(0, 5).join(", ")}` : ""}
         </div>
@@ -294,7 +324,7 @@ export function VoiceCheck() {
           </div>
         </details></>}
         <details data-testid="common-phrases">
-          <summary>Common duel phrases, both methods ({naturalPhrases.length}: what players say, and what it does. Blank means the listener hears it but the table has no action yet)</summary>
+          <summary>Common duel phrases, all methods ({naturalPhrases.length}: what players say, and what it does. Blank means the listener hears it but the table has no action yet)</summary>
           <div style={{ maxHeight: 240, overflow: "auto" }}>
             <table style={{ borderCollapse: "collapse", fontSize: 12, width: "100%" }}>
               <thead><tr><th style={cell}>Said</th><th style={cell}>Becomes</th><th style={cell}>Only a short, isolated utterance</th></tr></thead>
@@ -321,7 +351,10 @@ export function VoiceCheck() {
         </div>}
         {micProblem && <div data-testid="mic-problem" role="status" style={{ color: "#fc8", border: "1px solid #a82", padding: "4px 8px", borderRadius: 6 }}>{micProblem}</div>}
         {ready && <div data-testid="load">{method === "asr" ? "Speech model (Moonshine Tiny q8)" : "Keyword model"} first load {(ready.totalMs / 1000).toFixed(2)} s (files {(ready.fetchMs / 1000).toFixed(2)} s, init {(ready.initMs / 1000).toFixed(2)} s), model size {(ready.bytes / 1e6).toFixed(1)} MB{ready.heapBytes ? `, wasm heap ${(ready.heapBytes / 1e6).toFixed(0)} MB` : ""}{ready.accepted ? "" : " - the spotter rejected the phrase list"}</div>}
-        <div data-testid="cpu">Speech worker busy time / audio time: {cpu.toFixed(3)} ({(busyTotal.busy / 1000).toFixed(2)} s for {(busyTotal.audio / 1000).toFixed(1)} s of gated audio)</div>
+        <VoiceMeasurements value={measurements} />
+        <div><button disabled={status !== "listening"} onClick={() => { const metrics = client.current?.metrics; if (metrics) { metrics.setIdle(!metrics.snapshot().idleActive); setMeasurements(metrics.snapshot()); } }}>{measurements?.idleActive ? "End idle listening measurement" : "Measure idle listening"}</button> Speak no commands during this interval; background chatter and noise are included.</div>
+        <p style={{ fontSize: 12 }}>{METRICS_NOTE}</p>
+        <div data-testid="cpu">Worker busy / gated audio (RTF, not CPU share): {cpu.toFixed(3)} ({(busyTotal.busy / 1000).toFixed(2)} s for {(busyTotal.audio / 1000).toFixed(1)} s of gated audio)</div>
         <div>
           10-minute chat test: {chatLeft === null ? <button onClick={startChat} disabled={status !== "listening"} data-testid="chat-start">Start chat test</button> : <><b data-testid="chat-timer">{mmss(chatLeft)}</b> <button onClick={() => setChatLeft(null)}>End</button></>}{" "}
           <span data-testid="false-count">Utterances {chat.utterances}, with a keyword hit {chat.hits}, <b>false triggers (the parser would act) {chat.acts}</b></span> (pass: at most 1 in 10 minutes)
@@ -331,7 +364,7 @@ export function VoiceCheck() {
         <thead><tr><th style={cell}>Time</th><th style={cell}>Method</th><th style={cell}>Heard (keyword hit / transcript)</th><th style={cell}>Tag / match score</th><th style={cell}>Canonical text</th><th style={cell}>Parser would</th><th style={cell}>Note</th><th style={cell}>Busy / audio ms</th></tr></thead>
         <tbody>{rows.map(row => (
           <tr key={row.id} style={{ background: row.acts ? "#2a2a14" : undefined }}>
-            <td style={cell}>{row.at}</td><td style={cell}>{row.method === "asr" ? "Speech model" : "Keywords"}</td><td style={cell}>{row.heard}</td><td style={cell}>{row.tags}</td><td style={cell}>{row.canonical || "-"}</td>
+            <td style={cell}>{row.at}</td><td style={cell}>{row.method === "two-stage" ? "Keyword gate + verify" : row.method === "asr" ? "Speech model" : "Keywords"}</td><td style={cell}>{row.heard}</td><td style={cell}>{row.tags}</td><td style={cell}>{row.canonical || "-"}</td>
             <td style={cell}><b>{row.intent}</b></td><td style={cell}>{row.note}</td><td style={cell} data-testid="row-busy">{Math.round(row.busyMs)} / {Math.round(row.audioMs)}</td>
           </tr>))}</tbody>
       </table>
