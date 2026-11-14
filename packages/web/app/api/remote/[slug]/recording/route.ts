@@ -24,7 +24,7 @@ export async function POST(request: Request, context: RemoteRouteContext) {
   try {
     const who = await guard(context); if (!who.ok) return who.response;
     const params = new URL(request.url).searchParams, id = params.get("id"), action = params.get("action");
-    if (action === "clock") { remoteAssert(id, "Missing recording id"); return remoteJson(clockRecording({ id, userId: who.userId, seat: who.seat, slug: who.slug })); }
+    if (action === "clock") { remoteAssert(id, "Missing recording id"); const body=request.body?await readSmallJsonObject(request,12288):null;return remoteJson(await clockRecording({ id, userId: who.userId, seat: who.seat, slug: who.slug,setCandidates:body?.setCandidates })); }
     if (action === "start" || action === "end" || action === "calibration") {
       const body = await readSmallJsonObject(request, 12288); remoteAssert(body, "Invalid JSON object");
       if (action === "start") return remoteJson(await startRecording({ userId: who.userId, slug: who.slug, seat: who.seat, userAgent: request.headers.get("user-agent"), body }));

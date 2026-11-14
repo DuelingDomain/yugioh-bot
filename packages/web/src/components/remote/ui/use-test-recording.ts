@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import {pendingSetDecisions,acknowledgeSetDecisions} from "@/lib/remote/set-card-diagnostics";
 import { remoteApi } from "./api";
 
 const TIMESLICE_MS = 10_000;
@@ -72,10 +73,10 @@ export function useTestRecording({ enabled, slug, video, backend, calibrationRef
       let startDateNow = 0, startPerfNow = 0;
       // Chunk 0 carries the start request's sample; every later chunk times a tiny round trip of its own first (the upload is too slow to time).
       const clockSample = async () => {
-        const c0 = Date.now();
+        const c0 = Date.now(),decisions=pendingSetDecisions(slug);
         try {
-          const reply = await Promise.race([remoteApi<{ serverTime: number }>(`/${encodeURIComponent(slug)}/recording?action=clock&id=${started.id}`, {}), new Promise<null>(resolve => setTimeout(resolve, CLOCK_PING_MS, null))]);
-          const c1 = Date.now();
+          const reply = await Promise.race([remoteApi<{ serverTime: number }>(`/${encodeURIComponent(slug)}/recording?action=clock&id=${started.id}`, {setCandidates:decisions.map(({n,decision})=>({n,decision}))}), new Promise<null>(resolve => setTimeout(resolve, CLOCK_PING_MS, null))]);
+          const c1 = Date.now();if(reply)acknowledgeSetDecisions(decisions.map(d=>d.n));
           return reply ? { offset: Math.round(reply.serverTime - (c0 + c1) / 2), rtt: c1 - c0 } : null;
         } catch { return null; }
       };
@@ -125,7 +126,8 @@ export function useTestRecording({ enabled, slug, video, backend, calibrationRef
         await Promise.race([flushed, new Promise(resolve => setTimeout(resolve, 3000))]);
         await Promise.race([pumping ?? Promise.resolve(), new Promise(resolve => setTimeout(resolve, 15_000))]);
         closed = true;
-        await remoteApi(`/${encodeURIComponent(slug)}/recording?action=end&id=${started.id}`, { reason, backend: backendRef.current ?? null }).catch(() => undefined);
+        const decisions=pendingSetDecisions(slug);
+        await remoteApi(`/${encodeURIComponent(slug)}/recording?action=end&id=${started.id}`, { reason, backend: backendRef.current ?? null,setCandidates:decisions.map(({n,decision})=>({n,decision})) }).then(()=>acknowledgeSetDecisions(decisions.map(d=>d.n))).catch(() => undefined);
       };
       const watchClosed = setInterval(() => {
         if (!closed || !session) return;

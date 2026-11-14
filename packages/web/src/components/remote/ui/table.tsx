@@ -1,5 +1,6 @@
 "use client";
 
+import {announceNotACard} from '@/lib/remote/set-card-diagnostics';
 import { REMOTE_TABLE_TALK } from "@/lib/remote/table-talk";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
@@ -1261,6 +1262,7 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
           void act({ type: "twin.flip", actorSeat: now.solo ? subject.seat : now.mySeat, seat: subject.seat, cardRef: latest.ref, faceUp: true, position: latest.position === "defense" ? "attack" : "defense" });
         } } } : {}),
       onRemove: () => { void act({ type: "twin.remove", actorSeat: solo ? subject.seat : mySeat, seat: subject.seat, cardRef: subjectCard.ref, cam: playerStamp("popup-remove") }); layers.close(); setSubject(null); },
+      ...(!subjectCard.faceUp&&!subjectCard.token&&['monster','spell-trap','extra-monster','field','pendulum'].includes(subjectCard.zone)?{onNotACard:()=>{announceNotACard(room.slug,subject.seat,subjectCard.ref);void act({type:'twin.remove',actorSeat:solo?subject.seat:mySeat,seat:subject.seat,cardRef:subjectCard.ref,cam:playerStamp('not-a-card')});layers.close();setSubject(null);}}:{}),
       ...(subjectCard.faceUp !== false && subjectCard.zone === "spell-trap" ? { equip: equipChoice(subject.seat, subjectCard) } : {}),
     } } : {}),
   };

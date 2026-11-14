@@ -53,7 +53,7 @@ export function DeckBadges({ subject, warning }: { subject: Subject; warning?: s
 export type CardEdit = {
   faceUp: boolean; zone: string; extraZones?: boolean;
   /** The slot in its zone and a move to another cell of the same row, for when the board is hidden. */ slot?: number; onCell: (key: ZoneKey) => void;
-  onMove: (zone: string) => void; onFlip: () => void; onRemove: () => void;
+  onMove: (zone: string) => void; onFlip: () => void; onRemove: () => void; onNotACard?: () => void;
   /** Battle position of a face-up card in a Monster Zone (any card there, a Trap Monster too). Absent elsewhere. */
   position?: { defense: boolean; onTurn: () => void };
   /** "Equipped to": link a face-up Spell/Trap Zone card to the monster it equips. Keys are `seat:ref`. */
@@ -158,6 +158,7 @@ function MoveGroup({ edit }: { edit: CardEdit }) {
     {edit.zone === "monster" || edit.zone === "spell-trap" ? [1, 2, 3, 4, 5].map(n => { const label = `${edit.zone === "monster" ? "M" : "S"}${n}`;
       return <button type="button" key={label} className={BTN} disabled={edit.slot === n} data-testid={`card-cell-${label}`} aria-label={`Move to ${label}`} onClick={() => edit.onCell(`${edit.zone === "monster" ? "m" : "s"}${n}` as ZoneKey)}>{label}</button>; }) : null}
     <button type="button" className={`${BTN} ${s.dremove}`} onClick={edit.onRemove} data-testid="card-remove">Remove</button>
+    {edit.onNotACard?<button type="button" className={`${BTN} ${s.dremove}`} onClick={edit.onNotACard} data-testid="card-not-a-card">Not a card</button>:null}
   </Group>;
 }
 

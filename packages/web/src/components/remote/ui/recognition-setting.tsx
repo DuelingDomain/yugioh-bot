@@ -1,5 +1,6 @@
 "use client";
 
+import {useSetGuards,SET_GUARD_SETTINGS} from '@/lib/remote/set-card-settings';
 import { useEffect, useId, useState } from "react";
 import { sheetRoot } from "@/components/duel/sheet-ui";
 import { ThemedSelect as SheetSelect } from "@/components/ui/themed-select";
@@ -92,4 +93,10 @@ export function VideoRateSetting() {
 /** Shown to a player whose table camera is being saved for recognition tests (REMOTE_RECORD_USERS). */
 export function RecordingBadge() {
   return <span className={s.recBadge} data-testid="test-recording" role="status" aria-label="Test recording on: your table camera is saved, video only, no sound" title="Test recording: your table camera is saved for recognition tests (video only, no sound)">REC</span>;
+}
+
+/** Individually switchable comparison layers for the current Remote Duels testers. */
+export function SetCardSettings(){
+  const {guards,set}=useSetGuards();
+  return <details className={sheetRoot}><summary>Set card checks</summary>{SET_GUARD_SETTINGS.map(({key,label})=><label key={key} style={{display:'block',marginTop:8}}><input type="checkbox" checked={guards[key]} onChange={event=>set(key,event.target.checked)}/>{label}</label>)}</details>;
 }

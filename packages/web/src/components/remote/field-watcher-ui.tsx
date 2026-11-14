@@ -8,7 +8,7 @@ import table from './ui/remote-ui.module.css';
 import s from './field-watcher-ui.module.css';
 
 export type FieldWatcherPrompt={
-  id:string;zone:string;title?:string;quad?:readonly {x:number;y:number}[];
+  id:string;zone:string;title?:string;presence?:boolean;quad?:readonly {x:number;y:number}[];
   candidates:readonly {id:string;label:string;disabled?:boolean}[];emptyMessage?:string;
 };
 export type FieldWatcherUIProps={
@@ -78,12 +78,12 @@ export function FieldWatcherUI({host,enabled,onEnabledChange,statusLabel,statusT
     </div>,controls):null}
     {status?createPortal(<div className={table.statusRow}>{attention&&onStatusAction?<button type="button" className={s.chip} data-attention="" title={`${tooltip} · Click to ${statusLabel.startsWith('Auto-detect paused')?'sync the board and resume':'open the card notices'}`} data-testid="field-watcher-status" onClick={event=>{event.stopPropagation();onStatusAction();}} onPointerDown={stop}>{statusLabel}</button>:<span className={s.chip} role="status" title={tooltip} data-attention={attention?'':undefined} data-testid="field-watcher-status">{statusLabel}</span>}{statusExtra}</div>,status):null}
     {createPortal(<div className={`${duelFontClasses} ${s.theme} ${s.announcement}`} role="status" aria-label="Card detection updates" aria-atomic="true">{prompt?`New card needs a choice in ${zoneName(prompt.zone)}. ${prompts.length>1?`${prompts.length-1} more waiting.`:''}`:''}</div>,document.body)}
-    {prompt?createPortal(<div ref={bubble} className={`${duelFontClasses} ${s.theme} ${s.prompt} ${dock?s.docked:''}`} style={dock?undefined:promptStyle} role="group" aria-label={prompt.title??'New card?'} aria-describedby={description} aria-busy={pending} data-testid="field-watcher-prompt" onClick={stop} onPointerDown={stop} onKeyDown={event=>{event.stopPropagation();if(event.key==='Escape'&&!pending){event.preventDefault();onDismiss(prompt.id);}}}>
+    {prompt?createPortal(<div ref={bubble} className={`${duelFontClasses} ${s.theme} ${s.prompt} ${dock?s.docked:''}`} style={dock?undefined:promptStyle} role="group" aria-label={prompt.title??'New card?'} aria-describedby={description} aria-busy={pending} data-testid="field-watcher-prompt" onClick={stop} onPointerDown={stop} onKeyDown={event=>{event.stopPropagation();if(event.key==='Escape'&&!pending&&!prompt.presence){event.preventDefault();onDismiss(prompt.id);}}}>
       <header><strong>{prompt.title??'New card?'}</strong>{prompts.length>1?<span className={s.queue}>+{prompts.length-1} more</span>:null}</header>
-      <p id={description} className={s.zone}>Detected in {zoneName(prompt.zone)}. Choose a card or dismiss.</p>
+      <p id={description} className={s.zone}>Detected in {zoneName(prompt.zone)}. {prompt.presence?'Is this a Set card?':'Choose a card or dismiss.'}</p>
       <div className={s.choices}>{prompt.candidates.slice(0,5).map(candidate=><button type="button" className={table.btn} key={candidate.id} disabled={pending||candidate.disabled} onClick={()=>onChoose(prompt.id,candidate.id)} title={candidate.label}>{candidate.label}</button>)}</div>
       {!prompt.candidates.length?<p className={s.zone}>{prompt.emptyMessage??'Use the feed reader to confirm this card.'}</p>:null}
-      <button type="button" className={`${table.btn} ${table.q} ${s.dismiss}`} disabled={pending} onClick={()=>onDismiss(prompt.id)}>Dismiss</button>
+      <button type="button" className={`${table.btn} ${table.q} ${s.dismiss}`} disabled={pending} onClick={()=>onDismiss(prompt.id)}>{prompt.presence?'Not a card':'Dismiss'}</button>
     </div>,dock??document.body):null}
     {notice?createPortal(<div ref={toast} className={`${duelFontClasses} ${s.theme} ${s.notice} ${dock?s.docked:''}`} style={dock?undefined:noticeStyle} role="status" data-testid={noticeTestId} onClick={stop} onPointerDown={stop} onKeyDown={stop}>{notice}</div>,dock??document.body):null}
   </>;

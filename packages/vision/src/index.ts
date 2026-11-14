@@ -46,3 +46,6 @@ export {createClipRecorder,createBrowserFrameEncoder} from './clip-recorder';
 export type {ClipRecorder,ClipRecorderOptions,ClipContext,FrameEncoder,EncodedFrame} from './clip-recorder';
 export {replayClip,recordedRecognizer,scoreReplay,draftTruth,gateAgainstBaseline,formatMetricsTable,percentile,isArrival,isDeparture,onField} from './clip-replay';
 export type {ReplayResult,ReplayEvent,ReplayRead,ReplayOptions,ReplayMetrics} from './clip-replay';
+
+export {DEFAULT_SET_GUARDS,newSetCardMemory,ignoreSetRegion} from './set-card-evidence';
+export type {SetGuards,SetEvidence,SetDecision,SetCardMemory} from './set-card-evidence';

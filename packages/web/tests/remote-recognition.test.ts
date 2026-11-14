@@ -1401,3 +1401,12 @@ it('the virtual field starts hidden in Tap to identify and shown with Auto-detec
   expect(resolveWebcamOnly({hidden:true,mode:'auto'},'auto')).toBe(true);
   expect(resolveWebcamOnly({hidden:true,mode:'tap'},'auto')).toBe(false);
 });
+
+it('Set comparison switches default on and query overrides take precedence over saved settings',async()=>{
+ const {readSetGuards}=await import('../src/lib/remote/set-card-settings');
+ vi.stubGlobal('localStorage',{getItem:()=>JSON.stringify({positiveBack:false,prompt:false,ignore:false,startup:false})});
+ vi.stubGlobal('window',{location:{search:'?setPositiveBack=1&setStartup=1'}});
+ expect(readSetGuards()).toEqual({positiveBack:true,prompt:false,ignore:false,startup:true});
+ vi.stubGlobal('localStorage',{getItem:()=>null});vi.stubGlobal('window',{location:{search:''}});
+ expect(readSetGuards()).toEqual({positiveBack:true,prompt:true,ignore:true,startup:true});
+});

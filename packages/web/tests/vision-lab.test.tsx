@@ -1153,3 +1153,33 @@ it('the Debug profile row carries the card trace: stable, read start and end, so
     stagesMs:{stable:120,embedStart:300,searchDone:520,commit:700},durationsMs:{readMs:210,embedCount:1,"hold.hand":80},notes:{source:"deck",tier:"sure"}}}));});
   expect(result.current.last?.trace).toEqual({stable:120,readStart:300,readEnd:520,publish:700,source:"deck",tier:"sure"});
 });
+
+it.each([['Set card',false],['Not a card',false],['Not a card',true]] as const)('an uncertain Set waits for the presence choice: %s (existing %s)',async(choice,existing)=>{
+ const twins=existing?[{ref:'physical-typed',zone:'monster',slot:3,faceUp:false,position:'defense'}]:[];
+ const f=await typedWatcherFixture(cards[0],'M3',twins,'prompt');
+ const evidence={detector:.824,pixel:'unknown',pixelConfidence:0,sd:42.77,backDistance:null,positive:false,basis:'none',decision:'prompted'};
+ Object.assign(f.track,{faceDown:true,cardId:undefined,setEvidence:evidence});
+ const fixture=state.fieldWatch;
+ fixture.watch.acceptSet=vi.fn(()=>{f.track.setEvidence={...evidence,basis:'player',decision:'committed'};return true;});
+ fixture.watch.notACard=vi.fn(()=>{f.track.state='dismissed';f.track.visible=false;});
+ try{
+  await f.emit({reason:'card-presence',result:undefined});
+  expect(screen.getByRole('group',{name:'Card here?'})).toBeTruthy();expect(f.post).not.toHaveBeenCalled();expect(f.room().state.seats[0].twin).toHaveLength(existing?1:0);
+  fireEvent.keyDown(screen.getByRole('group',{name:'Card here?'}),{key:'Escape'});expect(fixture.watch.notACard).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button',{name:choice}));
+  if(choice==='Not a card'){
+   await waitFor(()=>expect(fixture.watch.notACard).toHaveBeenCalledWith(f.track.id));if(existing)await waitFor(()=>expect(f.post).toHaveBeenCalledWith(expect.objectContaining({type:'twin.remove',cam:expect.objectContaining({by:'player',ui:'not-a-card'})}),expect.any(String)));else expect(f.post).not.toHaveBeenCalled();expect(f.room().state.seats[0].twin).toHaveLength(0);
+  }else{
+   await waitFor(()=>expect(f.confirm).toHaveBeenCalledOnce());
+   expect(f.room().state.seats[0].twin).toHaveLength(1);expect(f.room().state.seats[0].twin[0]).toMatchObject({zone:'monster',slot:3,faceUp:false,position:'defense'});
+   expect(f.post.mock.calls[0][0]).toMatchObject({type:'twin.place',source:'auto',cam:{by:'player',ui:'set-card',set:{decision:'committed',basis:'player'}}});
+  }
+ }finally{f.dispose();}
+});
+
+it('Not a card remembers the physical region while Auto-detect is off',async()=>{
+ const {loadSetMemory}=await import('../src/lib/remote/set-card-settings');
+ const {result,unmount}=renderHook(()=>useFieldWatcher({owner:false,active:false,seatKey:'off-seat',duelKey:'off-duel',deviceKey:'off-camera',create:async()=>null,onEvent:()=>{}}));
+ act(()=>result.current.notACard('old-phantom','M3'));
+ expect(loadSetMemory('dd-field-set-memory:v1:off-seat:off-duel:off-camera').ignored).toMatchObject([{source:'player',clear:false}]);unmount();
+});
