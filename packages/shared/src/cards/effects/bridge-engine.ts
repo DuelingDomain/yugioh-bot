@@ -389,7 +389,9 @@ export class BridgeEngine {
             other: capability.filter!.archetypes.length || capability.filter!.names.length ? "" : capability.filter!.other }, trap)) && actionEvidence(card, capability.key)));
         const need = onlyY.find(card => faceDownNeedEvidence(card));
         const specific = setter ?? need ?? continuousSupport;
-        const weight = setter || need ? Math.min(3, traps.length * 0.5) + Math.min(7, traps.length * 2.5)
+        // Ordinary Traps gain activation timing, not the Trap-Monster bodies
+        // scored by this formula. A larger Trap pool is still one timing cue.
+        const weight = !monsters.length ? 1 : setter || need ? Math.min(3, traps.length * 0.5) + Math.min(7, traps.length * 2.5)
           : continuousSupport ? Math.min(8, 2 + traps.length * 2) : Math.min(2, traps.length * 0.5);
         const set = access && setter ? y.edges.find(edge => edge.from === setter.id && narrowSetCapability(edge.capability) && edge.capability.from?.includes("deck") && edge.targets.has(trap.id)) : undefined;
         add("rule_enabler", weight, [enabler.id, trap.id, ...(specific ? [specific.id] : [])], `${enabler.name} lets you activate a ${target} Trap the turn it is Set (${traps.length} compatible Traps)${specific ? `; ${specific.name} supports this Trap engine` : ""}`,
@@ -732,6 +734,11 @@ export class BridgeEngine {
       // mention outlet must also have a printed connection to either engine.
       const outlet = this.outlet(reason);
       if (!this.data.group_policies?.[source.name]?.curated && !source.members.has(outlet) && !target.members.has(outlet)) return false;
+      const card = this.rows.get(outlet)!.card;
+      // A mandatory Extra Deck procedure cannot be assumed from a name or
+      // effect mention; the source must supply a supported material line.
+      if (isExtraDeckCard(card) && /\bMust (?:first )?be (?:Special|Fusion|Synchro|Xyz|Link) Summoned/i.test(printedText(card))
+        && !source.extras.some(extra => extra.id === outlet)) return false;
       return reason.cards.some(id => target.ids.has(id) && !source.ids.has(id)
         && this.engineMember(this.rows.get(id)!.card, target, undefined, source));
     }
