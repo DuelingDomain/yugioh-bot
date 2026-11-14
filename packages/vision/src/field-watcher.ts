@@ -115,7 +115,7 @@ export interface FieldTrack {
 }
 /** Epoch origin crosses browser/worker/HTTP boundaries; stages are offsets, never mixed clocks. */
 /** Per card trace for the Debug panel and clips: `stagesMs` (stable, embedStart, searchDone, commit), `durationsMs` (`hold.<reason>` ms waited, embedCount, readMs) and `notes` (search source, tier). */
-export interface FieldTiming { id:string; originAt:number; stagesMs:Record<string,number>; durationsMs:Record<string,number>; notes?:Record<string,string> }
+export interface FieldTiming { id:string; originAt:number; stagesMs:Record<string,number>; durationsMs:Record<string,number>; notes?:Record<string,string>; reader?:RecognitionResult['reader'] }
 export type FieldEvent = { type:'reading'|'placed'|'moved'|'flipped'|'removed'|'prompt'|'covered'; /** covered: the track now on top of this card. */ coverRef?:string; track:FieldTrack; bindRef?:string; fromRef?:string; previousId?:string; result?:RecognitionResult; latencyMs?:number; reason?:'uncertain'|'recognition-error'|'reappeared'|'changed'|'restart'|'pile'|'spread'|'suppressed'|'empty'|/** No plausible card box ever backed this track (an arm, a held card): the board card it placed is taken back, not sent to the hand. */'phantom'; source:'auto'; /** A watcher-placed Set ref that this event's pile ref replaces: the card left the pile face-up. */ replacesRef?:string; destination?:'DECK'|'EXTRA'; timing?:FieldTiming };
 export interface FieldMetrics { detectorMs:number; recognitionMs:number; dutyPercent:number; intervalMs:number; samples:number; skipped:number; placements:number; latencyMs:number; errors:number; event?:FieldTiming }
 /** What the watcher saw on its last sample, for the owner's debug overlay. Local only, never sent. */
@@ -525,7 +525,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
   function resetFace(t:InternalTrack){if(t.face?.pendingAt!==undefined||t.face?.transitionAt!==undefined)count(t,'faceResets');t.face?.gate.reset();t.face?.setGate?.reset();if(t.face){t.face.pendingAt=undefined;t.face.transitionAt=undefined;t.face.outlineAppearance=undefined;}}
   function resetAbsence(t:InternalTrack,preserveWindow=false){t.missingSamples=0;t.missingAt=undefined;if(!preserveWindow)t.clearWindowAt=undefined;}
   function interruptWindow(preserveVisibility=false,preserveAbsenceWindow=false) {previousAt=-Infinity;if(!preserveVisibility)forcePass=true;for(const t of tracks){resetFace(t);t.pose=undefined;if(!preserveVisibility)t.view.visible=false;invalidateRead(t);t.stableSince=NaN;t.observations=0;if(!preserveAbsenceWindow)resetAbsence(t);t.best=undefined;}pruneFrames();}
-  const preparation=()=>({priors:options.getPriors?.(),sessionGallery:gallery.entries().flatMap(entry=>entry.cardId&&entry.embedding.values.length===options.profile.embedding.dim?[{cardId:entry.cardId,embedding:entry.embedding}]:[]).slice(-512)});
+  const preparation=()=>({priors:options.getPriors?.(),sessionGallery:gallery.entries().flatMap(entry=>entry.cardId&&(entry.embedding.modelId||entry.embedding.values.length===options.profile.embedding.dim)?[{cardId:entry.cardId,embedding:entry.embedding}]:[]).slice(-512)});
   async function read(t:InternalTrack,input:FieldFrame,card:DetectedQuad,pending:PendingRead,generation:number) {
     try {
       const start=now();stage(t,'embedStart');
@@ -536,7 +536,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       if(generation!==epoch||disposed||t.read!==pending)return;
       const priors=options.getPriors?.();
       const result=await options.recognizer.recognize([input] as ImageBitmap[]|ImageData[],{card,k:5,maxFrames:1,includeIdentityEmbedding:true,includeDiagnosticCrop:true,includeRaw:true,preferUpright:true,priors,gallery:gallery.entries(),deckFirst:true,earlyExitMargin:options.earlyExitMargin??.02});
-      if(generation===epoch&&!disposed&&t.read===pending){metrics.recognitionMs=now()-start;pending.result=result;stage(t,'searchDone');if(t.timing){Object.assign(t.timing.durationsMs,result.timingsMs);t.timing.durationsMs.readMs=now()-start;t.timing.notes={source:result.quality.searchSource??'catalog',tier:result.tier};}wakeAfterRead=true;}
+      if(generation===epoch&&!disposed&&t.read===pending){metrics.recognitionMs=now()-start;pending.result=result;stage(t,'searchDone');if(t.timing){Object.assign(t.timing.durationsMs,result.timingsMs);t.timing.durationsMs.readMs=now()-start;t.timing.reader=result.reader;t.timing.notes={source:result.quality.searchSource??'catalog',tier:result.tier};}wakeAfterRead=true;}
     }catch(cause){if(generation===epoch&&!disposed&&t.read===pending){console.error('[remote field] recognition failed',t.view.id,cause);metrics.errors++;pending.error=true;}}
     finally{closeFieldFrame(input);}
   }

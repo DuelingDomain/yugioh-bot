@@ -250,8 +250,8 @@ export function fieldAppearanceDistance(a?:number[],b?:number[]):number {
 }
 
 /** Compare local identity references only within the same embedding space. */
-export function fieldEmbeddingSimilarity(a?:{values:number[];space:string},b?:{values:number[];space:string}):number|undefined {
-  if(!a?.values.length||a.space!==b?.space||a.values.length!==b.values.length)return;
+export function fieldEmbeddingSimilarity(a?:{values:number[];space:string;modelId?:string},b?:{values:number[];space:string;modelId?:string}):number|undefined {
+  if(!a?.values.length||a.space!==b?.space||a.modelId!==b?.modelId||a.values.length!==b.values.length)return;
   let dot=0,aa=0,bb=0;
   for(let i=0;i<a.values.length;i++){const x=a.values[i],y=b.values[i];if(!Number.isFinite(x)||!Number.isFinite(y))return;dot+=x*y;aa+=x*x;bb+=y*y;}
   return aa>0&&bb>0?dot/Math.sqrt(aa*bb):undefined;

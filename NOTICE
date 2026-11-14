@@ -22,8 +22,9 @@ Ported and modified from https://github.com/mathulbrich/duel-lens
 commit f6968f3682d53a79c4a9fef591300615eda61c11 (mathulbrich), Apache-2.0.
 Ported files identify their provenance and modifications in their headers.
 Apache licence and original third-party notices: packages/vision/src/licenses/.
-The chosen dinov2-small-duel embedder was trained on synthetic card-image renderings only;
-the v3b tournament-video model is not used. DINOv2 weights: Copyright Meta Platforms, Inc.
+The default dinov2-small-duel embedder was trained on synthetic card-image renderings only.
+The optional Hybrid reader uses the v3b index and a Light student distilled from v3b,
+whose teacher also used public tournament-video crops. DINOv2 weights: Copyright Meta Platforms, Inc.
 and affiliates, Apache-2.0. The detector uses an Apache-2.0 MobileNetV3 backbone; its
 ImageNet pretraining data has separate access terms (see upstream third-party notices).
 Card art, card backs, text and derived index data are not Apache-licensed: artwork
@@ -31,3 +32,16 @@ Card art, card backs, text and derived index data are not Apache-licensed: artwo
 ONNX Runtime 1.30.0 is MIT-licensed. Its licence and ThirdPartyNotices.txt from
 https://github.com/microsoft/onnxruntime/tree/v1.30.0 are retained in packages/vision/src/licenses/
 and copied alongside the self-hosted runtime assets.
+
+Optional Hybrid recognition components
+
+Light weights: mathulbrich/duel-lens commit de87d44e2822a25a2dc481a27ed3c2881ce9ad03;
+the registry declares Apache-2.0. Its original THIRD_PARTY_NOTICES are retained as
+packages/vision/src/licenses/duel-lens-light.THIRD_PARTY_NOTICES.md.
+DuelSight recognizer and bank: ryangswe/duelsight v0.8.0, release 862aec0f937da326.
+Original Apache-2.0 LICENSE, NOTICE and PROVENANCE are retained under
+packages/vision/src/licenses/duelsight.* and copied beside the prepared Hybrid assets.
+Exact preprocessing and bank decoder code is ported from ryangswe/riftsight-vision
+commit 5ef332a7da58508b1ff9747fe1cf0ba4f70af30b (Apache-2.0).
+Those licenses cover the publishers' own work; third-party artwork, video and
+pretraining material retain their owners' terms. See docs/remote-duels/hybrid-reader.md.

@@ -1,4 +1,4 @@
-export { createRecognizer } from './client';
+export { createRecognizer, loadHybridCatalog } from './client';
 export { warmModelCache } from './model-cache';
 export {fitToMat} from './client';
 export {fitMat,matFitCalibration} from './mat-fit';
@@ -46,3 +46,5 @@ export {createClipRecorder,createBrowserFrameEncoder} from './clip-recorder';
 export type {ClipRecorder,ClipRecorderOptions,ClipContext,FrameEncoder,EncodedFrame} from './clip-recorder';
 export {replayClip,recordedRecognizer,scoreReplay,draftTruth,gateAgainstBaseline,formatMetricsTable,percentile,isArrival,isDeparture,onField} from './clip-replay';
 export type {ReplayResult,ReplayEvent,ReplayRead,ReplayOptions,ReplayMetrics} from './clip-replay';
+
+export type { CardReader, ReaderDiagnostics } from './types';

@@ -17,10 +17,16 @@ export interface WebGpuDiagnostics {
 }
 export interface BackendStatus {
   backend: 'webgpu' | 'wasm'; fallbackReason?: string;
+  readerNote?: string;
   models: { model: string; backend: 'webgpu' | 'wasm'; fallbackReason?: string; gpu?: WebGpuDiagnostics }[];
 }
-export interface PrepareOptions { priors?: RecognitionPriors; sessionGallery?: {cardId:string;embedding:{values:number[];space:'art-box'|'whole-card'}}[] }
+export interface IdentityEmbedding { values:number[]; space:'art-box'|'whole-card'; modelId?:string }
+export interface PrepareOptions { priors?: RecognitionPriors; sessionGallery?: {cardId:string;embedding:IdentityEmbedding}[] }
 export interface EmbeddingModelSpec {
+  /** Only new readers opt in; untagged references belong to the current reader. */
+  referenceTag?: string;
+  preprocessing?: 'full128';
+  cropSizeRounding?: boolean;
   /** Parity-checked alternate weights; does not change index identity. */
   webgpu?: ModelVariant;
   /** Output check for the half-precision WebGPU graph: the float32 graph's L2-normalised vector for the fixed check input (gpu-check.ts), and the lowest cosine a WebGPU run may have with it. */
@@ -63,12 +69,12 @@ export interface DetectedQuad { quad: Point[]; kind: 'face-up' | 'face-down'; co
 /** Detector call options for the field watcher. `keep`: outlines of cards already on the field (their low-score outlines stay). `piles`: calibrated Deck/Extra cells (a stack there keeps a lower-score outline). `cells`: calibrated field zone cells (a face-down card there keeps a lower-score outline). */
 export interface DetectOptions { /** Live plausible tracks eligible for shadow rescue; defaults to keep. */ shadowKeep?: Point[][]; /** false: skip the second, shadow-lifted pass for lost known cards (the watcher saw no shadow and its retry timer is not due). */ shadowPass?: boolean; region?: FractionalBox; keep?: Point[][]; piles?: Point[][]; cells?: Point[][] }
 export type BoardSide = 'near' | 'far';
-export interface PeekOptions { card: DetectedQuad; cards?: DetectedQuad[]; priors?: RecognitionPriors; signal?: AbortSignal }
+export interface PeekOptions { card: DetectedQuad; cards?: DetectedQuad[]; priors?: RecognitionPriors; gallery?:readonly FieldIdentityEntry[]; signal?: AbortSignal }
 export interface PeekResult {
   cardId?: string; name: string | null; tier: RecognitionTier; faceDown: boolean; covered: boolean;
 }
 export interface BoardCard extends PeekResult { outline: DetectedQuad; index: number; side: BoardSide; error?: string }
-export interface ReadAllOptions { cards?: DetectedQuad[]; priors?: RecognitionPriors; signal?: AbortSignal }
+export interface ReadAllOptions { cards?: DetectedQuad[]; priors?: RecognitionPriors; gallery?:readonly FieldIdentityEntry[]; signal?: AbortSignal }
 export interface BoardResult { near: BoardCard[]; far: BoardCard[]; timingsMs: { detect: number; total: number } }
 
 export interface RecognizeOptions {
@@ -84,6 +90,7 @@ export interface RecognizeOptions {
 }
 export interface Candidate { cardId: string; score: number; prior?: string }
 export interface RecognitionResult {
+  reader?: ReaderDiagnostics;
   candidates: Candidate[];
   /** Bounded ranking reason; confidence always uses raw visual evidence. */
   prior?: string;
@@ -102,7 +109,7 @@ export interface RecognitionResult {
   warpedCard?: { width: number; height: number; data: Uint8ClampedArray | Uint8Array };
   feedback?: { embedding:number[];gameId:string;modelId:string;modelSha256:string;indexVersion:string;layoutKey:string;space:'art-box'|'whole-card';deltaVersion:string };
   /** Opt-in clean visual reference for local tracking; never uploaded or broadcast automatically. */
-  identityEmbedding?: { values:number[];space:'art-box'|'whole-card' };
+  identityEmbedding?: IdentityEmbedding;
   tier: RecognitionTier;
   quality: { searchSource?: 'deck' | 'dynamic' | 'likely' | 'gallery' | 'catalog'; sharpness: number; detected: boolean; cornersFound: boolean; framesUsed: number; selectedFrameIndices: number[]; frameClass?: string; fallback: boolean; fullArt?: boolean; fullArtReferences?: number; partial?: boolean; covered?: boolean; confusionChecked?:boolean; faceDown?:boolean; framesAgree?:boolean; notInDecklist?:boolean; hypothesis?: 'art-box' | 'whole-card' };
   timingsMs: { sharpness: number; detect: number; warp: number; embed: number; search: number; total: number; queue?:number; pixels?:number; encode?:number; worker?:number; roundTrip?:number; /** Embedder split (profile): tensor preprocess, session run incl. output readback, and how many crops ran. */ embedPreprocess?:number; embedRun?:number; embedCount?:number; /** Main thread: frame clone before transfer, and postMessage→reply wait outside the worker. */ clone?:number; transfer?:number; /** Light/glare pre-clean (Debug line): crop cost, glare %, 1 when the clean crop won, applied RGB gains. */ precleanMs?:number; precleanGlare?:number; precleanShadow?:number; precleanUsed?:number; precleanGainR?:number; precleanGainG?:number; precleanGainB?:number };
@@ -111,6 +118,12 @@ export interface RecognitionResult {
   preclean?: { on: boolean; glare?: number; shadow?: number; gains?: [number, number, number]; ms?: number; used: 'raw' | 'clean'; rawScore?: number; cleanScore?: number };
   /** Worker diagnostics; absent when the core pipeline is used directly. */
   runtime?: { crossOriginIsolated: boolean; wasmThreads: number; simd: boolean };
+}
+export type CardReader = 'current' | 'hybrid';
+export interface ReaderStageDiagnostics { score:number; runnerUp:number; margin:number; ms:number }
+export interface ReaderDiagnostics {
+  selected:'hybrid'; stage:'first'|'second'|'fallback'; model:string; reason?:string;
+  first?:ReaderStageDiagnostics; second?:ReaderStageDiagnostics; ms:number;
 }
 export interface IndexEntry { cardId: string; passcode: number; name: string; imageId?: number; frameClass?: string; imageUrl?: string; thumbnailUrl?: string }
 export interface IndexMeta { version: 1; gameId?: string; layoutKey?: string; modelId: string; modelSha256: string; dim: number; count: number; dtype: 'float32' | 'int8'; quant?: 'float32' | 'int8'; builtAt?: string; entries: IndexEntry[]; generatedAt?: string; catalog?: string }

@@ -273,6 +273,8 @@ Socket.IO uses the existing ws process and `NEXT_PUBLIC_WS_URL` (or same origin 
 
 The MVP follows the existing single-WS-process room pattern. It does not add a Redis adapter; multiple WS instances require the deployment's shared room/pubsub adapter before scaling out.
 
+The signed-in camera setting also offers the opt-in [hybrid card reader](hybrid-reader.md); Current remains the default.
+
 ## Recognition data messages
 
 `RemoteDataMessage` and `remoteDataMessageSchema` are browser-safe. The LiveKit adapter carries these messages on its reliable data channel (owner-targeted requests, broadcast results); see [video runbook](video.md) for correlation announcements and client-validation limits. The foundation exposes a Socket.IO fallback:

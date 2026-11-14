@@ -2,6 +2,7 @@ import { z } from "zod";
 
 export const remoteSeatSchema = z.number().int().min(0).max(3);
 export const remoteActionIdSchema = z.string().min(1).max(100);
+const readerStageSchema=z.strictObject({score:z.number().finite().min(-1.01).max(1.01),runnerUp:z.number().finite().min(-1.01).max(1.01),margin:z.number().finite().min(0).max(2.02),ms:z.number().finite().nonnegative()});
 /**
  * Test evidence from the actor's own browser, in epoch milliseconds on the CLIENT clock (`performance.timeOrigin + performance.now()`;
  * never trusted for game state): `seenAt` the detector's first outline of the card, `namedAt` the end of the last read, `sentAt` the
@@ -14,6 +15,11 @@ export const remoteCameraStampSchema = z.strictObject({
   seenAt: z.number().int().nonnegative().optional(), namedAt: z.number().int().nonnegative().optional(),
   sentAt: z.number().int().nonnegative(), v: z.string().max(64).optional(),
   by: z.enum(["camera", "player"]).optional(), ui: z.string().regex(/^[a-z][a-z0-9-]{0,23}$/).optional(),
+  reader: z.strictObject({
+    selected:z.literal('hybrid'), stage:z.enum(['first','second','fallback']),model:z.string().max(64),reason:z.string().max(160).optional(),
+    first:readerStageSchema.optional(),second:readerStageSchema.optional(),
+    ms:z.number().finite().nonnegative(),
+  }).optional(),
 });
 export type RemoteCameraStamp = z.infer<typeof remoteCameraStampSchema>;
 export const remoteActionMeta = {
