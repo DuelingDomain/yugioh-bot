@@ -91,19 +91,26 @@ test('slow jobs are required only for their selected inputs; main uses real prod
   const docs = gateJobs();
   docs.changes.outputs.docs_only = 'true';
   assert.equal(gate(docs, 'pull_request'), 0);
-  for (const [flag, job] of [['effects', 'effect-protocol'], ['prod_build', 'production-dry-run']]) {
+  // The dry run also waits for the pinned voice inputs, so a PR proves the voice image stage before main builds it.
+  for (const [flag, job, needs] of [['effects', 'effect-protocol', 'changes'], ['prod_build', 'production-dry-run', ['changes', 'production-voice-assets']]]) {
     const results = gateJobs();
     results.changes.outputs[flag] = 'true';
     assert.notEqual(gate(results, 'pull_request'), 0, flag);
     results[job].result = 'success';
     assert.equal(gate(results, 'pull_request'), 0, flag);
-    assert.equal(jobs[job].needs, 'changes');
+    assert.deepEqual(jobs[job].needs, needs);
     assert.match(jobs[job].if, new RegExp(`needs\\.changes\\.outputs\\.${flag} == 'true'`));
   }
   const main = gateJobs();
   main.changes.outputs.prod_build = 'true';
   main['production-bundle'].result = main['production-images'].result = 'success';
+  assert.notEqual(gate(main, 'push'), 0, 'a main push without prepared voice assets must not pass');
+  main['production-voice-assets'].result = 'success';
   assert.equal(gate(main, 'push'), 0);
+  const voice = jobs['production-voice-assets'];
+  assert.equal(voice.needs, 'changes');
+  assert.equal(voice.if, "(github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name != 'push' && needs.changes.outputs.prod_build == 'true')");
+  assert.equal(voice.with['save-cache'], "${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}");
   for (const job of ['production-bundle', 'production-images']) {
     main[job].result = 'skipped';
     assert.notEqual(gate(main, 'push'), 0, job);
@@ -156,7 +163,7 @@ test('nightly runs every selected suite and requires fuzz; scheduled/manual Test
   assert.notEqual(gate(gateJobs(), 'workflow_dispatch', true), 0);
   const report = jobs['ci-result'].steps.find(step => step.name === 'Report nightly failure');
   assert.equal(report.if, "failure() && github.event_name == 'schedule'");
-  assert.equal(jobs['production-images'].needs, 'production-bundle');
+  assert.deepEqual(jobs['production-images'].needs, ['production-bundle', 'production-voice-assets']);
   assert.equal(jobs['production-images'].strategy['max-parallel'], undefined);
 });
 
