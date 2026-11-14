@@ -72,6 +72,8 @@ How a player goes through the app. Each page names the entry URL, the steps, and
 
 Backend, HTTP and shared-type contracts.
 
+Remote Duels: [contract](remote-duels/contract.md), [hybrid card reader](remote-duels/hybrid-reader.md).
+
 | Doc | Purpose |
 |---|---|
 | [api/active-game-guard.md](api/active-game-guard.md) | Active game guard |

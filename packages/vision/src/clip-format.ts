@@ -57,6 +57,7 @@ export interface ClipFrameMeta { at: number; name: string; width: number; height
 
 /** A recognition result with the heavy fields removed (embeddings, crops, raw evidence). */
 export interface SlimRecognitionResult {
+  reader?:RecognitionResult['reader'];
   candidates: RecognitionResult['candidates'];
   tier: RecognitionResult['tier'];
   quality: RecognitionResult['quality'];
@@ -117,7 +118,7 @@ The ring restarts empty when the card reader restarts (camera change, backend sw
 `;
 
 export function slimResult(result: RecognitionResult): SlimRecognitionResult {
-  return { candidates: result.candidates.slice(0, 5), tier: result.tier, quality: result.quality, timingsMs: result.timingsMs, backend: result.backend, prior: result.prior, preclean: result.preclean, runtime: result.runtime, detectedCard: result.detectedCard };
+  return { ...(result.reader?{reader:result.reader}:{}), candidates: result.candidates.slice(0, 5), tier: result.tier, quality: result.quality, timingsMs: result.timingsMs, backend: result.backend, prior: result.prior, preclean: result.preclean, runtime: result.runtime, detectedCard: result.detectedCard };
 }
 export function slimEvent(event: FieldEvent): SlimFieldEvent {
   const { result, ...rest } = event;

@@ -2,7 +2,7 @@ import { visionPaceFactor } from "@/lib/remote/send-health-store";
 import type { RecognizeRawFeed } from "@/lib/remote/video";
 import { relatedPriors, type RelatedCards, type RecognitionPriors } from '@yugidraft/vision';
 import { voiceHintFor, type Priors } from '@/lib/remote/recognition-priors';
-import { engineBackend, onRecognitionReset, reportBackend, reportGpuFailure, reportReadTime, type EngineBackend } from "./recognition-backend";
+import { cardReader, reportReaderNote, reportReaderRead, engineBackend, onRecognitionReset, reportBackend, reportGpuFailure, reportReadTime, type EngineBackend } from "./recognition-backend";
 
 /** One guess shown in the tray. `score` is null for guesses that are not image matches. */
 export type Guess = { cardId: number; name: string; score: number | null; source?: "ai" };
@@ -15,6 +15,7 @@ export type ReadResult = {
   /** Set when this browser read the card itself. Names the kept crop: the tray can ask AI about it, and a confirmed choice can be saved as a training sample. */
   aiToken?: number;
   visionTimingsMs?: Record<string,number>;
+  readerDiagnostics?:import("@yugidraft/vision").ReaderDiagnostics;
   backend?: string;
   /** Laplacian variance near the click on the frame that was read. Absent for reads made elsewhere (a phone, a peer). */
   sharpness?: number;
@@ -27,7 +28,7 @@ export type ReadCard = { quad: { x: number; y: number }[]; kind: "face-up" | "fa
 type Meta = { entries: { cardId: string; passcode: number; imageId?: number; name: string }[]; related?: RelatedCards };
 type DetectedQuad = ReadCard & { refined: boolean };
 type WireResult = { candidates: { cardId: number; name: string; score: number }[]; tier: "sure" | "not sure" | "low match"; faceDown: boolean; covered: boolean };
-type RawResult = { quality?: { sharpness?: number; fallback?: boolean; partial?: boolean; covered?: boolean; selectedFrameIndices?: number[] }; candidates: { cardId: string; score: number }[]; tier?: "sure" | "not sure" | "low match"; cropJpeg?: string; feedback?: object; timingsMs?: Record<string, number>; backend?: EngineBackend };
+type RawResult = { reader?:import("@yugidraft/vision").ReaderDiagnostics; quality?: { sharpness?: number; fallback?: boolean; partial?: boolean; covered?: boolean; selectedFrameIndices?: number[] }; candidates: { cardId: string; score: number }[]; tier?: "sure" | "not sure" | "low match"; cropJpeg?: string; feedback?: object; timingsMs?: Record<string, number>; backend?: EngineBackend };
 type AIReading = { name: string | null; passcode?: number; match: { passcode: number; name: string } | null };
 type RawPeek = { cardId?: string; name: string | null; tier: "sure" | "not sure" | "low match"; faceDown: boolean; covered: boolean };
 type RawBoardCard = RawPeek & { outline: DetectedQuad; index: number; side: "near" | "far"; error?: string };
@@ -88,10 +89,17 @@ export function prewarmRecognizer(): Promise<void> {
 }
 /** Loaded once per page. A missing local index (404) is a normal state, not an error. */
 function loadMeta() {
+  const selected=cardReader();
   meta ??= import("@yugidraft/vision").then(async ({ yugioh }) => {
     const response = await fetch(yugioh.metaUrl, { cache: "force-cache" });
     if (!response.ok) return null;
     const found = await response.json() as Meta;
+    if(selected==="hybrid") {
+      try {
+        const {loadHybridCatalog}=await import('@yugidraft/vision');
+        const extra=await loadHybridCatalog();found.entries=[...new Map([...extra.entries,...found.entries].map(e=>[e.cardId,e])).values()];
+      }catch { /* The worker reports a visible fallback if hybrid data is unavailable. */ }
+    }
     // Optional generated knowledge is loaded once, outside the per-read path.
     try {
       const response = await fetch('/dev/vision-assets/related-cards.json', { cache: 'force-cache', signal: AbortSignal.timeout(3000) });
@@ -105,10 +113,11 @@ function loadMeta() {
   return meta;
 }
 function loadRecognizer() {
+  const epoch=recognizerEpoch,selected=cardReader();
   recognizer ??= loadMeta().then(async found => {
     if (!found) return null;
     const { createRecognizer, yugioh } = await import("@yugidraft/vision");
-    return createRecognizer({ profile: yugioh, backend: engineBackend(), onBackendChange: status => reportBackend(status.backend, undefined, status.fallbackReason ?? "") }) as unknown as VisionRecognizer;
+    return createRecognizer({ profile: yugioh, reader:selected, backend: engineBackend(), onBackendChange: status => {if(epoch!==recognizerEpoch)return;reportBackend(status.backend, undefined, status.fallbackReason ?? "");reportReaderNote(status.readerNote??"");} }) as unknown as VisionRecognizer;
   }).catch(() => null);
   return recognizer;
 }
@@ -185,7 +194,7 @@ export function readBoard(frame: HTMLCanvasElement, cards: ReadCard[], priors: P
 }
 
 export function disposeRecognizer() {
-  const current = recognizer; recognizer = null; warming = null;recognizerEpoch++;
+  const current = recognizer; recognizer = null; meta = null; warming = null;recognizerEpoch++;
   void current?.then(value => value?.dispose());
 }
 // A new mode (or a GPU failure) restarts the reader; the open camera warms the new one so the badge shows where it runs.
@@ -297,14 +306,14 @@ async function readCardNow(track: MediaStreamTrack | null, point: { x: number; y
   try {
     const result = await vision.recognize(frames, { clickPoint: point, k: 5, regionFallback: false, maxFrames:1, ...(card ? { card: toQuad(card) } : {}), includeCrop: true,deferAICrop:true, ...(feedbackCapture ? { includeFeedback: true } : {}), priors: priorsFor(found, priors) });
     signal.throwIfAborted();
-    if (result.backend && result.timingsMs) reportBackend(result.backend, result.timingsMs.total);
+    if (result.backend && result.timingsMs) reportBackend(result.backend, result.timingsMs.total); reportReaderRead(result.reader);
     const { toRemoteRecognitionResult } = await import("@yugidraft/vision") as unknown as { toRemoteRecognitionResult(result: RawResult, entries: ReadonlyMap<string, Meta["entries"][number]>, requestId: string): WireResult };
     const wire = toRemoteRecognitionResult(result, byId, "local");
     const guesses = wire.faceDown ? [] : result.candidates.flatMap(candidate => {
       const entry = byId.get(candidate.cardId);
       return entry ? [{ cardId: entry.passcode, name: entry.name, score: candidate.score }] : [];
     }).slice(0, 5);
-    const read: ReadResult = { guesses, reader: "vision", frames: frames.length, note: kept?.length ? `Sharpest of ${frames.length} buffered ${frames.length === 1 ? "frame" : "frames"}` : `Sharpest of ${frames.length} frames`, sharpness: result.quality?.sharpness, tier: wire.tier, faceDown: wire.faceDown, covered: wire.covered, aiToken: result.cropJpeg ? keep(result) : undefined, visionTimingsMs: result.timingsMs, backend: result.backend };
+    const read: ReadResult = { guesses, reader: "vision", frames: frames.length, note: kept?.length ? `Sharpest of ${frames.length} buffered ${frames.length === 1 ? "frame" : "frames"}` : `Sharpest of ${frames.length} frames`, sharpness: result.quality?.sharpness, tier: wire.tier, faceDown: wire.faceDown, covered: wire.covered, aiToken: result.cropJpeg ? keep(result) : undefined, visionTimingsMs: result.timingsMs, readerDiagnostics:result.reader, backend: result.backend };
     // Auto-detect reads an unsure card once more before it accepts it. A click does the same, and only when this read could pass.
     if (isBestMatch(read) && !result.quality?.fallback && !result.quality?.partial) {
       // The first read stands even when time runs out here: the person is asked, and no decklist fallback replaces it.
@@ -408,7 +417,7 @@ export async function ownFieldResources(getPriors: () => Priors) {
       get separateDetector() { return reader.separateDetector; },
       prepare:(opts?:import("@yugidraft/vision").PrepareOptions)=>enqueue(()=>reader.prepare({priors:priorsFor(found,getPriors()),...opts})).then(info=>{if(info?.backend)reportBackend(info.backend);return info;}),
       detectCards: (frame: ImageBitmap | ImageData, opts?:import("@yugidraft/vision").DetectOptions) => enqueueScene(reader, () => reader.detectCards(frame as ImageBitmap,opts)),
-      recognize: (frames: ImageBitmap[] | ImageData[], opts?: import("@yugidraft/vision").RecognizeOptions) => enqueue(() => reader.recognize(frames as ImageBitmap[], opts)).then(result => { if (result.backend && result.timingsMs) reportBackend(result.backend, result.timingsMs.total); return result; }) as Promise<import("@yugidraft/vision").RecognitionResult>,
+      recognize: (frames: ImageBitmap[] | ImageData[], opts?: import("@yugidraft/vision").RecognizeOptions) => enqueue(() => reader.recognize(frames as ImageBitmap[], opts)).then(result => { if (result.backend && result.timingsMs) reportBackend(result.backend, result.timingsMs.total); reportReaderRead(result.reader); return result; }) as Promise<import("@yugidraft/vision").RecognitionResult>,
     },
     buffer: { sample: async (options?:{maxAgeMs?:number}) => {
       // While the sent video is CPU limited, wait between samples so real passes come at most every slow x 100 ms.

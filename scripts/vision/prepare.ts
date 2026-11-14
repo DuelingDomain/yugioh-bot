@@ -11,6 +11,7 @@ import { createRequire } from 'node:module';
 import { build } from 'esbuild';
 import { yugioh } from '../../packages/vision/src/games/yugioh';
 import { prepareRelatedCards } from './build-related';
+import { prepareHybrid } from './prepare-hybrid';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const out = path.resolve(process.env.VISION_DATA_DIR ?? path.join(root, 'data/vision'));
 const revision = 'f6968f3682d53a79c4a9fef591300615eda61c11';
@@ -19,7 +20,8 @@ const models = [
   { file: 'card-detector.onnx', source: 'extension/models/detector/card-detector.onnx', sha: yugioh.detector.sha256 },
 ];
 const codeOnly = process.argv.includes('--code-only');
-if (codeOnly && ['--related', '--webgpu'].some(flag => process.argv.includes(flag))) throw new Error('--code-only cannot be combined with --related or --webgpu');
+if (codeOnly && ['--related', '--webgpu', '--hybrid'].some(flag => process.argv.includes(flag))) throw new Error('--code-only cannot be combined with --related, --webgpu or --hybrid');
+if(process.argv.includes('--hybrid'))await prepareHybrid(out,root,process.env.VISION_HYBRID_SOURCES);
 const sha = (data: Uint8Array) => createHash('sha256').update(data).digest('hex');
 if (process.argv.includes('--related')) {
   await prepareRelatedCards(path.resolve(process.env.DUEL_DATA_DIR ?? process.env.DUEL_ENGINE_DATA_DIR ?? path.join(root, 'data/duel-engine')), path.join(out, 'related-cards.json'));

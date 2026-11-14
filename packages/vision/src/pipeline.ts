@@ -63,7 +63,7 @@ export class RecognitionPipeline {
     const covered=Boolean(opts.card.covered || isCovered(opts.card,opts.cards??[]));
     // Face-down outlines never leak a plausible face-up identity into a board twin.
     if(opts.card.kind==='face-down') return {name:null,tier:'not sure',faceDown:true,covered};
-    const result=await this.recognize([frame],{card:{...opts.card,covered},priors:opts.priors,k:1});
+    const result=await this.recognize([frame],{card:{...opts.card,covered},priors:opts.priors,gallery:opts.gallery,k:1});
     const best=result.candidates[0], faceDown=best?.cardId===this.profile.cardBack.cardId;
     const entry=faceDown?undefined:this.index.meta.entries.find(e=>e.cardId===best?.cardId)??this.fullArtIndex?.meta.entries.find(e=>e.cardId===best?.cardId);
     return {cardId:entry?.cardId,name:entry?.name??null,tier:result.tier,faceDown,covered:Boolean(result.quality.covered)};
@@ -77,7 +77,7 @@ export class RecognitionPipeline {
     for(const [index,outline] of cards.entries()) {
       opts.signal?.throwIfAborted();
       const side=boardSide(outline.quad.reduce((sum,p)=>sum+p.y,0)/4);
-      try { result[side].push({...await this.peek(frame,{card:outline,cards,priors:opts.priors}),outline,index,side}); }
+      try { result[side].push({...await this.peek(frame,{card:outline,cards,priors:opts.priors,gallery:opts.gallery}),outline,index,side}); }
       catch(error) { result[side].push({outline,index,side,name:null,tier:'low match',faceDown:outline.kind==='face-down',covered:Boolean(outline.covered),error:error instanceof Error?error.message:String(error)}); }
     }
     result.timingsMs.total=performance.now()-start;
@@ -132,7 +132,7 @@ export class RecognitionPipeline {
     const earlyExitMargin=opts.earlyExitMargin??.02;
     const clearShortlist=(list:Candidate[])=>(list[0]?.score??0)>=.84 && decide(list,thresholds,this.profile.cardBack.cardId).confident && list[0].score-(list[1]?.score??0)>=earlyExitMargin && !this.confused(list) && (!opts.priors?.frameClasses?.length || opts.priors.frameClasses.includes(this.catalog.get(list[0].cardId)?.frameClass??''));
     const gallerySearch=(vector:Float32Array,index:LoadedIndex):Candidate[]=>{
-      const embedding={values:Array.from(vector),space:index===this.fullArtIndex?'whole-card':'art-box'};
+      const embedding={values:Array.from(vector),space:index===this.fullArtIndex?'whole-card':'art-box',...(this.profile.embedding.referenceTag?{modelId:this.profile.embedding.referenceTag}:{})};
       const scores=new Map<string|undefined,number>();
       for(const entry of opts.gallery??[]) {
         const score=fieldEmbeddingSimilarity(entry.embedding,embedding);
@@ -397,7 +397,7 @@ export class RecognitionPipeline {
     const safeEvidence=evidence?.corners && !fallback && !covered && !views.some(v=>v.partial) && !views.some(v=>v.faceDown) && candidates[0]?.cardId!==this.profile.cardBack.cardId;
     const collect=opts.includeFeedback && safeEvidence;
     const feedback=collect?{embedding:Array.from(evidence.vector),gameId:this.profile.id,modelId:this.profile.embedding.id,modelSha256:this.profile.embedding.sha256,indexVersion:indexVersion(evidence.index.meta),layoutKey:evidence.index.meta.layoutKey??'',space:evidence.index===this.fullArtIndex?'whole-card' as const:'art-box' as const,deltaVersion:this.learning.version}:undefined;
-    const identityEmbedding=opts.includeIdentityEmbedding && safeEvidence && !opts.card?.partial && evidence.vector.every(Number.isFinite)?{values:Array.from(evidence.vector),space:evidence.index===this.fullArtIndex?'whole-card' as const:'art-box' as const}:undefined;
+    const identityEmbedding=opts.includeIdentityEmbedding && safeEvidence && !opts.card?.partial && evidence.vector.every(Number.isFinite)?{values:Array.from(evidence.vector),space:evidence.index===this.fullArtIndex?'whole-card' as const:'art-box' as const,...(this.profile.embedding.referenceTag?{modelId:this.profile.embedding.referenceTag}:{})}:undefined;
     return { ...(identityEmbedding?{identityEmbedding}:{}), ...(opts.includeRaw?{raw}:{}), ...(views[0]?.deferredAICrop?{deferredAICrop:views[0].deferredAICrop}:{}), ...(opts.includeCrop?{aiCandidateNames:visual.map(c=>this.catalog.get(c.cardId)?.name).filter((name):name is string=>Boolean(name)).slice(0,10)}:{}), ...(opts.includeCrop && views[0]?.aiCrop?{aiWarpedCard:views[0].aiCrop}:{}), prior:candidates[0]?.prior, candidates: withDeckSuggestions(deckSuggestions,candidates,k), detectedCard, feedback, ...((opts.includeCrop || opts.includeDiagnosticCrop || collect) && views[0] ? {warpedCard: views[0].crop} : {}), tier, quality: { searchSource, faceDown:views.some(v=>v.faceDown) || candidates[0]?.cardId===this.profile.cardBack.cardId, framesAgree:frameEvidence.length>0 && frameEvidence.every(f=>f.clean[0]?.cardId===visual[0]?.cardId),notInDecklist:Boolean(opts.priors?.decklist?.length && candidates[0] && candidates[0].cardId!==this.profile.cardBack.cardId && !opts.priors.decklist.includes(candidates[0].cardId)), confusionChecked:views.some(v=>v.confusionChecked), sharpness: ranked[0]?.sharpness ?? 0, detected: views.some(v => v.detected), cornersFound: views.some(v => v.corners), framesUsed: views.length, selectedFrameIndices: usedIndices, fallback, frameClass, covered, fullArt:views.some(v=>v.fullArt), fullArtReferences:this.fullArtIndex?.meta.count ?? 0, partial:views.some(v=>v.partial), hypothesis:views[0]?.index===this.fullArtIndex?'whole-card':'art-box' }, timingsMs: timings, backend: this.detector.backend === 'webgpu' && this.embedder.backend === 'webgpu' ? 'webgpu' : 'wasm' };
   }
 }

@@ -2,7 +2,7 @@ import type { RGBAImage } from './pixels';
 
 export type FaceState = 'up' | 'down' | 'unknown';
 export interface FaceStateResult { state: FaceState; confidence: number }
-export interface FaceStateEmbedding { values: ArrayLike<number>; space: 'art-box' | 'whole-card' }
+export interface FaceStateEmbedding { values: ArrayLike<number>; space: 'art-box' | 'whole-card'; modelId?:string }
 export interface FaceStateOptions {
   /** The face-down class probability, NOT 1 minus the winning face-up score. */
   detectorFaceDownScore?: number;
@@ -122,7 +122,7 @@ function cropDistance(a: Features, b: Features): number {
 }
 
 function cosine(a?: FaceStateEmbedding, b?: FaceStateEmbedding): number | undefined {
-  if (!a || !b || a.space !== b.space || !a.values.length || a.values.length !== b.values.length || a.values.length > 4096) return;
+  if (!a || !b || a.space !== b.space || a.modelId !== b.modelId || !a.values.length || a.values.length !== b.values.length || a.values.length > 4096) return;
   let dot = 0, aa = 0, bb = 0;
   for (let i = 0; i < a.values.length; i++) {
     const x = a.values[i], y = b.values[i];

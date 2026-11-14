@@ -4,7 +4,7 @@ import { useEffect, useId, useState } from "react";
 import { sheetRoot } from "@/components/duel/sheet-ui";
 import { ThemedSelect as SheetSelect } from "@/components/ui/themed-select";
 import ui from "@/components/duel/sheet-ui.module.css";
-import { RECOGNITION_MODES, setRecognitionMode, useRecognitionBackend } from "./recognition-backend";
+import { CARD_READERS, setCardReader, RECOGNITION_MODES, setRecognitionMode, useRecognitionBackend } from "./recognition-backend";
 import { useCardDetection } from "@/lib/remote/zone-grid";
 import { useVideoHub } from "./video-hub";
 import s from "./remote-ui.module.css";
@@ -19,18 +19,22 @@ const announced = new Set<string>();
  * which sits on the table's own dark theme.
  */
 export function RecognitionSetting({ variant = "sheet" }: { variant?: "sheet" | "menu" }) {
-  const { mode } = useRecognitionBackend();
+  const { mode,reader,readerNote } = useRecognitionBackend();
   const hintId = useId();
   const hint = RECOGNITION_MODES.find(item => item.value === mode)?.hint;
   if (variant === "menu") {
-    return <ThemedSelect variant="menu" wide label="Card recognition" prefix="Recognition ·" title={hint} value={mode} testId="recognition-mode"
-      choices={RECOGNITION_MODES.map(item => ({ value: item.value, label: item.label, description: item.hint }))} onChange={setRecognitionMode} />;
+    return <><ThemedSelect variant="menu" wide label="Card recognition" prefix="Recognition ·" title={hint} value={mode} testId="recognition-mode"
+      choices={RECOGNITION_MODES.map(item => ({ value: item.value, label: item.label, description: item.hint }))} onChange={setRecognitionMode} />
+      <ThemedSelect variant="menu" wide label="Card reader" prefix="Reader ·" value={reader} testId="card-reader" choices={CARD_READERS} onChange={setCardReader} />
+      {readerNote?<span role="status" className={s.backendNote}>{readerNote}</span>:null}</>;
   }
   return <div className={sheetRoot} style={{ display: "grid", gap: 5 }}>
     <SheetSelect label="Card recognition" value={mode} testId="recognition-mode" describedBy={hintId} compact
       choices={RECOGNITION_MODES.map(item => ({ value: item.value, label: item.label }))}
       onChange={setRecognitionMode} />
     <p id={hintId} className={ui.hint} style={{ margin: 0 }}>{hint}</p>
+    <SheetSelect label="Card reader" value={reader} testId="card-reader" compact choices={CARD_READERS} onChange={setCardReader} />
+    {readerNote?<p role="status" className={ui.hint} style={{margin:0}}>{readerNote}</p>:null}
   </div>;
 }
 
@@ -52,7 +56,7 @@ export function CardDetectionSetting() {
  * `phoneCamera`: the camera is a phone, but recognition still runs on this computer, so this computer's backend is shown.
  */
 export function RecognitionBadge({ phoneCamera = false }: { phoneCamera?: boolean }) {
-  const { mode, backend, ms, note } = useRecognitionBackend();
+  const { mode, backend, ms, note, readerNote } = useRecognitionBackend();
   const [say, setSay] = useState("");
   useEffect(() => {
     if (!note || announced.has(note)) return;
@@ -73,6 +77,7 @@ export function RecognitionBadge({ phoneCamera = false }: { phoneCamera?: boolea
   return <>
     <span className={`${s.backendBadge} ${gpu ? s.backendGpu : ""}`} title={title} data-testid="recognition-backend" data-backend={backend ?? "pending"}>{label}</span>
     {say ? <span className={s.backendNote} role="status" data-testid="recognition-note">{say}</span> : null}
+    {readerNote?<span className={s.backendNote} role="status" data-testid="reader-note">{readerNote}</span>:null}
   </>;
 }
 

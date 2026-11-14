@@ -1,8 +1,15 @@
 import { yugioh } from './games/yugioh';
 import { validateOptions } from './options';
 import { validateBoard } from './board';
-import type { GameProfile, RecognitionResult, RecognizeOptions, DetectedQuad, DetectOptions, PeekOptions, PeekResult, ReadAllOptions, BoardResult, PrepareOptions, BackendStatus } from './types';
+import type { CardReader, GameProfile, RecognitionResult, RecognizeOptions, DetectedQuad, DetectOptions, PeekOptions, PeekResult, ReadAllOptions, BoardResult, PrepareOptions, BackendStatus } from './types';
 import type {MatFitOptions, MatFitResult} from './mat-fit';
+
+/** Names for the app tray. Only an explicitly selected Hybrid reader calls this. */
+export async function loadHybridCatalog():Promise<{entries:import('./types').IndexEntry[]}> {
+  const [{HYBRID_ASSETS},{fetchModelChecked}]=await Promise.all([import('./hybrid-models'),import('./model-cache')]);
+  const asset=HYBRID_ASSETS.catalog,reply=await fetchModelChecked(asset.url,asset.sha256,{signal:AbortSignal.timeout(120_000)});
+  if(!reply.ok)throw new Error(`Hybrid catalog HTTP ${reply.status}`);return reply.json();
+}
 
 /** One CPU request in an isolated vision worker. No model/index warmup or per-frame inference. */
 export function fitToMat(frame:ImageData|ImageBitmap, options:MatFitOptions&{signal?:AbortSignal;workerUrl?:string}={}):Promise<MatFitResult> {
@@ -30,6 +37,7 @@ export function fitToMat(frame:ImageData|ImageBitmap, options:MatFitOptions&{sig
 export type FeedbackSource='pick'|'search'|'voice'|'ai';
 export interface AIReading { name: string | null; setCode?: string; passcode?: number; match: {passcode: number; name: string} | null }
 export interface RecognizerConfig {
+  reader?: CardReader;
   game?: 'yugioh';
   /** Override the built-in game profile (including model/index URLs). */
   profile?: GameProfile;
@@ -116,11 +124,11 @@ export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
   const failAll = (lane: Lane, error: Error) => { for (const value of lane.pending.values()) value.reject(error); lane.pending.clear(); };
   /** Detector from the worker that runs outline passes, embedder from the read worker. */
   function mergeStatus() {
-    const models = [...(scene.status?.models.filter(m => m.model === 'detector') ?? []), ...(read.status?.models.filter(m => m.model === 'embedder') ?? [])];
+    const models = [...(scene.status?.models.filter(m => m.model === 'detector') ?? []), ...(read.status?.models.filter(m => m.model !== 'detector') ?? [])];
     if (!models.length) return;
     const failed = models.filter(m => m.backend === 'wasm' && m.fallbackReason);
     const reasons = failed.length > 1 && new Set(failed.map(m => m.fallbackReason)).size === 1 ? [failed[0].fallbackReason!] : failed.map(m => `${m.model}: ${m.fallbackReason}`);
-    backendStatus = { backend: models.every(m => m.backend === 'webgpu') ? 'webgpu' : 'wasm', fallbackReason: reasons.length ? reasons.join('; ') : undefined, models };
+    backendStatus = { backend: models.every(m => m.backend === 'webgpu') ? 'webgpu' : 'wasm', fallbackReason: reasons.length ? reasons.join('; ') : undefined, models, ...(read.status?.readerNote?{readerNote:read.status.readerNote}:{}) };
     config.onBackendChange?.(backendStatus);
   }
   function request(lane: Lane, message: object, transfers: Transferable[] = []): Promise<unknown> {
@@ -151,7 +159,7 @@ export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
       };
       worker.onerror = event => { failAll(lane, new Error(event.message || 'Recognition worker failed')); reset(lane); useOneWorker(lane); };
       worker.onmessageerror = () => failAll(lane, new Error('Recognition worker message failed'));
-      lane.initial = request(lane, { type: 'init', profile, backend: config.backend ?? 'auto', runtimeBase: config.runtimeBase ?? '/dev/vision-lab/assets/ort/', role: lane.role, threads }).catch(error => { reset(lane); useOneWorker(lane); throw error; });
+      lane.initial = request(lane, { type: 'init', profile, backend: config.backend ?? 'auto', runtimeBase: config.runtimeBase ?? '/dev/vision-lab/assets/ort/', role: lane.role, threads, ...(config.reader==='hybrid'&&lane.role!=='scene'?{reader:'hybrid'}:{}) }).catch(error => { reset(lane); useOneWorker(lane); throw error; });
     }
     return lane.initial;
   }

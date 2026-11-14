@@ -16,7 +16,7 @@ import { LearningCache } from './learning-cache';
 import { filterPhysicalIndex } from './physical-index';
 import { decodeIndex } from './index-format';
 import { validateIndexProfile } from './profile';
-import type { GameProfile, LoadedIndex, IndexMeta, RecognizeOptions, DetectOptions, PeekOptions, ReadAllOptions, PrepareOptions, BackendStatus } from './types';
+import type { CardReader, GameProfile, LoadedIndex, IndexMeta, RecognizeOptions, DetectOptions, PeekOptions, ReadAllOptions, PrepareOptions, BackendStatus } from './types';
 import type { RGBAImage } from './pixels';
 import {fitMat, type MatFitOptions} from './mat-fit';
 const scope = self as unknown as DedicatedWorkerGlobalScope;
@@ -29,7 +29,9 @@ let detectorSession:ModelSession|undefined,detectorLoading:Promise<ModelSession>
  * never waits behind a read (client.ts).
  */
 type Role='both'|'scene'|'read';
-let configuration:{profile:GameProfile;backend:'auto'|'wasm';runtimeBase:string;role:Role;threads?:number}|undefined;
+let configuration:{profile:GameProfile;backend:'auto'|'wasm';runtimeBase:string;role:Role;threads?:number;reader?:CardReader}|undefined;
+let hybridSessions:ModelSession[]=[];
+let readerNote:string|undefined;
 const DETECTOR_GPU_OUTPUTS=[CARD_DETECTOR.outputs.heat,CARD_DETECTOR.outputs.box,CARD_DETECTOR.outputs.peak];
 function ensureDetector():Promise<ModelSession> {
   const {profile,backend,runtimeBase,threads}=configuration!;
@@ -55,7 +57,7 @@ async function initializeDetector(profile:GameProfile,backend:'auto'|'wasm',runt
   if(role==='scene')await detect(detector,Tensor,{width:448,height:448,data:new Uint8ClampedArray(448*448*4).fill(114)},448);
 }
 function backendStatus(): BackendStatus {
-  const models = ([['detector',detectorSession],['embedder',embedderSession]] as const).flatMap(([model,session])=>session?[{
+  const models = ([['detector',detectorSession],['embedder',embedderSession],...hybridSessions.map((s,i)=>[i?'hybrid-light':'hybrid-first',s] as const)] as const).flatMap(([model,session])=>session?[{
     model, backend: session.backend,
     fallbackReason: session.fallbackReason, gpu: session.gpuDiagnostics,
   }]:[]);
@@ -63,7 +65,7 @@ function backendStatus(): BackendStatus {
   const reasons = failed.length > 1 && new Set(failed.map(m => m.fallbackReason)).size === 1
     ? [failed[0].fallbackReason!] : failed.map(m => `${m.model}: ${m.fallbackReason}`);
   return { backend: models.length > 0 && models.every(m => m.backend === 'webgpu') ? 'webgpu' : 'wasm',
-    fallbackReason: reasons.length ? reasons.join('; ') : undefined, models };
+    fallbackReason: reasons.length ? reasons.join('; ') : undefined, models, ...(readerNote?{readerNote}:{}) };
 }
 function reply(message: object) {
   scope.postMessage({ ...message, backendStatus: backendStatus(), detectorBackend: detectorSession?.backend, role: configuration?.role });
@@ -115,6 +117,14 @@ async function initialize(profile: GameProfile, backend: 'auto' | 'wasm', runtim
       } else if(reply.status!==404) throw new Error('Cannot load full-art metadata');
     }
     pipeline = new RecognitionPipeline(profile, index, detector, embedder, Tensor, fullArtIndex);
+    if(configuration!.reader==='hybrid') {
+      const {loadHybridOrCurrent}=await import('./hybrid');
+      const current=pipeline;
+      pipeline=await loadHybridOrCurrent(current,async()=>{
+        const {openHybrid}=await import('./hybrid-loader');
+        return openHybrid([profile,index,detector,embedder,Tensor,fullArtIndex],current,runtimeBase,configuration!.threads,note=>{readerNote=note;},sessions=>{hybridSessions=sessions;});
+      },note=>{readerNote=note;});
+    }
     // Compile kernels outside placement/click latency. Never use this warm-up as evidence.
     await embedImages(embedder,Tensor,profile.embedding,[{width:8,height:8,data:new Uint8ClampedArray(8*8*4).fill(128)}]);
     if(role!=='read')await detect(detector,Tensor,{width:448,height:448,data:new Uint8ClampedArray(448*448*4).fill(114)},448);
@@ -133,6 +143,7 @@ async function initialize(profile: GameProfile, backend: 'auto' | 'wasm', runtim
     learningTimer=setInterval(()=>{void learningCache?.refresh();},60_000);
 
   } catch (error) {
+    await Promise.all(hybridSessions.map(s=>s.release().catch(()=>{})));hybridSessions=[];
     await embedderSession?.release().catch(()=>{});
     embedderSession=undefined;pipeline=undefined;throw error;
   }
@@ -166,7 +177,7 @@ async function jpeg(image:RGBAImage,width:number,maxBytes:number):Promise<string
     return btoa(binary);
   }
 }
-type Request = {id:number;type:'fitToMat';frame:ImageData|ImageBitmap;opts?:MatFitOptions} | { id: number; type: 'checkWebGpu' } | { id: number; type: 'init'; profile: GameProfile; backend: 'auto' | 'wasm'; runtimeBase: string; role?: Role; threads?: number } | {id:number;type:'prepare';opts?:PrepareOptions} | {id:number;type:'aiCrop';token:string} | { id: number; type: 'detect'; frame: ImageBitmap | ImageData; opts?:DetectOptions } | { id: number; type: 'recognize'; frames: (ImageBitmap | ImageData)[]; opts?: RecognizeOptions } | {id:number;type:'peek';frame:ImageBitmap|ImageData;opts:PeekOptions} | {id:number;type:'readAll';frame:ImageBitmap|ImageData;opts:ReadAllOptions};
+type Request = {id:number;type:'fitToMat';frame:ImageData|ImageBitmap;opts?:MatFitOptions} | { id: number; type: 'checkWebGpu' } | { id: number; type: 'init'; profile: GameProfile; backend: 'auto' | 'wasm'; runtimeBase: string; role?: Role; threads?: number; reader?:CardReader } | {id:number;type:'prepare';opts?:PrepareOptions} | {id:number;type:'aiCrop';token:string} | { id: number; type: 'detect'; frame: ImageBitmap | ImageData; opts?:DetectOptions } | { id: number; type: 'recognize'; frames: (ImageBitmap | ImageData)[]; opts?: RecognizeOptions } | {id:number;type:'peek';frame:ImageBitmap|ImageData;opts:PeekOptions} | {id:number;type:'readAll';frame:ImageBitmap|ImageData;opts:ReadAllOptions};
 let queue = Promise.resolve();
 scope.onmessage = (event: MessageEvent<Request>) => {
   const message = event.data, receivedAt=performance.now();
@@ -174,7 +185,7 @@ scope.onmessage = (event: MessageEvent<Request>) => {
   queue = queue.then(async () => {
     const queueMs=performance.now()-receivedAt;
     try {
-      if (message.type === 'init') { await initializeDetector(message.profile, message.backend, message.runtimeBase, message.role??'both', message.threads); reply({ id: message.id, result: null }); }
+      if (message.type === 'init') { await initializeDetector(message.profile, message.backend, message.runtimeBase, message.role??'both', message.threads); configuration!.reader=message.reader; reply({ id: message.id, result: null }); }
       else if(message.type==='fitToMat'){reply({id:message.id,result:fitMat(pixels(message.frame),message.opts)});}
       else {
         if(!configuration)throw new Error('Recognizer has not initialized');
@@ -211,23 +222,27 @@ scope.onmessage = (event: MessageEvent<Request>) => {
         if(!pipeline)await initialize(configuration.profile,configuration.backend,configuration.runtimeBase);
         if(message.type==='prepare'){
           if(message.opts) {
-            const gallery=message.opts.sessionGallery??[];
-            if(gallery.length>512 || gallery.some(r=>typeof r.cardId!=='string'||!['art-box','whole-card'].includes(r.embedding?.space)||!Array.isArray(r.embedding?.values)||r.embedding.values.length!==configuration!.profile.embedding.dim||!r.embedding.values.every(Number.isFinite)))throw new Error('Invalid session gallery');
-            preparedOptions={...message.opts,priors:message.opts.priors?{...message.opts.priors,voiceMentioned:undefined}:undefined};
+            const gallery=(message.opts.sessionGallery??[]).filter(r=>configuration!.reader==='hybrid'||!r.embedding?.modelId);
+            if(gallery.length>512 || gallery.some(r=>typeof r.cardId!=='string'||!['art-box','whole-card'].includes(r.embedding?.space)||!Array.isArray(r.embedding?.values)||![configuration!.profile.embedding.dim,...(configuration!.reader==='hybrid'?[128]:[])].includes(r.embedding.values.length)||!r.embedding.values.every(Number.isFinite)||r.embedding.modelId!==undefined&&typeof r.embedding.modelId!=='string'))throw new Error('Invalid session gallery');
+            preparedOptions={...message.opts,...(message.opts.sessionGallery?{sessionGallery:gallery}:{}),priors:message.opts.priors?{...message.opts.priors,voiceMentioned:undefined}:undefined};
           }
           reply({id:message.id,result:{backend:backendStatus().backend}});return;}
         if(learningCache) {
           const learning=learningCache.current();
-          pipeline!.setLearning({...learning,references:[...learning.references,...(preparedOptions.sessionGallery??[]).map(r=>({cardId:r.cardId,embedding:r.embedding.values,space:r.embedding.space}))]});
+          pipeline!.setLearning({...learning,references:[...learning.references,...(preparedOptions.sessionGallery??[]).filter(r=>!r.embedding.modelId).map(r=>({cardId:r.cardId,embedding:r.embedding.values,space:r.embedding.space}))]});
         }
-        if(message.type==='peek') {reply({id:message.id,result:await pipeline!.peek(pixels(message.frame),{priors:preparedOptions.priors,...message.opts})});return;}
-        if(message.type==='readAll') {reply({id:message.id,result:await pipeline!.readAll(pixels(message.frame),{priors:preparedOptions.priors,...message.opts})});return;}
+        if(message.type==='peek') {reply({id:message.id,result:await pipeline!.peek(pixels(message.frame),{priors:preparedOptions.priors,...(configuration.reader==='hybrid'?{gallery:preparedOptions.sessionGallery}:{}),...message.opts})});return;}
+        if(message.type==='readAll') {reply({id:message.id,result:await pipeline!.readAll(pixels(message.frame),{priors:preparedOptions.priors,...(configuration.reader==='hybrid'?{gallery:preparedOptions.sessionGallery}:{}),...message.opts})});return;}
         const workerStart=performance.now();
         const images: RGBAImage[] = [];
         try { for (const frame of message.frames) images.push(pixels(frame)); }
         finally { for (const frame of message.frames) if ('close' in frame) frame.close(); }
         const pixelsMs=performance.now()-workerStart;
-        const result = await pipeline!.recognize(images, {priors:preparedOptions.priors,...message.opts});
+        const result = await pipeline!.recognize(images, {priors:preparedOptions.priors,...(configuration.reader==='hybrid'?{gallery:preparedOptions.sessionGallery}:{}),...message.opts});
+        if(configuration.reader==='hybrid'&&readerNote&&!result.reader) {
+          const [a,b]=result.raw?.visual??result.candidates,score=a?.score??0,runnerUp=b?.score??0;
+          result.reader={selected:'hybrid',stage:'fallback',model:'current',second:{score,runnerUp,margin:Math.max(0,score-runnerUp),ms:result.timingsMs.total},ms:result.timingsMs.total};
+        }
         const encodeStart=performance.now();
         const {warpedCard,aiWarpedCard,deferredAICrop,...publicResult}=result;
         if(warpedCard) publicResult.cropJpeg=await jpeg(warpedCard,224,32*1024);
