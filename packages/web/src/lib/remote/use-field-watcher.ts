@@ -1,11 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import {useSetGuards,loadSetMemory,saveSetMemory} from './set-card-settings';
+import {recordSetDecision} from './set-card-diagnostics';
 import { readTapChoice } from './tap-offer';
 import { e2eFieldHook } from './e2e-field-hook';
 import { defaultGridCalibration, fieldDebugEnabled, isPlacedCalibration } from './zone-grid';
 import { attachClipRecorder, detachClipRecorder, clipEvent, clipAction, clipCalibration } from './clip-capture';
-import { createFieldCalibration, createFieldWatcher, flattenFieldCalibration, FIELD_ZONE_LAYOUT, createFieldIdentityGallery, type FieldIdentityGallery, type FieldCalibration, type FieldEvent, type FieldSnapshot, type FieldWatcher, type FieldWatcherOptions } from '@yugidraft/vision';
+import { createFieldCalibration, createFieldWatcher, flattenFieldCalibration, FIELD_ZONE_LAYOUT, fieldZoneCells, ignoreSetRegion, createFieldIdentityGallery, type FieldZone, type SetCardMemory, type FieldIdentityGallery, type FieldCalibration, type FieldEvent, type FieldSnapshot, type FieldWatcher, type FieldWatcherOptions } from '@yugidraft/vision';
 
 export type CaptureSize = {width:number;height:number};
 const initial:FieldSnapshot={status:'stopped',tracks:[],metrics:{detectorMs:0,recognitionMs:0,dutyPercent:0,intervalMs:333,samples:0,skipped:0,placements:0,latencyMs:0,errors:0}};
@@ -97,6 +99,11 @@ export const fieldSnapshotKey=(s:FieldSnapshot)=>JSON.stringify({...s,metrics:un
 export function useFieldWatcher(options:UseFieldWatcherOptions) {
   const latest=useRef(options);latest.current=options;
   const watcher=useRef<FieldWatcher|null>(null);
+  const {guards}=useSetGuards();
+  const guardsRef=useRef(guards);guardsRef.current=guards;
+  const setMemory=useRef<{key:string;value:SetCardMemory}|null>(null);
+  const setKey=`dd-field-set-memory:v1:${options.seatKey}:${options.duelKey??'lab'}:${options.deviceKey??'camera'}`;
+  useEffect(()=>{watcher.current?.setGuards(guards);},[guards]);
   const gallery=useRef<{key:string;value:FieldIdentityGallery}|null>(null);
   const galleryKey=`dd-field-gallery:v1:${options.seatKey}:${options.duelKey??'lab'}`;
   const [enabled,setOn]=useState(true),[loaded,setLoaded]=useState('');
@@ -151,7 +158,9 @@ export function useFieldWatcher(options:UseFieldWatcherOptions) {
       }
       // Developer accounts only: the "Save last 30 s" ring records this watcher's frames, detections and reads (clip-capture.ts).
       const recorded=attachClipRecorder(config,{room:options.duelKey,seat:Number(/\d+$/.exec(options.seatKey)?.[0]),format:config.format,priors:()=>config.getPriors?.(),calibration:()=>gridRef.current});
-      reader=createFieldWatcher({...recorded,calibration:gridRef.current,gallery:gallery.current.value});watcher.current=reader;
+      if(setMemory.current?.key!==setKey)setMemory.current={key:setKey,value:loadSetMemory(setKey)};
+      const memory=setMemory.current.value;
+      reader=createFieldWatcher({...recorded,calibration:gridRef.current,gallery:gallery.current.value,setGuards:guardsRef.current,setCardMemory:memory,onSetMemoryChange:()=>saveSetMemory(setKey,memory),onSetDecision:decision=>recordSetDecision(options.duelKey??'lab',decision)});watcher.current=reader;
       reader.subscribe(event=>{if(!cancelled){latest.current.onEvent(event);clipEvent(event);}});
       // A still watcher ticks several times a second with nothing new: re-render only on a real change, or once a second.
       let lastKey='',lastAt=0;
@@ -169,6 +178,15 @@ export function useFieldWatcher(options:UseFieldWatcherOptions) {
   return {placed,aspectChanged,getTracks:useCallback(()=>watcher.current?.getSnapshot().tracks??[],[]),getTrack:useCallback((id:string)=>watcher.current?.getSnapshot().tracks.find(t=>t.id===id),[]),enabled,/** The saved detection mode is read: `enabled` is not the player's mode before this. */ settingsLoaded:loaded===storageKey,setEnabled,calibration,setCalibration,calibrationNeeded,snapshot,
     isRemoved:useCallback((id:string)=>watcher.current?.getSnapshot().tracks.some(t=>t.id===id&&t.removed)??false,[]),
     confirm:useCallback((id:string,cardId?:string,ref?:string,human=true)=>{clipAction('confirm',{trackId:id,cardId,ref,human,zone:watcher.current?.getSnapshot().tracks.find(t=>t.id===id)?.zone});return watcher.current?.confirm(id,cardId,ref,human);},[]),
+    acceptSet:useCallback((id:string)=>watcher.current?.acceptSet(id)??false,[]),
+    notACard:useCallback((id:string,zone?:FieldZone)=>{
+      clipAction('note',{notACard:id});if(watcher.current)return watcher.current.notACard(id);if(!guardsRef.current.ignore)return;
+      // The correction popup is also usable with Auto-detect off. Keep its physical cell for the next watcher.
+      const grid=gridRef.current,cell=fieldZoneCells(undefined,grid?.zoneSpacing,grid?.zones).find(c=>c.zone===zone);if(!cell)return;
+      if(setMemory.current?.key!==setKey)setMemory.current={key:setKey,value:loadSetMemory(setKey)};
+      ignoreSetRegion(setMemory.current.value,[{x:cell.x,y:cell.y},{x:cell.x+cell.w,y:cell.y},{x:cell.x+cell.w,y:cell.y+cell.h},{x:cell.x,y:cell.y+cell.h}],[]);
+      saveSetMemory(setKey,setMemory.current.value);
+    },[setKey]),
     dismiss:useCallback((id:string)=>{clipAction('dismiss',{trackId:id});return watcher.current?.dismiss(id);},[]),
     forget:useCallback((id:string)=>{clipAction('forget',{trackId:id});return watcher.current?.forget(id);},[]),
     resetBaselines:useCallback(()=>watcher.current?.resetBaselines(),[]),

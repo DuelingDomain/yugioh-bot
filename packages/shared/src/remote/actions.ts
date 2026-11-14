@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { remoteActionMeta as meta, remoteSeatSchema } from "./action-meta.js";
 import { remoteMatchActionSchemas } from "./match-contract.js";
-export { remoteSeatSchema, remoteCameraStampSchema, type RemoteCameraStamp } from "./action-meta.js";
+export { remoteSetEvidenceSchema, remoteSeatSchema, remoteCameraStampSchema, type RemoteCameraStamp } from "./action-meta.js";
 
 const id = z.string().min(1).max(100);
 const zone = z.string().min(1).max(40);

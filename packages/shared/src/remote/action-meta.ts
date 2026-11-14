@@ -2,6 +2,12 @@ import { z } from "zod";
 
 export const remoteSeatSchema = z.number().int().min(0).max(3);
 export const remoteActionIdSchema = z.string().min(1).max(100);
+/** Optional test evidence; never consulted by the reducer or identity rules. */
+export const remoteSetEvidenceSchema = z.strictObject({
+  detector:z.number().min(0).max(1),pixel:z.enum(['up','down','unknown']),pixelConfidence:z.number().min(0).max(1),
+  sd:z.number().min(0).max(255).nullable(),backDistance:z.number().min(0).max(2).nullable(),positive:z.boolean(),
+  basis:z.enum(['pixels','uniform','known-back','none','player','legacy']),decision:z.enum(['waiting','committed','prompted','ignored','not-a-card']),
+});
 /**
  * Test evidence from the actor's own browser, in epoch milliseconds on the CLIENT clock (`performance.timeOrigin + performance.now()`;
  * never trusted for game state): `seenAt` the detector's first outline of the card, `namedAt` the end of the last read, `sentAt` the
@@ -14,6 +20,7 @@ export const remoteCameraStampSchema = z.strictObject({
   seenAt: z.number().int().nonnegative().optional(), namedAt: z.number().int().nonnegative().optional(),
   sentAt: z.number().int().nonnegative(), v: z.string().max(64).optional(),
   by: z.enum(["camera", "player"]).optional(), ui: z.string().regex(/^[a-z][a-z0-9-]{0,23}$/).optional(),
+  set:remoteSetEvidenceSchema.optional(),
 });
 export type RemoteCameraStamp = z.infer<typeof remoteCameraStampSchema>;
 export const remoteActionMeta = {
