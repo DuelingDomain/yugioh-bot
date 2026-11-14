@@ -3,6 +3,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { migrate } from "../src/db/schema.js";
 import { importBridgeArtifact } from "../src/cards/effects/bridge-artifact.js";
 import { BridgeEngine } from "../src/cards/effects/bridge-engine.js";
+import { extractCardCapabilities } from "../src/cards/effects/bridge-capabilities.js";
 import type { BridgeGraphData } from "../src/cards/effects/bridge-types.js";
 
 let data: BridgeGraphData;
@@ -57,8 +58,34 @@ describe("deep-only access paths on the pinned catalog", () => {
       expect(engine.deepBetween("Odion", "Paleozoic", format)).toBeNull();
     }
     expect(engine.deepBetween("Odion", "Blue-Eyes", "genesys")).toBeNull();
-    expect(engine.deepTargets(engine.deepCandidates("Odion"), 10).slice(0, strict.length).map(row => row.target)).toEqual(strict.map(row => row.target));
+    const top = engine.deepTargets(engine.deepCandidates("Odion"), 10).map(row => row.target);
+    expect(top.slice(0, strict.length)).toEqual(strict.map(row => row.target));
+    expect(top).toEqual(expect.arrayContaining(["Blue-Eyes", "Altergeist"]));
+    expect(engine.deepBetween("Odion", "Dinomorphia")).toMatchObject({ tier: "niche" });
   }, 20_000);
+
+  it("rebuilds the Odion paths without treating a Toon Fusion's required engine as access", () => {
+    // Printed CDB identity of the newly released card, absent from the pinned bridge catalog.
+    const toon = extractCardCapabilities({
+      id: 71808988, name: "Blue-Eyes Toon Ultimate Dragon", kind: "monster", typeLine: "effect fusion toon monster",
+      subtypes: ["effect", "fusion", "toon"], monsterType: "Dragon", attribute: "LIGHT", level: 12,
+      atk: 4500, def: 3800, archetype: "Blue-Eyes", archetypes: ["Toon", "Blue-Eyes"],
+      formats: ["TCG", "OCG"], genesysPoints: 0, views: 0, url: "",
+      text: '"Blue-Eyes Toon Dragon" + 2 Toon monsters\nMust be Special Summoned (from your Extra Deck) by shuffling the above cards from your hand, field, and/or GY into the Deck/Extra Deck. Your Toon monsters can attack directly. Once per turn: You can add 1 "Toon" card, or 1 card that mentions a "Toon" card\'s name, from your GY to your hand. During damage calculation, if your Toon monster is attacked: You can banish it until the end of the Damage Step.',
+    });
+    const groups = Object.fromEntries(["Odion", "Blue-Eyes", "Altergeist", "Toon"].map(name => [name,
+      [...data.groups[name]!, ...(["Blue-Eyes", "Toon"].includes(name) ? [toon.id] : [])]]));
+    const engine = new BridgeEngine({ ...structuredClone(data), capabilities: [...data.capabilities, toon], groups,
+      target_means: { advanced: {}, genesys: {} } });
+    const rebuilt = engine.rebuild();
+    const targets = (format: "advanced" | "genesys", source: string) => rebuilt.filter(row => row.format === format && row.source === source).map(row => row.target);
+    expect(targets("advanced", "Odion")).toEqual(expect.arrayContaining(["Blue-Eyes", "Altergeist"]));
+    expect(targets("genesys", "Odion")).toContain("Altergeist");
+    for (const format of ["advanced", "genesys"] as const) {
+      expect(targets(format, "Blue-Eyes")).not.toContain("Toon");
+      expect(engine.deepBetween("Blue-Eyes", "Toon", format)).toBeNull();
+    }
+  }, 60_000);
 
   it("rejects labels, same-deck families, generic discards and negated entry chains", () => {
     const engine = new BridgeEngine(data);
