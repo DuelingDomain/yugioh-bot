@@ -10,7 +10,7 @@ export const KWS_BASE = "/dev/vision-assets/kws/";
 export const ASR_BASE = "/dev/vision-assets/asr/";
 
 /** `text` and `passes` come from the speech model worker only. */
-export type KwsUtterance = { id: number; hits: KwsHit[]; speechMs: number; busyMs: number; audioMs: number; text?: string; passes?: number; startedAt?: number; endedAt?: number; decisionMs?: number; verification?: Verification };
+export type KwsUtterance = { id: number; hits: KwsHit[]; speechMs: number; busyMs: number; audioMs: number; stage1BusyMs?: number; stage2BusyMs?: number; text?: string; passes?: number; startedAt?: number; endedAt?: number; decisionMs?: number; verification?: Verification };
 export type KwsReady = { fetchMs: number; initMs: number; totalMs: number; bytes: number; heapBytes: number; accepted: boolean };
 /** What the mic path is doing right now, so a silent mic can be told apart from a suspended context or a muted track. */
 export type KwsStatus = { micName: string; contextState: AudioContextState; sampleRate: number; muted: boolean; enabled: boolean; framesPerSecond: number; silentMs: number };
@@ -20,6 +20,7 @@ export type KwsClientOptions = {
   pcmInput?: boolean;
   /** Preferred microphone (a missing one falls back to the default). */
   deviceId?: string;
+  accepting?(): boolean;
   onStatus?(status: KwsStatus): void;
   defaultKeywords: string;
   keywords: string;

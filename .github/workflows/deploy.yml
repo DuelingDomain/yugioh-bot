@@ -207,9 +207,17 @@ jobs:
           overwrite: true
           compression-level: 0
 
+  voice-assets:
+    needs: prepare
+    if: github.event_name == 'workflow_dispatch' && needs.prepare.outputs.superseded != 'true' && needs.prepare.outputs.rollback != 'true'
+    uses: ./.github/workflows/prepare-voice-assets.yml
+    with:
+      ref: ${{ needs.prepare.outputs.commit }}
+      save-cache: true
+
   build:
     name: Build ARM64 ${{ matrix.service }} image
-    needs: prepare
+    needs: [prepare, voice-assets]
     if: github.event_name == 'workflow_dispatch' && needs.prepare.outputs.superseded != 'true' && needs.prepare.outputs.rollback != 'true'
     runs-on: ubuntu-24.04-arm
     permissions:
@@ -258,6 +266,17 @@ jobs:
           sparse-checkout: .github/actions
           persist-credentials: false
 
+      - name: Download pinned voice inputs for web
+        if: matrix.service == 'web' && needs.voice-assets.outputs.enabled == 'true'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: ${{ needs.voice-assets.outputs.artifact }}
+          path: ${{ runner.temp }}/voice-inputs
+      - name: Unpack voice image inputs
+        if: matrix.service == 'web' && needs.voice-assets.outputs.enabled == 'true'
+        run: |
+          mkdir -p data/voice-assets
+          tar -C data/voice-assets -xzf "$RUNNER_TEMP/voice-inputs/voice-assets.tar.gz"
       - name: Build production image
         uses: ./.release-controls/.github/actions/build-production-image
         with:

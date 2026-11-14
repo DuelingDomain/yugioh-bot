@@ -1285,3 +1285,8 @@
 @media (max-width:700px){.hchip{position:fixed;left:8px;right:8px;top:calc(var(--hdr) + 46px);z-index:33;flex-wrap:nowrap;overflow-x:auto;background:rgb(18 11 34/.98);box-shadow:0 8px 24px rgb(0 0 0/.55)}.hchip>*{flex:none}}
 /* Narrow top bar: after the 900px rules, so these win. Keeps the Surrender flag on screen at 360px. */
 @media (max-width:480px){.top{gap:4px;padding:0 6px}.top .seg button{padding:6px 7px}.top .tb{padding:0 7px;gap:5px}.top .logo{gap:0}.top [data-testid=health-chip]{font-size:12px}.top [data-testid=health-chip] span:last-child{max-width:68px;overflow:hidden;text-overflow:ellipsis}}
+
+.voiceTools { display:flex; flex-wrap:wrap; align-items:center; gap:8px; font-size:12px; padding:6px 0; }
+.voiceTools label, .voiceTools form { display:flex; flex-wrap:wrap; align-items:center; gap:6px; }
+.voiceTools select, .voiceTools input { color:var(--ink); background:var(--bg, #171820); border:1px solid var(--line, #565866); border-radius:5px; max-width:100%; padding:5px; }
+.voiceLogBadge { color:#f3c970; border:1px solid currentColor; padding:3px 5px; border-radius:4px; font-weight:700; }

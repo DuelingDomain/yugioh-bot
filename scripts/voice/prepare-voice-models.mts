@@ -15,6 +15,12 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+if (process.argv.includes("--help")) {
+  console.log("prepare-voice-models.mts [--kws] [--wasm] [--models-only]. Pinned models + workers/runtime in VISION_DATA_DIR (default data/vision). --models-only needs no npm packages or Docker.");
+  process.exit(0);
+}
+const modelsOnly = process.argv.includes("--models-only");
+if (modelsOnly && process.argv.includes("--wasm")) throw new Error("--models-only cannot be combined with --wasm");
 const REVISION = "a6da1241cd305dcd64eab1edbd615f2bb9aabb95";
 const BASE = `https://huggingface.co/onnx-community/moonshine-tiny-ONNX/resolve/${REVISION}/`;
 const FILES: Record<string, string> = {
@@ -40,6 +46,6 @@ try {
     await writeFile(path.join(work, file), data);
     console.log(`ok ${file}`);
   }
-  run("prepare-asr.mts", ["--from", work]);
+  run("prepare-asr.mts", ["--from", work, ...(modelsOnly ? ["--models-only"] : [])]);
 } finally { await rm(work, { recursive: true, force: true }); }
-if (process.argv.includes("--kws")) run("prepare.mts", process.argv.includes("--wasm") ? ["--wasm"] : []);
+if (process.argv.includes("--kws")) run("prepare.mts", [...(process.argv.includes("--wasm") ? ["--wasm"] : []), ...(modelsOnly ? ["--models-only"] : [])]);

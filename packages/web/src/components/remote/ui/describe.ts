@@ -16,9 +16,9 @@ export function describeEvent(event: RemoteEvent, name: (seat: number) => string
     case "effect.announce": return {kind:"CD",text:`${who} announced a searched card`,undoable:true};
     case "effect.note.dismiss": return {kind:"CD",text:"Effect note dismissed",undoable:true};
     case "effect.context.clear": return {kind:"CD",text:"Effect context cleared",undoable:true};
-    case "phase.set": return { kind: "PH", text: `${who} moved to ${PHASE_LONG[a.phase] ?? a.phase}`, undoable: true };
+    case "phase.set": return { kind: "PH", text: `${who} moved to ${PHASE_LONG[a.phase] ?? a.phase}${a.cam?.ui === "voice" ? " · voice" : ""}`, undoable: true };
     case "phase.advance": return { kind: "PH", text: `${who} moved to the next phase`, undoable: true };
-    case "turn.end": return { kind: "PH", text: `${who} passed the turn`, undoable: true };
+    case "turn.end": return { kind: "PH", text: `${who} passed the turn${a.cam?.ui === "voice" ? " · voice" : ""}`, undoable: true };
     case "lp.change": return { kind: "LP", text: `${name(a.seat)} ${sg(a.delta)} LP`, undoable: true };
     case "attack.declare": return { kind: "AT", text: a.direct ? `${who} attacks ${name(a.targetSeat)} directly` : `${who} attacks ${name(a.targetSeat)}`, undoable: true };
     case "attack.resolve": return { kind: "AT", text: `Attack ${a.outcome === "cancelled" ? "cancelled" : "resolved"}`, undoable: true };

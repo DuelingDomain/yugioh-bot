@@ -13,9 +13,14 @@ import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { build } from "esbuild";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+if (process.argv.includes("--help")) {
+  console.log("prepare.mts [--wasm] [--vocab] [--models-only]. Pinned KWS model in VISION_DATA_DIR; --wasm builds with Docker. --models-only needs no npm packages or Docker.");
+  process.exit(0);
+}
+const modelsOnly = process.argv.includes("--models-only");
+if (modelsOnly && process.argv.includes("--wasm")) throw new Error("--models-only cannot be combined with --wasm");
 const out = path.join(path.resolve(process.env.VISION_DATA_DIR ?? path.join(root, "data/vision")), "kws");
 const pins = JSON.parse(await readFile(path.join(root, "scripts/voice/kws-pins.json"), "utf8")) as { model: { name: string; url: string; sha256: string } };
 const vocabFile = path.join(root, "packages/web/src/components/remote/ui/voice/sp-vocab.json");
@@ -71,15 +76,22 @@ try {
   const vocab = JSON.stringify(readVocab(await readFile(path.join(dir, "bpe.model")), tokens));
   if (process.argv.includes("--vocab")) await writeFile(vocabFile, `${vocab}\n`);
   else if (JSON.stringify(JSON.parse(await readFile(vocabFile, "utf8"))) !== vocab) throw new Error("sp-vocab.json differs from the model's bpe.model; run with --vocab");
-  await writeFile(path.join(out, "model", "LICENSE.txt"), `${pins.model.name}\nApache License 2.0 (model README). https://github.com/k2-fsa/sherpa-onnx/releases/tag/kws-models\n`);
+  await copyFile(path.join(root, "scripts/voice/licenses/kws-model.LICENSE.txt"), path.join(out, "model", "LICENSE.txt"));
   for (const file of modelFiles) console.log(`${file} sha256 ${sha(await readFile(path.join(out, "model", file))).slice(0, 16)}`);
 } finally { await rm(work, { recursive: true, force: true }); }
+if (modelsOnly) process.exit(0);
 
 const buildOut = path.join(root, "data/voice-build/out");
 if (existsSync(buildOut)) {
   await copyFile(path.join(buildOut, "sherpa-onnx-wasm-kws-main.js"), path.join(out, "sherpa-kws.js"));
   await copyFile(path.join(buildOut, "sherpa-onnx-wasm-kws-main.wasm"), path.join(out, "sherpa-kws.wasm"));
   await copyFile(path.join(buildOut, "LICENSE.sherpa-onnx"), path.join(out, "LICENSE.sherpa-onnx"));
+  await copyFile(path.join(buildOut, "LICENSE.sherpa-onnx"), path.join(out, "LICENSE"));
 } else console.warn("No data/voice-build/out: run with --wasm to build the module.");
+await copyFile(path.join(root, "scripts/voice/NOTICE"), path.join(out, "NOTICE"));
+for (const [source, dest] of [["LICENSE.txt", "LICENSE.onnxruntime.txt"], ["ThirdPartyNotices.txt", "ThirdPartyNotices.onnxruntime.txt"]]) {
+  await copyFile(path.join(root, `scripts/voice/licenses/onnxruntime-1.28.2.${source}`), path.join(out, dest));
+}
+const { build } = await import("esbuild");
 await build({ entryPoints: [path.join(root, "packages/web/src/components/remote/ui/voice/kws-worker.ts")], outfile: path.join(out, "worker.js"), bundle: true, format: "esm", platform: "browser", target: "es2022", minify: true, legalComments: "none" });
 console.log(`KWS voice assets ready in ${out}`);

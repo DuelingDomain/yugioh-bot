@@ -9,9 +9,15 @@ import { fileURLToPath } from "node:url";
 // Nothing here touches the stt image or its containers.
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-const pins = JSON.parse(readFileSync(resolve(root, "packages/duel-server/domain-core/pins.json"), "utf8")) as { emscripten?: { image?: string; digest?: string } };
-const imageName = pins.emscripten?.image ?? "docker.io/emscripten/emsdk:4.0.9";
-const image = pins.emscripten?.digest ? `${imageName}@${pins.emscripten.digest}` : imageName;
+if (process.argv.includes("--help")) {
+  console.log("Build KWS WASM with Docker using the digest in domain-core/pins.json. Output: data/voice-build/out. EMCC_CORES defaults to 4.");
+  process.exit(0);
+}
+const { emscripten } = JSON.parse(readFileSync(resolve(root, "packages/duel-server/domain-core/pins.json"), "utf8"));
+if (typeof emscripten?.image !== "string" || !/^sha256:[a-f0-9]{64}$/.test(emscripten.digest)) {
+  throw new Error("KWS build requires a digest-pinned emscripten image in domain-core/pins.json");
+}
+const image = `${emscripten.image}@${emscripten.digest}`;
 const script = "scripts/voice/build-kws-wasm.sh";
 if (!existsSync(resolve(root, script))) throw new Error(`missing ${script}`);
 mkdirSync(resolve(root, "data/voice-build/.emcache"), { recursive: true });

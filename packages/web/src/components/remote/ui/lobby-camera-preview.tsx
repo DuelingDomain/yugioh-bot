@@ -221,9 +221,8 @@ function WebcamPanel({ room, voiceRecognition, onCheck }: { room: RemoteRoom; vo
   useEffect(() => {
     let off = false;
     void (async () => {
-      const [camera, microphone] = await Promise.all([permissionGranted("camera"), micTest ? permissionGranted("microphone") : false]);
+      const camera = await permissionGranted("camera");
       if (off) return;
-      if (microphone) setMicWanted(true);
       if (camera) void start(readSavedCamera());
     })();
     return () => { off = true; run.current++; void release(); };

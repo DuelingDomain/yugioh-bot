@@ -124,6 +124,8 @@ export type RemoteTable = {
 };
 /** `isDeveloper` is decided on the server (owner list); the browser only reads it to show developer tools. */
 export type RemoteRoom = RemoteTable & { state: RemoteState; events: RemoteEvent[]; mySeat: number; isDeveloper?: boolean;
+  /** Viewer capabilities added by the web server, never inferred from browser env or room broadcasts. */
+  voiceEnabled?: boolean; voiceDiagnosticsEnabled?: boolean;
   /** The server allows test recording of this viewer's own table camera (REMOTE_RECORD_USERS). Players only; the browser never reads an env for it. */ recordingEnabled?: boolean;
   /** This viewer watches: mySeat is -1 and state/events are the spectator projection. */ spectator?: boolean;
   /** People who watch now. */ spectatorCount?: number };

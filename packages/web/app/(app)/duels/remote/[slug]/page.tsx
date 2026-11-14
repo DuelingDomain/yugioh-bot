@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { remoteDuelsForViewer, remoteSttUrl } from "@/lib/remote-duels";
+import { remoteDuelsForViewer } from "@/lib/remote-duels";
 import { requireWebAccess } from "@/lib/web-access";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
@@ -13,5 +13,5 @@ export default async function RemoteDuelPage({ params, searchParams }: { params:
   // A tournament match's table shows its Confirm or Dispute panel to the two paired players.
   const access = await requireWebAccess();
   const tournament = access.ok ? findRemoteTournamentLink(getDb(), env.discordGuildId, access.userId, slug) : null;
-  return <RemoteTableScreen slug={slug} sttUrl={remoteSttUrl()} tournament={tournament} watchAsAdmin={watch === "1"} />;
+  return <RemoteTableScreen slug={slug} tournament={tournament} watchAsAdmin={watch === "1"} />;
 }

@@ -325,24 +325,6 @@ it("parses activation with a named source and activation after identifying a car
   const {voiceCardNames}=await import("../src/components/remote/ui/model");
   const voiceRoom={state:{...state,seats:[{...state.seats[0],twin:[{ref:"new",name:"New board card"},{ref:"old",cardId:2}]}],undoHistory:[{cards:["0:old"]},{cards:["0:new"]}]},seats:[{seat:0,deck:{deck:{main:[3],extra:[],side:[]}}}]} as any;
   expect(voiceCardNames(voiceRoom,id=>({name:id===2?"Old board card":"Deck card"}))).toEqual(["Trap Tracks","New board card","Old board card","Deck card"]);
-  const {speechHotwords,SttClient}=await import("../src/components/remote/ui/stt-client");
-  const hints=speechHotwords(["Recent Card", "Recent Card", "Older Card", ...Array.from({length:100},(_,i)=>`Deck card number ${i}`)]);
-  expect(hints).toContain("standby phase"); expect(hints).toContain("XYZ summon");
-  expect(hints.filter(word=>word==="Recent Card")).toHaveLength(1);
-  expect(hints.indexOf("Recent Card")).toBeLessThan(hints.indexOf("Older Card"));
-  expect(hints.join(", ").length).toBeLessThanOrEqual(600);
-  expect(speechHotwords(["bad\nname", "", "a".repeat(121)])).not.toContain("bad\nname");
-  const sent:string[]=[];
-  vi.stubGlobal("WebSocket",class {
-    onmessage:((event:{data:string})=>void)|null=null;
-    constructor(){queueMicrotask(()=>this.onmessage?.({data:JSON.stringify({type:"ready"})}));}
-    send(data:string){sent.push(data);}
-    close(){}
-  });
-  const client=new SttClient({},"ws://stt.test/ws");
-  expect(await client.start(["New board card"])).toBeTruthy();
-  expect(JSON.parse(sent[0])).toMatchObject({type:"start",hotwords:speechHotwords(["New board card"])});
-  client.close();
   const {createElement}=await import("react");
   const {renderToStaticMarkup}=await import("react-dom/server");
   const {VoxSection}=await import("../src/components/remote/ui/dock");

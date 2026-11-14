@@ -15,11 +15,11 @@ import { DeckFlagPopover } from "./deck-flag";
 import { Banner, HealthPopover, IdleBanner, type HealthExtra, HistoryPopover, InspectorDrawer, LogDrawer, Peek, Toasts, type LogEntry, type PeekState, type ToastItem } from "./drawers";
 import type { BoardReading, FeedHit, FeedMark, FeedPoint, FeedReticle, FeedStart } from "./feed";
 import type { PopAt, Rect, Tier } from "./popup";
-import { canFlipSummon, interpret, suggestCommands, trySaying, type MoveIntent, type VoiceIntent } from "./grammar";
+import { canFlipSummon, interpret, type MoveIntent, type VoiceIntent } from "./grammar";
 import type { FieldDrag } from "./holo-field";
 import { judgeMove, landingForCell, landingLabel, type Landing } from "./placement";
 import { announceManualMove } from "@/lib/remote/manual-moves";
-import { COLORS, battleMath, leavePosition, pileEntryFace, cardCode, cellsFor, isPile, sameObservedCard, cardName, cellKeyOf, deckFlag, deckIdsOf, facingSeat, foundationZone, hasDeck, hasExtraZones, mirrorEmz, PHASES, PHASE_LONG, readCardOf, voiceCardNames, placedTwin, sg, type TwinCard, type ZoneKey } from "./model";
+import { COLORS, battleMath, leavePosition, pileEntryFace, cardCode, cellsFor, isPile, sameObservedCard, cardName, cellKeyOf, deckFlag, deckIdsOf, facingSeat, foundationZone, hasDeck, hasExtraZones, mirrorEmz, PHASES, PHASE_LONG, readCardOf, placedTwin, sg, type TwinCard, type ZoneKey } from "./model";
 import { findTwinGroups } from "./twins";
 import { PileViewer, type PileZone } from "./pile-viewer";
 import { NotifyDock } from "./notify-dock";
@@ -34,9 +34,12 @@ import { useLayers } from "./use-layers";
 import { remoteApi, serverNow } from "./api";
 import { useRemoteRoom, type RoomController } from "./use-remote-room";
 import { useVoice, type MicState } from "./use-voice";
-import { mentionVoiceCard } from '@/lib/remote/recognition-priors';
+import { useVoiceDiagnostics } from "./use-voice-diagnostics";
+import { VoiceControls } from "./voice-controls";
+import { decideVoice } from "./voice/decision";
+import type { VoiceFinal } from "./voice/live-client";
+import { utteranceRecord, voiceCommands, type VoiceContext, type VoiceDecision } from "@/lib/remote/voice-diagnostics";
 import { faceDownInFrame, tapMemoryFor, type TapSpot } from '@/lib/remote/tap-memory';
-import type { SttFinal } from "./stt-client";
 import { VideoHubProvider, useVideoHub } from "./video-hub";
 import { gpuLossReason, useRecognitionBackend } from "./recognition-backend";
 import { cameraPermissionGranted, cameraWanted, rememberCameraWanted, takeCameraReady } from "./camera-choice";
@@ -86,7 +89,6 @@ const MARK_LIFE_MS = 4000; // an outline and its label on the feed fade after th
 const BEGIN_RETICLE = "begin";
 const FIND_LIMIT_MS = 15_000; // a click search for the card under the pointer
 const READ_LIMIT_MS = 75_000; // a card read: longer than the 60 s wait for a paired phone in video-hub.tsx
-const WAKE_MS = 8000;
 const fmtTime = (at: number) => new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 const typing = isTypingTarget;
 
@@ -97,7 +99,7 @@ type ReadCtx = { from?: CardSource; cardRef?: string; seat: number; x: number; y
 type Pending = Proposal & { requestId?: string; run: () => void };
 
 /** Entry point of /duels/remote/[slug]: the lobby room before the start, the table after it. */
-export function RemoteTableScreen({ slug, sttUrl, tournament = null, watchAsAdmin = false }: { slug: string; sttUrl: string | null; /** Set when the viewer is one of the two paired players of a tournament match on this table. */ tournament?: RemoteTournamentLink | null;
+export function RemoteTableScreen({ slug, tournament = null, watchAsAdmin = false }: { slug: string; /** Set when the viewer is one of the two paired players of a tournament match on this table. */ tournament?: RemoteTournamentLink | null;
   /** The admin list's Watch button: open the table as a spectator, a private one too (the server checks the owner list). */ watchAsAdmin?: boolean }) {
   const ctl = useRemoteRoom(slug, { watchAsAdmin });
   const room = ctl.room;
@@ -110,7 +112,7 @@ export function RemoteTableScreen({ slug, sttUrl, tournament = null, watchAsAdmi
     {ctl.error ? <p role="alert" style={{ color: "var(--loss)" }}>{ctl.error}</p> : null}</div></div>;
   // No VideoHubProvider for a spectator: it holds the camera and the card reader.
   if (room.spectator) return <SpectatorScreen ctl={ctl} room={room} />;
-  return <VideoHubProvider room={room}>{room.status === "lobby" ? <RemoteLobbyRoom ctl={ctl} room={room} voiceRecognition={sttUrl !== null} tournament={tournament} /> : <Table ctl={ctl} room={room} sttUrl={sttUrl} tournament={tournament} />}<PhoneScanReview ctl={ctl} room={room} /></VideoHubProvider>;
+  return <VideoHubProvider room={room}>{room.status === "lobby" ? <RemoteLobbyRoom ctl={ctl} room={room} voiceRecognition={room.voiceEnabled === true} tournament={tournament} /> : <Table ctl={ctl} room={room} tournament={tournament} />}<PhoneScanReview ctl={ctl} room={room} /></VideoHubProvider>;
 }
 
 /** One row under the video: phone pairing, no-camera mode, camera choice and camera off. Icons with labels; the labels drop out when the row is narrow. */
@@ -138,9 +140,9 @@ function endedWhy(room: RemoteRoom, winner: string | null) {
   return winner ? `${winner} won.` : "The game is over.";
 }
 
-function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: RemoteRoom; sttUrl: string | null; tournament: RemoteTournamentLink | null }) {
-  const voiceRecognition = sttUrl !== null;
-  const sayItsName = voiceRecognition ? " or say its name" : "";
+function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoom; tournament: RemoteTournamentLink | null }) {
+  const voiceRecognition = room.voiceEnabled === true && room.mySeat >= 0;
+  const sayItsName = "";
   const hub = useVideoHub();
   const layers = useLayers();
   const state = room.state; const mySeat = room.mySeat; const solo = room.solo;
@@ -256,7 +258,7 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
 
   // ---- actions ----
   const controlOfferRef = useRef<((seat: number, wanted: ReturnType<typeof controlOffer>) => void) | undefined>(undefined);
-  const act = useCallback(async(input:RemoteActionProposal)=>{
+  const act = useCallback(async(input:RemoteActionProposal, idempotencyKey?: string)=>{
     let warning:string|undefined,proposal=input;
     if(input.type==='twin.move'){
       const card=R.current.room.state.seats[input.seat]?.twin.find(item=>item.ref===input.cardRef),code=card?cardCode(card):undefined;
@@ -267,7 +269,7 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
     }
     const quiet=proposal.type==='side.timeout';
     if(quiet)quietError.current=true;else setOverlayError(null);
-    const updated=await ctl.action(proposal);
+    const updated=await ctl.action(proposal, idempotencyKey);
     if(quiet)setTimeout(()=>{quietError.current=false;},150);
     if(updated&&warning)toast(warning,5000);
     // An activated card that takes control (card logic) asks which card it took. After the card popup closes, so the picker stays open.
@@ -976,21 +978,20 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
   };
 
   // ---- voice ----
-  const [muted, setMuted] = useState(false); const [ptt, setPtt] = useState(false); const [held, setHeld] = useState(false);
-  const [wake, setWake] = useState(0); const [, setWakeTick] = useState(0);
+  const [muted, setMuted] = useState(true); const [ptt, setPtt] = useState(false); const [held, setHeld] = useState(false);
   const [transcript, setTranscript] = useState({ requestId: "", text: "", result: "", ignored: false });
   const [proposal, setProposal] = useState<Pending | null>(null); const proposalId = useRef(0);
-  const wakeOpen = wake > Date.now();
-  const micState: MicState = muted ? "muted" : !voiceRecognition ? "off" : myTurn || wakeOpen ? "listen" : "idle";
-  useEffect(() => { if (!wake) return; const timer = setTimeout(() => setWakeTick(n => n + 1), Math.max(0, wake - Date.now()) + 50); return () => clearTimeout(timer); }, [wake]);
+  const micState: MicState = !voiceRecognition || !live ? "off" : muted ? "muted" : myTurn ? "listen" : "idle";
+  const voiceAccept = useRef(false); voiceAccept.current = voiceRecognition && live && !muted;
+  const diagnostics = useVoiceDiagnostics(voiceRecognition && room.voiceDiagnosticsEnabled === true, room.slug, room.events);
+  const diagnosticsRef = useRef(diagnostics); diagnosticsRef.current = diagnostics;
   const setMic = hub.setMic; const micPublished = hub.micPublished;
   useEffect(() => { if (REMOTE_TABLE_TALK && !solo && micPublished === muted) setMic(!muted); }, [muted, solo, setMic, micPublished]);
   // With no talk and no voice commands there is no mic, so no control for one. PTT stays off, so the V key does nothing.
   const micSection = voiceRecognition || (REMOTE_TABLE_TALK && !solo);
-  const hotwords = useMemo(() => voiceCardNames(room, cardInfo), [room, info]);
 
   const propose = (title: string, sub: string, confirmLabel: string, run: () => void, requestId?: string) => setProposal({ id: ++proposalId.current, title, sub, confirmLabel, run, requestId });
-  const apply = useCallback((intent: VoiceIntent, text: string, requestId: string) => {
+  const apply = useCallback((intent: VoiceIntent, text: string, requestId: string, voiceAction?: (proposal: RemoteActionProposal) => void) => {
     const { room: now, state: current } = R.current; const me = now.solo ? current.turnSeat : now.mySeat;
     const set = (result: string, ignored = false) => setTranscript(old => ({ ...old, result, ignored }));
     switch (intent.kind) {
@@ -1010,11 +1011,13 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
       }
       case "phase":
         if (!now.solo && now.mySeat !== current.turnSeat) { set(`Only ${name(current.turnSeat)} can change phase`, true); break; }
-        set(`Phase: ${PHASE_LONG[intent.phase] ?? intent.phase}`); void act({ type: "phase.set", actorSeat: me, phase: intent.phase }); break;
+        set(`Phase: ${PHASE_LONG[intent.phase] ?? intent.phase}`);
+        const phaseAction: RemoteActionProposal = { type: "phase.set", actorSeat: me, phase: intent.phase };
+        if (voiceAction) voiceAction(phaseAction); else void act(phaseAction); break;
       case "turn":
         // The attack chip comes first: a spoken pass must not replace it.
         if (current.attack) { set("Resolve the attack first", true); break; }
-        set("Needs a confirm"); propose("Pass the turn", `${name(current.turnSeat)} to ${name(nextSeat)}`, "Pass turn", () => passTurn(), requestId); break;
+        set("Needs a confirm"); propose("Pass the turn", `${name(current.turnSeat)} to ${name(nextSeat)}`, "Pass turn", () => { if (voiceAction) voiceAction({ type: "turn.end", actorSeat: me }); else passTurn(); }, requestId); break;
       case "lp": set("Needs a confirm"); propose(`${name(intent.seat)} ${sg(intent.delta)} LP`, `${lpOf(intent.seat)} to ${Math.max(0, lpOf(intent.seat) + intent.delta)}`, "Apply", () => void changeLp(intent.seat, intent.delta, "Voice adjustment"), requestId); break;
       case "attack": {
         const best = intent.resolution.candidates[0]; if (!best) { set("No attacker found", true); break; }
@@ -1028,51 +1031,58 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [act, doUndo, moveCard]);
-  const onFinal = useCallback(async (final: SttFinal, gate: MicState) => {
-    // An empty read is silence, not a command: keep what was shown.
-    if (!final.text.trim()) return;
-    const heardAt = Date.now();
-    const { room: now, state: current } = R.current; const me = now.solo ? current.turnSeat : now.mySeat;
-    setTranscript({ requestId: final.requestId, text: final.text, result: "", ignored: false });
-    const intent = interpret(final.text, { state: current, players: now.seats, me, trayOpen: R.current.layer === "tray", cardNames: voiceCardNames(now, cardInfo), now: serverNow(), lookupCard: cardInfo });
-    if (gate === "idle") {
-      if (intent.kind === "wake") { setWake(Date.now() + WAKE_MS); setTranscript(old => ({ ...old, result: "Wake word · listening 8 s" })); addVoiceLog(`${name(now.mySeat)} said “${final.text}”`); toast(<>Heard <b>“{final.text}”</b>. Listening for 8 seconds.</>); }
-      else setTranscript(old => ({ ...old, result: "Idle. Say “chain” first.", ignored: true }));
-      return;
+  const pendingVoice = useRef<{ id: string; method: VoiceFinal["method"]; context: VoiceContext } | null>(null);
+  const voiceContext = () => {
+    const { room: now, state: current } = R.current;
+    return { state: current, players: now.seats, me: now.solo ? current.turnSeat : now.mySeat, trayOpen: false };
+  };
+  const onFinal = useCallback((final: VoiceFinal, gate: MicState) => {
+    const { room: now, state: current } = R.current;
+    const utteranceAt = Date.now();
+    const context: VoiceContext = { turn: current.turn, phase: current.phase, turnSeat: current.turnSeat, ownSeat: now.mySeat };
+    const decision = decideVoice(final, { state: current, players: now.seats, me: now.solo ? current.turnSeat : now.mySeat, trayOpen: false }, voiceAccept.current && gate !== "muted" && gate !== "off");
+    const record = (result: VoiceDecision) => diagnosticsRef.current.record(utteranceRecord({ at: utteranceAt, id: final.id, method: final.method, text: final.text, canonical: final.canonical, context, decision: result, utterance: final.utterance }));
+    setTranscript({ requestId: final.id, text: final.text || "(no keyword)", result: decision.accepted ? "" : decision.reason, ignored: !decision.accepted });
+    if (!decision.accepted) { record({ outcome: "rejected", reason: decision.reason, actionId: null }); return; }
+    if (pendingVoice.current) { record({ outcome: "rejected", reason: "unconfirmed", actionId: null }); return; }
+    const baseSeq = now.lastSeq;
+    if (decision.intent.kind === "turn") {
+      pendingVoice.current = { id: final.id, method: final.method, context };
+      record({ outcome: "rejected", reason: "needs-confirm", actionId: null });
     }
-    if (intent.kind === "wake") { setTranscript(old => ({ ...old, result: "Chain response noted" })); addVoiceLog(`${name(now.mySeat)} is responding: “${final.text}”`); toast(<><b>{name(now.mySeat)}</b> is responding to the chain.</>); return; }
-    if ((intent.kind === 'move' && intent.move.query) || intent.kind === 'effect') {
-      const query = intent.kind === 'move' ? intent.move.query : intent.proposal.type === 'effect.activated' ? intent.proposal.source.name : undefined;
-      const hit = final.cardMatches[0];
-      const sourceId = intent.kind === 'effect' && intent.proposal.type === 'effect.activated' ? intent.proposal.source.cardId : undefined;
-      if (hit || sourceId) mentionVoiceCard(now, me, hit?.passcode ?? sourceId!, heardAt);
-      else if (query) void searchCards(query).then(cards => { if (cards[0]) mentionVoiceCard(now, me, cards[0].id, heardAt); }).catch(() => undefined);
-    }
-    if (intent.kind === "name") {
-      const hit = final.cardMatches[0]; const top = hit ? undefined : (await searchCards(intent.name))[0];
-      const card = hit ? { cardId: hit.passcode, name: hit.name } : top ? { cardId: top.id, name: top.name } : undefined;
-      if (card) { mentionVoiceCard(now, me, card.cardId, heardAt); setTranscript(old => ({ ...old, result: `Picked ${card.name}` })); void identify({ cardId: card.cardId, name: card.name, via: "voice", feedback: R.current.layer === "tray" ? "voice" : undefined }, "voice"); }
-      else setTranscript(old => ({ ...old, result: "No card with that name", ignored: true }));
-      return;
-    }
-    if (intent.kind === "none") setProposal(null);
-    apply(intent, final.text, final.requestId);
-    if (intent.kind !== "none") addVoiceLog(`${name(now.mySeat)} said “${final.text}”`);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [apply, identify]);
-  const onCorrection = useCallback((final: SttFinal) => {
-    setTranscript(old => old.requestId === final.requestId ? { ...old, text: final.text } : old);
-    setProposal(old => {
-      if (!old || old.requestId !== final.requestId) return old;
-      const { room: now, state: current } = R.current;
-      const intent = interpret(final.text, { state: current, players: now.seats, me: now.solo ? current.turnSeat : now.mySeat, trayOpen: false, cardNames: voiceCardNames(now, cardInfo), now: serverNow(), lookupCard: cardInfo });
-      if (intent.kind === "lp") return { ...old, title: `${name(intent.seat)} ${sg(intent.delta)} LP`, sub: `${lpOf(intent.seat)} to ${Math.max(0, lpOf(intent.seat) + intent.delta)}`, run: () => void changeLp(intent.seat, intent.delta, "Voice adjustment") };
-      return old;
+    let submitted = false;
+    apply(decision.intent, final.text, final.id, proposal => {
+      if (submitted) return; submitted = true;
+      pendingVoice.current = null;
+      const latest = R.current;
+      // A confirm belongs to the position and microphone choice that produced it.
+      const stillLegal = decideVoice(final, { state: latest.state, players: latest.room.seats, me: latest.room.solo ? latest.state.turnSeat : latest.room.mySeat, trayOpen: false }, voiceAccept.current);
+      if (latest.room.lastSeq !== baseSeq || !stillLegal.accepted) {
+        const result: VoiceDecision = { outcome: "rejected", reason: stillLegal.accepted ? "unconfirmed" : stillLegal.reason, actionId: null };
+        if (decision.intent.kind === "turn") diagnosticsRef.current.record({ kind: "decision", at: Date.now(), method: final.method, utteranceId: final.id, context, decision: result }); else record(result);
+        setTranscript(old => ({ ...old, result: "Table changed. Say the command again.", ignored: true })); return;
+      }
+      const actionId = crypto.randomUUID();
+      const sentAt = Date.now();
+      void act({ ...proposal, cam: playerStamp("voice") }, actionId).then(updated => {
+        const result: VoiceDecision = updated ? { outcome: "acted", reason: null, actionId } : { outcome: "rejected", reason: "other", actionId };
+        if (decision.intent.kind === "turn") diagnosticsRef.current.record({ kind: "decision", at: sentAt, method: final.method, utteranceId: final.id, context, decision: result }); else record(result);
+        if (updated) addVoiceLog(`${name(now.mySeat)} used voice: ${final.canonical}`);
+        else setTranscript(old => old.requestId === final.id ? { ...old, result: "Command was not accepted", ignored: true } : old);
+      });
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-  const voice = useVoice({ enabled: live, url: sttUrl, state: micState, ptt, held, hotwords, onFinal, onCorrection });
-  const shownTranscript = voice.partial ? { text: voice.partial, live: true, result: "", ignored: false } : { text: transcript.text, live: false, result: transcript.result, ignored: transcript.ignored };
+  }, [apply, act, addVoiceLog, name]);
+  const voice = useVoice({ enabled: voiceRecognition && live, state: micState, ptt, held, context: voiceContext, onFinal,
+    onPerf: room.voiceDiagnosticsEnabled ? record => diagnosticsRef.current.record(record) : undefined });
+  const shownTranscript = { text: transcript.text, live: false, result: transcript.result, ignored: transcript.ignored };
+  useEffect(() => {
+    const pending = pendingVoice.current;
+    if (!pending || (proposal?.requestId === pending.id && voiceAccept.current)) return;
+    diagnosticsRef.current.record({ kind: "decision", at: Date.now(), method: pending.method, utteranceId: pending.id, context: pending.context,
+      decision: { outcome: "rejected", reason: "unconfirmed", actionId: null } });
+    pendingVoice.current = null;
+    if (proposal?.requestId === pending.id) setProposal(null);
+  }, [proposal, muted, live, voiceRecognition]);
 
   // ---- attack proposal (shared) and the voice proposal share the dock chip ----
   const attackChip: Pending | null = attack && battle && mayResolve ? { id: -1, title: battle.title, sub: battle.sub, confirmLabel: battle.result === "Resolve by hand" ? "Mark resolved" : `Confirm · ${battle.result}`, run: () => void confirmAttack() } : null;
@@ -1502,9 +1512,11 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
       <footer ref={dockRef} className={`${s.dock} ${micSection ? "" : s.nomic}`} aria-label={micSection ? "Voice and undo" : "Commands and undo"}>
         {micSection ? <MicSection recognition={voiceRecognition} chat={solo || !REMOTE_TABLE_TALK ? "none" : hub.cameraOn ? "on" : hub.starting ? "connecting" : "off"} state={micState} level={voice.level} speaking={voice.speaking} muted={muted} ptt={ptt} held={held} service={voice.service} error={voice.micError}
           onMute={() => setMuted(v => !v)} onPtt={() => { setPtt(v => !v); setHeld(false); }} offTurn={!myTurn} /> : null}
-        <VoxSection recognition={voiceRecognition} transcript={shownTranscript} proposal={chip} samples={!voiceRecognition ? [] : shownTranscript.ignored && shownTranscript.result === "Not understood" ? suggestCommands(shownTranscript.text, { state, players: room.seats, me: solo ? state.turnSeat : mySeat, trayOpen: false, cardNames: hotwords }) : trySaying(room.seats, mySeat, hotwords)} onConfirm={() => { chip?.run(); setProposal(null); }} onCancel={cancelChip}
-          onSample={text => void onFinal({ requestId: `sample-${Date.now()}`, text, normalizedText: text.toLowerCase(), cardMatches: [] }, "listen")} />
-        <UndoSection recognition={voiceRecognition} label={undoText} enabled={canUndo} reason={newestUndo?.reason} flash={flash} histOpen={layers.layer === "hist"} onUndo={() => void doUndo()} onHist={el => layers.toggle("hist", el)} />
+        <VoxSection recognition={voiceRecognition} transcript={shownTranscript} proposal={chip} samples={voiceRecognition ? [...voiceCommands] : []} onConfirm={() => { chip?.run(); setProposal(null); }} onCancel={cancelChip}
+          onSample={text => apply(interpret(text, voiceContext()), text, `sample-${Date.now()}`)}>
+          {voiceRecognition ? <VoiceControls method={voice.method} onMethod={method => { setProposal(null); voice.pickMethod(method); }} logging={room.voiceDiagnosticsEnabled === true && !muted && live} last={diagnostics.last} recentIds={diagnostics.recentIds} onMark={diagnostics.mark} /> : null}
+        </VoxSection>
+        <UndoSection spokenUndo={false} recognition={voiceRecognition} label={undoText} enabled={canUndo} reason={newestUndo?.reason} flash={flash} histOpen={layers.layer === "hist"} onUndo={() => void doUndo()} onHist={el => layers.toggle("hist", el)} />
       </footer>
     </div>
 
@@ -1535,7 +1547,7 @@ function Table({ ctl, room, sttUrl, tournament }: { ctl: RoomController; room: R
         onRemove: card => void act({ type: "twin.remove", actorSeat: solo ? pile.seat : mySeat, seat: pile.seat, cardRef: card.ref, cam: playerStamp("popup-remove") }),
       } : {})} /> : null}
     {layers.layer === "card" && subjectDetails ? <CardPopover subject={subjectDetails} info={subjectInfo} at={popAt} warning={deckFlag(room, subjectDetails.seat)?.message} actions={shownActions} onClose={() => layers.close("card")} /> : null}
-    {tray ? <RecognitionTray dock={seatDocks[tray.seat] ?? null} key={readCounter.current} tray={tray} aiAllowed={aiAllowed} onClose={closeTray} onRemovePlaced={ref => { void act({ type: "twin.remove", actorSeat: solo ? tray.seat : mySeat, seat: tray.seat, cardRef: ref, cam: playerStamp("popup-remove") }); closeTray(); setSubject(null); }} saying={micState === "listen"} onSay={voiceRecognition ? () => toast("Say the card name, or “number two”.") : undefined}
+    {tray ? <RecognitionTray dock={seatDocks[tray.seat] ?? null} key={readCounter.current} tray={tray} aiAllowed={aiAllowed} onClose={closeTray} onRemovePlaced={ref => { void act({ type: "twin.remove", actorSeat: solo ? tray.seat : mySeat, seat: tray.seat, cardRef: ref, cam: playerStamp("popup-remove") }); closeTray(); setSubject(null); }} saying={false}
       inDeck={id => { const flag = flagFor(tray.seat, id); return flag === null ? null : !flag; }} onPick={pick => { if (tray.intent === "hand") { addToHand(tray.seat, { cardId: pick.cardId, name: pick.name }, tray.originId ? tray.source ?? "deck" : "unknown", tray.by, tray.originId); closeTray(); return; } void identify(pick, pick.via === "typed" ? "typed" : pick.via); }} /> : null}
     {layers.layer==="effect" && effectOrigin ? (()=>{
       const origin=state.effectTracking?.origins.find(o=>o.id===effectOrigin);

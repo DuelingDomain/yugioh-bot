@@ -495,6 +495,79 @@ Turn off, smallest step first:
 2. Whole feature: set `REMOTE_DUELS=0`, then run the command from step 8. To remove one person, edit `REMOTE_DUELS_USERS` instead. The `ws` recreate drops live sockets for a few seconds.
 3. Code: Deploy workflow with `rollback=true`. The schema stays and old images ignore the new tables. Then stop LiveKit and run `rm -rf data/vision data/vision.old`.
 
+### Browser voice assets in the web image
+
+`asr/` and `kws/` ship at `/app/vision-code/{asr,kws}` in the production **web image**, outside
+the `/app/data` bind mount. No VM data copy or Compose/env addition is needed. With no overrides,
+`VISION_CODE_DIR` defaults to `/app/vision-code`; `VISION_DATA_DIR` resolves to `/app/data/vision`
+from Next's `packages/web` working directory. The asset route checks the image first for both voice
+subtrees, using content ETags and `private, no-cache`, then falls back to the data directory for local
+development. Missing files return 404 for that request; startup and card-recognition assets do not
+depend on voice files. The existing Remote Duels access gate still applies.
+
+Test and manual non-rollback Deploy call `.github/workflows/prepare-voice-assets.yml` on an amd64
+runner. It downloads Moonshine files using the Hugging Face revision and per-file SHA-256 values in
+`scripts/voice/prepare-voice-models.mts`, and the KWS archive using `scripts/voice/kws-pins.json`'s
+SHA-256. It validates `sp-vocab.json` against the pinned KWS model. Node 22's type stripping runs
+`--models-only` without installing npm dependencies. Verified models are cached separately under
+`voice-models-v1-<hash>` (preparation scripts, KWS pins, licences and `sp-vocab.json`).
+
+The KWS WASM cache is `voice-kws-wasm-v1-<OS>-<arch>-<emscripten digest>-<hash>`; the hash covers
+`kws-pins.json`, `scripts/voice/kws/CMakeLists.txt`, `build-kws-wasm.ts` and `build-kws-wasm.sh`.
+The digest comes from `packages/duel-server/domain-core/pins.json`. An exact hit skips Docker/C++;
+a miss rebuilds from the sherpa commit in `kws-pins.json` in that digest-pinned emsdk image.
+There are no partial-key restores. Main push and manual Deploy producers save caches; PRs only read.
+An attempt-specific one-day artifact transfers models and KWS WASM to the ARM64 web image job.
+Automatic Deploy pulls the tested image digest and does not run this preparation again.
+The PR production dry run also builds/exports just the voice assembly stage after the bot image,
+reusing its dependency layer; it does not build Next.js or publish an image.
+
+Docker's `voice-assets` stage assembles these inputs offline, builds both workers from the checkout,
+and copies ONNX Runtime WASM from the `npm ci` install (1.30.0, exact version and integrity in
+`package-lock.json`). Worker bundles are never restored from the voice caches. The web image copies
+the output as a root-owned, read-only layer with epoch mtimes, like `vision-code`. Expect about
+62 MB additional uncompressed files; only web downloads the artifact. A cold KWS build adds several
+minutes plus the emsdk pull; warm preparation should take tens of seconds to a couple of minutes.
+These are estimates, to be checked in Actions. Existing engine preparation runs in parallel.
+
+To bump Moonshine, update its revision and every SHA-256 in `prepare-voice-models.mts`. To bump KWS,
+update its source commit and/or model archive URL/SHA-256 in `kws-pins.json`; regenerate `sp-vocab.json`
+with `prepare.mts --vocab` if needed. Update licences/notices alongside each pin. A toolchain bump
+updates the shared emscripten digest; an ONNX Runtime bump updates the npm lock and the matching
+licences in `packages/vision/src/licenses/`. These inputs invalidate the respective cache; increment
+the cache's `v1` prefix for a packaging-only change not represented in its hash inputs.
+
+Full Moonshine MIT, KWS model Apache-2.0, sherpa Apache-2.0, and ONNX Runtime MIT/dependency notices
+ship next to the files. `scripts/voice/NOTICE` supplements the root recognition `NOTICE` and is served
+as both `/dev/vision-assets/asr/NOTICE` and `/dev/vision-assets/kws/NOTICE`. Sherpa's statically linked
+ONNX Runtime 1.28.2 also has its own licence and dependency notices under `kws/`.
+
+Verify on the VM without changing services:
+
+```sh
+cd /opt/yugioh-bot
+docker compose -f docker-compose.yml exec -T web sh -c '
+  for file in asr/worker.js asr/model/encoder_model_quantized.onnx asr/model/decoder_model_merged_quantized.onnx asr/model/vocab.json asr/model/LICENSE.txt asr/ort-wasm-simd-threaded.mjs asr/ort-wasm-simd-threaded.wasm asr/LICENSE.onnxruntime.txt asr/ThirdPartyNotices.onnxruntime.txt kws/worker.js kws/model/encoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx kws/model/decoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx kws/model/joiner-epoch-12-avg-2-chunk-16-left-64.int8.onnx kws/model/tokens.txt kws/model/LICENSE.txt kws/sherpa-kws.js kws/sherpa-kws.wasm kws/LICENSE kws/LICENSE.onnxruntime.txt kws/ThirdPartyNotices.onnxruntime.txt asr/NOTICE kws/NOTICE; do
+    test -s "/app/vision-code/$file" || exit 1
+  done
+  echo "Voice files present"
+'
+```
+
+In a signed-in, allowed user's browser, fetch `/dev/vision-assets/asr/worker.js` and
+`/dev/vision-assets/kws/model/tokens.txt` with `{cache: 'no-store'}`: both must return 200 and
+`Cache-Control: private, no-cache`. For curl, use that user's private cookie jar with
+`curl --fail --cookie /path/to/private-cookie-jar --head https://<SITE_DOMAIN>/dev/vision-assets/asr/worker.js`;
+do not print session cookies. A file check proves packaging; HTTP checks also prove the access gate and routing.
+
+Local dev remains `npx tsx scripts/voice/prepare-voice-models.mts --kws --wasm` into `data/vision`.
+For a local production-style web build, stage the reusable workflow's inputs at `data/voice-assets`,
+or pass `--build-arg VOICE_ASSETS=0` for a voice-free image. Do not run a full build on a loaded PC.
+If voice preparation breaks a release, change Dockerfile's `ARG VOICE_ASSETS=1` to `ARG VOICE_ASSETS=0`
+and ship that reviewed change through Test/Deploy. Both producer workflows then skip voice preparation;
+the Docker stage emits no voice files, and the existing vision layer remains. Alternatively use the
+normal image rollback procedure to a compatible healthy release. No VM build or manual binary copy is needed.
+
 ### Report bug button (GitHub issues)
 
 The "Report bug" button (a quiet chip at the bottom-right of the page, or in the header of a live duel) saves every report in the `bug_reports` table of `data/bot.sqlite`. The `web` service also opens

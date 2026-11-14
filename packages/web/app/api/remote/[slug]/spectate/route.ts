@@ -1,5 +1,5 @@
 import { removeSpectatorVideo } from "@/lib/remote/spectator-server";
-import { notifyRemoteChange, remoteError, remoteJson, requireRemoteActor, type RemoteRouteContext } from "@/lib/remote-duels";
+import { notifyRemoteChange, remoteError, remoteJson, remoteRoomForViewer, requireRemoteActor, type RemoteRouteContext } from "@/lib/remote-duels";
 import { isOwnerUser } from "@/lib/owner-access";
 export const runtime = "nodejs";
 /**
@@ -17,7 +17,7 @@ export async function POST(request: Request, context: RemoteRouteContext) {
     const tookSlot = isOwnerUser(actor.userId) && !actor.remote.isSpectating(slug, actor.guildId, actor.userId, now);
     const view = actor.remote.spectate(slug, actor.guildId, actor.userId, now, { admin: asked && isOwnerUser(actor.userId), tab: tabId(body?.tab) });
     if (tookSlot || view.events.some(event => event.at === now && event.action.type === "admin.watching")) await notifyRemoteChange(slug, actor.guildId);
-    return remoteJson(view);
+    return remoteJson(remoteRoomForViewer(view, actor.userId));
   } catch (error) { return remoteError(error); }
 }
 /** A tab id is a short token the page makes up; anything else is ignored. */

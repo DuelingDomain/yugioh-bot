@@ -92,7 +92,7 @@ export function useRemoteRoom(slug: string, options: { watchAsAdmin?: boolean } 
       markFieldState({...snapshot.table,state:snapshot.state} as RemoteRoom,'wsState');
       const held=roomRef.current;
       if(held&&held.slug===slug&&held.lastSeq<=snapshot.table.lastSeq)socketSeq.current=Math.max(socketSeq.current,snapshot.table.lastSeq);
-      const fromSnapshot = (current: RemoteRoom): RemoteRoom => ({ ...snapshot.table, state: snapshot.state, events: snapshot.events, mySeat: current.mySeat, isDeveloper: current.isDeveloper, recordingEnabled: current.recordingEnabled, spectator: current.spectator, spectatorCount: snapshot.table.spectatorCount ?? current.spectatorCount });
+      const fromSnapshot = (current: RemoteRoom): RemoteRoom => ({ ...snapshot.table, state: snapshot.state, events: snapshot.events, mySeat: current.mySeat, isDeveloper: current.isDeveloper, recordingEnabled: current.recordingEnabled, voiceEnabled: current.voiceEnabled, voiceDiagnosticsEnabled: current.voiceDiagnosticsEnabled, spectator: current.spectator, spectatorCount: snapshot.table.spectatorCount ?? current.spectatorCount });
       // The held room moves now, so a patch that follows at once builds on this snapshot.
       const built=held&&held.slug===slug&&held.lastSeq<=snapshot.table.lastSeq?fromSnapshot(held):undefined;
       if(built)roomRef.current=built;

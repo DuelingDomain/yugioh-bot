@@ -21,7 +21,7 @@ export type Verification =
 /** Public decision boundary: no hit means no decoder call; only a legal phase/turn confirmation can produce an action. */
 export async function verifyKeywordHit(options: {
   utterance: KwsUtterance; phrases: PhraseSet; metrics: VoiceMetrics;
-  decode(): Promise<{ text: string; busyMs: number; audioMs: number }>;
+  decode(): Promise<{ text: string; busyMs: number; audioMs: number; passes?: number }>;
   context(): GrammarContext;
 }): Promise<KwsUtterance & { verification: Verification }> {
   const { utterance: u, metrics } = options;
@@ -50,7 +50,7 @@ export async function verifyKeywordHit(options: {
   const verification: Verification = confirmed
     ? { stage1: "hit", stage2: "confirmed", canonical, intent, reason: "stage 1: hit; stage 2 confirmed whole phrase and game-state legality" }
     : { stage1: "hit", stage2: "rejected", canonical, intent: { kind: "none" }, reason: `stage 1: hit; stage 2 rejected: ${reason}` };
-  return { ...u, text: decoded.text, busyMs: u.busyMs + decoded.busyMs, verification };
+  return { ...u, text: decoded.text, passes: decoded.passes, stage1BusyMs: u.busyMs, stage2BusyMs: decoded.busyMs, busyMs: u.busyMs + decoded.busyMs, verification };
 }
 
 export type TwoStageOptions = Omit<KwsClientOptions, "base" | "defaultKeywords" | "keywords" | "boost" | "threshold"> & {

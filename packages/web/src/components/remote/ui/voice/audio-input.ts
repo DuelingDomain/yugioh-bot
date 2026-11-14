@@ -6,6 +6,8 @@ import type { KwsStatus } from "./kws-client";
 export type AudioEnd = { id: number; speechMs: number; startedAt: number; endedAt: number; submittedAt: number; tailMs: number };
 export type AudioInputOptions = {
   pcmInput?: boolean; deviceId?: string;
+  /** Optional push-to-talk gate. Closed frames never reach a model or the pre-roll. */
+  accepting?(): boolean;
   onStatus?(status: KwsStatus): void;
   onLevel?(level: number, speaking: boolean): void;
   onFrames(samples: Float32Array): void;
@@ -83,6 +85,14 @@ export class AudioInput {
       const rms = Math.sqrt(sum / pcm.length);
       const now = performance.now();
       if (now - lastLevelAt > 60) { lastLevelAt = now; this.options.onLevel?.(Math.min(1, rms * 8), inSpeech); }
+      if (this.options.accepting?.() === false) {
+        if (inSpeech) {
+          if (spoken < MIN_SPEECH) this.options.onReset();
+          else this.options.onEnd({ id: ++this.serial, speechMs: spoken * 20, startedAt, endedAt, submittedAt: now, tailMs: this.frames * 20 - endedAt });
+        }
+        inSpeech = false; spoken = 0; total = 0; quiet = 0; loud = 0; preroll.length = 0;
+        return;
+      }
       if (!inSpeech) {
         noise = Math.min(0.05, noise * 0.995 + rms * 0.005);
         loud = rms > Math.max(0.018, noise * 3.2) ? loud + 1 : 0;
