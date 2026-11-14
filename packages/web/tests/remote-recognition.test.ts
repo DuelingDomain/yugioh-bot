@@ -1384,11 +1384,14 @@ it('the virtual field starts hidden in Tap to identify and shown with Auto-detec
   expect(resolveWebcamOnly({hidden:true,mode:'tap'},'auto')).toBe(false);
 });
 
-it('Set comparison switches default on and query overrides take precedence over saved settings',async()=>{
+it('Set comparison switches default on and query overrides take precedence over env and saved settings',async()=>{
  const {readSetGuards}=await import('../src/lib/remote/set-card-settings');
- vi.stubGlobal('localStorage',{getItem:()=>JSON.stringify({positiveBack:false,prompt:false,ignore:false,startup:false})});
+ vi.stubGlobal('localStorage',{getItem:()=>JSON.stringify({positiveBack:false,prompt:false,ignore:false,startup:false,handRelease:false})});
  vi.stubGlobal('window',{location:{search:'?setPositiveBack=1&setStartup=1'}});
- expect(readSetGuards()).toEqual({positiveBack:true,prompt:false,ignore:false,startup:true});
+ expect(readSetGuards()).toEqual({positiveBack:true,prompt:false,ignore:false,startup:true,handRelease:false});
+ vi.stubEnv('NEXT_PUBLIC_FIELD_SET_HAND_RELEASE','1');expect(readSetGuards().handRelease).toBe(true);
+ vi.stubGlobal('window',{location:{search:'?setHandRelease=0'}});expect(readSetGuards().handRelease).toBe(false);
+ vi.unstubAllEnvs();
  vi.stubGlobal('localStorage',{getItem:()=>null});vi.stubGlobal('window',{location:{search:''}});
- expect(readSetGuards()).toEqual({positiveBack:true,prompt:true,ignore:true,startup:true});
+ expect(readSetGuards()).toEqual({positiveBack:true,prompt:true,ignore:true,startup:true,handRelease:true});
 });

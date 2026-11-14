@@ -3,7 +3,7 @@ import type {RGBAImage} from './pixels';
 import type {DetectedQuad} from './types';
 import {fieldCenter, onMat, quadIou, type FieldCalibration} from './field-zones';
 
-export const DEFAULT_SET_GUARDS = {positiveBack:true, prompt:true, ignore:true, startup:true};
+export const DEFAULT_SET_GUARDS = {positiveBack:true, prompt:true, ignore:true, startup:true, handRelease:true};
 export type SetGuards = typeof DEFAULT_SET_GUARDS;
 export type SetEvidence = {
   detector:number; pixel:FaceStateResult['state']; pixelConfidence:number;

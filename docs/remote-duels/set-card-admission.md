@@ -16,7 +16,7 @@ The tighter uniform rule admits the retained real red-sleeve crop (about 1.8/255
 
 The colour signature samples 12×16 RGB points from the inner 80% of the existing portrait-ordered crop. Distance is the smaller mean absolute difference of centred RGB values at 0°/180°, plus half the mean channel-colour difference. A known back wins over the variation cap, allowing printed/patterned sleeves. Only an automatically admitted positive back or a successfully saved **Set card** choice teaches the session's back references (at most 32). Detector confidence alone never supplies positive evidence. No extra detector or identity-recognizer passes are made; the added work is fixed-size crop sampling and pixel classification.
 
-Positive backs retain the existing two clean samples over 60 ms at detector confidence ≥ .7, or three over 120 ms otherwise, **plus the existing rest/plane checks**. No new wait is added. The deterministic 50 ms sample test commits at 100 ms after first sight with checks on and off. This is watcher timing, not camera-to-browser latency.
+Positive backs retain the existing two clean samples over 60 ms at detector confidence ≥ .7, or three over 120 ms otherwise, **plus the existing rest/plane checks**. Back-evidence checks alone add no wait; the hand-release rule below adds settling after contact. The deterministic 50 ms sample test with no contact commits at 100 ms after first sight with checks on and off. This is watcher timing, not camera-to-browser latency.
 
 An unsupported back asks after **600 ms of clean, resting observations** (700 ms after first sight in the 100 ms sample test). Motion, occlusion, misses and pauses reset that waiting window. With no answer it remains a question, even through detector misses; it does not create a twin, reserve a public slot or produce a second question for the same spot.
 
@@ -28,9 +28,29 @@ A rejected region is released only after full detector scans show no overlapping
 
 The first full scan retains its decoded boxes, including weak boxes. A box from that setup scan which reaches the resting decision without positive back evidence is ignored without a prompt. Positive backs and identified fronts still bootstrap. A successfully admitted card is no longer considered a setup object on a later flip. This is evidence-gated setup handling, not a mask of every startup card.
 
+## Cards still held in a hand
+
+A real back cannot prove that a card has been put down. At **32.03 s**, the APS 2016 diagnostic placed a face-up Trap held in a fan as a Set: contact **.619133574**, motion **.003969**, and pixel/both face-gate verdicts **down, .82**. Its size **.774** cells, tilt **4.60°**, sides **.954** and cell share **.600** pass `planeVerdict`. A plane-compatible outline centred in a field cell is normally marked field-origin by the held reader; fingers alone do not divert it from field admission.
+
+Three escapes in `field-watcher.ts` explain rest despite contact: **`stillSkin` after 600 ms** bypasses `blocks`, `observeRest` and `handBlocks`; independently, **`REST_PRINT_MS = 1500` ms** lets `observeRest` ignore contact at motion ≤ .01; and **`handBlocks` times out after 600 ms**, permitting a front read despite contact. Rest then needs two samples over 100 ms. A positive back needs no identity read. PR #610 closes the unknown-back timeout, but a real held sleeve can supply positive back evidence.
+
+The independent **hand-release** gate now covers new automatic candidates of either face, including the Reading placeholder. Its named limits are:
+
+| Constant | Limit | Reason |
+| --- | --- | --- |
+| `HAND_CONTACT_MAX` | **.02** | Reuse the existing read gate's 2% edge-connected skin cutoff. Nearby `skinNear` alone does not trigger it. The recorded .619 contact is well above it. |
+| `HAND_RELEASE_SETTLE_MS` | **200 ms** | Require short, continuous low-contact observations after contact, twice the existing 100 ms rest window. Motion, occlusion, partial/covered boxes, detector misses and pauses restart release settling. |
+| `HAND_CONTACT_PROMPT_MS` | **2000 ms** | Allow a one-second finger hold or a brief forearm cover; unresolved contact then asks one **Card here?** question when the outline is clean and plane-compatible. Time never authorizes placement. |
+
+The old timeouts cannot clear this gate. A presence choice explicitly accepts a still, freshly observed card despite contact; release resumes automatic admission subject to #610. **Ask about uncertain Sets** OFF holds without asking. Initially low-contact cards keep their old timing. At 100 ms sampling, the Set fixture measures **200 ms** from first low contact to placement versus **100 ms** with this gate OFF: **100 ms added**, excluding camera/browser latency and any other read/face waits.
+
+The evaluation's hypothetical veto above .619133 blocked the fan commit and 0/23 reviewed real commits; this is **not** retention evidence for the tighter .02 gate. `held-fan-contact.json` retains geometry/contact; tests supply synthetic positive back/front crops, not a video replay. Verification with Node **22.23.4**: **143 watcher**, **116 touched web**, **121 neighboring vision UI** tests pass; shared build and both typechecks pass. The full vision run, in six serial groups of at most three files, passes **324/326**: only the known `mat-fit.test.ts:78` CPU budget (**1912.265 > 1500 ms**) and `pipeline.test.ts:214` priors (**[1,3,4] vs [1,3]**) failures remain. Those tests and owners match HEAD.
+
+Limits: missed skin contact, gloves or lighting can let a held card through; false skin contact can require a tap. A released card laid flat still cannot establish intent. Existing identified-card movement, manual actions and Deck/Extra observations retain their paths. No owner-camera/browser or final native replay was run. Recording files are unchanged; their parked schema retains only the original four switches.
+
 ## Tester switches
 
-Own camera **Settings → Set card checks** contains four saved browser switches, all ON by default. They apply to the running watcher:
+Own camera **Settings → Set card checks** contains five saved browser switches, all ON by default. They apply to the running watcher:
 
 | Layer | Setting | Query override | Build env override |
 | --- | --- | --- | --- |
@@ -38,8 +58,9 @@ Own camera **Settings → Set card checks** contains four saved browser switches
 | B | Ask about uncertain Sets | `setPrompt=0` | `NEXT_PUBLIC_FIELD_SET_PROMPT=0` |
 | C | Remember Not a card | `setIgnore=0` | `NEXT_PUBLIC_FIELD_SET_IGNORE=0` |
 | D | Ignore setup objects | `setStartup=0` | `NEXT_PUBLIC_FIELD_SET_STARTUP=0` |
+| E | Wait for hand release | `setHandRelease=0` | `NEXT_PUBLIC_FIELD_SET_HAND_RELEASE=0` |
 
-Use `1` to force ON. Query overrides take precedence over env and saved settings. A controls admission; B and D operate while A holds an unsupported Set. B OFF holds it without asking. C OFF disables region suppression. D OFF makes setup objects eligible for the question, including a previously ignored setup sleeve; explicit player rejections remain. All four OFF restore the previous admission behavior, including both reproduced phantom commits and their 600 ms timeout. These are comparison controls, not game rules.
+Use `1` to force ON. Query overrides take precedence over env and saved settings. A controls back admission; B and D operate while A holds an unsupported Set. B OFF holds it without asking and also suppresses contact questions. C OFF disables region suppression. D OFF makes setup objects eligible for the question, including a previously ignored setup sleeve; explicit player rejections remain. E independently gates both faces after contact; turning it OFF restores the old contact escapes. All five OFF restore the previous admission behavior, including both reproduced phantom commits and their 600 ms timeout. These are comparison controls, not game rules.
 
 ## Evidence and limits
 
@@ -49,7 +70,7 @@ The offline axis-aligned colour veto at 40 removed 2/2 phantoms and lost 0/23 re
 
 A uniform card-shaped object can still pass these heuristics. Glare, a new patterned sleeve, exposure changes or an ambiguous border can withhold a real Set. In play that costs one confirmation; at setup it can be ignored until the tester disables **Ignore setup objects** and scans again, or identifies/places it manually. A rejected spot requires observed clearance and a different positive look, so an occluded replacement or a replacement with the same sleeve can remain ignored. Recalibration that moves mat coordinates substantially can invalidate the spatial tolerance. These limits need owner-camera tests.
 
-The three temporary hand cards were real resting sleeves mapped into ordinary S2/S3 cells. Score, size, cell-share and prior-motion vetoes either lost genuine commits or did not establish intent. No hand-row or additional dwell rule is added; it would delay legitimate Sets without safe evidence.
+The three temporary hand cards were real resting sleeves mapped into ordinary S2/S3 cells. Score, size, cell-share and prior-motion vetoes either lost genuine commits or did not establish intent. No hand-row mask is added. The hand-release rule uses observed contact; it cannot infer intent once a hand card is released flat on the mat.
 
 ## Diagnostics
 
@@ -57,7 +78,9 @@ The three temporary hand cards were real resting sleeves mapped into ordinary S2
 
 Saved board actions carry the evidence in **`cam.set`**, alongside `cam.seenAt/namedAt/sentAt/by/ui`. Presence confirmation is stamped `by:player`, `ui:set-card`; the popup removal uses `ui:not-a-card`. Decisions that create no action also enter the local clip ring and `remote-set-candidate` event. For allowlisted test recordings they ride the existing clock/end requests into sidecar **`setCandidates`**, with client epoch time, mat quad and the four switches. No frame pixels, signature, identity, deck or new model data enters that record. Batches are bounded to eight, the local queue to 512 and a recording sidecar to 5,000 decisions; excess evidence can be lost under sustained overload. Recording and storage failure never interrupts play.
 
-## Local verification (2026-11-14)
+## PR #610 verification (2026-11-14)
+
+This historical receipt describes PR #610. The hand-release verification is in **Cards still held in a hand** above.
 
 Node **22.23.4**. No real browser, camera or deployed test was run in this sandbox. Changes are left uncommitted; nothing was pushed or deployed. The recognizer models, pipeline read logic, worker model loading and voice code are unchanged.
 
@@ -86,7 +109,7 @@ Physical episode retention is less reassuring: **19/23** original reviewed real 
 
 The native run used an earlier guard snapshot, **before the final red-sleeve fallback, Scan field witness check and prompt/rejection lifecycle follow-ups**. Those follow-ups have local watcher/web proof; the final source was not rerun through all ten native clips. Model startup and reads were heavily constrained on the shared host, and native cache warnings were logged. No all-OFF interleaved native control was run, so the four unmatched episodes cannot all be attributed to this guard. The source receipt, complete run JSON, matching script, reviewed extra-frame labels and test logs remain in `data/vision-phantom/`. These are agent-made YouTube labels and native replays, not the owner's camera or a production acceptance result.
 
-## Changed files
+## PR #610 changed files
 
 - Vision: `packages/vision/src/{field-watcher.ts,set-card-evidence.ts,index.ts,board.test.ts}` and the three crop receipts under `packages/vision/src/fixtures/`.
 - Owner UI and settings: `packages/web/src/components/remote/{field-watcher.tsx,field-watcher-ui.tsx}`, `ui/{camera-lock-control.tsx,card-view.tsx,recognition-setting.tsx,table.tsx}`, and `packages/web/src/lib/remote/{use-field-watcher.ts,set-card-settings.ts}`.
