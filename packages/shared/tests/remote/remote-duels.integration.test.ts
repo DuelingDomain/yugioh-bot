@@ -4566,6 +4566,23 @@ describe("remote hand activation (a card held up from the hand)", () => {
     return s.room.state.undo!.actionId;
   };
 
+  it("records a held hand copy after a manual activation of another copy in the Graveyard", async () => {
+    const { remoteHandActivationDecision } = await import("../../src/remote/index.js");
+    const s = originSession(true);
+    s.act({ type: "twin.place", seat: 0, zone: "graveyard", card: { ref: "graveyard-copy", cardId: CARD } });
+    // The card view's Activate button supplies no fromHand or voice provenance.
+    s.act({ type: "effect.activated", actorSeat: 0, source: { cardId: CARD, cardRef: "graveyard-copy" } });
+    const at = s.room.state.undoHistory!.at(-1)!.at;
+    const count = s.room.state.seats[0].handCount;
+    const decision = remoteHandActivationDecision(s.room.state, 0, { cardId: CARD, id: "held-other-copy", at: at + 1000 });
+    expect(decision).toEqual({ type: "effect.activated", actorSeat: 0, source: { cardId: CARD }, fromHand: true });
+    if (!decision || decision.type !== "effect.activated") throw new Error("Expected the held copy to activate");
+    s.act(decision);
+    expect(s.room.state.seats[0].knownHand).toEqual([expect.objectContaining({ cardId: CARD })]);
+    expect(s.room.state.seats[0].handCount).toBe(count);
+    expect(s.room.state.seats[0].twin.find(card => card.ref === "graveyard-copy")).toMatchObject({ zone: "graveyard", cardId: CARD });
+  });
+
   it("shows a sure read at once, keeps the card in the hand, and a discard of it counts the hand once", async () => {
     const { remoteHandActivationDecision } = await import("../../src/remote/index.js");
     const s = originSession(true), count = s.room.state.seats[0].handCount!;
@@ -4576,17 +4593,6 @@ describe("remote hand activation (a card held up from the hand)", () => {
     // The same card again gives nothing new; a Normal or unknown card keeps the one-tap suggestion.
     expect(remoteHandActivationDecision(s.room.state, 0, { cardId: CARD, id: "held-2", at: 3100 })).toBeUndefined();
     expect(remoteHandActivationDecision(originSession(true).room.state, 0, { cardId: CARD, id: "held-3", at: 3100 }, { activatable: false })).toMatchObject({ type: "hand.suggest" });
-    // The two sources never record one activation twice: a held read is seen by the voice check, a spoken effect is seen by the camera.
-    const at = s.room.state.undoHistory!.at(-1)!.at, { remoteRecentActivation } = await import("../../src/remote/index.js");
-    expect(remoteRecentActivation(s.room.state, 0, CARD, at + 1000, true)).toBe(true);
-    expect(remoteRecentActivation(s.room.state, 0, CARD, at + 30_000, true)).toBe(false);
-    const spoken = originSession(true);
-    spoken.act({ type: "effect.activated", actorSeat: 0, source: { cardId: CARD } });
-    const spokenAt = spoken.room.state.undoHistory!.at(-1)!.at;
-    expect(remoteRecentActivation(spoken.room.state, 0, CARD, spokenAt + 1000, false)).toBe(true);
-    const held = { cardId: CARD, id: "held-4", at: spokenAt + 1000 };
-    expect(remoteHandActivationDecision(spoken.room.state, 0, held)).toMatchObject({ type: "hand.duplicate" });
-    expect(remoteHandActivationDecision(spoken.room.state, 0, held, { duplicateOk: true })).toMatchObject({ type: "effect.activated", fromHand: true });
     s.act({ type: "twin.place", seat: 0, zone: "graveyard", card: { ref: "discarded", cardId: CARD } });
     expect(s.room.state.seats[0].handCount).toBe(count - 1);
     expect(s.room.state.seats[0].knownHand ?? []).toEqual([]);

@@ -75,18 +75,29 @@ const commandWords = (text: string) => {
   return words;
 };
 
-/** Whole fixed phrases only: each word must fit its slot. Fuzzy distance never absorbs extra sentence words. */
+/**
+ * Whole fixed phrases only. Bare words must be exact; longer phrases allow at most one substituted word, with all other
+ * words exact. Phase substitutions require an explicit phase slot ("main place", never "name one"); turn phrases also
+ * allow one substitution ("end term"). "stand by"/"stand bye" are normalized spellings of standby before matching.
+ */
 export function matchPhasePhrase(text: string, speechMs = 1200, confusions = true): string {
   if (text.length > 200) return "";
+  // Short numeric zone codes belong to the move parser. Check before norm turns digits into spoken phase numbers.
+  if (/\b[a-z]{1,3}\s*\d+\b/i.test(text)) return "";
   const words = commandWords(text);
   const matches = new Set<string>();
   for (const entry of phaseEntries) {
     if (words.length !== entry.words.length || (entry.bare && speechMs > 1200)) continue;
+    let substitutions = 0;
     const fits = entry.words.every((target, index) => {
-      const word = confusions ? commandWord(words[index]) : words[index];
+      const original = words[index];
+      if (original === target) return true;
+      if (words.length === 1 || entry.canonical === "go back a phase" || ++substitutions > 1) return false;
+      if (entry.canonical !== "end turn" && !entry.words.includes("phase")) return false;
+      const word = confusions ? commandWord(original) : original;
       if (word === target) return true;
-      // Bare words and correction commands need exact evidence. Only the domain words have fuzzy slots.
-      if (words.length === 1 || entry.canonical === "go back a phase" || !PHASE_WORDS.has(target) || word.length < 3) return false;
+      // Only domain words have fuzzy slots; a correction command needs exact evidence above.
+      if (!PHASE_WORDS.has(target) || word.length < 3) return false;
       const d = dist(keyOf([word]), keyOf([target]));
       return d.err / d.len <= (target.length >= 7 ? 0.3 : 0.25);
     });

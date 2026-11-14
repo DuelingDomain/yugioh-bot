@@ -128,6 +128,54 @@ describe("browser voice commands (KWS)", () => {
       return intent.kind === "phase" ? `phase ${intent.phase}` : intent.kind === "move" ? `move ${JSON.stringify(intent.move)}` : intent.kind;
     };
 
+    it.each([
+      ["main place", "main phase"], ["main faze", "main phase"],
+      ["next faze", "next phase"], ["next place", "next phase"],
+      ["battle face", "battle phase"], ["mane phase", "main phase"],
+      ["stand by", "standby phase"], ["and phase", "end phase"],
+      ["name one", ""], ["bottle", ""], ["name", ""], ["place", ""], ["face", ""],
+      ["name place", ""], ["mane faze", ""], ["bottle fase", ""], ["bottle face", ""],
+    ])("canonicalizes only phrases with exact supporting evidence: %s", (text, canonical) => {
+      const matcher = buildMatcher([], { phasesAndTurnsOnly: true });
+      expect(matcher.match(text, 900).canonical).toBe(canonical);
+    });
+
+    it.each([
+      { text: "name one", phase: "standby", trayOpen: false, cardNames: [], expected: { kind: "none" } },
+      { text: "bottle", phase: "main1", trayOpen: false, cardNames: [], expected: { kind: "none" } },
+      { text: "name", phase: "standby", trayOpen: false, cardNames: [], expected: { kind: "none" } },
+      { text: "place", phase: "standby", trayOpen: false, cardNames: [], expected: { kind: "none" } },
+      { text: "face", phase: "main1", trayOpen: false, cardNames: [], expected: { kind: "none" } },
+      { text: "next place", phase: "standby", trayOpen: false, cardNames: [], expected: { kind: "phase", phase: "main1" } },
+      { text: "Battle", phase: "main1", trayOpen: true, cardNames: ["Battle Fader"], expected: { kind: "name", name: "Battle" } },
+      { text: "Battle", phase: "main1", trayOpen: false, cardNames: ["Battle Fader"], expected: { kind: "none" } },
+      { text: "Battle", phase: "main1", trayOpen: false, cardNames: ["Battleground"], expected: { kind: "phase", phase: "battle" } },
+      { text: "Battle Fader", phase: "main1", trayOpen: true, cardNames: ["Battle Fader"], expected: { kind: "name", name: "Battle Fader" } },
+      { text: "main place", phase: "standby", trayOpen: true, cardNames: [], expected: { kind: "name", name: "main place" } },
+      { text: "next place", phase: "main1", trayOpen: true, cardNames: [], expected: { kind: "name", name: "next place" } },
+      { text: "stand by", phase: "draw", trayOpen: true, cardNames: [], expected: { kind: "name", name: "stand by" } },
+    ])("keeps chatter and card queries out of phase rewrites: $text, tray=$trayOpen, cards=$cardNames", ({ text, phase, trayOpen, cardNames, expected }) => {
+      expect(interpret(text, { state: board(phase), players, me: 0, trayOpen, cardNames })).toEqual(expected);
+    });
+
+    const zoneForms: { prefix: string; slots: number[]; zone?: string }[] = [
+      { prefix: "m", slots: [1, 2, 3, 4, 5], zone: "monster" },
+      { prefix: "s", slots: [1, 2, 3, 4, 5], zone: "spell-trap" },
+      { prefix: "st", slots: [1, 2, 3, 4, 5], zone: "spell-trap" },
+      { prefix: "em", slots: [1, 2] },
+      { prefix: "emz", slots: [1, 2], zone: "extra-monster" },
+      { prefix: "e m z", slots: [1, 2], zone: "extra-monster" },
+    ];
+    const zoneCases = zoneForms.flatMap(({ prefix, slots, zone }) => slots.flatMap(slot => ["", " "].map(space => ({
+      text: `${prefix}${space}${slot}`, phase: slot === 2 ? "battle" : "standby",
+      expected: zone && (space || !["emz", "e m z"].includes(prefix))
+        ? { kind: "move", move: { dest: { zone, slot } } } : { kind: "none" },
+    }))));
+    it.each(zoneCases)("keeps numeric zone forms out of phase matching: $text", ({ text, phase, expected }) => {
+      expect.soft(buildMatcher([], { phasesAndTurnsOnly: true }).match(text, 900).canonical).toBe("");
+      expect(interpret(text, { state: board(phase), players, me: 0, trayOpen: false })).toEqual(expected);
+    });
+
     it("hears phase sound-alikes without accepting sentence fragments or bypassing turn legality", () => {
       const matcher = buildMatcher([]);
       const cases = [
@@ -311,7 +359,7 @@ describe("browser voice commands (KWS)", () => {
       expect(heard("Pass turn.")).toBe("end turn");
       expect(heard("Your go.")).toBe("end turn");
       expect(heard("Going to battle")).toBe("battle phase");
-      expect(heard("M2")).toBe("main phase two");
+      expect(heard("M2")).toBe("");
       expect(heard("Swing")).toBe("attack");
       expect(heard("In response")).toBe("chain");
       expect(heard("I set one face down")).toBe("set");

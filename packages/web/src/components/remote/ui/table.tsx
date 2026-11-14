@@ -3,7 +3,7 @@
 import { REMOTE_TABLE_TALK } from "@/lib/remote/table-talk";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
-import { REMOTE_FORMATS, REMOTE_HAND_SUGGESTION_EVENT, REMOTE_VOICE_UNDO_EVENT, remoteRecentActivation, type RemoteHandSuggestionEvent, type RemoteVoiceUndoEvent, matchCardsByName, previousYgoPhase, normalizeRemoteFormat, remoteRecognitionRef, remoteRecognitionRefs, type RemoteActionProposal, type RemoteEvent, type RemoteRoom, type RemoteUndoEntry } from "@yugidraft/shared/remote";
+import { REMOTE_FORMATS, REMOTE_HAND_SUGGESTION_EVENT, type RemoteHandSuggestionEvent, matchCardsByName, previousYgoPhase, normalizeRemoteFormat, remoteRecognitionRef, remoteRecognitionRefs, type RemoteActionProposal, type RemoteEvent, type RemoteRoom, type RemoteUndoEntry } from "@yugidraft/shared/remote";
 import { cardInfo, isLinkInfo, isMonsterInfo, loadCards, searchCards, useCardInfo } from "./catalog";
 import { EffectControls, EffectPicker } from "./effect-controls";
 import { Rail, LpStrip, TopBar, AdminWatchStrip, type Player } from "./chrome";
@@ -999,16 +999,8 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
         if (intent.proposal.type !== "effect.activated" || !intent.proposal.source.cardRef) {
           setProposal(null); set("Which card? Say its name with ‘effect’, or activate it from its card view.", true); break;
         }
-        // The camera's held-card read just showed this card from the hand: the same activation is not recorded twice.
-        if (remoteRecentActivation(current, me, intent.proposal.source.cardId, serverNow(), true)) { set("Already shown from your hand", true); break; }
         set("Effect activated"); void act(intent.proposal); break;
-      case "undo": {
-        // One undo per word: the field watcher takes it when the newest action is a camera change with its own Undo chain.
-        const newest = ownUndoEntries(current, now.solo, now.mySeat)[0];
-        const ask: RemoteVoiceUndoEvent = { slug: now.slug, actionId: newest?.actionId ?? "", handled: false };
-        if (newest && !newest.reason) window.dispatchEvent(new CustomEvent(REMOTE_VOICE_UNDO_EVENT, { detail: ask }));
-        set("Undone"); if (!ask.handled) void doUndo(); break;
-      }
+      case "undo": set("Undone"); void doUndo(); break;
       case "phase":
         if (!now.solo && now.mySeat !== current.turnSeat) { set(`Only ${name(current.turnSeat)} can change phase`, true); break; }
         set(`Phase: ${PHASE_LONG[intent.phase] ?? intent.phase}`);

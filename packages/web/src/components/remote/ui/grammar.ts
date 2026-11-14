@@ -155,9 +155,11 @@ export function interpret(raw: string, ctx: GrammarContext): VoiceIntent {
   // Common table talk ("pass", "going to battle", "swing at Dark Magician", "I chain") becomes the text the strict parsers know.
   // With the card tray open every line names a card, so it is left alone.
   const cards = contextCardNames(ctx).map(norm).filter(Boolean);
-  const fixedPhase = /^m[12]$/.test(text) || cards.some(card => text === card || text.startsWith(`${card} `)) ? "" : matchPhasePhrase(raw);
+  const startsWithCard = cards.some(card => text === card || text.startsWith(`${card} `));
+  const bareCardPrefix = !text.includes(" ") && cards.some(card => card.startsWith(`${text} `));
+  const fixedPhase = ctx.trayOpen || startsWithCard || bareCardPrefix ? "" : matchPhasePhrase(raw);
   if (fixedPhase) { raw = fixedPhase; text = norm(raw); }
-  const natural = ctx.trayOpen ? null : naturalCommand(text, ctx.state, ctx.me, cards.some(card => text === card || text.startsWith(`${card} `)));
+  const natural = ctx.trayOpen ? null : naturalCommand(text, ctx.state, ctx.me, startsWithCard);
   if (natural && "ignore" in natural) return { kind: "none" };
   let flipSummon = false;
   if (natural) {
