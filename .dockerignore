@@ -1,6 +1,12 @@
 node_modules/
 dist/
 data/
+# Only CI's prepared voice inputs may enter the application context. Developer
+# data/vision, C++ sources, emsdk caches and build trees remain excluded.
+!data/
+data/*
+!data/voice-assets/
+!data/voice-assets/**
 !packages/shared/data/
 !packages/shared/data/effects/
 !packages/shared/data/effects/**

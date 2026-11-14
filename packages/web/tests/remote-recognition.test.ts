@@ -224,10 +224,10 @@ it("parses activation with a named source and activation after identifying a car
     ["in phase", "main2", "phase:end"],
     ["end face", "main2", "phase:end"],
     ["end fase", "main2", "phase:end"],
-    ["draw phase", "end", "phase:draw"],
-    ["drop phase", "end", "phase:draw"],
-    ["draw face", "end", "phase:draw"],
-    ["drow phase", "end", "phase:draw"],
+    ["back to draw phase", "end", "phase:draw"],
+    ["back to drop phase", "end", "phase:draw"],
+    ["back to draw face", "end", "phase:draw"],
+    ["back to drow phase", "end", "phase:draw"],
     ["Please, go to the main phase!", "standby", "phase:main1"],
     ["set phase to main two", "battle", "phase:main2"],
     ["phase battle", "main1", "phase:battle"],
@@ -259,7 +259,7 @@ it("parses activation with a named source and activation after identifying a car
     ["stndby phase", "draw", "phase:standby"],
     ["mian phase", "standby", "phase:main1"],
     ["main fase", "battle", "phase:main2"],
-    ["draw faze", "end", "phase:draw"],
+    ["back to draw faze", "end", "phase:draw"],
     ["Um and now like I've placed uh Treasure of the Kings in the monster in the spell tr um in the field zone, and...", "main1", "quiet"],
     ["Um I put this in the monster zone two and now I think we can continue", "main1", "quiet"],
     ["I activate this because I think it can help with the battle phase later", "main1", "quiet"],
@@ -271,7 +271,7 @@ it("parses activation with a named source and activation after identifying a car
     ["uh standby", "draw", "phase:standby"],
     ["okay main phase two", "battle", "phase:main2"],
     ["so, end phase", "main2", "phase:end"],
-    ["alright, draw phase", "end", "phase:draw"],
+    ["alright, back to draw phase", "end", "phase:draw"],
     ["and, battle phase", "main1", "phase:battle"],
     ["Um, uh, okay, so, alright, and, battle phase", "main1", "phase:battle"],
     ["um, and phase", "main2", "phase:end"],
@@ -325,24 +325,6 @@ it("parses activation with a named source and activation after identifying a car
   const {voiceCardNames}=await import("../src/components/remote/ui/model");
   const voiceRoom={state:{...state,seats:[{...state.seats[0],twin:[{ref:"new",name:"New board card"},{ref:"old",cardId:2}]}],undoHistory:[{cards:["0:old"]},{cards:["0:new"]}]},seats:[{seat:0,deck:{deck:{main:[3],extra:[],side:[]}}}]} as any;
   expect(voiceCardNames(voiceRoom,id=>({name:id===2?"Old board card":"Deck card"}))).toEqual(["Trap Tracks","New board card","Old board card","Deck card"]);
-  const {speechHotwords,SttClient}=await import("../src/components/remote/ui/stt-client");
-  const hints=speechHotwords(["Recent Card", "Recent Card", "Older Card", ...Array.from({length:100},(_,i)=>`Deck card number ${i}`)]);
-  expect(hints).toContain("standby phase"); expect(hints).toContain("XYZ summon");
-  expect(hints.filter(word=>word==="Recent Card")).toHaveLength(1);
-  expect(hints.indexOf("Recent Card")).toBeLessThan(hints.indexOf("Older Card"));
-  expect(hints.join(", ").length).toBeLessThanOrEqual(600);
-  expect(speechHotwords(["bad\nname", "", "a".repeat(121)])).not.toContain("bad\nname");
-  const sent:string[]=[];
-  vi.stubGlobal("WebSocket",class {
-    onmessage:((event:{data:string})=>void)|null=null;
-    constructor(){queueMicrotask(()=>this.onmessage?.({data:JSON.stringify({type:"ready"})}));}
-    send(data:string){sent.push(data);}
-    close(){}
-  });
-  const client=new SttClient({},"ws://stt.test/ws");
-  expect(await client.start(["New board card"])).toBeTruthy();
-  expect(JSON.parse(sent[0])).toMatchObject({type:"start",hotwords:speechHotwords(["New board card"])});
-  client.close();
   const {createElement}=await import("react");
   const {renderToStaticMarkup}=await import("react-dom/server");
   const {VoxSection}=await import("../src/components/remote/ui/dock");

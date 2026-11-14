@@ -197,6 +197,26 @@ RUN mkdir -p /stage/app \
     && chmod -R a+rX,go-w /stage/app \
     && find /stage/app -exec touch -h -d @0 {} +
 
+# CI prepares only pinned models + sherpa WASM in data/voice-assets. The bind
+# mount avoids a separate input layer in this stage. Assembly is offline.
+# This stage shares deps, but does not compile the app or any engine core.
+FROM deps AS voice-assets
+ARG VOICE_ASSETS=1
+COPY scripts/voice scripts/voice
+COPY packages/web/src/components/remote/ui/voice packages/web/src/components/remote/ui/voice
+COPY packages/vision/src/licenses packages/vision/src/licenses
+RUN --mount=type=bind,source=.,target=/context \
+    mkdir -p /stage/app/vision-code \
+    && if [ "$VOICE_ASSETS" = 1 ]; then \
+         npx tsx scripts/voice/assemble.mts --from /context/data/voice-assets --out /stage/app/vision-code; \
+       fi \
+    && chmod -R a+rX,go-w /stage/app \
+    && find /stage/app -exec touch -h -d @0 {} +
+
+# PR smoke exports only the assembled files, reusing the bot build's deps layer.
+FROM scratch AS voice-assets-check
+COPY --from=voice-assets /stage/app /app
+
 # Production stage for the Next.js web dashboard.
 # Standalone output is traced from the worktree root (next.config outputFileTracingRoot).
 FROM node:22-bookworm-slim AS web
@@ -209,6 +229,7 @@ COPY --from=web-runtime-data /web-effects packages/shared/data/effects
 COPY --from=build /app/packages/shared/data/staples/usage.json packages/shared/data/staples/usage.json
 # Root-owned and read-only to the node user. The vision-assets route reads it first (VISION_CODE_DIR).
 COPY --from=vision-code /stage/app /app
+COPY --from=voice-assets /stage/app /app
 RUN mkdir -p /app/data /app/packages/web/.next/cache && \
     chown node:node /app/data && chown -R node:node /app/packages/web/.next/cache
 VOLUME ["/app/data"]

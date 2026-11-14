@@ -474,7 +474,7 @@ Setup order. Do the flags last, because only that step exposes the feature.
 1. DNS: first read the inbound rules of the Hetzner Cloud Firewall. If ports 80 and 443 allow only Cloudflare ranges (`cloudflare.md` section E), add an A record `rtc` to the VM IPv4 with the proxy on, because a DNS-only host cannot reach Caddy through that lock. If ports 80 and 443 are open to all, DNS only also works. In both cases add no AAAA record. The name carries signalling only. Media cannot pass through the proxy: it goes directly to `LIVEKIT_NODE_IP` on TCP 7881 and UDP 7882, so always check those ports with the VM IP, not the name.
 2. Hetzner Cloud Firewall: add inbound TCP 7881 and UDP 7882 from any source. Do not open TCP 7880, TCP 6789, 3478, 5349 or UDP 50000-60000. Host networking makes the firewall the only protection for port 6789.
 3. Keys: run `docker run --rm livekit/livekit-server:v1.13.11 generate-keys` on your own PC. A secret under 32 characters logs an error and the server keeps running, so startup does not prove the key.
-4. `.env`: set `REMOTE_DUELS=0`, `REMOTE_DUELS_USERS=<ids>` (never `*`), `REMOTE_MAX_LIVE_ROOMS=5` (new multi-seat rooms are refused at this many live rooms; existing rooms, joins and solo tables are not affected; unset, empty, `0` or an invalid value means no cap, and an invalid value logs one warning), `LIVEKIT_URL=wss://rtc.<domain>`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` and `LIVEKIT_NODE_IP`. `ip -4 -br addr show docker0` must show `172.17.0.1`, or change `--bind` in `services/livekit/docker-compose.prod.yml`. Keep `REMOTE_VOICE_RECOGNITION`, `NEXT_PUBLIC_REMOTE_STT_URL`, `REMOTE_VISION_FEEDBACK`, `REMOTE_VISION_AI`, `VISION_DATA_DIR` and `VISION_CODE_DIR` unset. Never set `DUEL_FX_LAB=1`: it makes the vision files public. No GitHub variable or build argument changes.
+4. `.env`: set `REMOTE_DUELS=0`, `REMOTE_DUELS_USERS=<ids>` (never `*`), `REMOTE_MAX_LIVE_ROOMS=5` (new multi-seat rooms are refused at this many live rooms; existing rooms, joins and solo tables are not affected; unset, empty, `0` or an invalid value means no cap, and an invalid value logs one warning), `LIVEKIT_URL=wss://rtc.<domain>`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` and `LIVEKIT_NODE_IP`. `ip -4 -br addr show docker0` must show `172.17.0.1`, or change `--bind` in `services/livekit/docker-compose.prod.yml`. Keep `REMOTE_VISION_FEEDBACK`, `REMOTE_VISION_AI`, `VISION_DATA_DIR` and `VISION_CODE_DIR` unset. Never set `DUEL_FX_LAB=1`: it makes the vision files public. Voice commands stay off unless `REMOTE_VOICE_USERS` lists the player; see `docs/remote-duels/voice.md`. No GitHub variable or build argument changes.
 5. Vision files come from two places.
    - **Code is in the web image.** `worker.js`, `NOTICE` and `ort/` (the ONNX Runtime WASM files) are built in the `vision-code` Docker stage with `scripts/vision/prepare.ts --code-only` (offline) and sit in the `web` container at `/app/vision-code`, owned by root. Each Deploy replaces them together with the web bundle, so a merge that changes `packages/vision` needs no copy and no `?v=` bump. The route reads these three from the image first, and from `data/vision` only when the image has no such file (local development). It sends `Cache-Control: private, no-cache` and an ETag from the file contents, so browsers revalidate on every load and a new image reaches them with a small 304 or a new file. An image rollback (`rollback=true`) rolls the worker back with it.
    - **Data stays in the volume.** The models, the index and the related-card map change rarely, and not with a deploy. Do this only for the first setup and after a model or index change. On a PC at the merged commit, copy `related-cards.json`, `yugioh-index.bin`, `yugioh-index.meta.json`, `yugioh-index.build.json` and `models/` (it must hold `LICENSE` and `THIRD_PARTY_NOTICES.md`, which `scripts/vision/prepare.ts` writes) from a prepared `data/vision` to a temp folder, then run `rsync -a <temp>/ root@<vm>:/opt/yugioh-bot/data/vision.tmp/`. Do not copy `worker.js`, `NOTICE` or `ort/`. On the VM run `chown -R 1000:1000 data/vision.tmp && chmod -R a+rX data/vision.tmp`, then `rm -rf data/vision.old; if [ -d data/vision ]; then mv data/vision data/vision.old; fi; mv data/vision.tmp data/vision`. On a repeat, without the first `mv`, the new files land inside the old folder. Then run `rm -rf data/vision.old`. Keep mtimes (`rsync -a`): the ETag of a data file uses size and mtime, and those files keep `max-age=3600`. A browser 404 for `yugioh-thresholds.json` and `yugioh-full-art.*` is normal.
@@ -494,6 +494,79 @@ Turn off, smallest step first:
 1. Video only, no restart: `docker compose --env-file .env -f services/livekit/docker-compose.prod.yml stop`. Tables stay.
 2. Whole feature: set `REMOTE_DUELS=0`, then run the command from step 8. To remove one person, edit `REMOTE_DUELS_USERS` instead. The `ws` recreate drops live sockets for a few seconds.
 3. Code: Deploy workflow with `rollback=true`. The schema stays and old images ignore the new tables. Then stop LiveKit and run `rm -rf data/vision data/vision.old`.
+
+### Browser voice assets in the web image
+
+`asr/` and `kws/` ship at `/app/vision-code/{asr,kws}` in the production **web image**, outside
+the `/app/data` bind mount. No VM data copy or Compose/env addition is needed. With no overrides,
+`VISION_CODE_DIR` defaults to `/app/vision-code`; `VISION_DATA_DIR` resolves to `/app/data/vision`
+from Next's `packages/web` working directory. The asset route checks the image first for both voice
+subtrees, using content ETags and `private, no-cache`, then falls back to the data directory for local
+development. Missing files return 404 for that request; startup and card-recognition assets do not
+depend on voice files. The existing Remote Duels access gate still applies.
+
+Test and manual non-rollback Deploy call `.github/workflows/prepare-voice-assets.yml` on an amd64
+runner. It downloads Moonshine files using the Hugging Face revision and per-file SHA-256 values in
+`scripts/voice/prepare-voice-models.mts`, and the KWS archive using `scripts/voice/kws-pins.json`'s
+SHA-256. It validates `sp-vocab.json` against the pinned KWS model. Node 22's type stripping runs
+`--models-only` without installing npm dependencies. Verified models are cached separately under
+`voice-models-v1-<hash>` (preparation scripts, KWS pins, licences and `sp-vocab.json`).
+
+The KWS WASM cache is `voice-kws-wasm-v1-<OS>-<arch>-<emscripten digest>-<hash>`; the hash covers
+`kws-pins.json`, `scripts/voice/kws/CMakeLists.txt`, `build-kws-wasm.ts` and `build-kws-wasm.sh`.
+The digest comes from `packages/duel-server/domain-core/pins.json`. An exact hit skips Docker/C++;
+a miss rebuilds from the sherpa commit in `kws-pins.json` in that digest-pinned emsdk image.
+There are no partial-key restores. Main push and manual Deploy producers save caches; PRs only read.
+An attempt-specific one-day artifact transfers models and KWS WASM to the ARM64 web image job.
+Automatic Deploy pulls the tested image digest and does not run this preparation again.
+The PR production dry run also builds/exports just the voice assembly stage after the bot image,
+reusing its dependency layer; it does not build Next.js or publish an image.
+
+Docker's `voice-assets` stage assembles these inputs offline, builds both workers from the checkout,
+and copies ONNX Runtime WASM from the `npm ci` install (1.30.0, exact version and integrity in
+`package-lock.json`). Worker bundles are never restored from the voice caches. The web image copies
+the output as a root-owned, read-only layer with epoch mtimes, like `vision-code`. Expect about
+62 MB additional uncompressed files; only web downloads the artifact. A cold KWS build adds several
+minutes plus the emsdk pull; warm preparation should take tens of seconds to a couple of minutes.
+These are estimates, to be checked in Actions. Existing engine preparation runs in parallel.
+
+To bump Moonshine, update its revision and every SHA-256 in `prepare-voice-models.mts`. To bump KWS,
+update its source commit and/or model archive URL/SHA-256 in `kws-pins.json`; regenerate `sp-vocab.json`
+with `prepare.mts --vocab` if needed. Update licences/notices alongside each pin. A toolchain bump
+updates the shared emscripten digest; an ONNX Runtime bump updates the npm lock and the matching
+licences in `packages/vision/src/licenses/`. These inputs invalidate the respective cache; increment
+the cache's `v1` prefix for a packaging-only change not represented in its hash inputs.
+
+Full Moonshine MIT, KWS model Apache-2.0, sherpa Apache-2.0, and ONNX Runtime MIT/dependency notices
+ship next to the files. `scripts/voice/NOTICE` supplements the root recognition `NOTICE` and is served
+as both `/dev/vision-assets/asr/NOTICE` and `/dev/vision-assets/kws/NOTICE`. Sherpa's statically linked
+ONNX Runtime 1.28.2 also has its own licence and dependency notices under `kws/`.
+
+Verify on the VM without changing services:
+
+```sh
+cd /opt/yugioh-bot
+docker compose -f docker-compose.yml exec -T web sh -c '
+  for file in asr/worker.js asr/model/encoder_model_quantized.onnx asr/model/decoder_model_merged_quantized.onnx asr/model/vocab.json asr/model/LICENSE.txt asr/ort-wasm-simd-threaded.mjs asr/ort-wasm-simd-threaded.wasm asr/LICENSE.onnxruntime.txt asr/ThirdPartyNotices.onnxruntime.txt kws/worker.js kws/model/encoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx kws/model/decoder-epoch-12-avg-2-chunk-16-left-64.int8.onnx kws/model/joiner-epoch-12-avg-2-chunk-16-left-64.int8.onnx kws/model/tokens.txt kws/model/LICENSE.txt kws/sherpa-kws.js kws/sherpa-kws.wasm kws/LICENSE kws/LICENSE.onnxruntime.txt kws/ThirdPartyNotices.onnxruntime.txt asr/NOTICE kws/NOTICE; do
+    test -s "/app/vision-code/$file" || exit 1
+  done
+  echo "Voice files present"
+'
+```
+
+In a signed-in, allowed user's browser, fetch `/dev/vision-assets/asr/worker.js` and
+`/dev/vision-assets/kws/model/tokens.txt` with `{cache: 'no-store'}`: both must return 200 and
+`Cache-Control: private, no-cache`. For curl, use that user's private cookie jar with
+`curl --fail --cookie /path/to/private-cookie-jar --head https://<SITE_DOMAIN>/dev/vision-assets/asr/worker.js`;
+do not print session cookies. A file check proves packaging; HTTP checks also prove the access gate and routing.
+
+Local dev remains `npx tsx scripts/voice/prepare-voice-models.mts --kws --wasm` into `data/vision`.
+For a local production-style web build, stage the reusable workflow's inputs at `data/voice-assets`,
+or pass `--build-arg VOICE_ASSETS=0` for a voice-free image. Do not run a full build on a loaded PC.
+If voice preparation breaks a release, change Dockerfile's `ARG VOICE_ASSETS=1` to `ARG VOICE_ASSETS=0`
+and ship that reviewed change through Test/Deploy. Both producer workflows then skip voice preparation;
+the Docker stage emits no voice files, and the existing vision layer remains. Alternatively use the
+normal image rollback procedure to a compatible healthy release. No VM build or manual binary copy is needed.
 
 ### Report bug button (GitHub issues)
 

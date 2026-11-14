@@ -1,0 +1,29 @@
+Browser voice command assets
+
+Moonshine Tiny English q8: Useful Sensors, Inc., MIT. ONNX conversion:
+https://huggingface.co/onnx-community/moonshine-tiny-ONNX
+Revision and file SHA-256 values: scripts/voice/prepare-voice-models.mts.
+Full MIT text: asr/model/LICENSE.txt. The English Tiny model is MIT;
+the upstream non-English legacy model terms do not apply to these files.
+Licence source (SECTION 1): https://github.com/moonshine-ai/moonshine/blob/d8d8fa29d05ca67441a7719e70099f9f48917a93/LICENSE
+
+sherpa-onnx KWS runtime: k2-fsa contributors, Apache-2.0.
+https://github.com/k2-fsa/sherpa-onnx
+Source commit: scripts/voice/kws-pins.json. Local build changes the KWS
+exports, memory settings and ES module packaging in scripts/voice/kws/CMakeLists.txt.
+Full upstream licence: kws/LICENSE (also retained as LICENSE.sherpa-onnx).
+
+KWS model: sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01,
+Apache-2.0. Archive URL and SHA-256: scripts/voice/kws-pins.json.
+https://github.com/k2-fsa/sherpa-onnx/releases/tag/kws-models
+Full licence: kws/model/LICENSE.txt.
+
+Browser ONNX Runtime: Microsoft Corporation, MIT; installed version and
+integrity are locked in package-lock.json (currently 1.30.0).
+Full licence and dependency notices: asr/LICENSE.onnxruntime.txt and
+asr/ThirdPartyNotices.onnxruntime.txt, copied from packages/vision/src/licenses/.
+The pinned sherpa build statically links ONNX Runtime 1.28.2. Its licence and
+dependency notices are retained in scripts/voice/licenses/ and shipped as
+kws/LICENSE.onnxruntime.txt and kws/ThirdPartyNotices.onnxruntime.txt.
+Sources: https://github.com/microsoft/onnxruntime/tree/v1.28.2
+These notices supplement the root NOTICE, which covers recognition assets.

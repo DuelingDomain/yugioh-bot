@@ -42,6 +42,33 @@ afterEach(async () => {
 });
 
 describe("code files from the web image", () => {
+  it.each(["asr", "kws"])("serves the %s subtree from the image, with local data fallback", async kind => {
+    for (const name of ["worker.js", "model/model.onnx", "model/LICENSE.txt"]) {
+      await put(codeDir, `${kind}/${name}`, `image ${name}`);
+      await put(dataDir, `${kind}/${name}`, `volume ${name}`);
+      const response = await get([kind, ...name.split("/")]);
+      expect(response.status).toBe(200);
+      expect(await response.text()).toBe(`image ${name}`);
+      expect(response.headers.get("cache-control")).toBe("private, no-cache");
+      expect(response.headers.get("etag")).toMatch(/^"[0-9a-f]{32}"$/);
+    }
+    await rm(join(codeDir, kind), { recursive: true });
+    const local = await get([kind, "worker.js"]);
+    expect(local.status).toBe(200);
+    expect(await local.text()).toBe("volume worker.js");
+  });
+
+  it("missing voice assets return 404 while existing image and data vision assets still serve", async () => {
+    await put(codeDir, "worker.js", "vision worker");
+    await put(dataDir, "models/card-detector.onnx", "vision model");
+    for (const kind of ["asr", "kws"]) {
+      expect((await get([kind, "worker.js"])).status).toBe(404);
+      expect((await get([kind, "model", "model.onnx"])).status).toBe(404);
+    }
+    expect(await (await get(["worker.js"])).text()).toBe("vision worker");
+    expect(await (await get(["models", "card-detector.onnx"])).text()).toBe("vision model");
+  });
+
   it("serves worker.js, NOTICE and ort/* from the code directory before the data directory", async () => {
     for (const [directory, label] of [[codeDir, "image"], [dataDir, "volume"]] as const) {
       await put(directory, "worker.js", `worker from ${label}`);

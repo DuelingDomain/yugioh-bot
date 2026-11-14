@@ -113,6 +113,21 @@ GitHub Actions needs `VM_HOST`, `VM_USER`, `VM_SSH_PRIVATE_KEY`, `VM_PORT` and t
 
 The duel image carries the bundle in `/opt/duel-engine`. Deploy also installs the same bundle into `data/duel-engine` on the host. At start, `install-engine-bundle.sh` checks the volume. A bundle change waits for active duels to finish. Pins and hashes: [core pins](../engine/core-pins.md). Engine choice per table: [engine switch](../deployment/duel-engine-switch.md). Weekly card data: [engine data updates](../deployment/engine-data-updates.md).
 
+## Browser recognition and voice assets
+
+The web image carries card-recognition worker/runtime code at `/app/vision-code`; recognition models
+and indexes remain in the host's `data/vision` volume. Voice assets instead ship together with the image
+under `/app/vision-code/asr` and `/app/vision-code/kws` (roughly 62 MB additional uncompressed files).
+The existing authenticated `/dev/vision-assets/*` route reads these voice subtrees from the image first;
+missing files only return 404 for the requested path. Neither startup nor vision data depends on them.
+
+The reusable `prepare-voice-assets.yml` workflow downloads hash-pinned models and builds or restores
+KWS WASM using a cache keyed on the sherpa pins, CMake/build scripts and the shared emscripten image
+digest. It passes an artifact to the ARM64 web build; Docker builds fresh worker bundles and copies
+the lockfile-installed ONNX Runtime WASM offline. Automatic Deploy reuses the tested image by digest.
+No VM preparation or new Compose/env settings are required. Pin updates, licences, verification and
+voice-free rollback: [voice assets runbook](../deployment/vm-runbook.md#browser-voice-assets-in-the-web-image).
+
 ## Backups
 
 | Item | Value |
