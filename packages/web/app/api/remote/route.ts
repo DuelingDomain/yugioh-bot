@@ -1,4 +1,4 @@
-import { notifyRemoteChange, remoteBody, remoteMaxLiveRooms, remoteError, remoteJson, remoteSeatCount, requireRemoteActor } from "@/lib/remote-duels";
+import { notifyRemoteChange, remoteBody, remoteMaxLiveRooms, remoteError, remoteJson, remoteRoomForViewer, remoteSeatCount, requireRemoteActor } from "@/lib/remote-duels";
 import { remoteAssert, remoteBestOfSchema, type RemoteRevealedHand, type RemoteVisibility } from "@yugidraft/shared/remote";
 export const runtime = "nodejs";
 export async function GET(request: Request) {
@@ -23,6 +23,6 @@ export async function POST(request: Request) {
     const room = actor.remote.create({ maxLiveRooms: remoteMaxLiveRooms(), guildId: actor.guildId, userId: actor.userId, displayName: actor.displayName,
       gameId: body.gameId, seatCount: remoteSeatCount(body.seatCount), bestOf: bestOf.data, solo: body.solo as boolean | undefined, format: body.format, rules: body.rules, showCardsSetFromDeck: body.showCardsSetFromDeck as boolean | undefined, revealedHand: body.revealedHand as RemoteRevealedHand | undefined, visibility: body.visibility as RemoteVisibility | undefined });
     await notifyRemoteChange(room.slug, actor.guildId);
-    return remoteJson(room, 201);
+    return remoteJson(remoteRoomForViewer(room, actor.userId), 201);
   } catch (error) { return remoteError(error); }
 }

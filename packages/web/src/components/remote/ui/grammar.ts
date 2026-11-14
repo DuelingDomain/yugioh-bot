@@ -1,4 +1,7 @@
-import { parsePhaseCommand, ygoModule, type AttackResolution, type RemoteState, type RemoteActionProposal } from "@yugidraft/shared/remote";
+import { naturalCommand } from "./voice/natural-phrases";
+import { matchPhasePhrase } from "./voice/speech-matcher";
+import { heardPhaseOf, judgePhaseWord, VOICE_PHASES } from "./voice/phase-plausibility";
+import { parsePhaseCommand, ygoBattleAllowed, ygoModule, type AttackResolution, type RemoteState, type RemoteActionProposal } from "@yugidraft/shared/remote";
 
 /** What a spoken line means for a Yu-Gi-Oh table. Only a proposal: the UI decides what needs a confirm. */
 export type VoiceIntent =
@@ -17,7 +20,10 @@ export type VoiceIntent =
 /** Where a spoken move sends a card. slot is 1 to 5 (EMZ 1 = left, 2 = right); an Extra Monster Zone without a side has no slot. */
 export type MoveDest = { zone: "monster" | "spell-trap" | "field" | "extra-monster" | "graveyard" | "banished" | "hand" | "extra"; slot?: number };
 /** "Dark Magician to monster zone two", "set in trap zone one", "defense position", "graveyard". No query = the card placed last. */
-export type MoveIntent = { query?: string; dest?: MoveDest; position?: "attack" | "defense"; faceUp?: boolean };
+/** `flipSummon` marks a spoken "flip summon <card>": the table accepts it only for a face-down card in a Monster Zone. */
+export type MoveIntent = { query?: string; dest?: MoveDest; position?: "attack" | "defense"; faceUp?: boolean; flipSummon?: true };
+/** Whether a card may be flip summoned by voice: face down, in a Monster Zone. */
+export const canFlipSummon = (card: { zone: string; faceUp: boolean }) => card.zone === "monster" && !card.faceUp;
 
 export type GrammarContext = {
   state: RemoteState;
@@ -94,6 +100,8 @@ const MOVE_VERBS = new Set(["put", "place", "move", "send", "summon", "set", "br
 const MOVE_FILLER = new Set(["to", "in", "into", "on", "onto", "at", "as", "the", "my", "it", "this", "that", "card", "face", "down", "up", "mode", "position", "from"]);
 
 /** Zone words, positions and face words in one line. The words left over name the card. Null when the line is not a move. */
+const CARD_TYPE_WORDS = new Set(["a", "an", "the", "one", "my", "card", "monster", "spell", "trap", "monsters", "spells", "traps"]);
+
 export function parseMove(raw: string): MoveIntent | null {
   let text = ` ${norm(raw)} `;
   if (text.length > 200) return null;
@@ -122,6 +130,8 @@ export function parseMove(raw: string): MoveIntent | null {
   if (!found && viaSet && !setWord) return null;
   const words = text.trim().split(/\s+/).filter(word => word && !MOVE_VERBS.has(word) && !MOVE_FILLER.has(word));
   const query = words.join(" ");
+  // "set a monster face down" names a card type, not a card; the fuzzy name match would pick some card with that word in its name.
+  if (words.length && !dest && words.every(word => CARD_TYPE_WORDS.has(word))) return null;
   // A leftover of more than six words is a sentence, not a card name.
   if (words.length > 6) return null;
   return { ...(query ? { query } : {}), ...(dest ? { dest } : {}), ...(position ? { position } : {}), ...(faceUp !== undefined ? { faceUp } : {}) };
@@ -140,11 +150,37 @@ function findSeat(text: string, ctx: GrammarContext): number | undefined {
 /** Turns one finished transcript into a single intent. `tolerant` numbers and names are resolved here. */
 export function interpret(raw: string, ctx: GrammarContext): VoiceIntent {
   raw = commandText(raw, ctx);
-  const text = norm(raw);
+  let text = norm(raw);
   if (!commandUtterance(raw, ctx)) return { kind: "none" };
+  // Common table talk ("pass", "going to battle", "swing at Dark Magician", "I chain") becomes the text the strict parsers know.
+  // With the card tray open every line names a card, so it is left alone.
+  const cards = contextCardNames(ctx).map(norm).filter(Boolean);
+  const startsWithCard = cards.some(card => text === card || text.startsWith(`${card} `));
+  const bareCardPrefix = !text.includes(" ") && cards.some(card => card.startsWith(`${text} `));
+  const fixedPhase = ctx.trayOpen || startsWithCard || bareCardPrefix ? "" : matchPhasePhrase(raw);
+  if (fixedPhase) { raw = fixedPhase; text = norm(raw); }
+  const natural = ctx.trayOpen ? null : naturalCommand(text, ctx.state, ctx.me, startsWithCard);
+  if (natural && "ignore" in natural) return { kind: "none" };
+  let flipSummon = false;
+  if (natural) {
+    raw = natural.text; text = norm(raw); flipSummon = natural.flip === true;
+    // Passing the turn must not replace the attack that is waiting for its confirm.
+    if (text === "end turn" && ctx.state.attack) return { kind: "none" };
+  }
   if (/^(respond|chain)\b/.test(text)) return { kind: "wake" };
   const phase = parsePhaseCommand(text === "standby" ? "standby phase" : raw, ctx.state);
-  if (phase) return phase;
+  if (phase) {
+    const current = VOICE_PHASES.find(p => p === ctx.state.phase);
+    if (phase.kind === "turn" && (ctx.state.attack || !current
+      || !judgePhaseWord(current, ctx.state.turn, ctx.state.turnSeat === ctx.me, "endTurn").accept)) return { kind: "none" };
+    // The live table has no other phase check, so a spoken phase must be a legal next phase, from the turn player (same rule as the voice check page).
+    // "back to X", "go back a phase" and "set phase to X" are the correction path and are not judged.
+    if (phase.kind === "phase" && !/\b(?:back|previous|last phase|undo phase|set phase)\b/.test(text)) {
+      const heard = heardPhaseOf(`${phase.phase === "main1" ? "main phase one" : phase.phase === "main2" ? "main phase two" : `${phase.phase} phase`}`);
+      if (!heard || !current || !judgePhaseWord(current, ctx.state.turn, ctx.state.turnSeat === ctx.me, heard, { battleAllowed: ygoBattleAllowed(ctx.state) }).accept) return { kind: "none" };
+    }
+    return phase;
+  }
   const activation=ygoModule.parseCommand({text:raw,actorSeat:ctx.me,state:ctx.state,now:ctx.now,lookupCard:ctx.lookupCard});
   if(activation?.type==="effect.activated") return {kind:"effect",proposal:activation};
   if (ctx.trayOpen) {
@@ -156,7 +192,7 @@ export function interpret(raw: string, ctx: GrammarContext): VoiceIntent {
   // Attack lines are for the attack resolver. "attack position" is a position word, not an attack.
   const attacking = /\battacks\b|\bdirect/.test(text) || /\battack\b(?! (?:position|mode)\b)/.test(text);
   const move = attacking ? null : parseMove(raw);
-  if (move) return { kind: "move", move };
+  if (move) return { kind: "move", move: flipSummon ? { ...move, flipSummon: true } : move };
   if (/\battacks?\b/.test(text) || /\bdirect(ly)?\b/.test(text)) {
     const direct = /\bdirect attack (on|at|against|to) (.+)$/.exec(text);
     const input = direct
@@ -184,7 +220,7 @@ export function trySaying(players: { seat: number; displayName: string }[], me: 
   const second = others[1]?.displayName.split(" ")[0] ?? first;
   const cards = [...new Set(cardNames.filter(name => name.trim()))];
   return ["main phase", "battle phase", "go back a phase", `${first} minus five hundred`, `direct attack on ${second}`, "end turn", "undo", "chain",
-    "monster zone two", "set in trap zone one", "field zone", ...cards.slice(0, 3).map(name => `${name} to monster zone two`),
+    "monster zone two", "set", "set in trap zone one", "field zone", ...cards.slice(0, 3).map(name => `${name} to monster zone two`),
     "extra monster zone left", "graveyard", "defense position"];
 }
 

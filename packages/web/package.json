@@ -18,6 +18,7 @@
     "@yugidraft/shared": "*",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "double-metaphone": "^2.0.1",
     "livekit-client": "^2.23.0",
     "livekit-server-sdk": "^2.19.2",
     "lucide-react": "^1.14.0",

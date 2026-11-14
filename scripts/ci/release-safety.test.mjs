@@ -69,7 +69,11 @@ test('unused SHA builds cannot evict the ten healthy release rollback targets', 
 
 test('image publication runs parallel to tests; the complete Test still gates deploy', () => {
   const job = workflow('test').jobs['production-images'];
-  assert.equal(job.needs, 'production-bundle');
+  // Images wait only for their two build inputs (engine bundle, pinned voice assets), never for test jobs.
+  assert.deepEqual(job.needs, ['production-bundle', 'production-voice-assets']);
+  const voice = workflow('prepare-voice-assets');
+  assert.deepEqual(voice.permissions, { contents: 'read' });
+  assert.doesNotMatch(JSON.stringify(voice), /secrets\./);
   assert.equal(job.strategy['max-parallel'], undefined);
   const prepare = workflow('deploy').jobs.prepare;
   assert.match(prepare.if, /workflow_run.conclusion == 'success'/);

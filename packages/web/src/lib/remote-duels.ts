@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createRemoteDuelService, TournamentRemoteError } from "@yugidraft/shared/services";
-import { remoteActionSchema, remoteAssert, remoteBestOfSchema, type RemoteRevealedHand, RemoteDuelError, type SeatCount } from "@yugidraft/shared/remote";
+import { remoteActionSchema, remoteAssert, remoteBestOfSchema, type RemoteTable, type RemoteRevealedHand, RemoteDuelError, type SeatCount } from "@yugidraft/shared/remote";
 import { isRemoteDuelUser } from "@yugidraft/shared/access/remote-duel-users";
 import { signedTransport } from "@yugidraft/shared/internal-auth";
 import { errorResponseBody, log } from "@yugidraft/shared/observability";
@@ -11,11 +11,6 @@ import { readSmallJsonObject } from "./read-small-body";
 
 export const remoteDuelsEnabled = () => process.env.REMOTE_DUELS === "1";
 export { REMOTE_TABLE_TALK } from "./remote/table-talk";
-/** The STT socket for voice commands, or null when off: the browser then opens no STT socket and no mic for it. Player talk is separate (REMOTE_TABLE_TALK). Production never falls back to localhost. */
-export const remoteSttUrl = () => {
-  if (process.env.REMOTE_VOICE_RECOGNITION !== "1") return null;
-  return process.env.NEXT_PUBLIC_REMOTE_STT_URL?.trim() || (process.env.NODE_ENV === "production" ? null : "ws://localhost:4020/ws");
-};
 let warnedInvalidMaxLiveRooms = false;
 /** REMOTE_MAX_LIVE_ROOMS: how many multi-seat rooms may be live, for the slow rollout. Unset, empty, 0 or invalid = no cap; an invalid value logs one warning. */
 export const remoteMaxLiveRooms = () => {
@@ -29,6 +24,15 @@ export const remoteMaxLiveRooms = () => {
   return Number(value) || undefined;
 };
 export const remoteDuelsEnabledFor = (userId: number) => remoteDuelsEnabled() && isRemoteDuelUser(userId);
+const listed = (value: string | undefined, userId: number) => Number.isSafeInteger(userId) && userId > 0 &&
+  (value ?? "").split(",").some(part => part.trim() === String(userId));
+/** Server runtime switches; unlike REMOTE_DUELS_USERS, neither list accepts a wildcard. */
+export const remoteVoiceEnabledFor = (userId: number) => remoteDuelsEnabledFor(userId) && listed(process.env.REMOTE_VOICE_USERS, userId);
+export const remoteVoiceDiagnosticsEnabledFor = (userId: number) => remoteVoiceEnabledFor(userId) && listed(process.env.REMOTE_VOICE_DIAGNOSTICS_USERS, userId);
+export function remoteRoomForViewer<T extends RemoteTable & { mySeat?: number; spectator?: boolean }>(room: T, userId: number) {
+  const voiceEnabled = room.mySeat !== undefined && room.mySeat >= 0 && !room.spectator && remoteVoiceEnabledFor(userId);
+  return { ...room, voiceEnabled, voiceDiagnosticsEnabled: voiceEnabled && remoteVoiceDiagnosticsEnabledFor(userId) };
+}
 /** For pages and files that have no actor yet: the signed-in viewer, against the switch and the rollout list. */
 export async function remoteDuelsForViewer() {
   if (!remoteDuelsEnabled()) return false;
@@ -118,7 +122,7 @@ export async function remoteMutation(request: Request, context: RemoteRouteConte
     await cleanupPhones(slug).catch(() => log("warn", "Phone participant cleanup pending", { slug }));
     const publishAt=performance.now();await notifyRemoteChange(slug, actor.guildId);
     timings.push(`remote-publish;dur=${(performance.now()-publishAt).toFixed(2)}`,`remote-route;dur=${(performance.now()-started).toFixed(2)}`);
-    const response=remoteJson(result);response.headers.set('server-timing',timings.join(', '));return response;
+    const response=remoteJson(remoteRoomForViewer(result, actor.userId));response.headers.set('server-timing',timings.join(', '));return response;
   } catch (error) { return remoteError(error); }
 }
 export function remoteSeatCount(value: unknown): SeatCount {

@@ -5,13 +5,14 @@ import { isAbsolute, relative, resolve, sep } from "node:path";
 
 /**
  * Where the web image keeps the recognition worker and the ONNX Runtime files (see the vision-code stage in the
- * Dockerfile). Models and indexes are data and stay in VISION_DATA_DIR.
+ * Dockerfile). Card-recognition models and indexes stay in VISION_DATA_DIR;
+ * the pinned voice models and runtimes ship together under asr/ and kws/.
  */
 export const VISION_CODE_DIR_DEFAULT = "/app/vision-code";
 
-/** worker.js, NOTICE and ort/* are code: they ship with the web image and must match its bundle. Everything else is data. */
+/** Image assets must match the web bundle. Voice subtrees include their pinned models and licences. */
 export function isVisionCodeAsset(path: string[]): boolean {
-  return (path.length === 1 && (path[0] === "worker.js" || path[0] === "NOTICE")) || (path.length > 1 && path[0] === "ort");
+  return (path.length === 1 && (path[0] === "worker.js" || path[0] === "NOTICE")) || (path.length > 1 && ["ort", "asr", "kws"].includes(path[0]));
 }
 
 export interface VisionAsset {
@@ -56,7 +57,7 @@ async function openInside(directory: string, path: string[]): Promise<{ file: Fi
 /**
  * Code files come from the image first, so a deploy updates them with the web bundle that loads them. When the image
  * has no such file (local development, where only data/vision exists) the data directory answers. Data files never
- * read from the code directory.
+ * read from the code directory, except the pinned voice models in asr/ and kws/.
  */
 export async function openVisionAsset(path: string[]): Promise<VisionAsset | undefined> {
   if (isVisionCodeAsset(path)) {

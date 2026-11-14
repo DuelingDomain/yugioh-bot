@@ -39,6 +39,7 @@ How the system is built.
 | [architecture/effect-search/artifact.md](architecture/effect-search/artifact.md) | The pinned effect artifact: source and format |
 | [architecture/effect-search/tagging.md](architecture/effect-search/tagging.md) | CI effect tagging with Claude: budget, ledger, owner setup |
 | [architecture/effect-search/format-staples.md](architecture/effect-search/format-staples.md) | Measured format staples |
+| [remote-duels/voice.md](remote-duels/voice.md) | Remote Duels browser voice commands, rollout switches, text diagnostics and analysis |
 
 ## engine
 

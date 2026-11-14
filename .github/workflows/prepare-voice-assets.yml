@@ -1,0 +1,125 @@
+name: Prepare pinned browser voice assets
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        type: string
+        required: true
+      save-cache:
+        type: boolean
+        default: false
+    outputs:
+      artifact:
+        value: ${{ jobs.prepare.outputs.artifact }}
+      enabled:
+        value: ${{ jobs.prepare.outputs.enabled }}
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    # WASM is architecture-independent; keep the C++ toolchain on the same
+    # amd64 runner type as the engine builders, separate from ARM64 image jobs.
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      artifact: ${{ steps.support.outputs.artifact }}
+      enabled: ${{ steps.support.outputs.enabled }}
+    steps:
+      - name: Checkout image source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+
+      - name: Detect voice image support
+        id: support
+        shell: bash
+        run: |
+          # Older manual refs and an explicit voice-free rollback need no inputs.
+          if grep -qx 'ARG VOICE_ASSETS=1' Dockerfile; then
+            echo 'enabled=true' >> "$GITHUB_OUTPUT"
+            echo "artifact=voice-assets-$(git rev-parse HEAD)-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup Node.js
+        if: steps.support.outputs.enabled == 'true'
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+
+      - name: Read pinned emscripten digest
+        if: steps.support.outputs.enabled == 'true'
+        id: toolchain
+        shell: bash
+        run: node -p "'digest=' + require('./packages/duel-server/domain-core/pins.json').emscripten.digest" >> "$GITHUB_OUTPUT"
+
+      - name: Restore pinned KWS WASM
+        if: steps.support.outputs.enabled == 'true'
+        id: wasm
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: data/voice-build/out
+          # domain-core/pins.json contains the emscripten image digest.
+          key: voice-kws-wasm-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain.outputs.digest }}-${{ hashFiles('scripts/voice/kws-pins.json', 'scripts/voice/kws/CMakeLists.txt', 'scripts/voice/build-kws-wasm.ts', 'scripts/voice/build-kws-wasm.sh') }}
+
+      - name: Build pinned KWS WASM on cache miss
+        if: steps.support.outputs.enabled == 'true' && steps.wasm.outputs.cache-hit != 'true'
+        shell: bash
+        run: node --experimental-strip-types scripts/voice/build-kws-wasm.ts
+
+      - name: Save pinned KWS WASM
+        if: steps.support.outputs.enabled == 'true' && inputs.save-cache && steps.wasm.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: data/voice-build/out
+          key: ${{ steps.wasm.outputs.cache-primary-key }}
+
+      - name: Restore verified voice models
+        if: steps.support.outputs.enabled == 'true'
+        id: models
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: data/voice-assets
+          key: voice-models-v1-${{ hashFiles('scripts/voice/prepare-voice-models.mts', 'scripts/voice/prepare-asr.mts', 'scripts/voice/prepare.mts', 'scripts/voice/kws-pins.json', 'scripts/voice/licenses/**', 'packages/web/src/components/remote/ui/voice/sp-vocab.json') }}
+
+      - name: Download and hash-check pinned models on cache miss
+        if: steps.support.outputs.enabled == 'true' && steps.models.outputs.cache-hit != 'true'
+        env:
+          VISION_DATA_DIR: ${{ github.workspace }}/data/voice-assets
+        shell: bash
+        # Node 22 strips types; models-only deliberately has no npm dependencies.
+        run: node --experimental-strip-types scripts/voice/prepare-voice-models.mts --kws --models-only
+
+      - name: Save verified voice models
+        if: steps.support.outputs.enabled == 'true' && inputs.save-cache && steps.models.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: data/voice-assets
+          key: ${{ steps.models.outputs.cache-primary-key }}
+
+      - name: Stage KWS runtime with models
+        if: steps.support.outputs.enabled == 'true'
+        shell: bash
+        run: |
+          set -eu
+          cp data/voice-build/out/sherpa-onnx-wasm-kws-main.js data/voice-assets/kws/sherpa-kws.js
+          cp data/voice-build/out/sherpa-onnx-wasm-kws-main.wasm data/voice-assets/kws/sherpa-kws.wasm
+          cp data/voice-build/out/LICENSE.sherpa-onnx data/voice-assets/kws/LICENSE.sherpa-onnx
+          # Reject incomplete cached output before any image build.
+          test -s data/voice-assets/kws/sherpa-kws.js
+          test -s data/voice-assets/kws/sherpa-kws.wasm
+          test -s data/voice-assets/kws/LICENSE.sherpa-onnx
+          tar -C data/voice-assets -czf "$RUNNER_TEMP/voice-assets.tar.gz" .
+
+      - name: Upload voice inputs for the web image only
+        if: steps.support.outputs.enabled == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ${{ steps.support.outputs.artifact }}
+          path: ${{ runner.temp }}/voice-assets.tar.gz
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0

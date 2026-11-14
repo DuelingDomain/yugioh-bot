@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Icon } from "./icons";
 import type { MicState } from "./use-voice";
 import s from "./remote-ui.module.css";
@@ -19,11 +19,12 @@ export function MicSection({ recognition = true, chat = "on", state, level, spea
   const label = state === "muted" ? "Muted" : state === "off" ? (recognition || chat === "none" ? "Voice off" : "Voice chat") : ptt ? (held ? "Listening" : "Push to talk") : state === "listen" ? "Listening" : "Idle";
   const sub = error ? error
     : !recognition && state === "off" ? (chat === "on" ? "Talk to the table." : chat === "connecting" ? "Connecting to voice chat…" : chat === "off" ? "Turn camera on to talk." : "No voice chat at a solo table.")
-    : service === "closed" && state !== "muted" ? "Speech service offline. Use the buttons and the keyboard."
+    : service === "closed" && state !== "muted" ? "Voice unavailable. Use the buttons and the keyboard."
+    : service === "connecting" ? "Loading voice models…"
     : state === "muted" ? "Muted. Unmute to use voice commands."
     : ptt ? "Hold V and speak."
-    : state === "listen" ? "Say a phase, an LP change or an attack."
-    : offTurn ? "Waiting for your turn. Say “chain” or “respond” to speak out of turn." : "Say “chain” to speak.";
+    : state === "listen" ? "Say a phase or end turn. Passing needs confirmation."
+    : offTurn ? "Waiting for your turn." : "Say a phase or end turn.";
   return <section className={`${s.dk} ${s.mic} ${s[state] ?? ""}`} aria-label="Voice control" data-testid="mic" data-mic={state}>
     <button type="button" className={s.micb} disabled={noMute} aria-label={muted ? "Unmute microphone" : "Mute microphone"} onClick={onMute}><Icon name={state === "muted" ? "micoff" : "mic"} /></button>
     <div className={s.mstat}>
@@ -38,8 +39,8 @@ export function MicSection({ recognition = true, chat = "on", state, level, spea
   </section>;
 }
 
-export function VoxSection({ recognition = true, transcript, proposal, samples, onConfirm, onCancel, onSample }: {
-  recognition?: boolean; transcript: Transcript; proposal: Proposal | null; samples: string[]; onConfirm: () => void; onCancel: () => void; onSample: (text: string) => void;
+export function VoxSection({ recognition = true, transcript, proposal, samples, onConfirm, onCancel, onSample, children }: {
+  recognition?: boolean; transcript: Transcript; proposal: Proposal | null; samples: string[]; onConfirm: () => void; onCancel: () => void; onSample: (text: string) => void; children?: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLElement>(null);
@@ -57,9 +58,10 @@ export function VoxSection({ recognition = true, transcript, proposal, samples, 
     {!recognition ? <div className={`${s.chip} ${s.tr}`} data-testid="voice-off"><span className={s.note}>Voice commands are off. Use the phase bar, the buttons and the keyboard.</span></div>
     : <div className={`${s.chip} ${s.tr}`} data-testid="transcript" aria-live="polite">
       <span className={s.who}><Icon name="mic" />Heard</span>
-      <q className={transcript.live ? s.live : ""}>{transcript.text || "Say a phase, an LP change or an attack."}</q>
+      <q className={transcript.live ? s.live : ""}>{transcript.text || "Say a phase or end turn."}</q>
       {transcript.result ? <span className={`${s.res} ${transcript.ignored ? s.ig : ""}`}>{transcript.result}</span> : null}
     </div>}
+    {children}
     {proposal ? <div className={`${s.chip} ${s.prop}`} role="group" aria-label="Confirm voice command" data-testid="proposal">
       <Icon name="check" className={s.pi} />
       <div className={s.pm}><div className={s.pt}>{proposal.title}</div><div className={s.ps}>{proposal.sub}</div></div>
@@ -74,13 +76,13 @@ export function VoxSection({ recognition = true, transcript, proposal, samples, 
   </section>;
 }
 
-export function UndoSection({ recognition = true, label, enabled, reason, flash, histOpen, onUndo, onHist }: {
-  recognition?: boolean; label: string; enabled: boolean; reason?: string; flash: number; histOpen: boolean; onUndo: () => void; onHist: (el: HTMLElement) => void;
+export function UndoSection({ recognition = true, spokenUndo = true, label, enabled, reason, flash, histOpen, onUndo, onHist }: {
+  recognition?: boolean; spokenUndo?: boolean; label: string; enabled: boolean; reason?: string; flash: number; histOpen: boolean; onUndo: () => void; onHist: (el: HTMLElement) => void;
 }) {
   return <section className={`${s.dk} ${s.undo}`} aria-label="Undo">
     <button type="button" className={`${s.ubtn} ${flash ? s.flash : ""}`} key={flash} disabled={!enabled} onClick={onUndo} data-testid="undo">
       <Icon name="undo" /><span className={s.ut}><span className={s.ul} data-testid="undo-label">{enabled ? `Undo: ${label}` : "Nothing to undo"}</span>
-        <span className={s.usub}>{reason ? `${reason} · ` : ""}<kbd>Ctrl</kbd> <kbd>Z</kbd>{recognition ? " · or say “undo”" : ""}</span></span>
+        <span className={s.usub}>{reason ? `${reason} · ` : ""}<kbd>Ctrl</kbd> <kbd>Z</kbd>{recognition && spokenUndo ? " · or say “undo”" : ""}</span></span>
     </button>
     <button type="button" className={s.hbtn} aria-haspopup="dialog" aria-expanded={histOpen} aria-label="Show recent actions" data-layer-opener data-testid="history-button"
       onClick={event => onHist(event.currentTarget)}><Icon name="hist" /></button>

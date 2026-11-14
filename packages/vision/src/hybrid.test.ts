@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { inflateSync } from 'node:zlib';
 import { acceptsFirst, distinctScores, HybridPipeline, loadHybridOrCurrent } from './hybrid';
 import { mapBankNames, buildHybridCatalog } from './hybrid-catalog';
 import { hybridProfiles, duelSightModel, lightModel } from './hybrid-models';
@@ -14,6 +16,7 @@ import { preprocess, cropRGBA, rotate180 } from './pixels';
 import { toContractTensor } from './duelsight/preprocess';
 import { buildHypotheses } from './hypotheses';
 import { createRecognizer, loadHybridCatalog } from './client';
+import { createFieldWatcher, type FieldEvent, type FieldWatcherOptions } from './field-watcher';
 import type { GameProfile, LoadedIndex, DetectedQuad } from './types';
 import type { ModelSession } from './runtime';
 
@@ -53,6 +56,58 @@ test('cascade answers with the first stage, reads both orientations and preserve
   assert.equal(r.candidates[0].cardId,'A');assert.equal(r.tier,'sure');assert.equal(r.reader?.stage,'first');
   assert.equal(f.count.first,2);assert.equal(f.count.second,0);assert.equal(f.count.current,0);
   assert.equal(r.identityEmbedding?.modelId,duelSightModel.id);assert.equal(slimResult(r).reader?.stage,'first');
+});
+test('hybrid preserves positive-back Set admission and only replaces face-up name reading',async()=>{
+  const trace=JSON.parse(readFileSync(new URL('./fixtures/phantom-phone.json',import.meta.url),'utf8'));
+  const phone={width:trace.crop.width,height:trace.crop.height,data:new Uint8ClampedArray(inflateSync(Buffer.from(trace.crop.rgbaDeflate,'base64')))};
+  const front={width:96,height:140,data:new Uint8ClampedArray(96*140*4)};
+  for(let py=0;py<front.height;py++)for(let px=0;px<front.width;px++){
+    const x=px/front.width,y=py/front.height;
+    const rgb=x<.06||x>.94||y<.04||y>.96?[25,25,25]:x>.12&&x<.88&&y>.18&&y<.70?[60+140*x,40+130*y,70+80*Math.sin(35*x)*Math.cos(30*y)]:x>.10&&x<.90&&y>.76&&y<.92?(y%.035<.012?[65,55,45]:[220,210,180]):[35,145,120];
+    front.data.set([...rgb,255],(py*front.width+px)*4);
+  }
+  const back={...front,data:new Uint8ClampedArray(front.data.length).fill(15)};
+  const frame:ImageData={width:100,height:100,colorSpace:'srgb',data:new Uint8ClampedArray(40_000).fill(120)};
+  const setTimes:number[]=[];
+  for(const selected of ['current','hybrid'] as const)for(const kind of ['phone','back','front'] as const){
+    const f=fixture(),pipeline=selected==='hybrid'?f.pipeline:f.current;
+    const outline:DetectedQuad={quad:[{x:.3,y:.3},{x:.47,y:.3},{x:.47,y:.55},{x:.3,y:.55}],kind:kind==='front'?'face-up':'face-down',confidence:.95,partial:false};
+    let at=0,present=false;
+    const events:FieldEvent[]=[];
+    const recognizer:FieldWatcherOptions['recognizer']={
+      detectCards:async()=>present?[outline]:[],
+      recognize:(frames,opts)=>pipeline.recognize(frames.map(frame=>{assert.ok('data' in frame);return frame;}),opts),
+    };
+    const watcher=createFieldWatcher({profile:f.args[0],recognizer,now:()=>at,hidden:()=>false,buffer:{sample:async()=>({frame,at})},clone:async frame=>frame,
+      analyze:()=>({motion:()=>0,sharpness:()=>20,crop:()=>kind==='phone'?phone:kind==='back'?back:front,
+        appearance:()=>kind==='front'?Array.from({length:12},(_,i)=>i%2?.6:.2):Array(12).fill(.8),halo:()=>Array(192).fill(.2)})});
+    watcher.subscribe(event=>events.push(event));
+    try{
+      at+=100;await watcher.tick();present=true;watcher.scanNow();
+      for(let i=0;i<20;i++){at+=100;await watcher.tick();}
+      assert.equal(watcher.getSnapshot().metrics.errors,0);
+      const placements=events.filter(event=>event.type==='placed');
+      if(kind==='phone'){
+        assert.equal(placements.length,0,selected);assert.equal(events.some(event=>event.type==='reading'),false);
+        const prompts=events.filter(event=>event.type==='prompt');assert.equal(prompts.length,1);
+        assert.equal(prompts[0].reason,'card-presence');assert.equal(prompts[0].track.setEvidence?.positive,false);
+      }else{
+        assert.equal(placements.length,1,`${selected} ${kind}`);
+        const placed=placements[0];assert.equal(placed.track.faceDown,kind==='back');
+        if(kind==='back'){
+          assert.equal(placed.track.setEvidence?.positive,true);assert.equal(placed.track.setEvidence?.decision,'committed');
+          assert.equal(placed.track.cardId,undefined);assert.equal(events.some(event=>event.type==='reading'),false);
+          setTimes.push(placed.track.lastSeen-placed.track.firstSeen);
+        }else{
+          assert.equal(placed.track.cardId,selected==='hybrid'?'A':'B');
+          if(selected==='hybrid'){assert.equal(placed.result?.reader?.selected,'hybrid');assert.equal(placed.timing?.reader?.stage,'first');assert.ok(f.count.first>0);assert.equal(f.count.current,0);}
+          else assert.ok(f.count.current>0);
+        }
+      }
+      if(kind!=='front')assert.deepEqual(f.count,{first:0,second:0,current:0},'Set evidence never invokes a name reader');
+    }finally{watcher.dispose();}
+  }
+  assert.deepEqual(setTimes,[100,100],'Current and Hybrid keep the same positive Set timing');
 });
 test('a strong competitor in the other orientation defeats the first gate and Light answers',async()=>{
   const f=fixture([.8,.6]);const r=await f.pipeline.recognize([image],{card,includeRaw:true,preclean:false});

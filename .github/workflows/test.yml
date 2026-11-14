@@ -1184,10 +1184,18 @@ jobs:
           retention-days: 1
           compression-level: 0
 
+  production-voice-assets:
+    needs: changes
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name != 'push' && needs.changes.outputs.prod_build == 'true')
+    uses: ./.github/workflows/prepare-voice-assets.yml
+    with:
+      ref: ${{ github.sha }}
+      save-cache: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+
   production-images:
     name: Build ARM64 ${{ matrix.service }} image
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: production-bundle
+    needs: [production-bundle, production-voice-assets]
     runs-on: ubuntu-24.04-arm
     permissions:
       contents: read
@@ -1216,6 +1224,17 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: ${{ github.sha }}
+      - name: Download pinned voice inputs for web
+        if: matrix.service == 'web' && needs.production-voice-assets.outputs.enabled == 'true'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: ${{ needs.production-voice-assets.outputs.artifact }}
+          path: ${{ runner.temp }}/voice-inputs
+      - name: Unpack voice image inputs
+        if: matrix.service == 'web' && needs.production-voice-assets.outputs.enabled == 'true'
+        run: |
+          mkdir -p data/voice-assets
+          tar -C data/voice-assets -xzf "$RUNNER_TEMP/voice-inputs/voice-assets.tar.gz"
       - name: Build production image
         uses: ./.github/actions/build-production-image
         with:
@@ -1230,8 +1249,8 @@ jobs:
           SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
 
   production-dry-run:
-    name: Production composites dry run (bundle and bot)
-    needs: changes
+    name: Production composites dry run (bundle, bot and voice assets)
+    needs: [changes, production-voice-assets]
     if: github.event_name != 'push' && needs.changes.outputs.prod_build == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 90
@@ -1257,10 +1276,26 @@ jobs:
           push: 'false'
           platform: linux/amd64
 
+      - name: Download pinned voice inputs for stage smoke
+        if: needs.production-voice-assets.outputs.enabled == 'true'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: ${{ needs.production-voice-assets.outputs.artifact }}
+          path: ${{ runner.temp }}/voice-inputs
+      - name: Build only the voice assembly stage using the warm bot dependencies
+        if: needs.production-voice-assets.outputs.enabled == 'true'
+        run: |
+          mkdir -p data/voice-assets
+          tar -C data/voice-assets -xzf "$RUNNER_TEMP/voice-inputs/voice-assets.tar.gz"
+          docker buildx build --platform linux/amd64 --target voice-assets-check \
+            --output "type=local,dest=$RUNNER_TEMP/voice-stage" .
+          test -s "$RUNNER_TEMP/voice-stage/app/vision-code/asr/worker.js"
+          test -s "$RUNNER_TEMP/voice-stage/app/vision-code/kws/sherpa-kws.wasm"
+
   ci-result:
     name: CI result
     if: always()
-    needs: [changes, core-cache, core-build, cores, new-card-smoke-status-pending, new-card-smoke, new-card-smoke-report, new-card-smoke-status, effect-protocol, unit-web-build, unit-shared, unit-bot, unit-ws, unit-worker, unit-duel, unit-web, unit-e2e, ci-scripts, engine-app, engine-shards, engine-legacy-shards, engine-differential, native, rule-coverage, nduel-nightly, production-bundle, production-images, production-dry-run]
+    needs: [changes, core-cache, core-build, cores, new-card-smoke-status-pending, new-card-smoke, new-card-smoke-report, new-card-smoke-status, effect-protocol, unit-web-build, unit-shared, unit-bot, unit-ws, unit-worker, unit-duel, unit-web, unit-e2e, ci-scripts, engine-app, engine-shards, engine-legacy-shards, engine-differential, native, rule-coverage, nduel-nightly, production-bundle, production-voice-assets, production-images, production-dry-run]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -1293,7 +1328,7 @@ jobs:
           if (process.env.NIGHTLY === 'true') requireSuccess('nduel-nightly');
           if (selected.effects === 'true') requireSuccess('effect-protocol');
           if (selected.smoke_enabled === 'true') requireSuccess('new-card-smoke-report');
-          if (process.env.EVENT === 'push') ['production-bundle', 'production-images'].forEach(requireSuccess);
+          if (process.env.EVENT === 'push') ['production-bundle', 'production-voice-assets', 'production-images'].forEach(requireSuccess);
           if (process.env.EVENT !== 'push' && selected.prod_build === 'true') requireSuccess('production-dry-run');
           JS
       - name: Report nightly failure

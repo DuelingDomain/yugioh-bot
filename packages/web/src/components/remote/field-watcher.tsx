@@ -9,6 +9,7 @@ import {createSlowWatch,isWeakDevice,markTapOfferShown,readTapChoice,saveTapChoi
 import {isTournamentTable,readTournamentMode,saveTournamentMode,stateMode,ownDetectionMode,type TournamentMode,type TournamentModeReason} from '@/lib/remote/tournament-detection';
 import {remoteHandActivationDecision,remoteHandReadDecision,remotePhysicalSlot,REMOTE_HAND_SUGGESTION_EVENT,recentFieldDeparture,REMOTE_UNREAD_PILE_MS,type RemoteRoom,type RemoteSummonKind,type TwinCard} from '@yugidraft/shared/remote';
 import type {RoomMutation,RoomTransaction} from '@/lib/remote/room-mutations';
+import {NOT_A_CARD_EVENT} from '@/lib/remote/set-card-diagnostics';
 import {useFieldWatcher} from '@/lib/remote/use-field-watcher';
 import {e2eFieldHook} from '@/lib/remote/e2e-field-hook';
 import {fieldPositionMatches,applyFieldFaceFlip,fieldFaceProposal,fieldStrongBack,fieldTwinPosition,fieldDepartureProposal,fieldDepartureStillMissing,fieldPileEvidence,fieldLeaveLabel,FIELD_LEAVE_DESTINATIONS,heldFieldReadPending,fieldPlacementProposals,fieldEvidenceMatches,simultaneousFieldCopies,applyVerifiedFieldMutation,StaleFieldPlacementError,observedFieldZone,staleFieldOccupant,retryFieldMutation} from '@/lib/remote/field-proposals';
@@ -184,7 +185,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   const known=():KnownFieldCard[]=>current.current.room.state.seats[seat].twin.flatMap(c=>{if(c.token||[...placeholders.current.values()].includes(c.ref))return [];const zone=c.zone==='hand'?'HAND' as const:knownZone(c);return zone?[{id:c.ref,zone,cardId:c.faceUp||c.publicIdentity||['deck','hand','extra'].includes(c.zone)?String(cardCode(c)??''):undefined,faceDown:!c.faceUp,position:c.position}]:[];});
   const offer=(event:FieldEvent)=>{
     const key=`${event.track.id}:${event.track.revision??0}`;
-    if(event.track.faceDown||prompted.current.has(key))return;
+    if(event.track.faceDown&&event.reason!=='card-presence'||prompted.current.has(key))return;
     // React may replay state updaters. Reserve once outside the pure updater.
     prompted.current.add(key);setPrompts(list=>[...list.slice(-5),event]);
   };
@@ -245,7 +246,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       console.info('[remote field] dequeued',event?.type,event?.track.id,latest.lastSeq);
       const apply:RoomMutation=async (input,idempotencyKey)=>{const actionId=idempotencyKey??crypto.randomUUID();
         // A Trap that the camera sees go from S/T to a Monster Zone is a Trap Monster: it keeps its S/T zone.
-        let proposal=input;if(input.type==='twin.move'&&input.trapMonster===undefined){const moving=current.current.room.state.seats[seat].twin.find(c=>c.ref===input.cardRef);if(becomesTrapMonster(moving,cardInfo(moving&&cardCode(moving)),input.zone))proposal={...input,trapMonster:true};}if(!proposal.cam)proposal={...proposal,cam:humanChoice?fieldCameraStamp(event?.timing,'player','prompt-choice'):fieldCameraStamp(event?.timing,'camera',proposal.type==='undo'?'auto-undo':undefined)};bindFieldTiming(actionId,current.current.room.slug,event?.timing);
+        let proposal=input;if(input.type==='twin.move'&&input.trapMonster===undefined){const moving=current.current.room.state.seats[seat].twin.find(c=>c.ref===input.cardRef);if(becomesTrapMonster(moving,cardInfo(moving&&cardCode(moving)),input.zone))proposal={...input,trapMonster:true};}if(!proposal.cam)proposal={...proposal,cam:humanChoice?fieldCameraStamp(event?.timing,'player',event?.reason==='card-presence'?'set-card':'prompt-choice'):fieldCameraStamp(event?.timing,'camera',proposal.type==='undo'?'auto-undo':undefined)};if(event?.track.setEvidence&&proposal.cam)proposal={...proposal,cam:{...proposal.cam,set:event.track.setEvidence}};bindFieldTiming(actionId,current.current.room.slug,event?.timing);
         console.info('[remote field] write',proposal.type,actionId);markFieldTiming(event?.timing,'mutation',{actionId});const updated=await retryFieldMutation(act,proposal,actionId,()=>proposal.type==='undo'||live()&&(!event||(event.type==='removed'?watch.isRemoved(event.track.id):fieldEvidenceMatches(event,watch.getTrack(event.track.id),humanChoice))),error=>{const text=error instanceof Error?error.message:String(error);console.warn('[remote field] save failed',proposal.type,text);lastWriteError.current=`${new Date().toLocaleTimeString()} ${text}`;markFieldTiming(event?.timing,'writeFailed',{type:proposal.type});if(!quiet)setNotice(text);});console.info('[remote field] write result',proposal.type,updated?.lastSeq??'not saved');if(!updated)console.info('[remote field] write skipped: the card changed before it was saved',proposal.type);if(updated){current.current.room=updated;prunePhysical();}return updated;};
       await work(apply);console.info('[remote field] flushed',event?.type,event?.track.id,current.current.room.lastSeq);setFailedUpdate(previous=>previous?.work===work?null:previous);
     }).catch(error=>{console.error('[remote field] update failed',error);if(quiet)return;if(error instanceof StaleFieldPlacementError)setRecovery(error);else{setFailedUpdate({work,event,humanChoice});setNotice(error instanceof Error?error.message:'Could not save the field update. Use Retry field update.');}});
@@ -358,7 +359,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   }
   async function apply(event:FieldEvent,act:RoomMutation,chosen?:string,attempt=0) {
     console.info('[remote field] identify',event.track.id,chosen??event.track.cardId,event.track.zone,event.type);
-    const humanChoice=!!chosen&&event.type==='prompt';
+    const humanChoice=event.type==='prompt'&&(!!chosen||event.reason==='card-presence');
     const matchesEvidence=(track:FieldTrack|undefined)=>fieldEvidenceMatches(event,track,humanChoice);
     const mutate=(proposal:Parameters<typeof applyVerifiedFieldMutation>[3])=>applyVerifiedFieldMutation(event,()=>watch.getTrack(event.track.id),act,proposal,humanChoice);
     // Nothing is written yet: a card that is moving or covered defers its identification.
@@ -850,6 +851,10 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   const tournament=isTournamentTable(room);
   const watch=useFieldWatcher({tournament:tournament?{saved:()=>readTournamentMode(room.slug,seat)}:undefined,owner:ownsSource,active:hub.cameraOn&&room.status==='active'&&!room.state.ended&&!room.state.seats[seat].eliminated,seatKey:`${room.guildId}:${room.seats.find(s=>s.seat===seat)?.userId??'local'}:${seat}`,duelKey:room.slug,captureSize,deviceKey:cameraKey,deviceLabel:hub.devices.find(d=>d.deviceId===hub.cameraId)?.label||undefined,sourceKey:readerKey,
     async create(){const resources=await ownFieldResources(()=>(recognitionPriorsFor(current.current.room,seat)));if(!resources)return null;entries.current=new Map(resources.entries.map(e=>[e.cardId,e]));return {...resources,profile:yugioh,earlyExitMargin:.02,format:current.current.room.format?.id??current.current.room.state.deckChecks.format.id,getKnownCards:known,onHeldCard:handleHeld,onHeldUnsure:handleHeldUnsure,cpuBusy:()=>resources.cpuBusy()||calibrationBusy.current};},onEvent:handle});
+  useEffect(()=>{
+    const reject=(event:Event)=>{if(!(event instanceof CustomEvent))return;const value=event.detail;if(value?.slug!==current.current.room.slug||value.seat!==seat||typeof value.ref!=='string')return;const id=[...bindings.current.entries()].find(([,ref])=>ref===value.ref)?.[0]??value.ref;watch.notACard(id,(()=>{const card=current.current.room.state.seats[seat].twin.find(c=>c.ref===value.ref);return card?knownZone(card):undefined;})());setPrompts(list=>list.filter(p=>p.track.id!==id));};
+    window.addEventListener(NOT_A_CARD_EVENT,reject);return()=>window.removeEventListener(NOT_A_CARD_EVENT,reject);
+  },[seat,watch.notACard]);
   // Every camera lock step (the first lock at camera start, a re-lock, an anti-glare exposure step, lock off)
   // changes brightness and sharpness: the watcher learns its blur and shadow baselines again.
   const lock=hub.cameraLock,lockKey=lock?`${lock.enabled}|${lock.locked}|${lock.busy}|${lock.debug??''}`:'';
@@ -1436,6 +1441,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   const promptInfo=useCardInfo(activePrompts.flatMap(event=>(event.result?.candidates??[]).map(candidate=>{const entry=entries.current.get(candidate.cardId);return entry?catalogCardId(entry):undefined;})));
   const promptViews=activePrompts.map(event=>{
     const observed=watch.getTrack(event.track.id)!,twins=current.current.room.state.seats[seat].twin;
+    if(event.reason==='card-presence')return {id:event.track.id,zone:observed.zone,title:'Card here?',presence:true,quad:observed.card.quad,candidates:[{id:'face-down',label:'Set card'}]};
     // Cards that fit the observed zone come first; others stay available (a monster can be an Equip Card).
     const fits=(cardId:string)=>{const entry=entries.current.get(cardId);return fieldCandidateFitsZone(observed.zone,entry?promptInfo(catalogCardId(entry)):undefined);};
     const choices=event.reason==='pile'?[]:observed.faceDown?[{cardId:'face-down'}]:[...(event.result?.candidates??[])].sort((a,b)=>Number(fits(b.cardId))-Number(fits(a.cardId))).slice(0,5);
@@ -1466,10 +1472,19 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
         console.info('[remote field] candidate click',id,cardId);
         const event=activePrompts.find(p=>p.track.id===id),track=watch.getTrack(id);
         if(!event||!track){console.error('[remote field] expired candidate prompt',id);setNotice('Card prompt expired. Keep the card still for a fresh read.');return;}
-        const selection={...event,track};setFailedUpdate(null);setPending(true);
-        void queue(act=>apply(selection,act,cardId==='face-down'?undefined:cardId),selection,cardId!=='face-down').finally(()=>setPending(false));
+        if(event.reason==='card-presence'&&!watch.acceptSet(id)){setNotice('Keep the card still, then choose again.');return;}
+        const selection={...event,track:watch.getTrack(id)??track};setFailedUpdate(null);setPending(true);
+        void queue(act=>apply(selection,act,cardId==='face-down'?undefined:cardId),selection,cardId!=='face-down'||event.reason==='card-presence').finally(()=>setPending(false));
       }}
-      onDismiss={id=>{watch.dismiss(id);setPrompts(list=>list.filter(p=>p.track.id!==id));void queueHuman('dismiss',async act=>{await removePlaceholder(id,act);});}}
+      onDismiss={id=>{
+        const presence=activePrompts.find(p=>p.track.id===id&&p.reason==='card-presence');
+        if(presence)watch.notACard(id);else watch.dismiss(id);setPrompts(list=>list.filter(p=>p.track.id!==id));
+        void queueHuman(presence?'not-a-card':'dismiss',async act=>{
+          if(!await removePlaceholder(id,act)||!presence)return;
+          const ref=bindings.current.get(id)??presence.bindRef??id,card=current.current.room.state.seats[seat].twin.find(c=>c.ref===ref);
+          if(card&&!card.token&&publicField(card.zone))await act({type:'twin.remove',actorSeat:seat,seat,cardRef:ref});
+        });
+      }}
       noticeTestId={departure?'field-departure-toast':undefined}
       notice={tokenPrompt?.choosing?<span data-testid="token-clash-zones">Which zone is the card in?
         {freeFieldZones(room.state.seats[seat].twin,tokenPrompt.facts,tokenPrompt.event.track.faceDown).map(zone=><button type="button" key={zone} disabled={pending} data-testid={`token-clash-zone-${zone}`} onClick={()=>{const {event,zone:cell}=tokenPrompt;setTokenPrompt(null);tokenAway.current.set(event.track.id,{cell,zone});void queue(act=>apply(event,act),event);}}>{zone}</button>)}

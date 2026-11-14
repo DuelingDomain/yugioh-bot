@@ -48,3 +48,5 @@ export {replayClip,recordedRecognizer,scoreReplay,draftTruth,gateAgainstBaseline
 export type {ReplayResult,ReplayEvent,ReplayRead,ReplayOptions,ReplayMetrics} from './clip-replay';
 
 export type { CardReader, ReaderDiagnostics } from './types';
+export {DEFAULT_SET_GUARDS,newSetCardMemory,ignoreSetRegion} from './set-card-evidence';
+export type {SetGuards,SetEvidence,SetDecision,SetCardMemory} from './set-card-evidence';

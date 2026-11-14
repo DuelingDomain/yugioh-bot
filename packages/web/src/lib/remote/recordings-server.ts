@@ -5,7 +5,8 @@ import { randomBytes } from "node:crypto";
 import { appendFile, mkdir, open, readdir, rm, rmdir, stat, statfs, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { log } from "@yugidraft/shared/observability";
-import { RemoteDuelError } from "@yugidraft/shared/remote";
+import {z} from "zod";
+import { remoteSetEvidenceSchema, RemoteDuelError } from "@yugidraft/shared/remote";
 import { FIELD_ZONE_IDS } from "@yugidraft/vision";
 import { resolveDbPath } from "../db";
 
@@ -181,6 +182,13 @@ async function guarded<T>(work: () => Promise<T>): Promise<T> {
 }
 export const startRecording = (input: Parameters<typeof startInner>[0]) => guarded(() => startInner(input));
 
+const setDecisionsSchema=z.array(z.object({n:z.number().int().nonnegative(),decision:z.object({id:z.string().max(100),at:z.number().nonnegative(),zone:z.enum(FIELD_ZONE_IDS),quad:z.array(z.object({x:z.number().min(-5).max(5),y:z.number().min(-5).max(5)})).length(4),guards:z.object({positiveBack:z.boolean(),prompt:z.boolean(),ignore:z.boolean(),startup:z.boolean()}),evidence:remoteSetEvidenceSchema})})).max(8);
+async function addSetDecisions(a:Active,raw:unknown){
+  if(raw===undefined)return;
+  const parsed=setDecisionsSchema.safeParse(raw);if(!parsed.success)return;
+  const write=a.queue.catch(()=>undefined).then(async()=>{const list=(a.sidecar.setCandidates??=[]) as z.infer<typeof setDecisionsSchema>;for(const item of parsed.data)if(list.length<5000&&!list.some(old=>old.n===item.n))list.push(item);await writeSidecar(a);});
+  a.queue=write;await write;
+}
 function owned(id: string, userId: number, seat: number, slug: string) {
   const a = /^[0-9a-f]{24}$/.test(id) ? active.get(id) : undefined;
   if (!a) return fail(404, "UNKNOWN_RECORDING", "Unknown recording");
@@ -225,8 +233,8 @@ export const appendChunk = (input: { id: string; userId: number; seat: number; s
 });
 
 /** A tiny round trip the browser times before each chunk, so every chunk carries a fresh clock sample (the chunk upload itself is too slow to time). */
-export function clockRecording(input: { id: string; userId: number; seat: number; slug: string }) {
-  owned(input.id, input.userId, input.seat, input.slug);
+export async function clockRecording(input: { id: string; userId: number; seat: number; slug: string; setCandidates?:unknown }) {
+  const a=owned(input.id, input.userId, input.seat, input.slug);await addSetDecisions(a,input.setCandidates);
   return { ok: true, serverTime: Date.now() };
 }
 
@@ -246,6 +254,7 @@ async function finish(a: Active, reason: string, extra: Sidecar = {}) {
 }
 export async function endRecording(input: { id: string; userId: number; seat: number; slug: string; body: Record<string, unknown> }) {
   const a = owned(input.id, input.userId, input.seat, input.slug);
+  await addSetDecisions(a,input.body.setCandidates);
   await finish(a, text(input.body.reason, 40) ?? "client", { endBackend: text(input.body.backend, 40) ?? null });
   return { ok: true, chunks: a.chunks, bytes: a.bytes };
 }

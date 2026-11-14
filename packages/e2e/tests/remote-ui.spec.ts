@@ -612,7 +612,7 @@ test.describe("remote lobby camera step", () => {
     await page.evaluate(() => window.dispatchEvent(new Event('pagehide')));
     await expect.poll(() => page.evaluate(() => (window as any).__camlock.controls.exposureMode)).toBe('continuous');
     // With talk off, only voice commands use a microphone here.
-    await expect(page.getByTestId("lobby-cam-mic")).toHaveCount(process.env.REMOTE_VOICE_RECOGNITION === "1" ? 1 : 0);
+    await expect(page.getByTestId("lobby-cam-mic")).toHaveCount((process.env.REMOTE_VOICE_USERS ?? "").split(",").some(id => id.trim() === "101") ? 1 : 0);
     await expect(page.getByTestId("lobby-cam-calibrate")).toBeEnabled();
     // The card check leaves its starting state: found, none, or skipped when the reader is not installed.
     await expect(page.getByTestId("lobby-cam-check")).not.toHaveAttribute("data-state", "starting", { timeout: 60_000 });
@@ -1002,7 +1002,7 @@ test.describe("remote duels screen, moving cards by hand", () => {
     await expect(choice.getByRole("radio", { name: "Use phone as camera" })).toBeVisible();
     const manual = choice.getByRole("radio", { name: "No camera (manual)" });
     await expect(async () => { await manual.click(); await expect(manual).toHaveAttribute("aria-checked", "true", { timeout: 1500 }); }).toPass({ timeout: 30_000 });
-    await expect(page.getByText(`No camera (manual). Use ${process.env.REMOTE_VOICE_RECOGNITION === "1" ? "voice, " : ""}typing`)).toBeVisible();
+    await expect(page.getByText(`No camera (manual). Use ${(process.env.REMOTE_VOICE_USERS ?? "").split(",").some(id => id.trim() === "101") ? "voice, " : ""}typing`)).toBeVisible();
     await page.getByTestId("camera-on-feed").click();
     await expect(page.getByTestId("feed-0").locator("video")).toBeVisible();
     await expect(choice.getByRole("radio", { name: "Use webcam" })).toHaveAttribute("aria-checked", "true");
@@ -1015,19 +1015,14 @@ test.describe("remote duels screen, moving cards by hand", () => {
     await shot(page, "camera-row");
   });
 
-  test("voice: zone words move the last card, a named card, set face down, and the field zone", async ({ page, context }) => {
-    // The stack has voice commands off, as production does. Run this test with REMOTE_VOICE_RECOGNITION=1.
-    test.skip(process.env.REMOTE_VOICE_RECOGNITION !== "1", "needs voice commands on");
-    const slug = await soloTable(context.request, 2); const room = await seed(context, slug);
+  test("voice: only phase and turn sample controls are offered", async ({ page, context }) => {
+    test.skip(!(process.env.REMOTE_VOICE_USERS ?? "").split(",").some(id => id.trim() === "101"), "needs REMOTE_VOICE_USERS=101");
+    const slug = await soloTable(context.request, 2); await seed(context, slug);
     await page.goto(`/duels/remote/${slug}`);
-    await page.getByTestId("phase-main1").click();
-    const say = async (text: string) => { const chip = page.getByRole("button", { name: text, exact: true }); if (await chip.count()) await chip.first().click({ force: true }); else await page.evaluate(() => 0); };
-    await say("monster zone two");
-    // The last card placed was the Spell; it is not a monster, so the move is refused and nothing changes.
-    expect(find(await room(), "mst").zone).toBe("spell-trap");
-    await say("graveyard");
-    await expect.poll(async () => find(await room(), "mst").zone).toBe("graveyard");
-    await page.getByTestId("undo").click(); await expect.poll(async () => find(await room(), "mst").zone).toBe("spell-trap");
+    await expect(page.getByTestId("mic")).toHaveAttribute("data-mic", "muted");
+    await page.getByRole("button", { name: "Try saying…" }).click();
+    await expect(page.getByRole("button", { name: "end turn", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "monster zone two", exact: true })).toHaveCount(0);
   });
 
 });
@@ -1415,7 +1410,7 @@ test.describe("remote duels, spectators", () => {
       expect((await inRoom(tableRoom)).map(p => p.identity)).toContain(watcher);
       expect((await inRoom(voiceRoom)).map(p => p.identity)).toEqual([]);
       expect(await audioIn(tableRoom)).toEqual([]);
-      if (process.env.REMOTE_VOICE_RECOGNITION !== "1") {
+      if (!(process.env.REMOTE_VOICE_USERS ?? "").split(",").some(id => id.trim() === "101")) {
         // With voice commands off too: no mic section, no mute control, V does nothing, and the table never asks for a microphone.
         await expect(a.getByTestId("mic")).toHaveCount(0);
         await expect(a.getByRole("button", { name: /mute/i })).toHaveCount(0);
