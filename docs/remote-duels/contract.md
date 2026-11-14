@@ -384,7 +384,7 @@ After building shared, run the browser cases from `packages/e2e` with:
 
 ```bash
 E2E_WEB_PORT=3456 E2E_WS_PORT=3457 E2E_WS_INTERNAL_PORT=4457 \
-NEXT_PUBLIC_REMOTE_STT_URL=ws://localhost:4458/ws LIVEKIT_URL=ws://127.0.0.1:4459 \
+LIVEKIT_URL=ws://127.0.0.1:4459 \
 E2E_NEXT_DIST_DIR=.next-deck-publicity \
 npx playwright test -c playwright.remote-ui.config.ts \
   --grep '1v1 table|3-way and 4-way|private Set|two browsers|create and lobby'
