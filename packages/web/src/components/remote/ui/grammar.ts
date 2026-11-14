@@ -1,5 +1,6 @@
 import { naturalCommand } from "./voice/natural-phrases";
-import { heardPhaseOf, judgePhaseWord, VOICE_PHASES, type VoicePhase } from "./voice/phase-plausibility";
+import { matchPhasePhrase } from "./voice/speech-matcher";
+import { heardPhaseOf, judgePhaseWord, VOICE_PHASES } from "./voice/phase-plausibility";
 import { parsePhaseCommand, ygoBattleAllowed, ygoModule, type AttackResolution, type RemoteState, type RemoteActionProposal } from "@yugidraft/shared/remote";
 
 /** What a spoken line means for a Yu-Gi-Oh table. Only a proposal: the UI decides what needs a confirm. */
@@ -154,6 +155,8 @@ export function interpret(raw: string, ctx: GrammarContext): VoiceIntent {
   // Common table talk ("pass", "going to battle", "swing at Dark Magician", "I chain") becomes the text the strict parsers know.
   // With the card tray open every line names a card, so it is left alone.
   const cards = contextCardNames(ctx).map(norm).filter(Boolean);
+  const fixedPhase = /^m[12]$/.test(text) || cards.some(card => text === card || text.startsWith(`${card} `)) ? "" : matchPhasePhrase(raw);
+  if (fixedPhase) { raw = fixedPhase; text = norm(raw); }
   const natural = ctx.trayOpen ? null : naturalCommand(text, ctx.state, ctx.me, cards.some(card => text === card || text.startsWith(`${card} `)));
   if (natural && "ignore" in natural) return { kind: "none" };
   let flipSummon = false;
@@ -165,12 +168,14 @@ export function interpret(raw: string, ctx: GrammarContext): VoiceIntent {
   if (/^(respond|chain)\b/.test(text)) return { kind: "wake" };
   const phase = parsePhaseCommand(text === "standby" ? "standby phase" : raw, ctx.state);
   if (phase) {
+    const current = VOICE_PHASES.find(p => p === ctx.state.phase);
+    if (phase.kind === "turn" && (ctx.state.attack || !current
+      || !judgePhaseWord(current, ctx.state.turn, ctx.state.turnSeat === ctx.me, "endTurn").accept)) return { kind: "none" };
     // The live table has no other phase check, so a spoken phase must be a legal next phase, from the turn player (same rule as the voice check page).
     // "back to X", "go back a phase" and "set phase to X" are the correction path and are not judged.
     if (phase.kind === "phase" && !/\b(?:back|previous|last phase|undo phase|set phase)\b/.test(text)) {
-      const current = ctx.state.phase as VoicePhase;
       const heard = heardPhaseOf(`${phase.phase === "main1" ? "main phase one" : phase.phase === "main2" ? "main phase two" : `${phase.phase} phase`}`);
-      if (!heard || !VOICE_PHASES.includes(current) || !judgePhaseWord(current, ctx.state.turn, ctx.state.turnSeat === ctx.me, heard, { battleAllowed: ygoBattleAllowed(ctx.state) }).accept) return { kind: "none" };
+      if (!heard || !current || !judgePhaseWord(current, ctx.state.turn, ctx.state.turnSeat === ctx.me, heard, { battleAllowed: ygoBattleAllowed(ctx.state) }).accept) return { kind: "none" };
     }
     return phase;
   }

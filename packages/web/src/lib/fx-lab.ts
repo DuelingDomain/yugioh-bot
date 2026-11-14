@@ -36,6 +36,7 @@ export function isFxLabPublicPath(pathname: string): boolean {
     pathname === "/dev/remote-tournament-preview" ||
     pathname === "/dev/vision-lab" ||
     pathname === "/dev/voice-check" ||
+    pathname.startsWith("/dev/voice-check/") ||
     pathname.startsWith("/dev/vision-lab/assets/") ||
     pathname === "/dev/vision-assets" ||
     pathname.startsWith("/dev/vision-assets/") ||

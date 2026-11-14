@@ -39,8 +39,8 @@ function describe(intent: VoiceIntent): string {
 }
 
 /** A two-player fixture in the second turn: the first deck names sit on my field, so "attack with <name>" has something to find. */
-function fixture(names: string[], phase: VoicePhase, turn: number): RemoteState {
-  let state = { ...ygoModule.initialState({ seatCount: 2 }), turn, phase } as RemoteState;
+function fixture(names: string[], phase: VoicePhase, turn: number, mine: boolean): RemoteState {
+  let state = { ...ygoModule.initialState({ seatCount: 2 }), turn, phase, turnSeat: mine ? 0 : 1, battleEntered: undefined } as RemoteState;
   try {
     names.slice(0, 6).forEach((name, index) => {
       state = ygoModule.reduce(state, remoteActionSchema.parse({ type: "twin.place", actorSeat: index % 2, seat: index % 2, zone: "monster", at: 1000 + index,
@@ -57,13 +57,16 @@ function decide(combined: Combined, meanings: PhraseSet["meanings"], speechMs: n
   if (combined.canonical) {
     if (gateBare && isChatter(combined, meanings, speechMs)) note = `ignored: bare word in a ${(speechMs / 1000).toFixed(1)} s utterance`;
     else {
-      // A phase word that makes no sense from the current phase is table talk: do nothing, leave a quiet note.
-      const heardPhase = heardPhaseOf(combined.canonical);
-      const verdict = heardPhase ? judgePhaseWord(sim.phase, sim.turn, sim.mine, heardPhase) : null;
-      if (heardPhase && verdict && !verdict.accept) note = `Heard '${combined.canonical}', ${verdict.reason}, ignored`;
+      intent = interpret(combined.canonical, c);
+      if (intent.kind === "phase") {
+        const target = intent.phase;
+        const phase = VOICE_PHASES.find(phase => phase === target);
+        if (phase) applySim({ kind: "phase", phase });
+      } else if (intent.kind === "turn") applySim({ kind: "turn" });
       else {
-        intent = interpret(combined.canonical, c);
-        if (verdict?.accept) applySim(verdict.move);
+        const heardPhase = heardPhaseOf(combined.canonical);
+        const verdict = heardPhase ? judgePhaseWord(sim.phase, sim.turn, sim.mine, heardPhase) : null;
+        if (verdict && !verdict.accept) note = `Heard '${combined.canonical}', ${verdict.reason}, ignored`;
       }
     }
   }
@@ -76,6 +79,7 @@ const HEARD_LABEL: Record<HeardPhase, string> = { draw: "draw phase", standby: "
 const HEARD_TARGET: Partial<Record<HeardPhase, VoicePhase>> = { draw: "draw", standby: "standby", main1: "main1", battle: "battle", main2: "main2", end: "end" };
 
 export function VoiceCheck() {
+  const [phasesAndTurnsOnly, setPhasesAndTurnsOnly] = useState(true);
   const [text, setText] = useState("Kashtira Fenrir\nKashtira Unicorn\nApophis the Dark\nBlue-Eyes White Dragon\nGhost Belle & Haunted Mansion\nNumber 39: Utopia");
   const [decks, setDecks] = useState<SavedDeck[]>([]);
   const [deckNote, setDeckNote] = useState("");
@@ -103,12 +107,13 @@ export function VoiceCheck() {
   const client = useRef<KwsClient | null>(null);
   const rowSeq = useRef(0);
   const meaningsRef = useRef<PhraseSet["meanings"]>(new Map());
-  const names = useMemo(() => [...new Set(text.split("\n").map(line => line.trim()).filter(Boolean))], [text]);
-  const set = useMemo(() => buildPhrases(names, sp, { boost, thresholdShift: shift, nameBoost, nameShift }), [names, boost, shift, nameBoost, nameShift]);
+  const names = useMemo(() => phasesAndTurnsOnly ? [] : [...new Set(text.split("\n").map(line => line.trim()).filter(Boolean))], [text, phasesAndTurnsOnly]);
+  const set = useMemo(() => buildPhrases(names, sp, { boost, thresholdShift: shift, nameBoost, nameShift, phasesAndTurnsOnly }), [names, boost, shift, nameBoost, nameShift, phasesAndTurnsOnly]);
   const lines = useMemo(() => set.lines.join("/"), [set]);
-  const ctx = useMemo<GrammarContext>(() => ({ state: fixture(names, simPhase, simTurn), players: PLAYERS, me: 0, trayOpen, cardNames: names, now: 1100 }), [names, trayOpen, simPhase, simTurn]);
+  const ctx = useMemo<GrammarContext>(() => ({ state: fixture(names, simPhase, simTurn, simMine), players: PLAYERS, me: 0, trayOpen: !phasesAndTurnsOnly && trayOpen, cardNames: names, now: 1100 }), [names, trayOpen, simPhase, simTurn, simMine, phasesAndTurnsOnly]);
   const sim = useMemo(() => ({ phase: simPhase, turn: simTurn, mine: simMine }), [simPhase, simTurn, simMine]);
-  const matcher = useMemo(() => (method === "asr" ? buildMatcher(names) : null), [method, names]);
+  const matcher = useMemo(() => (method === "asr" ? buildMatcher(names, { phasesAndTurnsOnly }) : null), [method, names, phasesAndTurnsOnly]);
+  const naturalPhrases = phasesAndTurnsOnly ? NATURAL_PHRASES.filter(([, canonical]) => heardPhaseOf(canonical) !== null) : NATURAL_PHRASES;
   const live = useRef({ ctx, set, chatLeft, sim, matcher }); live.current = { ctx, set, chatLeft, sim, matcher };
   meaningsRef.current = set.meanings;
 
@@ -136,8 +141,12 @@ export function VoiceCheck() {
   }, [chatLeft]);
 
   const applySim = (move: { kind: "phase"; phase: VoicePhase } | { kind: "turn" }) => {
-    if (move.kind === "phase") setSimPhase(move.phase);
-    else { setSimPhase("draw"); setSimTurn(turn => turn + 1); }
+    const current = live.current;
+    const next = move.kind === "phase" ? { ...current.sim, phase: move.phase }
+      : { phase: "draw" as const, turn: current.sim.turn + 1, mine: !current.sim.mine };
+    // Worker messages may arrive in one React batch. Advance the decision snapshot immediately as well as the display.
+    live.current = { ...current, sim: next, ctx: { ...current.ctx, state: { ...current.ctx.state, phase: next.phase, turn: next.turn, turnSeat: next.mine ? 0 : 1, battleEntered: undefined } } };
+    setSimPhase(next.phase); setSimTurn(next.turn); setSimMine(next.mine);
   };
   const onUtterance = useCallback((u: KwsUtterance) => {
     const { ctx: c, set: s, chatLeft: left, sim: simNow, matcher: m } = live.current;
@@ -146,12 +155,15 @@ export function VoiceCheck() {
     let matched = false;
     if (m && u.text !== undefined) {
       // Method B: transcript -> grammar matcher -> the same Combined shape the keyword path makes.
-      const r = m.match(u.text, u.speechMs);
+      if (u.startedAt === undefined || u.endedAt === undefined) m.resetUtterances();
+      const r = u.startedAt !== undefined && u.endedAt !== undefined
+        ? m.matchUtterance({ text: u.text, speechMs: u.speechMs, startedAt: u.startedAt, endedAt: u.endedAt })
+        : { ...m.match(u.text, u.speechMs), joinedText: undefined };
       combined = { canonical: r.canonical, tags: [], heard: [u.text], ambiguous: r.ambiguous.map(names => ({ spoken: r.spoken ?? "", names })) };
-      heard = u.text || "(nothing heard)"; gateBare = false;
+      heard = r.joinedText || u.text || "(nothing heard)"; gateBare = false;
       matched = !!r.canonical || r.ambiguous.length > 0;
       tags = matched ? `${r.score.toFixed(2)}${r.runnerUp !== undefined ? ` (next ${r.runnerUp.toFixed(2)})` : ""}` : "no match";
-      if (u.passes && u.passes > 1) extra = "retry pass used";
+      extra = [r.joinedText ? "joined adjacent unmatched fragments" : "", u.passes && u.passes > 1 ? "retry pass used" : ""].filter(Boolean).join("; ");
     } else {
       const hits = u.hits.filter(hit => hit.keyword !== "_");
       combined = combineHits(hits, s.meanings);
@@ -187,6 +199,7 @@ export function VoiceCheck() {
   };
 
   const start = (deviceId = micId, which: Method = method) => {
+    live.current.matcher?.resetUtterances();
     setError(""); setReady(null); setMicStatus(null); setStatus("loading");
     const kws = new KwsClient({
       ...(which === "asr" ? { base: ASR_BASE } : {}),
@@ -199,7 +212,7 @@ export function VoiceCheck() {
     client.current = kws;
     void kws.start();
   };
-  const stop = () => { client.current?.stop(); client.current = null; setStatus("off"); setLevel(0); setChatLeft(null); setMicStatus(null); };
+  const stop = () => { client.current?.stop(); client.current = null; live.current.matcher?.resetUtterances(); setStatus("off"); setLevel(0); setChatLeft(null); setMicStatus(null); };
   const pickMic = (deviceId: string) => {
     setMicId(deviceId);
     try { localStorage.setItem(MIC_KEY, deviceId); } catch { /* the choice just is not remembered */ }
@@ -223,6 +236,7 @@ export function VoiceCheck() {
     <main style={{ padding: 20, maxWidth: 1100, margin: "0 auto", fontFamily: "system-ui, sans-serif", color: "#eee", background: "#111", minHeight: "100vh" }} data-testid="voice-check">
       <style>{`[data-testid="voice-check"] button{padding:8px 16px;margin:2px 6px 2px 0;border:1px solid #8ab4f8;border-radius:6px;background:#1a3a6b;color:#fff;font-weight:600;cursor:pointer}[data-testid="voice-check"] button:disabled{opacity:.45;cursor:not-allowed}[data-testid="voice-check"] button:hover:not(:disabled){background:#25508f}`}</style>
       <h1 style={{ fontSize: 22 }}>Voice command check</h1>
+      <p><a href="/dev/voice-check/test-set">Record and replay an audio test set</a></p>
       <p style={{ opacity: 0.8 }}>Two ways to hear commands, in this page only. Keywords (old): sherpa-onnx keyword spotting in a worker. Speech model (new): Moonshine Tiny q8 turns each gated utterance into text (onnxruntime-web, WASM, one thread), then a grammar matcher picks the command or card. Audio never leaves the page; only the model files are downloaded. Not wired to any table.</p>
       <section style={{ display: "grid", gap: 8 }}>
         <div data-testid="method" role="radiogroup" aria-label="Method" style={{ border: "1px solid #444", borderRadius: 6, padding: 8 }}>
@@ -231,12 +245,14 @@ export function VoiceCheck() {
           <label><input type="radio" name="method" checked={method === "asr"} onChange={() => pickMethod("asr")} data-testid="method-asr" /> Speech model (new)</label>
           {status !== "off" && <span style={{ opacity: 0.7 }}> (switching restarts the listener)</span>}
         </div>
+        <label><input type="checkbox" checked={phasesAndTurnsOnly} onChange={e => setPhasesAndTurnsOnly(e.target.checked)} /> Phases and turns only</label>
+        {phasesAndTurnsOnly && <span>Card names are ignored. Only phase changes and ending the turn are enabled.</span>}
         <label>Deck card names (one per line, or pick a saved deck)
-          <textarea value={text} onChange={e => setText(e.target.value)} rows={8} style={{ width: "100%", background: "#1c1c1c", color: "#eee" }} data-testid="names" />
+          <textarea disabled={phasesAndTurnsOnly} value={text} onChange={e => setText(e.target.value)} rows={8} style={{ width: "100%", background: "#1c1c1c", color: "#eee" }} data-testid="names" />
         </label>
         <div>
-          <button onClick={loadDecks}>Load my saved decks</button>{" "}
-          <select onChange={e => void pickDeck(Number(e.target.value))} defaultValue=""><option value="" disabled>Saved deck...</option>{decks.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}</select>{" "}
+          <button disabled={phasesAndTurnsOnly} onClick={loadDecks}>Load my saved decks</button>{" "}
+          <select disabled={phasesAndTurnsOnly} onChange={e => void pickDeck(Number(e.target.value))} defaultValue=""><option value="" disabled>Saved deck...</option>{decks.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}</select>{" "}
           <span>{deckNote}</span>
         </div>
         {method === "kws" && <div>
@@ -245,7 +261,7 @@ export function VoiceCheck() {
           <label>Name boost {nameBoost >= 0 ? "+" : ""}{nameBoost.toFixed(1)} <input type="range" min={-1} max={2} step={0.1} value={nameBoost} onChange={e => setNameBoost(Number(e.target.value))} /></label>{" "}
           <label>Name threshold shift {nameShift >= 0 ? "+" : ""}{nameShift.toFixed(2)} <input type="range" min={-0.2} max={0.4} step={0.05} value={nameShift} onChange={e => setNameShift(Number(e.target.value))} /></label>{" "}
         </div>}
-        <div><label><input type="checkbox" checked={trayOpen} onChange={e => setTrayOpen(e.target.checked)} /> card tray open</label></div>
+        <div><label><input type="checkbox" disabled={phasesAndTurnsOnly} checked={trayOpen} onChange={e => setTrayOpen(e.target.checked)} /> card tray open</label></div>
         <div data-testid="phase-sim" style={{ border: "1px solid #444", borderRadius: 6, padding: 8 }}>
           <b>Phase simulator</b> (spoken phase words are judged against this; an accepted word moves it)<br />
           Current phase: <b data-testid="sim-phase" style={{ color: "#e0b050" }}>{PHASE_LABEL[simPhase]}</b>{" "}
@@ -278,11 +294,11 @@ export function VoiceCheck() {
           </div>
         </details></>}
         <details data-testid="common-phrases">
-          <summary>Common duel phrases, both methods ({NATURAL_PHRASES.length}: what players say, and what it does. Blank means the listener hears it but the table has no action yet)</summary>
+          <summary>Common duel phrases, both methods ({naturalPhrases.length}: what players say, and what it does. Blank means the listener hears it but the table has no action yet)</summary>
           <div style={{ maxHeight: 240, overflow: "auto" }}>
             <table style={{ borderCollapse: "collapse", fontSize: 12, width: "100%" }}>
               <thead><tr><th style={cell}>Said</th><th style={cell}>Becomes</th><th style={cell}>Only a short, isolated utterance</th></tr></thead>
-              <tbody>{NATURAL_PHRASES.map(([spoken, canonical]) => (
+              <tbody>{naturalPhrases.map(([spoken, canonical]) => (
                 <tr key={spoken}><td style={cell}>{spoken.toLowerCase()}</td><td style={cell}>{canonical || "no action yet"}</td><td style={cell}>{SOFT_PHRASES.has(spoken) ? "yes" : ""}</td></tr>))}</tbody>
             </table>
           </div>

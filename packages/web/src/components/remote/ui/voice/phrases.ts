@@ -1,6 +1,7 @@
 import { ALIASES } from "./aliases";
 import { NATURAL_PHRASES, SOFT_PHRASES } from "./natural-phrases";
 import type { SentencePiece } from "./sentencepiece";
+import { heardPhaseOf } from "./phase-plausibility";
 
 /**
  * Phrase list for the keyword spotter. A phrase is spoken words; the spotter answers with its tag (a single word, so the
@@ -24,6 +25,7 @@ export type PhraseSet = {
 };
 export type PhraseEntry = { tag: string; kind: "fixed" | "joiner" | "full" | "run" | "word" | "alias"; spoken: string; tokens: string[]; boost: number; threshold: number; names?: string[] };
 export type PhraseOptions = {
+  phasesAndTurnsOnly?: boolean;
   /** Base boost and threshold shift for all phrases (commands included). */
   boost?: number; thresholdShift?: number;
   /** Added on top of those for card names only. */
@@ -31,7 +33,7 @@ export type PhraseOptions = {
 };
 
 /** Tuned on text-to-speech audio through the real model (recall vs. false triggers on chatter); the voice check page can still move them. */
-export const DEFAULT_PHRASE_OPTIONS: Required<PhraseOptions> = { boost: 0.5, thresholdShift: -0.35, nameBoost: 1, nameShift: 0.2 };
+export const DEFAULT_PHRASE_OPTIONS = { boost: 0.5, thresholdShift: -0.35, nameBoost: 1, nameShift: 0.2 };
 
 type Fixed = [spoken: string, canonical: string];
 /** Phases first. "draw" alone stays a card draw (command-parser.ts); the phase needs the word "phase". */
@@ -52,6 +54,10 @@ export const FIXED_PHRASES: readonly Fixed[] = [
   ...NATURAL_PHRASES.map(([spoken, canonical]): Fixed => [spoken, canonical]),
 ];
 const JOINERS: readonly (readonly [string, "phase" | "one" | "two" | "turn"])[] = [["PHASE", "phase"], ["ONE", "one"], ["TWO", "two"], ["TURN", "turn"]];
+
+/** The first shipping vocabulary: phase changes and passing the turn. */
+export const PHASE_TURN_PHRASES = FIXED_PHRASES.filter(([, canonical]) =>
+  heardPhaseOf(canonical) !== null || canonical === "next phase" || canonical === "go back a phase");
 
 // A one-word partial must have 5+ letters and may not be here. Ordinary English first, then words the table commands use.
 const STOP = new Set(`ABOUT ABOVE AFTER AGAIN AGAINST ALONG AMONG ANOTHER BEFORE BEGIN BEING BELOW BETWEEN BOTH COULD DOING DURING EACH EVEN EVERY FIRST FOUND FROM GIVE GOING GREAT HAVE HERE INTO KNOW LARGE LATER LEAST LEAVE LITTLE MIGHT NEVER NEXT OFTEN OTHER OTHERS PLACE POINT RIGHT SHALL SHOULD SINCE SMALL STILL SUCH TAKE THAN THEIR THEM THEN THERE THESE THEY THING THINGS THINK THIS THOSE THREE THROUGH UNDER UNTIL UPON USING VERY WANT WELL WERE WHAT WHEN WHERE WHICH WHILE WHOSE WITH WITHIN WITHOUT WORLD WOULD YEARS YOUR
@@ -124,14 +130,14 @@ export function buildPhrases(names: readonly string[], sp: SentencePiece, option
     return tag;
   };
 
-  for (const [spoken, canonical] of FIXED_PHRASES) { reserved.add(spoken); add(spoken, { kind: "fixed", canonical, spoken }, "fixed"); }
+  for (const [spoken, canonical] of options.phasesAndTurnsOnly ? PHASE_TURN_PHRASES : FIXED_PHRASES) { reserved.add(spoken); add(spoken, { kind: "fixed", canonical, spoken }, "fixed"); }
   for (const [spoken, word] of JOINERS) { reserved.add(spoken); add(spoken, { kind: "joiner", word, spoken }, "joiner"); }
   const fixed = meanings.size;
 
   // spoken phrase -> the card names that can be meant by it
   const full = new Map<string, Set<string>>(); const runs = new Map<string, Set<string>>(); const single = new Map<string, Set<string>>();
   const put = (map: Map<string, Set<string>>, spoken: string, name: string) => { if (!map.has(spoken)) map.set(spoken, new Set()); map.get(spoken)!.add(name); };
-  for (const name of new Set(names.map(value => value.trim()).filter(Boolean))) {
+  for (const name of new Set((options.phasesAndTurnsOnly ? [] : names).map(value => value.trim()).filter(Boolean))) {
     const spoken = spokenForm(name);
     if (!spoken) { skipped.push(name); continue; }
     // "The Winged Dragon of Ra" is said without "The" as often as with it.

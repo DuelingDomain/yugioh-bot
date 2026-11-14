@@ -1,5 +1,5 @@
 import { doubleMetaphone } from "double-metaphone";
-import { FIXED_PHRASES, isBareSpoken, spokenForm } from "./phrases";
+import { FIXED_PHRASES, PHASE_TURN_PHRASES, isBareSpoken, spokenForm } from "./phrases";
 
 /**
  * Grammar matcher for speech-to-text output (Method B of the voice check). The whole utterance is matched against commands,
@@ -53,7 +53,8 @@ function dist(a: Key, b: Key, lettersOnly = false): { err: number; len: number }
 }
 
 /** Words speech models often write for a command word (sound-alikes). Used for commands only, never for card names. */
-export const CONFUSIONS: Record<string, string> = { name: "main", mane: "main", and: "end", ant: "end", face: "phase", faze: "phase", fase: "phase", betel: "battle", bottle: "battle", past: "pass", term: "turn", stand: "standby" };
+export const CONFUSIONS: Record<string, string> = { name: "main", mane: "main", and: "end", ant: "end", face: "phase", faze: "phase", fase: "phase", place: "phase", betel: "battle", bottle: "battle", past: "pass", term: "turn", stand: "standby" };
+const commandWord = (word: string) => Object.hasOwn(CONFUSIONS, word) ? CONFUSIONS[word] : word;
 export type Meaning = { kind: "cmd"; canonical: string } | { kind: "card"; names: string[] };
 export type Entry = { key: Key; meaning: Meaning; bare: boolean };
 /** `spoken` is the part of the utterance that named the card (the words the parser sees when the card is ambiguous). */
@@ -62,17 +63,51 @@ export type Result = { canonical: string; ambiguous: string[][]; score: number; 
 const VERB_PREFIX: [string, boolean][] = [["effect of", true], ["effect", true], ["activate effect of", true], ["activate effect", true], ["activate", true], ["use effect of", true], ["use", true]];
 const VERB_SUFFIX: [string, boolean][] = [["effect", true], ["activation", true], ["effects", true]];
 
-export type MatcherOptions = { cmdMin: number; nameMin: number; margin: number; verbMin: number; effNameMin: number; effMin: number; bareSound: boolean; relaxRuns: boolean; confusions: boolean };
-export const DEFAULTS: MatcherOptions = { cmdMin: 0.78, nameMin: 0.66, margin: 0.06, verbMin: 0.66, effNameMin: 0.65, effMin: 0.70, bareSound: false, relaxRuns: true, confusions: true };
+export type MatcherOptions = { cmdMin: number; nameMin: number; margin: number; verbMin: number; effNameMin: number; effMin: number; bareSound: boolean; relaxRuns: boolean; confusions: boolean; phasesAndTurnsOnly: boolean };
+export const DEFAULTS: MatcherOptions = { cmdMin: 0.78, nameMin: 0.66, margin: 0.06, verbMin: 0.66, effNameMin: 0.65, effMin: 0.70, bareSound: false, relaxRuns: true, confusions: true, phasesAndTurnsOnly: false };
+
+const PHASE_WORDS = new Set(["main", "battle", "standby", "draw", "end", "next", "turn", "phase", "one", "two"]);
+const phaseCanonicals = new Set(PHASE_TURN_PHRASES.map(([, canonical]) => canonical));
+const phaseEntries = PHASE_TURN_PHRASES.map(([spoken, canonical]) => ({ words: norm(spoken), canonical, bare: isBareSpoken(spoken) }));
+const commandWords = (text: string) => {
+  const words = norm(text.replace(/\bstand (?:by|bye)\b/gi, "standby"));
+  while (FILLER.has(words[0])) words.shift();
+  return words;
+};
+
+/** Whole fixed phrases only: each word must fit its slot. Fuzzy distance never absorbs extra sentence words. */
+export function matchPhasePhrase(text: string, speechMs = 1200, confusions = true): string {
+  if (text.length > 200) return "";
+  const words = commandWords(text);
+  const matches = new Set<string>();
+  for (const entry of phaseEntries) {
+    if (words.length !== entry.words.length || (entry.bare && speechMs > 1200)) continue;
+    const fits = entry.words.every((target, index) => {
+      const word = confusions ? commandWord(words[index]) : words[index];
+      if (word === target) return true;
+      // Bare words and correction commands need exact evidence. Only the domain words have fuzzy slots.
+      if (words.length === 1 || entry.canonical === "go back a phase" || !PHASE_WORDS.has(target) || word.length < 3) return false;
+      const d = dist(keyOf([word]), keyOf([target]));
+      return d.err / d.len <= (target.length >= 7 ? 0.3 : 0.25);
+    });
+    if (fits) matches.add(entry.canonical);
+  }
+  return matches.size === 1 ? [...matches][0] : "";
+}
+
+/** Audio-clock gap between unmatched single-word fragments, independent of worker decoding time. */
+export const PHASE_JOIN_GAP_MS = 1200;
+type SpeechFragment = { text: string; speechMs: number; startedAt: number; endedAt: number };
 
 export function buildMatcher(deck: readonly string[], opts: Partial<MatcherOptions> = {}) {
   const o = { ...DEFAULTS, ...opts };
   // commands
-  const cmds: Entry[] = FIXED_PHRASES.map(([spoken, canonical]: [string, string]) => ({ key: keyOf(norm(spoken)), meaning: { kind: "cmd", canonical } as Meaning, bare: isBareSpoken(spoken) }));
+  const cmds: Entry[] = (o.phasesAndTurnsOnly ? PHASE_TURN_PHRASES : FIXED_PHRASES).map(([spoken, canonical]: [string, string]) => ({ key: keyOf(norm(spoken)), meaning: { kind: "cmd", canonical } as Meaning, bare: isBareSpoken(spoken) }));
+  const otherCmds = cmds.filter(e => e.meaning.kind === "cmd" && !phaseCanonicals.has(e.meaning.canonical));
   // names: full + distinctive partials, same rules as the keyword spotter, shared partials carry every name
   const spokenMap = new Map<string, { names: Set<string>; full: boolean }>();
   const put = (spoken: string, name: string, full: boolean) => { const e = spokenMap.get(spoken) ?? { names: new Set<string>(), full }; e.names.add(name); e.full = e.full || full; spokenMap.set(spoken, e); };
-  for (const name of new Set(deck)) {
+  for (const name of new Set(o.phasesAndTurnsOnly ? [] : deck)) {
     const sp = spokenForm(name); if (!sp) continue;
     const forms = [sp.split(" ")]; if (/^THE /.test(sp) && forms[0].length > 2) forms.push(forms[0].slice(1));
     for (const words of forms) {
@@ -99,6 +134,9 @@ export function buildMatcher(deck: readonly string[], opts: Partial<MatcherOptio
   };
 
   function match(text: string, speechMs: number): Result {
+    const phase = matchPhasePhrase(text, speechMs, o.confusions);
+    if (phase) return { canonical: phase, ambiguous: [], score: 1 };
+    if (o.phasesAndTurnsOnly) return { canonical: "", ambiguous: [], score: 0 };
     let words = norm(text);
     while (words.length && FILLER.has(words[0])) words = words.slice(1);
     // "stand by" is heard as two words
@@ -108,8 +146,8 @@ export function buildMatcher(deck: readonly string[], opts: Partial<MatcherOptio
     type Cand = { score: number; combined?: number; meaning: Meaning; effect: boolean; spoken: string };
     const cands: Cand[] = [];
     // 1. whole utterance as command or name
-    const cmdWords = o.confusions ? words.map(w => CONFUSIONS[w] ?? w) : words;
-    for (const r of scoreList(cmdWords, cmds)) { const s = 1 - r.err / r.len; if (s >= o.cmdMin && (!r.e.bare || bareOk)) cands.push({ score: s, meaning: r.e.meaning, effect: false, spoken: words.join(" ") }); }
+    const cmdWords = o.confusions ? words.map(commandWord) : words;
+    for (const r of scoreList(cmdWords, otherCmds)) { const s = 1 - r.err / r.len; if (s >= o.cmdMin && (!r.e.bare || bareOk)) cands.push({ score: s, meaning: r.e.meaning, effect: false, spoken: words.join(" ") }); }
     const nameScores = scoreList(words, names);
     for (const r of nameScores) { const s = 1 - r.err / r.len; if (s >= o.nameMin && (!r.e.bare || bareOk)) cands.push({ score: s, meaning: r.e.meaning, effect: false, spoken: words.join(" ") }); }
     // 2. verb + name, either order. Cut the words at every boundary: verb part vs name part.
@@ -154,5 +192,22 @@ export function buildMatcher(deck: readonly string[], opts: Partial<MatcherOptio
     }
     return { canonical: best.effect ? `activate effect of ${finalNames[0]}` : finalNames[0], ambiguous: [], score: best.score, runnerUp: runner?.score };
   }
-  return { match, counts: { cmds: cmds.length, names: names.length } };
+  let pending: SpeechFragment | undefined;
+  function matchUtterance(fragment: SpeechFragment): Result & { joinedText?: string } {
+    const result = match(fragment.text, fragment.speechMs);
+    const previous = pending;
+    pending = undefined;
+    if (result.canonical || result.ambiguous.length || norm(fragment.text).length !== 1 || fragment.speechMs > 1200) return result;
+    if (previous) {
+      const gap = fragment.startedAt - previous.endedAt;
+      if (gap >= 0 && gap <= PHASE_JOIN_GAP_MS) {
+        const joinedText = `${previous.text} ${fragment.text}`;
+        const canonical = matchPhasePhrase(joinedText, previous.speechMs + fragment.speechMs, o.confusions);
+        if (canonical) return { canonical, ambiguous: [], score: 1, joinedText };
+      }
+    }
+    pending = fragment;
+    return result;
+  }
+  return { match, matchUtterance, resetUtterances: () => { pending = undefined; }, counts: { cmds: cmds.length, names: names.length } };
 }

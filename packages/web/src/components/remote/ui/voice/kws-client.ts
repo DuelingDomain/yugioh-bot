@@ -11,12 +11,14 @@ export const KWS_BASE = "/dev/vision-assets/kws/";
 export const ASR_BASE = "/dev/vision-assets/asr/";
 
 /** `text` and `passes` come from the speech model worker only. */
-export type KwsUtterance = { id: number; hits: KwsHit[]; speechMs: number; busyMs: number; audioMs: number; text?: string; passes?: number };
+export type KwsUtterance = { id: number; hits: KwsHit[]; speechMs: number; busyMs: number; audioMs: number; text?: string; passes?: number; startedAt?: number; endedAt?: number };
 export type KwsReady = { fetchMs: number; initMs: number; totalMs: number; bytes: number; heapBytes: number; accepted: boolean };
 /** What the mic path is doing right now, so a silent mic can be told apart from a suspended context or a muted track. */
 export type KwsStatus = { micName: string; contextState: AudioContextState; sampleRate: number; muted: boolean; enabled: boolean; framesPerSecond: number; silentMs: number };
 export type KwsClientOptions = {
   base?: string;
+  /** Replay only: the caller supplies 16 kHz mono PCM instead of opening a microphone. */
+  pcmInput?: boolean;
   /** Preferred microphone (a missing one falls back to the default). */
   deviceId?: string;
   onStatus?(status: KwsStatus): void;
@@ -31,9 +33,9 @@ export type KwsClientOptions = {
   onError(message: string): void;
 };
 
-// Same mic tap and speech gate as use-voice.ts: 20 ms frames at 16 kHz, a short preroll, an end after about 0.56 s of quiet.
+// 20 ms frames at 16 kHz. Keep short commands together across pauses up to 0.9 s (previously 0.56 s).
 const WORKLET = `class T extends AudioWorkletProcessor{process(i){const c=i[0]&&i[0][0];if(c)this.port.postMessage(c.slice(0));return true}}registerProcessor('pcm-tap',T)`;
-const FRAME = 320; const PREROLL = 15; const START_FRAMES = 3; const END_FRAMES = 28; const MIN_SPEECH = 8; const MAX_FRAMES = 700;
+const FRAME = 320; const PREROLL = 15; const START_FRAMES = 3; const END_FRAMES = 45; const MIN_SPEECH = 8; const MAX_FRAMES = 700;
 
 /** Mic -> worker. The worker only hears audio while the energy gate is open (plus preroll), so a silent player costs little. Audio stays in the page. */
 export class KwsClient {
@@ -46,7 +48,8 @@ export class KwsClient {
   private statusTimer: ReturnType<typeof setInterval> | undefined;
   private serial = 0;
   private readonly started = performance.now();
-  private spoken = new Map<number, number>();
+  private spoken = new Map<number, { speechMs: number; startedAt: number; endedAt: number }>();
+  private inputPcm: ((samples: Float32Array) => void) | undefined;
   constructor(private readonly options: KwsClientOptions) {}
 
   private send(message: KwsWorkerIn, transfer: Transferable[] = []) { this.worker?.postMessage(message, transfer); }
@@ -61,12 +64,13 @@ export class KwsClient {
       if (m.type === "ready") o.onReady({ fetchMs: m.fetchMs, initMs: m.initMs, totalMs: performance.now() - this.started, bytes: m.bytes, heapBytes: m.heapBytes, accepted: m.accepted });
       else if (m.type === "keywords") o.onKeywords?.(m.accepted);
       else if (m.type === "utterance") {
-        const speechMs = this.spoken.get(m.id) ?? 0; this.spoken.delete(m.id);
-        o.onUtterance({ id: m.id, hits: m.hits, speechMs, busyMs: m.busyMs, audioMs: m.audioMs, ...("text" in m ? { text: m.text, passes: m.passes } : {}) });
+        const timing = this.spoken.get(m.id); this.spoken.delete(m.id);
+        o.onUtterance({ id: m.id, hits: m.hits, speechMs: 0, ...timing, busyMs: m.busyMs, audioMs: m.audioMs, ...("text" in m ? { text: m.text, passes: m.passes } : {}) });
       }
       else if (m.type === "error") o.onError(m.message);
     };
     this.send({ type: "init", base, defaultKeywords: o.defaultKeywords, keywords: o.keywords, boost: o.boost, threshold: o.threshold });
+    if (o.pcmInput) { this.inputPcm = this.tap(1); return; }
     try {
       this.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, ...(o.deviceId ? { deviceId: { ideal: o.deviceId } } : {}) } });
       if (this.disposed) { this.stream.getTracks().forEach(track => track.stop()); return; }
@@ -79,7 +83,8 @@ export class KwsClient {
       const source = context.createMediaStreamSource(this.stream);
       const node = new AudioWorkletNode(context, "pcm-tap");
       const mute = context.createGain(); mute.gain.value = 0; source.connect(node); node.connect(mute).connect(context.destination);
-      this.tap(node, context.sampleRate / 16000);
+      this.inputPcm = this.tap(context.sampleRate / 16000);
+      node.port.onmessage = event => this.inputPcm?.(event.data);
       this.lastFrameAt = performance.now(); this.frames = 0;
       let counted = 0; let countedAt = performance.now(); this.fps = 0;
       this.statusTimer = setInterval(() => {
@@ -101,9 +106,23 @@ export class KwsClient {
   /** New phrase list (a different deck, or new boost and threshold values). */
   setKeywords(keywords: string) { this.send({ type: "keywords", keywords }); }
 
-  private tap(node: AudioWorkletNode, ratio: number) {
+  /** Returns the last queued utterance id, so replay can await decoding before feeding more audio. */
+  pushPcm(samples: Float32Array): number {
+    if (!this.options.pcmInput || this.disposed) throw new Error("PCM input is not active");
+    this.inputPcm?.(samples); return this.serial;
+  }
+
+  resetPcm() {
+    if (!this.options.pcmInput || this.disposed) throw new Error("PCM input is not active");
+    this.inputPcm = this.tap(1);
+    this.send({ type: "keywords", keywords: this.options.keywords });
+    this.send({ type: "reset" });
+  }
+
+  private tap(ratio: number) {
     let position = 0; let last = 0; const samples: number[] = [];
     let noise = 0.01; let loud = 0; let quiet = 0; let inSpeech = false; let spoken = 0; let total = 0; let lastLevelAt = 0;
+    let startedAt = 0; let endedAt = 0;
     const preroll: Float32Array[] = [];
     const frame = (pcm: Float32Array) => {
       let sum = 0; for (const value of pcm) sum += value * value;
@@ -116,21 +135,21 @@ export class KwsClient {
         preroll.push(pcm); if (preroll.length > PREROLL) preroll.shift();
         if (loud >= START_FRAMES) {
           inSpeech = true; spoken = START_FRAMES; total = preroll.length; quiet = 0; loud = 0;
+          startedAt = (this.frames - START_FRAMES) * 20; endedAt = this.frames * 20;
           for (const old of preroll.splice(0)) this.send({ type: "frames", samples: old }, [old.buffer]);
         }
         return;
       }
       this.send({ type: "frames", samples: pcm }, [pcm.buffer]); total++;
-      if (rms > Math.max(0.018, noise * 2.4)) { spoken++; quiet = 0; } else quiet++;
+      if (rms > Math.max(0.018, noise * 2.4)) { spoken++; quiet = 0; endedAt = this.frames * 20; } else quiet++;
       if (quiet >= END_FRAMES || total >= MAX_FRAMES) {
         inSpeech = false;
         if (spoken < MIN_SPEECH) this.send({ type: "reset" });
-        else { const id = ++this.serial; this.spoken.set(id, spoken * 20); this.send({ type: "end", id }); }
+        else { const id = ++this.serial; this.spoken.set(id, { speechMs: spoken * 20, startedAt, endedAt }); this.send({ type: "end", id }); }
         spoken = 0; total = 0; quiet = 0; loud = 0;
       }
     };
-    node.port.onmessage = event => {
-      const input = event.data as Float32Array;
+    return (input: Float32Array) => {
       for (const value of input) {
         while (position < 1) { samples.push(last + (value - last) * position); position += ratio; }
         position -= 1; last = value;

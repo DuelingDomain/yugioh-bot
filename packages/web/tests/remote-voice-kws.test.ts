@@ -1,11 +1,27 @@
-import { describe, expect, it } from "vitest";
+// @vitest-environment jsdom
+import { describe, expect, it, vi } from "vitest";
+import { createElement } from "react";
+import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import type { KwsClientOptions, KwsUtterance } from "@/components/remote/ui/voice/kws-client";
+import type { KwsWorkerIn } from "@/components/remote/ui/voice/kws-worker";
 import { parsePhaseCommand, remoteActionSchema, ygoModule, type RemoteState } from "@yugidraft/shared/remote";
 import { canFlipSummon, interpret } from "@/components/remote/ui/grammar";
-import { buildMatcher } from "@/components/remote/ui/voice/speech-matcher";
+import { buildMatcher, PHASE_JOIN_GAP_MS } from "@/components/remote/ui/voice/speech-matcher";
 import { createSentencePiece, type SentencePieceVocab } from "@/components/remote/ui/voice/sentencepiece";
 import { buildPhrases, combineHits, FIXED_PHRASES, isChatter, spokenForm } from "@/components/remote/ui/voice/phrases";
 import { heardPhaseOf, judgePhaseWord } from "@/components/remote/ui/voice/phase-plausibility";
 import vocab from "@/components/remote/ui/voice/sp-vocab.json";
+
+const mic = vi.hoisted(() => ({ options: null as KwsClientOptions | null }));
+vi.mock("@/components/remote/ui/voice/kws-client", async importOriginal => ({
+  ...await importOriginal<typeof import("@/components/remote/ui/voice/kws-client")>(),
+  KwsClient: class {
+    constructor(options: KwsClientOptions) { mic.options = options; }
+    async start() {}
+    stop() {}
+    setKeywords() {}
+  },
+}));
 
 const sp = createSentencePiece(vocab as SentencePieceVocab);
 
@@ -112,6 +128,126 @@ describe("browser voice commands (KWS)", () => {
       const intent = interpret(text, { state: { ...board(phase), ...extra }, players, me, trayOpen: false, cardNames: ["Blue-Eyes White Dragon", "Dark Magician"], now: 5000 });
       return intent.kind === "phase" ? `phase ${intent.phase}` : intent.kind === "move" ? `move ${JSON.stringify(intent.move)}` : intent.kind;
     };
+
+    it("hears phase sound-alikes without accepting sentence fragments or bypassing turn legality", () => {
+      const matcher = buildMatcher([]);
+      const cases = [
+        ["main place", "main phase", "standby", "phase main1"],
+        ["next faze", "next phase", "main1", "phase battle"],
+        ["battle face", "battle phase", "main1", "phase battle"],
+        ["and phase", "end phase", "main2", "phase end"],
+        ["stand by", "standby phase", "draw", "phase standby"],
+        ["main phrase", "main phase", "standby", "phase main1"],
+        ["next phased", "next phase", "battle", "phase main2"],
+        ["mane phase", "main phase", "standby", "phase main1"],
+        ["bottle phase", "battle phase", "main1", "phase battle"],
+        ["stamby phase", "standby phase", "draw", "phase standby"],
+        ["drow phase", "draw phase", "end", "none"],
+        ["necks phase", "next phase", "main1", "phase battle"],
+        ["end term", "end turn", "main2", "turn"],
+      ];
+      for (const [text, canonical, phase, expected] of cases) {
+        expect(matcher.match(text, 900).canonical, text).toBe(canonical);
+        expect(said(text, phase), text).toBe(expected);
+        expect(said(canonical, phase, 1), `off turn: ${text}`).toBe("none");
+      }
+      for (const text of ["the main place is next", "main phase rules", "next phase later", "we discussed battle face", "don't end turn", "I'd not need one."]) {
+        expect(matcher.match(text, 900).canonical, text).toBe("");
+        expect(said(text), text).toBe("none");
+      }
+      expect(said("main place", "main2")).toBe("none");
+      expect(said("battle face", "draw")).toBe("none");
+      expect(said("end turn", "draw")).toBe("none");
+    });
+
+    it("joins only adjacent unmatched command fragments using audio time", () => {
+      const fragment = (text: string, startedAt: number) => ({ text, startedAt, endedAt: startedAt + 200, speechMs: 200 });
+      for (const suffix of ["phase", "faze"]) {
+        const matcher = buildMatcher([], { phasesAndTurnsOnly: true });
+        expect(matcher.matchUtterance(fragment("Next.", 100)).canonical).toBe("");
+        expect(matcher.matchUtterance(fragment(suffix, 300 + PHASE_JOIN_GAP_MS))).toMatchObject({ canonical: "next phase", joinedText: `Next. ${suffix}` });
+        // Consumed fragments must not trigger again.
+        expect(matcher.matchUtterance(fragment(suffix, 1600)).canonical).toBe("");
+      }
+      const matcher = buildMatcher([], { phasesAndTurnsOnly: true });
+      matcher.matchUtterance(fragment("next", 100));
+      expect(matcher.matchUtterance(fragment("phase", 301 + PHASE_JOIN_GAP_MS)).canonical).toBe("");
+      matcher.matchUtterance(fragment("we discussed next", 2000));
+      expect(matcher.matchUtterance(fragment("faze", 2300)).canonical).toBe("");
+      matcher.matchUtterance(fragment("next", 3000));
+      matcher.matchUtterance(fragment("later", 3300));
+      expect(matcher.matchUtterance(fragment("phase", 3600)).canonical).toBe("");
+      matcher.matchUtterance(fragment("next", 4000));
+      matcher.resetUtterances();
+      expect(matcher.matchUtterance(fragment("phase", 4300)).canonical).toBe("");
+      matcher.matchUtterance(fragment("battle", 5000)); // Already accepted on its own: never replay it.
+      expect(matcher.matchUtterance(fragment("face", 5300)).canonical).toBe("");
+    });
+
+    it("keeps speech across a 700 ms pause together, then closes after 900 ms of silence", async () => {
+      const { KwsClient: RealClient } = await vi.importActual<typeof import("@/components/remote/ui/voice/kws-client")>("@/components/remote/ui/voice/kws-client");
+      vi.stubGlobal("Worker", class {
+        onmessage: ((event: { data: unknown }) => void) | null = null;
+        postMessage(message: KwsWorkerIn) {
+          if (message.type === "end") this.onmessage?.({ data: { type: "utterance", id: message.id, hits: [], busyMs: 0, audioMs: 0 } });
+        }
+        terminate() {}
+      });
+      const utterances: KwsUtterance[] = [];
+      const listener = new RealClient({ pcmInput: true, defaultKeywords: "", keywords: "", boost: 1, threshold: 0.5,
+        onReady() {}, onError(message) { throw new Error(message); }, onUtterance: utterance => utterances.push(utterance) });
+      try {
+        await listener.start();
+        const feed = (frames: number, amplitude: number) => {
+          for (let i = 0; i < frames; i++) listener.pushPcm(new Float32Array(320).fill(amplitude));
+        };
+        feed(10, 0.1); feed(35, 0); feed(10, 0.1);
+        expect(utterances).toHaveLength(0);
+        feed(44, 0);
+        expect(utterances).toHaveLength(0);
+        feed(1, 0);
+        expect(utterances).toHaveLength(1);
+        expect(utterances[0].speechMs).toBe(400);
+        expect(utterances[0].endedAt! - utterances[0].startedAt!).toBe(1100);
+        feed(10, 0.1); feed(45, 0);
+        expect(utterances).toHaveLength(2);
+        expect(utterances[1].speechMs).toBe(200);
+      } finally { listener.stop(); vi.unstubAllGlobals(); }
+    });
+
+    it("limits both vocabularies to phase/turn commands and ignores supplied card names", () => {
+      const matcher = buildMatcher(["Kashtira Fenrir"], { phasesAndTurnsOnly: true });
+      for (const text of ["Kashtira Fenrir", "attack", "draw", "activate effect", "undo", "set"]) expect(matcher.match(text, 900).canonical, text).toBe("");
+      expect(matcher.match("next faze", 900).canonical).toBe("next phase");
+      const phrases = buildPhrases(["Kashtira Fenrir"], sp, { phasesAndTurnsOnly: true });
+      expect(phrases.entries.every(entry => entry.kind === "fixed" || entry.kind === "joiner")).toBe(true);
+      expect(phrases.entries.some(entry => entry.spoken === "NEXT PHASE")).toBe(true);
+      for (const text of ["KASHTIRA FENRIR", "ATTACK", "DRAW", "ACTIVATE EFFECT", "UNDO", "SET"]) expect(phrases.entries.some(entry => entry.spoken === text), text).toBe(false);
+    });
+
+    it("applies every accepted next-phase command to the simulator, including batched worker results", async () => {
+      const { VoiceCheck } = await import("../app/dev/voice-check/voice-check");
+      const page = render(createElement(VoiceCheck));
+      try {
+        expect(page.getByRole("checkbox", { name: "Phases and turns only" })).toBeChecked();
+        expect(page.getByTestId("names")).toBeDisabled();
+        fireEvent.click(page.getByRole("button", { name: "Draw" }));
+        fireEvent.click(page.getByTestId("start"));
+        const options = mic.options;
+        if (!options) throw new Error("The page did not start its microphone client");
+        let id = 0;
+        const hear = (text: string) => options.onUtterance({ id: ++id, hits: [], text, speechMs: 400, busyMs: 10, audioMs: 1200 });
+        act(() => { hear("Stand by."); hear("Next phase."); hear("Next phase."); hear("Next phase."); });
+        expect(page.getByTestId("sim-phase")).toHaveTextContent("Main 2");
+        expect(page.getByTestId("rows").textContent).toContain("phase -> battle");
+        act(() => { hear("Next phase."); hear("Next phase."); });
+        expect(page.getByTestId("sim-phase")).toHaveTextContent("Draw");
+        expect(page.getByRole("spinbutton", { name: "Turn" })).toHaveValue(3);
+        expect(page.getByRole("checkbox", { name: "I am the turn player" })).not.toBeChecked();
+        act(() => hear("Next phase."));
+        expect(page.getByTestId("sim-phase")).toHaveTextContent("Draw");
+      } finally { cleanup(); }
+    });
 
     it("maps spoken phrases to existing actions, and ignores the same words in talk", () => {
       const cases: [string, string, string?][] = [
