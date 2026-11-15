@@ -45,3 +45,38 @@ test('skin gripping opposite outside edges is contact even when no skin covers t
   const nearby=createFieldAnalyzer();nearby(empty);
   expect(nearby(scene(false)).edgeGrip?.(card)).not.toBe('grip');
 });
+
+test('skin-coloured scenery that stays still for four seconds stops counting as a hand',()=>{
+  const analyze=createFieldAnalyzer(),still=scene(true);
+  expect(analyze(still,0).touched?.(card)).toBeGreaterThan(.12);
+  for(let at=500;at<=3500;at+=500)expect(analyze(still,at).touched?.(card)).toBeGreaterThan(.12);
+  for(let at=4000;at<=5000;at+=500)analyze(still,at);
+  const evidence=analyze(still,5500);
+  expect(evidence.touched?.(card)).toBe(0);
+  expect(evidence.edgeGrip?.(card)).not.toBe('grip');
+});
+
+test('a hand arriving over learned scenery still blocks the card',()=>{
+  const analyze=createFieldAnalyzer(),empty=scene(false);
+  for(let at=0;at<=5000;at+=500)analyze(empty,at);
+  const evidence=analyze(scene(true),5500);
+  expect(evidence.touched?.(card)).toBeGreaterThan(.12);
+  expect(evidence.occluded?.(card)).toBe(true);
+});
+
+test('a hand that keeps moving is never learned as scenery',()=>{
+  const analyze=createFieldAnalyzer(),shifted=scene(true);
+  // The same finger four pixels shorter: its tip moves on every frame.
+  for(let y=40;y<=60;y++)for(let x=41;x<=44;x++)shifted.data.set([130,80,60,255],(y*shifted.width+x)*4);
+  let evidence=analyze(scene(true),0);
+  for(let at=500,i=1;at<=8000;at+=500,i++)evidence=analyze(i%2?shifted:scene(true),at);
+  expect(evidence.touched?.(card)).toBeGreaterThan(.12);
+});
+
+test('reset forgets the learned scenery',()=>{
+  const analyze=createFieldAnalyzer(),still=scene(true);
+  for(let at=0;at<=5500;at+=500)analyze(still,at);
+  expect(analyze(still,6000).touched?.(card)).toBe(0);
+  analyze.reset();
+  expect(analyze(still,6500).touched?.(card)).toBeGreaterThan(.12);
+});

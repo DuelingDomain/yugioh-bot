@@ -3,6 +3,13 @@ import { sharpness } from './quality';
 import type { DetectedQuad, FractionalBox } from './types';
 import { resizeRGBA, type RGBAImage } from './pixels';
 const SKIN_CONNECT_RGB=32;
+/**
+ * Settled background for the hand test. Skin colour alone cannot tell a hand from an orange card frame, a pink sleeve,
+ * warm mat art or a wooden table: those never leave, a hand does. A grid cell joins the background once nothing moved in
+ * it or around it (SETTLED_NEAR cells each way) for SETTLED_MS, and follows the light while it stays quiet. A hand that
+ * hovers or trembles keeps its own cells and their neighbours moving, so it is not learned.
+ */
+const SETTLED_CELL=8,SETTLED_NEAR=2,SETTLED_MS=4000,SETTLED_NEW_RGB=32;
 export type FieldFrame=ImageBitmap|ImageData;
 /** Shadow evidence: share of the frame darker than its recent background with the same chromaticity, and the share that changed since the last frame. */
 export interface FieldShadow { /** Mean RGB per grid cell (gx x gy x 3) of this frame. */ means?:Float32Array; share:number; changed:number; /** Per-cell flags (row-major, gx x gy) of shadow cells that turned on or off this frame: the watcher holds removals only where a shadow moves. */ moved?:Uint8Array; gx?:number; gy?:number }
@@ -18,11 +25,12 @@ export async function cloneFieldFrame(frame:FieldFrame):Promise<FieldFrame> {
  *  (clip replay: the saved frames are RGBA at up to 960 px, and motion must be measured at the live size). `crop()` always reads the full frame. */
 export function createFieldAnalyzer(options:{downsampleRGBA?:boolean}={}) {
   let previous:RGBAImage|undefined,skinReference:RGBAImage|undefined,faceCanvas:OffscreenCanvas|undefined;
+  let settled:{width:number;height:number;gx:number;gy:number;data:Uint8ClampedArray;known:Uint8Array;movedAt:Float64Array}|undefined;
   let shadows=createShadowBaseline();
   let lastMeans:Float32Array|undefined,markMeans:Float32Array|undefined;
   /** A camera lock or exposure change: learn the shadow baseline and the motion reference again. */
-  const reset=()=>{shadows=createShadowBaseline();previous=undefined;skinReference=undefined;lastMeans=undefined;markMeans=undefined;};
-  return Object.assign((frame:FieldFrame):FieldAnalysis=>{
+  const reset=()=>{shadows=createShadowBaseline();previous=undefined;skinReference=undefined;settled=undefined;lastMeans=undefined;markMeans=undefined;};
+  return Object.assign((frame:FieldFrame,at:number=performance.now()):FieldAnalysis=>{
     let image:RGBAImage;
     if(!('close' in frame))image=options.downsampleRGBA&&frame.width>320?resizeRGBA(frame,320,Math.max(3,Math.round(frame.height*320/frame.width))):frame;
     else {
@@ -44,6 +52,29 @@ export function createFieldAnalyzer(options:{downsampleRGBA?:boolean}={}) {
       }
       if(changed>=4)motionRegion={x:left/image.width,y:top/image.height,w:(Math.min(right,image.width)-left)/image.width,h:(Math.min(bottom,image.height)-top)/image.height};
     }
+    if(!settled||settled.width!==image.width||settled.height!==image.height){
+      const gx=Math.ceil(image.width/SETTLED_CELL),gy=Math.ceil(image.height/SETTLED_CELL);
+      settled={width:image.width,height:image.height,gx,gy,data:new Uint8ClampedArray(image.data.length),known:new Uint8Array(gx*gy),movedAt:new Float64Array(gx*gy).fill(at)};
+    }else if(before&&before.width===image.width&&before.height===image.height){
+      const {gx,gy,movedAt,known,data}=settled,moved=new Uint8Array(gx*gy);
+      for(let y=0;y<image.height;y+=2)for(let x=0;x<image.width;x+=2){
+        const i=(y*image.width+x)*4;
+        if(Math.abs(image.data[i]-before.data[i])+Math.abs(image.data[i+1]-before.data[i+1])+Math.abs(image.data[i+2]-before.data[i+2])>.08*3*255)moved[Math.floor(y/SETTLED_CELL)*gx+Math.floor(x/SETTLED_CELL)]++;
+      }
+      // Two samples: one flickering pixel is camera noise, not motion.
+      for(let c=0;c<moved.length;c++)if(moved[c]>=2)movedAt[c]=at;
+      for(let cy=0;cy<gy;cy++)for(let cx=0;cx<gx;cx++){
+        let last=-Infinity;
+        for(let y=Math.max(0,cy-SETTLED_NEAR);y<=Math.min(gy-1,cy+SETTLED_NEAR);y++)for(let x=Math.max(0,cx-SETTLED_NEAR);x<=Math.min(gx-1,cx+SETTLED_NEAR);x++)last=Math.max(last,movedAt[y*gx+x]);
+        if(at-last<SETTLED_MS)continue;
+        known[cy*gx+cx]=1;
+        const x0=cx*SETTLED_CELL,x1=Math.min(image.width,x0+SETTLED_CELL);
+        for(let y=cy*SETTLED_CELL,y1=Math.min(image.height,y+SETTLED_CELL);y<y1;y++)data.set(image.data.subarray((y*image.width+x0)*4,(y*image.width+x1)*4),(y*image.width+x0)*4);
+      }
+    }
+    const scenery=settled;
+    /** The settled pixel under (px,py), if its cell has been learned. */
+    const settledAt=(px:number,py:number)=>scenery.known[Math.floor(py/SETTLED_CELL)*scenery.gx+Math.floor(px/SETTLED_CELL)]===1;
     const crop=(card:DetectedQuad,padding:number)=>{const b=boundsOf(card.quad);return {left:Math.max(1,Math.floor((b.x-b.w*padding)*image.width)),top:Math.max(1,Math.floor((b.y-b.h*padding)*image.height)),right:Math.min(image.width-1,Math.ceil((b.x+b.w*(1+padding))*image.width)),bottom:Math.min(image.height-1,Math.ceil((b.y+b.h*(1+padding))*image.height))};};
     const occlusions=new WeakMap<DetectedQuad,number>(),nearSkin=new WeakMap<DetectedQuad,number>(),grips=new WeakMap<DetectedQuad,FieldEdgeGrip>();
     const shadow=shadows(image),means=shadow.means,lastScene=lastMeans,markScene=markMeans;lastMeans=means;
@@ -122,7 +153,7 @@ export function createFieldAnalyzer(options:{downsampleRGBA?:boolean}={}) {
         // Warm printed artwork alone is not an occluder, even while stationary.
         const b=crop(card,.3),box=boundsOf(card.quad),step=2,w=Math.ceil((b.right-b.left)/step),h=Math.ceil((b.bottom-b.top)/step);
         if(w<=0||h<=0)return 0;
-        const mask=new Uint8Array(w*h),inside=new Uint8Array(w*h),edge=new Uint8Array(w*h),queue:number[]=[];
+        const mask=new Uint8Array(w*h),fresh=new Uint8Array(w*h),inside=new Uint8Array(w*h),edge=new Uint8Array(w*h),queue:number[]=[];
         const sides=new Int8Array(w*h).fill(-1),newSkin=new Uint8Array(w*h),sideTotal=[0,0,0,0],sideSkin=[0,0,0,0];
         const corners=card.quad.map(p=>({x:p.x*image.width,y:p.y*image.height}));
         let total=0,covered=0,near=0;
@@ -131,6 +162,10 @@ export function createFieldAnalyzer(options:{downsampleRGBA?:boolean}={}) {
           const r=image.data[i],g=image.data[i+1],blue=image.data[i+2];
           const cb=128-.168736*r-.331264*g+.5*blue,cr=128+.5*r-.418688*g-.081312*blue;
           mask[index]=Number(r>40&&r>g&&r>blue&&cb>=77&&cb<=127&&cr>=133&&cr<=173);
+          // Skin colour that equals the settled scene at this pixel is print, wood or a sleeve: it has not arrived with a hand.
+          // It still connects a hand to the crop edge (an arm over a warm table), but it is not counted as that hand.
+          const learned=settledAt(px,py),still=scenery.data;
+          fresh[index]=Number(!learned||Math.max(Math.abs(r-still[i]),Math.abs(g-still[i+1]),Math.abs(blue-still[i+2]))>SETTLED_NEW_RGB);
           const signs=card.quad.map((a,j)=>{const next=card.quad[(j+1)%4];return (next.x-a.x)*(py/image.height-a.y)-(next.y-a.y)*(px/image.width-a.x);});
           inside[index]=Number(signs.every(v=>v>=0)||signs.every(v=>v<=0));total+=inside[index];
           // The edge ring: just outside the card (12% of its size), not the neighbouring zone (an orange card frame there is not a hand).
@@ -144,8 +179,8 @@ export function createFieldAnalyzer(options:{downsampleRGBA?:boolean}={}) {
               if(d<best){best=d;side=j;}
             }
             sides[index]=side;sideTotal[side]++;
-            if(mask[index]&&reference){
-              const old=reference.data,nowSum=Math.max(1,r+g+blue),oldSum=Math.max(1,old[i]+old[i+1]+old[i+2]);
+            if(mask[index]&&(learned||reference)){
+              const old=learned?still:reference!.data,nowSum=Math.max(1,r+g+blue),oldSum=Math.max(1,old[i]+old[i+1]+old[i+2]);
               newSkin[index]=Number(Math.max(Math.abs(r-old[i]),Math.abs(g-old[i+1]),Math.abs(blue-old[i+2]))>SKIN_CONNECT_RGB&&
                 Math.max(Math.abs(r/nowSum-old[i]/oldSum),Math.abs(g/nowSum-old[i+1]/oldSum),Math.abs(blue/nowSum-old[i+2]/oldSum))>.04);
             }
@@ -153,7 +188,7 @@ export function createFieldAnalyzer(options:{downsampleRGBA?:boolean}={}) {
           if(mask[index]&&(x===0||y===0||x===w-1||y===h-1)){mask[index]=2;queue.push(index);}
         }
         for(let head=0;head<queue.length;head++){
-          const index=queue[head],x=index%w,y=Math.floor(index/w);covered+=inside[index];near+=edge[index];if(sides[index]>=0&&newSkin[index])sideSkin[sides[index]]++;
+          const index=queue[head],x=index%w,y=Math.floor(index/w);if(fresh[index]){covered+=inside[index];near+=edge[index];}if(sides[index]>=0&&newSkin[index])sideSkin[sides[index]]++;
           for(const next of [x>0?index-1:-1,x+1<w?index+1:-1,y>0?index-w:-1,y+1<h?index+w:-1])
             if(next>=0&&mask[next]===1){
               // A skin-coloured print touching a hand is not part of that hand. Keep smooth skin/shadow

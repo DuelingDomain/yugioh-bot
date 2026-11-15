@@ -134,7 +134,7 @@ export interface FieldWatcherOptions {
   gallery?:FieldIdentityGallery; earlyExitMargin?:number; stableMs?:number; removalMs?:number; cpuBudget?:number; maxTracks?:number;
   now?:()=>number; hidden?:()=>boolean; cpuBusy?:()=>boolean;
   /** Dependency injection for replay/tests; production defaults sample browser pixels. */
-  analyze?:((frame:FieldFrame)=>FieldAnalysis)&{reset?:()=>void}; clone?:(frame:FieldFrame)=>Promise<FieldFrame>;
+  analyze?:((frame:FieldFrame,/** Sample time on the watcher clock. */at?:number)=>FieldAnalysis)&{reset?:()=>void}; clone?:(frame:FieldFrame)=>Promise<FieldFrame>;
 }
 interface PendingRead { /** Crop sharpness when the read started. */ sharp?:number; crop?:RGBAImage; at:number; /** Low reads from a moving outline may get one settled retry. */ moving?:boolean; appearance?:number[]; result?:RecognitionResult; error?:boolean; card?:DetectedQuad; art?:number[] }
 interface IdentityCheck { state:FieldTrack['state']; cardId?:string; result?:RecognitionResult; reason?:FieldEvent['reason']; strongSamples:number; /** Fresh reads taken while the embedding stayed in the unsure band (.68-.84). */ rereads?:number }
@@ -188,6 +188,11 @@ const trackSetFaceGate=()=>createFaceStateHysteresis({sustainMs:60,minSamples:2,
 /** A face-down outline: from .4, or a light sleeve in a calibrated field cell from the decode floor (its sleeve colour already differs from the mat). */
 const backOutline=(card:DetectedQuad)=>card.kind==='face-down'&&(card.confidence>=.4||!!card.cell);
 // A sure read from a closed set (deck list, cards seen this duel) already cleared its own .80 floor, an off-list guard and the catalog check.
+/** Lowest top score that names a new sideways card; below it the player is asked. A holo sideways card under glare matched a
+ * wrong card at .748 to .750 depending on the frame, while correct sideways names in the replay clips scored .751 to .793.
+ * No limit separates them: this one keeps a .02 gap above the wrong read and turns the weakest correct ones into a question. */
+export const SIDEWAYS_NAME_MIN=.77;
+export const weakSidewaysRead=(r:RecognitionResult|undefined,position:FieldTrack['position'])=>!!r&&position==='defense'&&r.tier!=='low match'&&!r.quality.faceDown&&(r.candidates[0]?.score??0)<SIDEWAYS_NAME_MIN;
 const closedRead=(r:RecognitionResult)=>r.tier==='sure'&&['deck','dynamic','likely'].includes(r.quality.searchSource??'');
 const deckZone=(zone:FieldZone):zone is 'DECK'|'EXTRA'=>zone==='DECK'||zone==='EXTRA';
 /** Median RGB of a flat [r,g,b,...] list. */
@@ -724,7 +729,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       lastFrameAt=sample.at;
       const maxGap=Math.max(1000,metrics.intervalMs*1.8),gap=sample.at-previousAt;
       if(gap>maxGap)interruptWindow(light,true);previousAt=sample.at;
-      const evidence=analyze(current);latestEvidence=evidence;latestEvidenceFrame=current;
+      const evidence=analyze(current,sample.at);latestEvidence=evidence;latestEvidenceFrame=current;
       // Keep only the small startup appearance sampler. A late detector box on
       // unchanged mat print is still startup background, not a new arrival.
       if(setGuards.startup&&!startupAppearance)startupAppearance=createFieldAnalyzer({downsampleRGBA:true})(current).appearance;
@@ -1573,9 +1578,12 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         const sureBack=t.view.state==='candidate'&&t.resolvedAt===undefined&&!t.binding&&!t.prompted&&
           faceClean&&c.kind==='face-down'&&c.confidence>=.7&&setFace.state==='down';
         let face=knownFace?{state:t.view.faceDown?'down' as const:'up' as const,confidence:1}:sureFront||sureBack?observation:gatedFace;
+        // The Graveyard holds no face-down cards: pixels alone never turn a detector front there into a back.
+        const graveFront=t.view.zone==='GY'&&!knownFace&&c.kind==='face-up';
+        if(graveFront&&face.state==='down')face={state:'unknown',confidence:0};
         // The face gate never waits for ever: after 600 ms a confident detector
         // front (>= .8) decides, unless the pixels clearly show a back.
-        if(face.state==='unknown'&&c.kind==='face-up'&&c.confidence>=.8&&!c.partial&&observation.state!=='down'&&!blocks(t,c)){
+        if(face.state==='unknown'&&c.kind==='face-up'&&c.confidence>=.8&&!c.partial&&(observation.state!=='down'||graveFront)&&!blocks(t,c)){
           t.faceWaitAt??=sample.at;if(sample.at-t.faceWaitAt>=600){face={state:'up',confidence:c.confidence};note(t,`face gate timed out after ${Math.round(sample.at-t.faceWaitAt)} ms; detector front ${c.confidence.toFixed(2)}`);}
         }else if(face.state!=='unknown'||c.kind!=='face-up')t.faceWaitAt=undefined;
         // Legacy timeout for the comparison switch and non-field observations. Field Sets with the guard ON
@@ -1697,7 +1705,8 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         // A read of a new card is used only while the card rests on the mat: a card held above it goes to the held path.
         if(t.view.state==='candidate'&&t.read&&(t.read.result||t.read.error)&&!restOk(t)){note(t,`read waits: ${t.rest?.text??'not resting yet'}`);continue;}
         if(t.read&&(t.read.result||t.read.error)&&sample.at>t.read.at) {
-          const pending=t.read,result=pending.result;t.read=undefined;
+          const pending=t.read,weakSideways=t.view.state==='candidate'&&weakSidewaysRead(pending.result,position),result=weakSideways?{...pending.result!,tier:'low match' as const}:pending.result;t.read=undefined;
+          if(weakSideways)note(t,`sideways read below ${SIDEWAYS_NAME_MIN}: ask, do not name`);
           metrics.latencyMs=now()-t.view.firstSeen;
           // An early read can include a hand at the card edge. If it is not sure and
           // the card itself has changed since (the hand left), read once more

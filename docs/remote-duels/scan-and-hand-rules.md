@@ -1,5 +1,7 @@
 # Scan and hand rules: Task L
 
+> **Update, 15 November 2026:** a later change was kept. See [Follow-up: the colour-only hand signal](#follow-up-the-colour-only-hand-signal) at the end. The Task L text below is unchanged and describes the six candidates that were not kept.
+
 **Not accepted. No product or test changes were kept.** The worktree is restored to its starting source at `a21a7e33289624685aa4281edda123e4c7640545`. The only project-tree change left for review is this report; local evidence is in [`data/replay/sim-l-20261115`](../../data/replay/sim-l-20261115).
 
 Step 0 did not pass. The six requested changes were therefore evaluated as separate diagnostic candidates from HEAD, in order **1, 2, 3, 5, 6, 4**. They are not an accepted cumulative chain. Change 4 ran alone, after the other hand changes. A preliminary crop candidate was also rejected and corrected. There were **135 fresh clip runs**: nine pairs of ten v2 and five v3 clips. Every run exited zero with zero watcher errors. No commit, push, PR, deployment, download, training, or media export occurred. Work was solo, with at most two replay parents and one inference thread per lane.
@@ -117,3 +119,41 @@ The final build retains **zero stale registered sources**, with **2.280/3.708 s*
 [All remaining misses and causes](../../data/replay/sim-l-20261115/remaining-misses.md) lists the 40 v2 misses and 48 v3 misses (33 field/action plus 15 held observations). IDs/outcomes match the fresh start replay; final source is restored to that exact version. Causes are carried from Task J, linked to current logs; nearby-track attribution remains approximate and unresolved cases stay marked unresolved.
 
 The remaining work needs hand/arm state that preserves an established hold when evidence becomes unknown, local absence proof for fully observed crop regions, one bounded question lifecycle per physical zone/episode, and better identity/outline evidence for weak backs and low-match cards. Hand/search/Extra preview roles, material relations, token roles and the offline glue's stack wait remain unresolved. No question was hidden to satisfy a count, and no naming or phantom threshold was lowered in the restored build.
+
+## Follow-up: the colour-only hand signal
+
+**Cause.** The hand test in `packages/vision/src/field-motion.ts` (`touched`, `skinNear`, `edgeGrip`) looked only at colour: skin-coloured pixels connected to the edge of the card's crop. An orange card frame, warm mat art, a pink sleeve or warm light gave the same answer as a hand. On one clip it reported 38% to 56% hand contact and a two-sided grip on a card that no hand had touched for 11 seconds. Every Task L rule that admitted more cards therefore also admitted hands, because the signal underneath could not tell the two apart.
+
+**Fix (kept, not yet committed).**
+
+- **Settled background.** The analyzer learns each 8-pixel cell of the frame once that cell and the two cells around it on every side have been still for 4 seconds, and keeps following the light while they stay still. Skin-coloured pixels that match the learned scene no longer count as a hand or as a grip. They still connect a hand to the crop edge, so an arm lying over a warm table is still found. Cells that were never quiet behave exactly as before.
+- **Graveyard face.** Pixels alone no longer turn a detector front in the Graveyard into a face-down card. The fix exposed one face-up card placed there face-down with no name.
+- **Sideways names.** A new sideways card is named only when its top score is at least 0.77 (`SIDEWAYS_NAME_MIN`); below that the player is asked. A holo sideways card under glare was read as a different card at 0.748 to 0.750. Correct sideways names in these clips scored 0.751 to 0.793, so no limit separates them: 0.77 stops the wrong name and turns the weakest correct ones into a question.
+
+**Numbers.** Both clip sets were replayed with the Task L method (same frozen inputs and labels). "Corrected" is a separately named scoring variant in the local harness (`fable-corrected-score.mjs`): it stops one label consuming another label's card, excludes one label where the video cuts away after 0.4 s, and does not count a pile that kept its old top name as a wrong name for the card that left. Labels were not edited. It covers v2 only; no such conflicts were identified on v3.
+
+| | v2 before | v2 after | v3 before | v3 after |
+|---|---|---|---|---|
+| On time / late / missed (original) | 26 / 2 / 40 | 26 / 3 / 36 | 3 / 3 / 33 | 2 / 2 / 35 |
+| On time / late / missed (corrected) | 27 / 3 / 39 | 27 / 5 / 37 | same as original | same as original |
+| Real wrong names | 0 | 0 | 0 | 0 |
+| Wrong-name outcomes in the original scorer | 0 | 3 (pile kept its old name) | 0 | 0 |
+| Wrong zone (original) | 3 | 3 | 4 | 4 |
+| Questions | 3 | 4 | 4 | 5 |
+| Placements | 37 | 39 | 19 | 16 |
+| Non-card phantoms | 0 | 0 | 0 | 0 |
+| Hand, search or Extra preview placements | 0 | 0 | 3 | 3 |
+| Stale registered sources | 0 | 0 | not measured | not measured |
+| Placement delay, median / p95 (s) | 0.605 / 12.18 | 0.663 / 12.18 | 3.851 / 9.708 | 3.157 / 8.074 |
+
+The gain is small. On v2 one Graveyard card is now placed with its name and one banished card appears 3 seconds sooner. On v3 one monster moved from 9.7 s late to 1.5 s, two cards that used to be named now end as questions (a token marker read as "Sheep Token", and a correct sideways card at 0.751), and one correct placement was lost when its outline joined an older track in the same cell (cause not isolated). Most cards the hand test now lets through are stopped by the next rule: the reader cannot name them, or the outline looks tilted.
+
+**Known limits.**
+
+- The 4-second quiet time and the 32-level colour difference were chosen on video excerpts with almost constant hand motion. They are not validated on real table footage.
+- A hand that rests completely still for 4 seconds is learned as background. No clip contains this.
+- A hand whose colour is within 32 levels of the learned scene at the same pixel is not counted there. An earlier form of the fix also cut such a hand off from the crop edge and reported no contact at all; that form placed more cards and was replaced by this one.
+- A deck search fanned out on the mat and left alone is still seen as a resting card and now raises a question. No clean rule was found for it.
+- The sideways limit is a stopgap. In the same replay the hybrid reader on PR #609 named the holo card correctly (0.79).
+
+Evidence is local in `data/replay/fable-20261115/` (`base-*` and `final2-*` run folders, `hybrid-compare.json`, `patches/`). Tests: `packages/web/tests/remote-skin-contact.test.ts` and `packages/web/tests/remote-sideways-read.test.ts`.
