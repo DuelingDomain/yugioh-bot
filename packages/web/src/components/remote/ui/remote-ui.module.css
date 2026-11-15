@@ -1016,7 +1016,7 @@
 .btn.dremove{margin-left:auto;color:var(--bad,#ff8a8f);border-color:color-mix(in srgb,var(--bad,#e5484d) 45%,transparent)}
 .btn.dremove:hover{border-color:var(--bad,#e5484d)}
 /* Short laptop screens: the art sits beside the name, so the controls fit with no scroll. */
-@media (max-height:850px) and (min-width:701px){
+@media (max-height:850px) and (min-width:701px),(max-width:700px){
   .dhead{display:grid;grid-template-columns:104px minmax(0,1fr);gap:12px;align-items:start}
   .dhead .dart{width:100%;margin:0}
   .dhead .dname{font-size:18px}
@@ -1172,7 +1172,7 @@
 
 /* A card the watcher sees but has not read. Looks the same as the saved "Reading" card, so nothing jumps when it arrives. */
 .cd.unk.reading{border:1px solid #507b70;border-style:solid;background:linear-gradient(110deg,#233c3b 20%,#507b70 45%,#233c3b 70%) 0 0/240% 100%;color:#e5f5ef;animation:readsweep 1.2s linear infinite}
-.cd.unk.reading span{font:600 10px/1.1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif}
+.cd.unk.reading span{font:600 min(10px,calc(var(--cw,44px) * .23))/1.1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif}
 @keyframes readsweep{to{background-position:-240% 0}}
 .cd.back.shimmer{position:relative;overflow:hidden}
 .cd.back.shimmer::after{content:"";position:absolute;inset:0;background:linear-gradient(110deg,transparent 30%,rgb(255 255 255/.22) 48%,transparent 66%);background-size:240% 100%;animation:readsweep 1.6s linear infinite;pointer-events:none}
@@ -1290,3 +1290,109 @@
 .voiceTools label, .voiceTools form { display:flex; flex-wrap:wrap; align-items:center; gap:6px; }
 .voiceTools select, .voiceTools input { color:var(--ink); background:var(--bg, #171820); border:1px solid var(--line, #565866); border-radius:5px; max-width:100%; padding:5px; }
 .voiceLogBadge { color:#f3c970; border:1px solid currentColor; padding:3px 5px; border-radius:4px; font-weight:700; }
+
+/* Tap backup: the same panel, buttons and tokens as the rest of the table. */
+/* Picker: a compact panel beside the tapped cell on a desktop, a bottom sheet on a phone. One list, thumb-sized rows. */
+.pop.big.show.zonePicker{display:flex;flex-direction:column;align-items:stretch;gap:10px;width:min(330px,calc(100vw - 16px));max-height:min(64dvh,480px);padding:12px;overflow:hidden}
+.zonePicker>*{flex:none}
+.zonePicker header{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.zonePicker header strong{font:700 15px/1.2 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;color:var(--ink)}
+.zpClose{height:30px;padding:0 11px}
+.zpFace{display:flex;align-items:center;gap:8px;min-height:30px;color:var(--ink2);font-size:13px;font-weight:600;cursor:pointer}
+.zpFace input{width:18px;height:18px;margin:0;accent-color:var(--gold)}
+.zpTabs{display:grid;grid-template-columns:repeat(3,1fr);border:1px solid var(--line2);border-radius:6px;overflow:hidden;background:var(--p0)}
+.zpTab{min-height:34px;padding:0 6px;background:none;border:0;border-right:1px solid var(--line);font-weight:600;font-size:13px;color:var(--ink3);white-space:nowrap}
+.zpTab:last-child{border-right:0}
+.zpTab:hover{color:var(--ink)}
+.zpTab[aria-selected=true]{background:var(--p3);color:var(--gold-ink);box-shadow:inset 0 -2px 0 var(--gold)}
+.zpTab:focus-visible{outline-offset:-2px}
+.zpSearch{display:flex;flex-direction:column;gap:5px}
+.zpSearch .inp,.zonePicker input[type=text],.zonePicker input:not([type]){width:100%;min-height:38px;padding:0 10px;font-size:16px;color:var(--ink);background:var(--p0);border:1px solid var(--line2);border-radius:6px}
+.zonePicker>.zpList{flex:1 1 auto}
+.zpList{display:flex;flex-direction:column;gap:6px;min-height:0;overflow:auto;overscroll-behavior:contain;margin:0 -4px;padding:2px 4px}
+.zpRow{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;min-height:40px;padding:6px 12px;text-align:left;border:1px solid var(--line2);border-radius:6px;background:var(--p2);color:var(--ink);font-weight:600;font-size:14px;line-height:1.25}
+.zpRow:hover:not(:disabled){border-color:var(--pen)}
+.zpRow:disabled{opacity:.55;cursor:default}
+.zpName{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.zpCount{flex:none;font:700 12px/1 var(--font-duel-display),Oxanium,sans-serif;font-variant-numeric:tabular-nums;color:var(--gold-ink)}
+.zpBack{background:none;color:var(--ink2);justify-content:center}
+.zpNote{margin:0;color:var(--ink3);font-size:13px;line-height:1.35}
+.zpNote b{color:var(--ink)}
+.zpErr{margin:0;padding:6px 10px;border:1px solid var(--lossd);border-radius:6px;background:rgb(228 90 77/.12);color:var(--loss);font-size:13px}
+@media(pointer:coarse),(max-width:900px){
+  .zpClose{min-height:44px}.zpTab{min-height:44px}.zpFace{min-height:44px}.zpFace input{width:22px;height:22px}.zpRow{min-height:44px}.zpSearch .inp,.zonePicker input:not([type=checkbox]){min-height:44px}
+}
+@media(max-width:900px){
+  .pop.big.show.zonePicker{left:8px!important;right:8px;top:auto!important;bottom:max(8px,env(safe-area-inset-bottom));width:auto;max-height:62dvh;padding:10px 12px 12px;border-radius:14px 14px 12px 12px}
+}
+/* Recent departures: a collapsed row under the board. Open it and every card that just left has its own destinations and Undo. */
+.departureHistory{margin:8px;border:1px solid var(--line);border-radius:8px;background:var(--p1)}
+.departureHistory summary{display:flex;align-items:center;min-height:36px;padding:0 12px;cursor:pointer;color:var(--ink2);font-weight:600;font-size:13px;list-style:none}
+.departureHistory summary::-webkit-details-marker{display:none}
+.departureHistory summary::before{content:"";width:6px;height:6px;margin-right:9px;border-right:2px solid var(--gold-ink);border-bottom:2px solid var(--gold-ink);transform:rotate(-45deg);transition:transform .15s}
+.departureHistory[open] summary::before{transform:rotate(45deg)}
+.departureHistory summary:hover{color:var(--ink)}
+.departureHistory[open] summary{border-bottom:1px solid var(--line)}
+.departureHistory [role="group"]{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:8px 12px;border-top:1px solid var(--line)}
+.departureHistory [role="group"]:first-of-type{border-top:0}
+.departureHistory [role="group"] b{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink);font-size:14px}
+.departureHistory [role="group"] > span{flex:none;color:var(--ink3);font-size:12px}
+.departureHistory [role="group"] .dwhere{flex:1 0 100%;display:flex;flex-wrap:wrap;gap:6px}
+@media(pointer:coarse),(max-width:900px){.departureHistory summary{min-height:44px}.departureHistory button{min-height:44px;padding:0 12px}.departureHistory [role="group"] b{flex-basis:100%;white-space:normal}.departureHistory [role="group"] > span{flex-basis:100%}}
+@media(pointer:coarse),(max-width:600px) { .dact button,.dact select { min-height:44px; } }
+
+/* Zone actions: the same panel as the picker. One list of full-width rows, materials under it. */
+.zoneMenu header.zmHead{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.zmTitle{display:flex;flex-direction:column;min-width:0;flex:1 1 auto}
+.zmTitle strong{font:700 15px/1.2 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;color:var(--ink)}
+.zmTitle span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink3);font-size:12.5px;line-height:1.3}
+.zoneMenu header.zmHead>strong{flex:1 1 auto;min-width:0;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.zoneMenu header.zmHead .zpClose{flex:none}
+.zoneMenu header.zmHead .zpClose .ic{margin-left:-4px}
+.zmBody{display:flex;flex-direction:column;gap:10px;min-height:0;flex:1 1 auto;overflow:auto;overscroll-behavior:contain;margin:0 -4px;padding:2px 4px}
+.zmBody>*{flex:none}
+.zaList{display:flex;flex-direction:column;gap:6px}
+.zaRow{display:flex;align-items:center;gap:10px;width:100%;min-height:40px;padding:6px 12px;text-align:left;border:1px solid var(--line2);border-radius:6px;background:var(--p2);color:var(--ink);font-weight:600;font-size:14px;line-height:1.25}
+.zaRow>span{flex:1 1 auto;min-width:0}
+.zaRow .ic{width:18px;height:18px;color:var(--ink2)}
+.zaRow .zaNext{width:16px;height:16px;color:var(--ink3)}
+.zaRow:hover:not(:disabled){border-color:var(--pen)}
+.zaRow:disabled{opacity:.55;cursor:default}
+.zaPrimary{background:var(--p3);border-color:rgb(232 185 79/.55)}
+.zaPrimary .ic:first-child{color:var(--gold-ink)}
+.zmMats{display:flex;flex-direction:column;gap:6px;padding-top:8px;border-top:1px solid var(--line)}
+.zmMats h3{display:flex;align-items:center;gap:8px;margin:0;font:700 11px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;letter-spacing:.12em;text-transform:uppercase;color:var(--ink3)}
+.zmMats h3 b{padding:2px 6px;border-radius:9px;background:var(--p3);color:var(--gold-ink);letter-spacing:0;font-variant-numeric:tabular-nums}
+.zmMat{display:flex;align-items:center;gap:8px;padding:4px 4px 4px 6px;border:1px solid var(--line);border-radius:6px;background:var(--p1)}
+.zmMat>img,.zmMat>i{flex:none;width:26px;height:38px;border-radius:2px;object-fit:cover;background:var(--p3);box-shadow:0 0 0 1px var(--line2)}
+.zmMat>span{flex:1 1 auto;min-width:0;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;overflow:hidden;font-weight:600;font-size:13.5px;line-height:1.2;color:var(--ink)}
+.zmMat .btn{flex:none;height:34px;padding:0 10px;font-size:12.5px;background:none;color:var(--ink2)}
+.zmMat .btn:hover:not(:disabled){color:var(--ink);background:var(--p2)}
+.zmMat .btn:disabled{opacity:.55}
+.zmSet{margin:0;padding:0;border:0;min-width:0;display:flex;flex-direction:column;gap:6px}
+.zmSet legend{padding:0 0 6px;font:700 11px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;letter-spacing:.12em;text-transform:uppercase;color:var(--ink3)}
+.zmCheck{display:flex;align-items:center;gap:10px;min-height:40px;padding:4px 10px;border:1px solid var(--line);border-radius:6px;background:var(--p1);cursor:pointer;font-weight:600;font-size:14px;color:var(--ink)}
+.zmCheck:has(input:checked){border-color:rgb(232 185 79/.55);background:var(--p2)}
+.zmCheck input{flex:none;width:20px;height:20px;margin:0;accent-color:var(--gold)}
+.zmCheck input:disabled{cursor:default}
+.zmCheckName{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.zmCheckAt{flex:none;font:700 11px/1 var(--font-duel-display),Oxanium,sans-serif;letter-spacing:.06em;color:var(--ink3)}
+.zmFoot{display:flex;flex-direction:column;gap:6px}
+.zmBtn{width:100%;height:auto;min-height:40px;padding:8px 12px;white-space:normal;text-align:center;line-height:1.2}
+.zmFoot .zpNote{text-align:center}
+@media(pointer:coarse),(max-width:900px){
+  .zaRow{min-height:48px}.zmMat .btn{min-height:44px}.zmCheck{min-height:48px}.zmCheck input{width:24px;height:24px}.zmBtn{min-height:48px}
+  .zoneMenu header.zmHead .zpClose{padding:0 12px}
+}
+@media(max-width:900px){.pop.big.show.zonePicker.zoneMenu{max-height:72dvh}}
+.zaRow:focus-visible,.zmCheck:has(input:focus-visible){outline:2px solid var(--gold);outline-offset:1px}
+
+/* A monster with cards under it: edges of the stack and a small layers + count chip in the top-left corner, outside the art. The tap opens the zone actions, which list the materials. */
+.zc.matStack>.cd{box-shadow:0 3px 0 -1px #5b34d6,0 5px 0 -2px #2a1d4b}
+.zc .matb{left:-6px;right:auto;top:-6px;bottom:auto;display:inline-flex;align-items:center;gap:2px;height:14px;padding:0 4px 0 2px;border-radius:7px;background:#1c1334;box-shadow:0 0 0 1.5px rgb(7 4 14/.85);pointer-events:none;font-variant-numeric:tabular-nums;line-height:1}
+.zc .matb svg{width:9px;height:9px;stroke-width:2.4}
+.field[data-rotated] .matb{transform:rotate(180deg)}
+@media(pointer:coarse),(max-width:900px){.zc .matb{height:18px;padding:0 5px 0 3px;border-radius:9px;font-size:11px}.zc .matb svg{width:11px;height:11px}}
+/* Changed here: the zone has a dotted purple edge outside the card (the cue button is in field-watcher-ui). */
+.zc:has(>[data-changed-cue]){outline:1.5px dashed rgb(167 139 255/.85);outline-offset:1px}
+.zc:has(>[data-changed-cue]):focus-visible{outline:2px solid var(--gold);outline-offset:2px}

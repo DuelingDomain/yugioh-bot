@@ -12,6 +12,8 @@ Otherwise stage two runs Light, a six-layer distilled DINOv2-small model (about 
 
 Both stages use the existing read pipeline for warp, pre-clean retry, temporal agreement, name priors, deck preference, context re-ranking and quality gates. A name passing the first gate can still be **not sure** because of the existing partial/covered/full-art/other quality rules; selecting a stage never bypasses placement or confirmation rules. Stage one always checks both orientations; stage two retains the product's existing orientation and early-exit behavior. Prompts, Best match, tracking and Set/placement policy are unchanged.
 
+Main's watcher name-voting window runs with either reader. Current and Light use the shared pipeline's temporal embedding mean and deck-list confidence prior. DuelSight retains its released maximum-over-orientations gate and requires agreement in every frame; disagreeing frames escalate to Light for fusion. The deck prior never lowers DuelSight's fixed first-stage score or margin. This preserves the released first-stage rule rather than treating its maximum score as a fused confidence.
+
 Reference compatibility is explicit:
 
 - Deck lists, seen/related cards, voice hints and frame restrictions use mapped catalog identities. They can operate in either bank. A first-stage rank/visual disagreement escalates.
@@ -26,6 +28,8 @@ Only a selected Hybrid reader fetches/decodes its extra models, bank, index and 
 The two new recognizers intentionally run on **WASM only**, with the existing runtime's one-thread or multi-thread configuration. They do not yet have WASM-derived WebGPU self-check references. The detector and current compatibility reader keep the existing WebGPU → WASM fallback. Single-worker and split-worker layouts use the same worker implementation; the scene-only worker never loads Hybrid. Current remains ready in the selected Hybrid read worker to provide fallback and compatible features, so Hybrid has a larger resident footprint.
 
 An asset/network/hash/session failure keeps Current ready and shows **“Hybrid reader could not load. Using the current reader. Switch readers to retry.”** An inference failure similarly switches to Current. The failure is sticky for this reader instance; switching Current → Hybrid retries. There is no recurring download retry on watcher ticks.
+
+The page allows eight seconds for the extra catalog download; a failure starts Current directly and retains the visible note across backend updates. A selected Hybrid read worker has a 15-second request watchdog, including startup and warm-up. A hung worker or worker crash terminates that worker, starts Current, and retries the pending request with the retained original frames. It shows **“Hybrid reader stopped responding. Using the current reader. Switch readers to retry.”** The split scene worker continues serving outlines. The camera stream and table are not restarted. These timeouts apply only after an explicit Hybrid selection; Current keeps its existing lifecycle. No WebGPU support is needed for the two extra models.
 
 `RecognitionResult.reader` carries selected reader, answering stage/model, first/second raw top score, runner-up, distinct margin and elapsed ms, total ms and any compatibility reason. It appears in the owner zone-grid Debug overlay, `.ddclip` read/watcher sidecars, field timing events and persisted **`cam.reader`** action evidence. Geometry/timing-only evidence contains no pixels or names. Reads that produce no game action remain available in the local clip read sidecar, rather than inventing a table event. Stage timers include the product pipeline work for that stage; they are not pure ONNX inference timers.
 
@@ -80,6 +84,19 @@ A new image carries `/app/vision-code/worker.js` and matching `ort/`; the authen
 | Prepared Light metadata | `5d4ba62c8af9a024fae492801d9aa59287ddcf68bd0d54b0f617ebdbefb3a6b2` |
 
 Runtime verifies all six Hybrid data files, not just the weights. Preparation verifies every input and the deterministic metadata output. Original Apache-2.0 licenses, DuelSight NOTICE/PROVENANCE and Light THIRD_PARTY_NOTICES are retained in source and copied beside the assets. Upstream grants cover their own work; card artwork, video and pretraining material retain their owners' rights. **The owner approved use of models trained on public tournament video. A license check of the Light and DuelSight weights is still advised before a wider release.** This records that approval and the upstream notices, not a new license conclusion.
+
+The retained Light notice's model section names the full v3b embedder, rather than explicitly naming the Light student. Its Apache-2.0 statement and training-data description therefore do not independently settle the Light weight review. No new upstream licence verification was performed in the merge review.
+
+Local preparation on 15 November 2026 rechecked the hashes above without downloading new inputs:
+
+| Prepared binary | Bytes | Source and retained licence/training note |
+|---|---:|---|
+| `recognizer.onnx` | 4,015,459 | DuelSight v0.8.0, release model `862aec0f937da326`. Its NOTICE and PROVENANCE state Apache-2.0 for the recognizer; MobileNetV3-Small starts from Kenbunshoku/torchvision ImageNet weights and was trained on official art, synthetic composites and labelled public-video frames. Third-party material retains its owners' rights. |
+| `light.onnx` | 13,327,292 | Duel Lens Light registry revision `de87d44e2822a25a2dc481a27ed3c2881ce9ad03`, source filename `dinov2-small-duel-v3b-light.q8.onnx`. Its retained registry explicitly states Apache-2.0, fine-tuned from `facebook/dinov2-small`, and describes a six-block student distilled from v3b. The notice describes the full teacher's art renderings and tightly cropped public tournament-video cards; crops showing people were removed. The scope of the grant and the student's full training provenance still need the pending review. |
+| `bank.bin` | 4,185,023 | DuelSight release bank, embeddings of official card pictures; PROVENANCE states Apache-2.0 for the project's work and reserves artwork rights. |
+| `light.bin` | 5,719,316 | Pinned Duel Lens v3b reference index (`f6968f3682d53a79c4a9fef591300615eda61c11`), used unchanged by Light. The model licence does not grant rights in card artwork or catalog data. |
+
+The other checked files are `catalog.json` (2,860,306 bytes) and `light.meta.json` (1,655,583 bytes). All six live under host `/opt/yugioh-bot/data/vision/hybrid/`, mounted at `/app/data/vision/hybrid/` with the default production configuration. The authenticated `/dev/vision-assets/hybrid/<filename>` route serves them from `VISION_DATA_DIR`, with a size/mtime ETag and private one-hour revalidation cache. A custom `VISION_DATA_DIR` must match preparation and the web service. The image provides worker/runtime code, not these binaries. The copy command above and the VM runbook are additive; they do not replace Current's directory.
 
 ## Measurements and proof limits
 

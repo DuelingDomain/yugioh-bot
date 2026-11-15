@@ -1,6 +1,24 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { ScenePixels } from './scene-pixels';
+import { createFieldAnalyzer, sameFieldAppearance } from './field-motion';
+
+test('settled cells preserve an empty-mat before frame across a card arrival and departure',()=>{
+ const analyze=createFieldAnalyzer(),width=160,height=160;
+ const empty={width,height,colorSpace:'srgb' as const,data:new Uint8ClampedArray(width*height*4).fill(80)};
+ const card={quad:[{x:.3,y:.3},{x:.5,y:.3},{x:.5,y:.6},{x:.3,y:.6}],kind:'face-up' as const,confidence:.95,partial:false};
+ assert.equal(analyze(empty,0).settledAppearance?.(card),undefined,'unlearned pixels abstain');
+ const before=analyze(empty,4100),baseline=before.appearance?.(card);
+ assert.ok(sameFieldAppearance(baseline,before.settledAppearance?.(card)));
+ const occupied={...empty,data:new Uint8ClampedArray(empty.data)};
+ for(let y=48;y<96;y++)for(let x=48;x<80;x++)occupied.data.set([200,200,200,255],(y*width+x)*4);
+ const after=analyze(occupied,4200);
+ assert.equal(sameFieldAppearance(baseline,after.appearance?.(card)),false);
+ assert.ok(sameFieldAppearance(baseline,after.settledAppearance?.(card)),'the newly occupied cells still carry the before frame');
+ analyze(occupied,8500);
+ assert.ok(sameFieldAppearance(baseline,before.appearance?.(card)),'the saved empty-mat frame does not turn into the resting card');
+ assert.ok(sameFieldAppearance(baseline,analyze(empty,8600).appearance?.(card)),'the vacated box returns to the saved empty mat');
+});
 test('bitmap scene copies detector-sized pixels and only native refinement subrectangles',()=>{
  const original=globalThis.OffscreenCanvas,reads:number[][]=[],draws:unknown[][]=[];
  class Canvas {

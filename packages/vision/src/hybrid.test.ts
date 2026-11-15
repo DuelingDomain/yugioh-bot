@@ -23,12 +23,17 @@ import type { ModelSession } from './runtime';
 const card:DetectedQuad={quad:[{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1}],kind:'face-up',confidence:1,partial:false};
 const image={width:20,height:30,data:new Uint8ClampedArray(2400).fill(120)};
 const entries=['A','B'].map((cardId,i)=>({cardId,passcode:i+1,name:cardId,frameClass:'Effect'}));
-function fixture(firstScores=[.95],secondScore=.2,firstFailure=false) {
-  const profile:GameProfile={...yugioh,id:'fixture',card:{...yugioh.card,warpWidth:10,warpHeight:15},embedding:{...yugioh.embedding,dim:2,inputSize:2}};
+function fixture(firstScores=[.95],secondScore:number|number[] =.2,firstFailure=false,temporal=false) {
+  const profile:GameProfile={...yugioh,id:'fixture',detector:{...yugioh.detector,longSide:32},card:{...yugioh.card,warpWidth:10,warpHeight:15},embedding:{...yugioh.embedding,dim:2,inputSize:2}};
   const count={first:0,second:0,current:0};
   const index=(p:GameProfile):LoadedIndex=>({meta:{version:1,gameId:p.id,modelId:p.embedding.id,modelSha256:p.embedding.sha256,dim:2,count:2,dtype:'float32',entries},vectors:new Float32Array([1,0,0,1])});
   class Tensor {constructor(public type:string,public data:Float32Array,public dims:number[]) {}}
-  const detector:ModelSession={backend:'wasm',release:async()=>{},run:async()=>{throw new Error('outlined read must not detect twice');}};
+  const detector:ModelSession={backend:'wasm',release:async()=>{},run:async()=>{
+    if(!temporal)throw new Error('outlined read must not detect twice');
+    const heat=new Float32Array(128),box=new Float32Array(384),cell=26;
+    heat[cell]=.99;box[2*64+cell]=Math.log(14/4);box[3*64+cell]=Math.log(22/4);box[5*64+cell]=1;
+    return {heat:{dims:[1,2,8,8],data:heat},box:{dims:[1,6,8,8],data:box}};
+  }};
   const session=(p:GameProfile,key:keyof typeof count,scores:number[]):ModelSession=>({backend:'wasm',release:async()=>{},run:async()=>{
     if(key==='first'&&firstFailure){count.first++;throw new Error('inference failed');}
     const n=scores[Math.min(count[key]++,scores.length-1)];return {[p.embedding.outputName]:{dims:[1,2],data:new Float32Array([n,Math.sqrt(1-n*n)])}};
@@ -38,9 +43,10 @@ function fixture(firstScores=[.95],secondScore=.2,firstFailure=false) {
   const firstProfile={...profiles.first,embedding:{...profiles.first.embedding,inputSize:2,dim:2}};
   const secondProfile={...profiles.second,embedding:{...profiles.second.embedding,inputSize:2,dim:2}};
   const first=new RecognitionPipeline(firstProfile,index(firstProfile),detector,session(firstProfile,'first',firstScores),Tensor);
-  const second=new RecognitionPipeline(secondProfile,index(secondProfile),detector,session(secondProfile,'second',[secondScore]),Tensor);
+  const secondIndex=index(secondProfile);
+  const second=new RecognitionPipeline(secondProfile,secondIndex,detector,session(secondProfile,'second',typeof secondScore==='number'?[secondScore]:secondScore),Tensor);
   const notes:string[]=[];
-  return {pipeline:new HybridPipeline(args,current,first,second,entries,note=>notes.push(note)),current,count,notes,args};
+  return {pipeline:new HybridPipeline(args,current,first,second,entries,note=>notes.push(note)),current,count,notes,args,secondIndex};
 }
 
 test('released first gate requires score and distinct-identity margin, including exact boundaries',()=>{
@@ -143,17 +149,49 @@ test('a first-stage name on partial or covered crops retains the existing uncert
     assert.equal(r.reader?.stage,'first');assert.notEqual(r.tier,'sure');
   }
 });
-test('missing or corrupt hybrid assets leave a ready current reader and a visible fallback note',async()=>{
+test('missing, corrupt or failed downloads leave a ready current reader and a visible fallback note',async()=>{
   const original=globalThis.fetch;
   try {
-    for(const response of [new Response(null,{status:404}),new Response('corrupt bank bytes')]) {
-      globalThis.fetch=async()=>response.clone();
-      await assert.rejects(()=>loadHybridCatalog(),/HTTP 404|checksum mismatch/);
+    for(const response of [new Response(null,{status:404}),new Response('corrupt bank bytes'),new Error('network disconnected')]) {
+      globalThis.fetch=async()=>{if(response instanceof Error)throw response;return response.clone();};
+      await assert.rejects(()=>loadHybridCatalog(),/HTTP 404|checksum mismatch|network disconnected/);
       const f=fixture();const ready=await loadHybridOrCurrent(f.current,()=>openHybrid(f.args,f.current,'/unused/',1,n=>f.notes.push(n),()=>{}),n=>f.notes.push(n));
       const r=await ready.recognize([image],{card,preclean:false});assert.equal(r.candidates[0].cardId,'B');assert.equal(r.tier,'sure');
       assert.match(f.notes[0],/Using the current reader/);assert.equal(f.count.first,0);
     }
   }finally{globalThis.fetch=original;}
+});
+test('WASM session startup failure keeps Current usable without WebGPU',async()=>{
+  const f=fixture();
+  const ready=await loadHybridOrCurrent(f.current,async()=>{throw new Error('WASM session creation failed');},note=>f.notes.push(note));
+  const r=await ready.recognize([image],{card,preclean:false});
+  assert.equal(r.candidates[0].cardId,'B');assert.equal(r.backend,'wasm');
+  assert.equal(f.count.first,0);assert.match(f.notes[0],/Using the current reader/);
+});
+test('a stalled catalog download has a bounded wait and aborts its request',async t=>{
+  t.mock.timers.enable({apis:['setTimeout']});
+  const original=globalThis.fetch;let signal:AbortSignal|null|undefined;
+  globalThis.fetch=async(_input,init)=>{signal=init?.signal;return new Promise<Response>(()=>{});};
+  try{
+    const failed=assert.rejects(loadHybridCatalog(),/Hybrid catalog timed out/);
+    for(let i=0;i<10&&!signal;i++)await new Promise<void>(resolve=>setImmediate(resolve));
+    assert.ok(signal);t.mock.timers.tick(8_000);await failed;assert.equal(signal.aborted,true);
+  }finally{globalThis.fetch=original;t.mock.timers.reset();}
+});
+test('Light uses the deck prior without changing the stricter released first-stage gate',async()=>{
+  const make=()=>{const f=fixture([.71],1);f.secondIndex.vectors.set([.79,Math.sqrt(1-.79**2),.72,Math.sqrt(1-.72**2)]);return f;};
+  const f=make();
+  const r=await f.pipeline.recognize([image],{card,preclean:false,priors:{decklist:['A']}});
+  assert.equal(r.reader?.model,lightModel.id);assert.equal(r.candidates[0].cardId,'A');
+  assert.equal(r.tier,'sure');
+  const unlisted=await make().pipeline.recognize([image],{card,preclean:false});
+  assert.equal(unlisted.candidates[0].cardId,'A');assert.equal(unlisted.tier,'not sure');
+});
+test('Hybrid escalates disagreeing frames and Light fuses the majority without manufacturing certainty',async()=>{
+  const f=fixture([.95,.95,.2,.2,.2,.2],[.2,.2,.95,.95,.95,.95],false,true);
+  const r=await f.pipeline.recognize([image,image,image],{card,maxFrames:3,earlyExit:false,preclean:false,includeRaw:true});
+  assert.equal(r.reader?.model,lightModel.id);assert.equal(r.candidates[0].cardId,'A');
+  assert.equal(r.quality.framesUsed,3);assert.equal(r.quality.framesAgree,false);assert.equal(r.tier,'not sure');
 });
 test('an inference failure switches to current once and keeps subsequent reads working',async()=>{
   const f=fixture([.95],.2,true);
@@ -202,4 +240,79 @@ test('the default worker request stays byte identical and does not opt into hybr
     assert.equal(JSON.stringify(messages[0]),JSON.stringify({type:'init',profile:yugioh,backend:'wasm',runtimeBase:'/dev/vision-lab/assets/ort/',role:'both',id:1}));
     assert.deepEqual(messages[1],{type:'prepare',id:2});
   }finally{globalThis.Worker=old;}
+});
+
+for(const failure of ['init','prepare','recognize','crash'] as const)test(`Hybrid ${failure} recovers through Current and leaves outlines and later reads usable`,async t=>{
+  t.mock.timers.enable({apis:['setTimeout']});
+  const old=globalThis.Worker;
+  const workers:Worker[]=[],notes:string[]=[],messages:{type:string;reader?:string;frames?:unknown[]}[]=[];
+  const answer=await fixture().current.recognize([image],{card,preclean:false});
+  class Worker {
+    onmessage?: (event:{data:object})=>void;
+    onerror?: (event:{message:string})=>void;
+    onmessageerror?:()=>void;
+    terminated=false;
+    constructor(){workers.push(this);}
+    postMessage(message:{id:number;type:string;reader?:string;frames?:typeof image[]},transfers:Transferable[]=[]){
+      messages.push(message);
+      if(workers[0]===this){
+        assert.equal(transfers.length,0,'Hybrid retains frames for recovery');
+        if(message.type===failure||failure==='crash'&&message.type==='recognize'){
+          if(failure==='crash')queueMicrotask(()=>this.onerror?.({message:'WASM worker failed'}));
+          return;
+        }
+      }
+      const sent=structuredClone(message,{transfer:transfers});
+      for(const frame of sent.frames??[])assert.equal(frame.data.byteLength,2400,'the retry receives intact pixels');
+      queueMicrotask(()=>this.onmessage?.({data:{id:message.id,result:message.type==='recognize'?answer:message.type==='detect'?[]:{backend:'wasm'},backendStatus:{backend:'wasm',models:[{model:'embedder',backend:'wasm'}]}}}));
+    }
+    terminate(){this.terminated=true;}
+  }
+  globalThis.Worker=Worker as unknown as typeof globalThis.Worker;
+  const reader=createRecognizer({reader:'hybrid',workers:'single',backend:'wasm',onBackendChange:status=>{if(status.readerNote)notes.push(status.readerNote);}});
+  try {
+    const fresh=()=>({...image,data:new Uint8ClampedArray(image.data)}) as ImageData;
+    const read=reader.recognize([fresh()],{card,transferFrames:true});
+    for(let i=0;i<20;i++)await Promise.resolve();
+    if(failure==='prepare'){
+      // Recognition does not implicitly call prepare on the client; exercise the real warm-up boundary.
+      await read;
+      const warming=reader.prepare();for(let i=0;i<20;i++)await Promise.resolve();
+      t.mock.timers.tick(15_000);await warming;
+    }else{t.mock.timers.tick(15_000);assert.equal((await read).candidates[0].cardId,'B');}
+    assert.equal(workers[0].terminated,true);assert.equal(workers.length,2);
+    assert.match(notes.at(-1)??'',/Using the current reader/);
+    assert.ok(messages.filter(m=>m.type==='init').slice(1).every(m=>m.reader===undefined),'Current restart never opts back in');
+    assert.deepEqual(await reader.detectCards(fresh()),[]);
+    const again=await reader.recognize([fresh()],{card});assert.equal(again.candidates[0].cardId,'B');
+    assert.equal(again.reader?.stage,'fallback');assert.equal(again.reader?.model,'current');
+    assert.equal(workers.length,2,'failure stays sticky until the owner switches');
+  }finally{reader.dispose();globalThis.Worker=old;t.mock.timers.reset();}
+});
+test('a split Hybrid read failure preserves the existing scene worker',async t=>{
+  t.mock.timers.enable({apis:['setTimeout']});
+  const old=globalThis.Worker,workers:Worker[]=[];
+  const answer=await fixture().current.recognize([image],{card,preclean:false});
+  class Worker {
+    onmessage?:(event:{data:object})=>void;onerror?:unknown;onmessageerror?:unknown;
+    role?:string;hybrid=false;terminated=false;
+    constructor(){workers.push(this);}
+    postMessage(m:{id:number;type:string;role?:string;reader?:string}){
+      if(m.type==='init'){this.role=m.role;this.hybrid=m.reader==='hybrid';}
+      if(m.type==='recognize'&&this.hybrid)return;
+      queueMicrotask(()=>this.onmessage?.({data:{id:m.id,result:m.type==='recognize'?answer:m.type==='detect'?[]:{backend:'wasm'}}}));
+    }
+    terminate(){this.terminated=true;}
+  }
+  globalThis.Worker=Worker as unknown as typeof globalThis.Worker;
+  const reader=createRecognizer({reader:'hybrid',workers:'split',backend:'wasm'});
+  try{
+    await reader.prepare();await reader.detectCards(image as ImageData);
+    const scene=workers.find(w=>w.role==='scene');assert.ok(scene);
+    const reading=reader.recognize([image as ImageData],{card});
+    for(let i=0;i<20;i++)await Promise.resolve();t.mock.timers.tick(15_000);
+    assert.equal((await reading).candidates[0].cardId,'B');
+    assert.equal(scene.terminated,false);assert.equal(workers.filter(w=>w.role==='scene').length,1);
+    assert.equal(reader.separateDetector,true);assert.deepEqual(await reader.detectCards(image as ImageData),[]);
+  }finally{reader.dispose();globalThis.Worker=old;t.mock.timers.reset();}
 });

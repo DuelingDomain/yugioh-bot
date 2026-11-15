@@ -116,23 +116,114 @@ const fieldCrop=(c:DetectedQuad)=>{
  return {width,height,data};
 };
 const sureResult = (tier: RecognitionResult['tier'] = 'sure') => ({candidates:[{cardId:'A',score:.95},{cardId:'B',score:.5}],tier,quality:{detected:true,cornersFound:true,framesUsed:1,selectedFrameIndices:[0],sharpness:10,fallback:false},timingsMs:{total:20},backend:'wasm'}) as RecognitionResult;
-function fieldRig(tier: RecognitionResult['tier'] = 'sure',maxTracks=20,gallery?:ReturnType<typeof createFieldIdentityGallery>,size={width:frame.width,height:frame.height},setOptions:Pick<field.FieldWatcherOptions,'setGuards'|'setCardMemory'|'onSetDecision'>={}) {
+function fieldRig(tier: RecognitionResult['tier'] = 'sure',maxTracks=20,gallery?:ReturnType<typeof createFieldIdentityGallery>,size={width:frame.width,height:frame.height},setOptions:Pick<field.FieldWatcherOptions,'setGuards'|'setCardMemory'|'onSetDecision'|'nameVoting'>={}) {
   let appearanceExplicit=false;
-  let detectorCost=0;
+  let detectorCost=0,readGate:Promise<void>|undefined;
   let scene:import('./field-motion').FieldAnalysis['scene'];
   let shadowPasses=0;
   let cropCalls=0,backend:'wasm'|'webgpu'|undefined;const detectOptions:DetectOptions[]=[];
   let at=0, outlines:DetectedQuad[]=[card(.3,.3)], motion=0, detail=20, appearance:number[]=Array.from({length:12},(_,i)=>i%2?.6:.2), halo:number[]|undefined=Array(192).fill(.2), hidden=false, busy=false, reads=0, detects=0, identity='A', decklist=['A'], known:field.KnownFieldCard[]=[],embedding:number[]|undefined,embeddingSpace:'art-box'|'whole-card'='art-box',identityAt:((card:DetectedQuad)=>string)|undefined,motionAt:((card:DetectedQuad)=>number)|undefined,motionRegion:{x:number;y:number;w:number;h:number}|undefined,cropAware=false,appearanceAt:((card:DetectedQuad)=>number[])|undefined,cropAt:((card:DetectedQuad)=>ReturnType<typeof fieldCrop>)|undefined,touchedAt:((card:DetectedQuad)=>number)|undefined,occludedAt:((card:DetectedQuad)=>boolean)|undefined,skinNearAt:((card:DetectedQuad)=>number)|undefined,qualityAt:((card:DetectedQuad)=>Record<string,boolean>)|undefined,shadow:{share:number;changed:number;moved?:Uint8Array;gx?:number;gy?:number}|undefined,frameSharpness:number|undefined,keeps:unknown[]=[];
   let tierAt:((card:DetectedQuad)=>RecognitionResult['tier'])|undefined;
   const events:field.FieldEvent[]=[], inputs:{frame:ImageData;opts:any}[]=[];
-  const reader={get detectorBackend(){return backend;},get detectorTimingsMs(){return {shadowPasses};},detectCards:async(_frame:unknown,opts?:DetectOptions)=>{detectOptions.push(opts??{});detects++;keeps=opts?.keep??[];at+=detectorCost;const r=cropAware?opts?.region:undefined;return structuredClone(r?outlines.filter(c=>c.quad.every(p=>p.x>=r.x&&p.x<=r.x+r.w&&p.y>=r.y&&p.y<=r.y+r.h)):outlines);},recognize:async(frames:ImageData[],opts:any)=>{reads++;inputs.push({frame:frames[0],opts});const base=sureResult(tierAt?.(opts.card)??tier);return {...base,quality:{...base.quality,...qualityAt?.(opts.card)},candidates:[{cardId:identityAt?.(opts.card)??identity,score:.95}],...(embedding?{identityEmbedding:{values:embedding.slice(),space:embeddingSpace}}:{})};}};
+  const reader={get detectorBackend(){return backend;},get detectorTimingsMs(){return {shadowPasses};},detectCards:async(_frame:unknown,opts?:DetectOptions)=>{detectOptions.push(opts??{});detects++;keeps=opts?.keep??[];at+=detectorCost;const r=cropAware?opts?.region:undefined;return structuredClone(r?outlines.filter(c=>c.quad.every(p=>p.x>=r.x&&p.x<=r.x+r.w&&p.y>=r.y&&p.y<=r.y+r.h)):outlines);},recognize:async(frames:ImageData[],opts:any)=>{reads++;inputs.push({frame:frames[0],opts});if(readGate)await readGate;const base=sureResult(tierAt?.(opts.card)??tier);return {...base,quality:{...base.quality,...qualityAt?.(opts.card)},candidates:[{cardId:identityAt?.(opts.card)??identity,score:.95}],...(embedding?{identityEmbedding:{values:embedding.slice(),space:embeddingSpace}}:{})};}};
   const watcher=field.createFieldWatcher({...setOptions,gallery,recognizer:reader,profile:yugioh,maxTracks,buffer:{sample:async()=>({frame:{...size,data:new Uint8ClampedArray(size.width*size.height*4).fill(detail)} as ImageData,at})},
     getPriors:()=>({decklist}),getKnownCards:()=>known,hidden:()=>hidden,cpuBusy:()=>busy,now:()=>at,
     analyze:()=>({scene,shadow,frameSharpness,crop:c=>{cropCalls++;return cropAt?.(c)??fieldCrop(c);},motion:c=>motionAt?.(c)??motion,motionRegion,sharpness:()=>detail,touched:c=>touchedAt?.(c)??0,occluded:c=>occludedAt?.(c)??false,skinNear:c=>skinNearAt?.(c)??0,appearance:c=>appearanceAt?.(c)??(outlines.length||appearanceExplicit?appearance:Array(12).fill(.2)),halo:()=>halo??[]}),clone:async f=>f});
   watcher.subscribe(event=>{if(event.type!=='reading')events.push(event);});
-  return {watcher,events,inputs,detectOptions,set shadowPasses(v:number){shadowPasses=v;},set scene(v:typeof scene){scene=v;},set backend(v:typeof backend){backend=v;},set tierAt(v:((card:DetectedQuad)=>RecognitionResult['tier'])|undefined){tierAt=v;},set shadow(v:{share:number;changed:number;moved?:Uint8Array;gx?:number;gy?:number}|undefined){shadow=v;},set frameSharpness(v:number|undefined){frameSharpness=v;},get crops(){return cropCalls;},get keeps(){return keeps;},set detectorCost(v:number){detectorCost=v;},set identityAt(v:((card:DetectedQuad)=>string)|undefined){identityAt=v;},set motionAt(v:((card:DetectedQuad)=>number)|undefined){motionAt=v;},set motionRegion(v:{x:number;y:number;w:number;h:number}|undefined){motionRegion=v;},set cropAware(v:boolean){cropAware=v;},set cropAt(v:((card:DetectedQuad)=>ReturnType<typeof fieldCrop>)|undefined){cropAt=v;},set appearanceAt(v:((card:DetectedQuad)=>number[])|undefined){appearanceAt=v;},set touchedAt(v:((card:DetectedQuad)=>number)|undefined){touchedAt=v;},set occludedAt(v:((card:DetectedQuad)=>boolean)|undefined){occludedAt=v;},set skinNearAt(v:((card:DetectedQuad)=>number)|undefined){skinNearAt=v;},set qualityAt(v:((card:DetectedQuad)=>Record<string,boolean>)|undefined){qualityAt=v;},get reads(){return reads;},get detects(){return detects;},get at(){return at;},set embedding(v:number[]){embedding=v;},set embeddingSpace(v:'art-box'|'whole-card'){embeddingSpace=v;},
+  return {watcher,events,inputs,detectOptions,set readGate(value:Promise<void>|undefined){readGate=value;},set shadowPasses(v:number){shadowPasses=v;},set scene(v:typeof scene){scene=v;},set backend(v:typeof backend){backend=v;},set tierAt(v:((card:DetectedQuad)=>RecognitionResult['tier'])|undefined){tierAt=v;},set shadow(v:{share:number;changed:number;moved?:Uint8Array;gx?:number;gy?:number}|undefined){shadow=v;},set frameSharpness(v:number|undefined){frameSharpness=v;},get crops(){return cropCalls;},get keeps(){return keeps;},set detectorCost(v:number){detectorCost=v;},set identityAt(v:((card:DetectedQuad)=>string)|undefined){identityAt=v;},set motionAt(v:((card:DetectedQuad)=>number)|undefined){motionAt=v;},set motionRegion(v:{x:number;y:number;w:number;h:number}|undefined){motionRegion=v;},set cropAware(v:boolean){cropAware=v;},set cropAt(v:((card:DetectedQuad)=>ReturnType<typeof fieldCrop>)|undefined){cropAt=v;},set appearanceAt(v:((card:DetectedQuad)=>number[])|undefined){appearanceAt=v;},set touchedAt(v:((card:DetectedQuad)=>number)|undefined){touchedAt=v;},set occludedAt(v:((card:DetectedQuad)=>boolean)|undefined){occludedAt=v;},set skinNearAt(v:((card:DetectedQuad)=>number)|undefined){skinNearAt=v;},set qualityAt(v:((card:DetectedQuad)=>Record<string,boolean>)|undefined){qualityAt=v;},get reads(){return reads;},get detects(){return detects;},get at(){return at;},set embedding(v:number[]){embedding=v;},set embeddingSpace(v:'art-box'|'whole-card'){embeddingSpace=v;},
     async tick(ms=333){at+=ms;await watcher.tick();},set identity(v:string){identity=v;},set decklist(v:string[]){decklist=v;},set known(v:field.KnownFieldCard[]){known=v;},set outlines(v:DetectedQuad[]){outlines=v;},set motion(v:number){motion=v;},set detail(v:number){detail=v;},set appearance(v:number[]){appearance=v;appearanceExplicit=true;},set halo(v:number[]|undefined){halo=v;},set hidden(v:boolean){hidden=v;},set busy(v:boolean){busy=v;}};
 }
+test('a still fan card with 61.9134% hand contact asks once instead of placing either face',async()=>{
+ const trace=JSON.parse(readFileSync(new URL('./fixtures/held-fan-contact.json',import.meta.url),'utf8'));
+ for(const kind of ['face-down','face-up'] as const)for(const occluded of [true,false])for(const handRelease of [true,false]){
+  const r=fieldRig('sure',20,undefined,{width:trace.frameSize.width/10,height:trace.frameSize.height/10},{setGuards:{handRelease}}),all:field.FieldEvent[]=[];r.watcher.subscribe(e=>all.push(e));r.watcher.setCalibration(trace.calibration);
+  const c:DetectedQuad={...trace.card,kind},geometry=zones.matRestGeometry(c,trace.calibration)!;
+  assert.ok(Math.abs(geometry.size-trace.evidence.geometry.size)<1e-6);assert.ok(Math.abs(geometry.cellShare-trace.evidence.geometry.cellShare)<1e-6);
+  r.outlines=[c];r.motion=trace.evidence.motion;r.touchedAt=()=>trace.evidence.touched;r.occludedAt=()=>occluded;
+  for(let i=0;i<120;i++)await r.tick(100);
+  if(!handRelease){assert.equal(all.filter(e=>e.type==='placed').length,1,'comparison control reproduces the held placement');r.watcher.dispose();continue;}
+  assert.equal(all.filter(e=>e.type==='placed'||e.type==='reading').length,0,`${kind}, occluded=${occluded}: hand contact must outlive print/read timeouts`);
+  const prompts=all.filter(e=>e.type==='prompt');assert.equal(prompts.length,1);
+  assert.equal(prompts[0].reason,'card-presence');
+  if(kind==='face-down')assert.equal(prompts[0].track.setEvidence?.positive,true,'a real back still cannot prove field placement');
+  r.watcher.dispose();
+ }
+});
+test('a finger kept on a still card asks after ten seconds and the presence choice remains usable',async()=>{
+ const r=fieldRig(),all:field.FieldEvent[]=[];r.watcher.subscribe(e=>all.push(e));
+ r.outlines=[{...card(.3,.3,.17,.25),kind:'face-down'}];
+ r.touchedAt=()=>.04;r.motion=.012; // Still enough to place, but no 1500 ms print escape.
+ for(let i=0;i<100;i++)await r.tick(100);
+ assert.equal(all.length,0,'no question before ten seconds of continuous still contact');
+ await r.tick(100);
+ const prompt=all.find(e=>e.type==='prompt');assert.ok(prompt);assert.equal(prompt.reason,'card-presence');
+ assert.equal(r.watcher.acceptSet(prompt.track.id),true,'an explicit choice can resolve persistent contact');
+ r.watcher.confirm(prompt.track.id,undefined,undefined,true);
+ for(let i=0;i<20;i++)await r.tick(100);
+ assert.equal(r.watcher.getSnapshot().tracks[0].state,'identified');
+ assert.equal(all.filter(e=>e.type==='prompt').length,1);assert.equal(all.some(e=>e.type==='placed'||e.type==='reading'),false);
+ r.watcher.dispose();
+});
+test('after placement contact clears for 200 ms before publishing, adding 100 ms over the old rest check',async t=>{
+ const times:number[]=[];
+ for(const handRelease of [true,false]){
+  const r=fieldRig('sure',20,undefined,undefined,{setGuards:{handRelease}});
+  r.outlines=[{...card(.3,.3,.17,.25),kind:'face-down'}];r.touchedAt=()=>.619134;r.occludedAt=()=>true;
+  for(let i=0;i<3;i++)await r.tick(100);
+  assert.equal(r.events.length,0);
+  r.touchedAt=()=>0;r.occludedAt=()=>false;await r.tick(100);const released=r.at;
+  for(let i=0;i<10&&!r.events.some(e=>e.type==='placed');i++)await r.tick(100);
+  const placed=r.events.find(e=>e.type==='placed');assert.ok(placed);
+  times.push(placed.track.lastSeen-released);assert.equal(r.events.filter(e=>e.type==='placed').length,1);r.watcher.dispose();
+ }
+ assert.deepEqual(times,[200,100]);t.diagnostic(`release to placement: on=${times[0]} ms, off=${times[1]} ms; added=${times[0]-times[1]} ms`);
+});
+test('a one-second finger hold and a brief forearm cover both place once after release, while a nearby hand adds no wait',async()=>{
+ for(const kind of ['face-down','face-up'] as const)for(const mode of ['finger','forearm','nearby'] as const){
+  const r=fieldRig(),all:field.FieldEvent[]=[];r.watcher.subscribe(e=>all.push(e));r.outlines=[{...card(.3,.3,.17,.25),kind}];
+  r.touchedAt=()=>mode==='finger'?.04:mode==='forearm'?.619134:0;r.occludedAt=()=>mode==='forearm';r.skinNearAt=()=>.6;
+  for(let i=0;i<(mode==='forearm'?4:10);i++)await r.tick(100);
+  if(mode==='nearby')assert.equal(r.events.filter(e=>e.type==='placed').length,1);
+  else{
+   assert.equal(all.length,0,`${kind}/${mode}: no placeholder or premature question`);
+   r.touchedAt=()=>0;r.occludedAt=()=>false;
+   for(let i=0;i<10&&!r.events.some(e=>e.type==='placed');i++)await r.tick(100);
+   assert.equal(r.events.filter(e=>e.type==='placed').length,1,`${kind}/${mode}: released card is retained`);
+  }
+  assert.equal(r.events.some(e=>e.type==='prompt'),false);r.watcher.dispose();
+ }
+});
+test('release settling restarts after contact, missing outlines or a pause and a held prompt can recover',async()=>{
+ for(const kind of ['face-down','face-up'] as const)for(const interruption of ['contact','miss','pause'] as const){
+  const r=fieldRig(),all:field.FieldEvent[]=[];r.watcher.subscribe(e=>all.push(e));const c={...card(.3,.3,.17,.25),kind};r.outlines=[c];
+  r.touchedAt=()=>.619134;r.occludedAt=()=>true;for(let i=0;i<115;i++)await r.tick(100);
+  assert.equal(all.filter(e=>e.type==='prompt').length,1);
+  r.touchedAt=()=>0;r.occludedAt=()=>false;await r.tick(100);await r.tick(100);
+  assert.equal(all.some(e=>e.type==='placed'||e.type==='reading'),false);
+  if(interruption==='contact')r.touchedAt=()=>.04;
+  if(interruption==='miss'){r.outlines=[];r.watcher.scanNow();}
+  if(interruption==='pause')r.hidden=true;
+  await r.tick(100);
+  r.touchedAt=()=>0;r.outlines=[c];r.hidden=false;r.watcher.scanNow();
+  await r.tick(100);await r.tick(100);
+  assert.equal(all.some(e=>e.type==='placed'||e.type==='reading'),false,`${interruption}: stale low samples must not release the gate`);
+  for(let i=0;i<10&&!r.events.some(e=>e.type==='placed');i++)await r.tick(100);
+  assert.equal(r.events.filter(e=>e.type==='placed').length,1,interruption);assert.equal(r.events.filter(e=>e.type==='prompt').length,1);r.watcher.dispose();
+ }
+});
+test('the live hand-release switch restores legacy placement and prompt-off keeps a held card pending',async()=>{
+ for(const mode of ['switch-off','prompt-off'] as const){
+  const r=fieldRig('sure',20,undefined,undefined,{setGuards:{prompt:mode!=='prompt-off'}}),all:field.FieldEvent[]=[];r.watcher.subscribe(e=>all.push(e));
+  r.outlines=[{...card(.3,.3,.17,.25),kind:'face-down'}];r.touchedAt=()=>.619134;r.occludedAt=()=>true;
+  for(let i=0;i<30;i++)await r.tick(100);
+  assert.equal(all.some(e=>e.type==='placed'||e.type==='reading'),false);
+  if(mode==='switch-off'){
+   r.watcher.setGuards({handRelease:false});for(let i=0;i<10&&!r.events.some(e=>e.type==='placed');i++)await r.tick(100);
+   assert.equal(r.events.filter(e=>e.type==='placed').length,1);
+  }else assert.equal(r.events.length,0);
+  r.watcher.dispose();
+ }
+});
 for(const object of ['phone','calculator'])test(`unknown ${object} back trace asks once without placing a Set`,async()=>{
   const trace=JSON.parse(readFileSync(new URL(`./fixtures/phantom-${object}.json`,import.meta.url),'utf8'));
   const crop={width:trace.crop.width,height:trace.crop.height,data:new Uint8ClampedArray(inflateSync(Buffer.from(trace.crop.rgbaDeflate,'base64')))};
@@ -264,7 +355,8 @@ test('automatic dismissals keep weak outlines even without a provisional placeme
 
 test('automatic prompt and read dismissals re-arm on two full front scans at .6',async()=>{
  for(const path of ['prompt','read'] as const){
-  const r=fieldRig(path==='prompt'?'low match':'sure');
+  // This exercises dismissal/re-arm state transitions with immediate reader replies.
+  const r=fieldRig(path==='prompt'?'low match':'sure',20,undefined,undefined,{nameVoting:false});
   try{
    if(path==='read')r.qualityAt=()=>({faceDown:true});
    for(let i=0;i<8&&(path==='prompt'||r.watcher.getSnapshot().tracks[0]?.state!=='dismissed');i++)await r.tick();
@@ -305,7 +397,8 @@ test('Scan field re-arms player dismissals and persists only named gallery entri
  let saved:unknown=[];const gallery=createFieldIdentityGallery([],()=>{saved=gallery.entries();});
  const named={space:'art-box' as const,values:[0,1]},dismissed={space:'art-box' as const,values:[1,0]};
  gallery.remember(named,'B');const otherSeat=createFieldIdentityGallery();otherSeat.remember(dismissed);
- const r=fieldRig('low match',20,gallery);r.embedding=dismissed.values;
+ // Voting's timed default path has separate watcher coverage. Keep this gallery/Scan test synchronous.
+ const r=fieldRig('low match',20,gallery,undefined,{nameVoting:false});r.embedding=dismissed.values;
  try{
   for(let i=0;i<8;i++)await r.tick();const id=r.watcher.getSnapshot().tracks[0].id;
   r.watcher.dismiss(id);assert.deepEqual(gallery.resolve(dismissed),{kind:'match',cardId:undefined});
@@ -405,11 +498,15 @@ test('a kept low-score outline over a spot that no longer shows the card does no
   }
 });
 
-test('still skin-coloured print on a still front (locked camera colour) is not a hand: the card is placed in about 1 s',async()=>{
+test('ambiguous skin-coloured print asks for presence; the comparison switch retains the old one-second print escape',async()=>{
   // Owner 2026-11-04: Man with the Mark seen clearly (front .81) stayed "cand · hid" under the first camera lock.
-  const r=fieldRig();r.occludedAt=()=>true;r.touchedAt=()=>.3;
-  for(let i=0;i<10;i++)await r.tick(100);
-  assert.equal(r.events.filter(e=>e.type==='placed').length,1);r.watcher.dispose();
+  for(const handRelease of [true,false]){
+    const r=fieldRig('sure',20,undefined,undefined,{setGuards:{handRelease}});r.occludedAt=()=>true;r.touchedAt=()=>.3;
+    for(let i=0;i<10;i++)await r.tick(100);
+    assert.equal(r.events.filter(e=>e.type==='placed').length,handRelease?0:1);
+    for(let i=0;i<110;i++)await r.tick(100);
+    assert.equal(r.events.filter(e=>e.type==='prompt').length,handRelease?1:0);r.watcher.dispose();
+  }
 });
 
 test('an unsure identity check (.68-.84) reads again and keeps the same card, never a candidate for ever',async()=>{
@@ -1018,7 +1115,7 @@ test('owner Fenrir: M3 -> GY -> back to M3 face-up with a white Set in M2 and an
  assert.ok(r.at-clearedFrom<=3500,`empty mat cleared after ${r.at-clearedFrom} ms`);
  assert.equal(r.events.slice(before).some(e=>e.type==='removed'&&['gy-old',s3Set.track.id].includes(e.track.id)),false,'piles stay');
  // Owner on :3000, monitor glare: a blue-white cast and an uneven glare ring
- // around M4. An arm rests by the new card (skin on its crop) and every read
+ // around M4. An arm briefly touches the new card, then rests beside it; every read
  // is flagged covered. The card still gets a best match (never "Reading"
  // forever), the watcher never errors, and the card leaves when it is lifted.
  const m4=card(.54,.35,.1,.15),glare=Array.from({length:288},(_,i)=>i%3===2?.95:.8),dragon=Array.from({length:288},(_,i)=>((Math.floor(i/3)*13+(i%3)*41)%233)/255);
@@ -1027,11 +1124,14 @@ test('owner Fenrir: M3 -> GY -> back to M3 face-up with a white Set in M2 and an
  r.halo=Array.from({length:192},(_,i)=>(i%24)/24);r.touchedAt=c=>inM4(c)?.05:0;r.qualityAt=()=>({covered:true});
  r.appearanceAt=c=>zones.fieldCenter(c).x>.8?imperm:inM4(c)?dragon:glare;
  const glareFrom=r.at,beforeGlare=r.events.length;r.outlines=[{...gy},m4];
+ for(let i=0;i<10;i++)await r.tick(100);
+ assert.equal(r.events.slice(beforeGlare).some(e=>e.type==='placed'&&e.track.zone==='M4'),false,'contact cannot time out into placement');
+ r.touchedAt=undefined;r.skinNearAt=c=>inM4(c)?.05:0;
  for(let i=0;i<30&&!r.events.slice(beforeGlare).some(e=>e.type==='placed'&&e.track.zone==='M4');i++)await r.tick(100);
  const named=r.events.slice(beforeGlare).find(e=>e.type==='placed'&&e.track.zone==='M4');
  assert.ok(named&&named.track.cardId==='D'&&named.track.bestMatch,'a glare card gets a best match, never Reading forever');
  assert.ok(r.at-glareFrom<=2500,`named after ${r.at-glareFrom} ms`);assert.notEqual(r.watcher.getSnapshot().status,'error');
- r.known=[{id:'gy-old',zone:'GY',cardId:'B'},{id:s3Set.track.id,zone:'GY',cardId:'C'},{id:named.track.id,zone:'M4',cardId:'D'}];r.touchedAt=undefined;
+ r.known=[{id:'gy-old',zone:'GY',cardId:'B'},{id:s3Set.track.id,zone:'GY',cardId:'C'},{id:named.track.id,zone:'M4',cardId:'D'}];r.touchedAt=undefined;r.skinNearAt=undefined;
  const goneFrom=r.at;r.outlines=[{...gy}];r.appearanceAt=c=>zones.fieldCenter(c).x>.8?imperm:glare;
  for(let i=0;i<30&&!r.events.some(e=>e.type==='removed'&&e.track.id===named.track.id);i++)await r.tick(100);
  assert.ok(r.events.some(e=>e.type==='removed'&&e.track.id===named.track.id),'removed by detector absence, without a uniform mat ring');
@@ -1148,9 +1248,9 @@ test('owner Fenrir: M3 -> GY -> back to M3 face-up with a white Set in M2 and an
  // Review r1 BLOCKER (watcher part): Rank-Up. X2 goes on top of X; X (with P and Q) goes under X2, nothing leaves.
  // Review r2 N1: in poor light (read not sure) it is still a new card on top, never merged into X.
  const lookX2=look(53);looks={M3:lookX2};names={M3:'X2'};r.tierAt=c=>zoneOf(c)==='M3'?'not sure':'sure';r.motion=.2;await r.tick(100);r.motion=0;
- for(let i=0;i<30&&!placedIn('M3','X2',from);i++)await r.tick(100);for(let i=0;i<5;i++)await r.tick(100);
- const rankUp=placedIn('M3','X2',from);r.tierAt=undefined;assert.ok(rankUp&&rankUp.track.id!==xyz!.track.id,'the Rank-Up Xyz is a new card on top');
- assert.equal(rankUp!.track.bestMatch,true,'an unsure read is a best match, not lost');assert.equal(trackOf(xyz!.track.id)?.cardId,'X');
+ for(let i=0;i<35;i++)await r.tick(100);
+ const rankUp=r.events.slice(from).find(e=>e.type==='prompt'&&e.result?.candidates[0]?.cardId==='X2');r.tierAt=undefined;assert.ok(rankUp&&rankUp.track.id!==xyz!.track.id,'the unread Rank-Up Xyz asks on its own ref');
+ assert.equal(placedIn('M3','X2',from),undefined,'an unsure stack top is never silently named');assert.equal(trackOf(xyz!.track.id)?.cardId,'X');
  assert.equal(trackOf(xyz!.track.id)?.under,rankUp!.track.id,'the old Xyz is under the new one');
  assert.equal(r.events.slice(from).some(e=>e.type==='removed'&&[ids.P,ids.Q,xyz!.track.id].includes(e.track.id)),false,'no material leaves');
  r.watcher.confirm(rankUp!.track.id,'X2');setKnown([...kn,{id:rankUp!.track.id,zone:'M3',cardId:'X2'}]);looks={M3:lookX2};names={M3:'X2'};
@@ -1374,7 +1474,7 @@ test('a face-up card turned face-down in its zone flips in place, also after a l
 });
 
 // Owner cleared the field: S2, S4, M3 and FIELD stayed ~10 s while an arm lay on the mat at the far side.
-// A hand/arm or a moving shadow holds only the removals of the cards it lies over or beside; a clear spot
+// A hand/arm or a moving shadow holds only the removals of the cards it lies over; a clear spot
 // elsewhere is removed after two empty full scans (~1 s).
 test('a removal hold for a hand, arm or moving shadow is local to the cards it covers or touches',async()=>{
  const r=fieldRig('sure',20,undefined,{width:160,height:90});
@@ -1385,16 +1485,16 @@ test('a removal hold for a hand, arm or moving shadow is local to the cards it c
  const placed=r.events.filter(e=>e.type==='placed'),ids=placed.map(e=>e.track.id);assert.equal(placed.length,2);
  for(const e of placed)r.watcher.confirm(e.track.id,'A');r.known=placed.map(e=>({id:e.track.id,zone:e.track.zone,cardId:'A',faceDown:false}));r.events.length=0;
  const leftId=placed.find(e=>near(e.track.card))!.track.id,midId=ids.find(id=>id!==leftId)!;
- // The arm lies beside the left card and its shadow moves there; the middle card is lifted.
+ // The arm covers the left card and its shadow moves there; the middle card is lifted.
  const moved=new Uint8Array(32*24);for(let y=7;y<17;y++)for(let x=4;x<10;x++)moved[y*32+x]=1;
- r.skinNearAt=c=>near(c)?.2:0;r.outlines=[];r.appearanceAt=()=>mat;const from=r.at;
+ r.skinNearAt=c=>near(c)?.2:0;r.occludedAt=near;r.outlines=[];r.appearanceAt=()=>mat;const from=r.at;
  for(let i=0;i<10&&!r.events.some(e=>e.type==='removed');i++){r.shadow={share:.3,changed:.05,moved,gx:32,gy:24};await r.tick(150);}
  const gone=r.events.filter(e=>e.type==='removed').map(e=>e.track.id);
  assert.deepEqual(gone,[midId],JSON.stringify(r.watcher.getSnapshot().debug?.reasons));assert.ok(r.at-from<=1500,`removed after ${r.at-from} ms`);
  for(let i=0;i<6;i++){r.shadow={share:.3,changed:.05,moved,gx:32,gy:24};await r.tick(150);}
  assert.equal(r.events.some(e=>e.type==='removed'&&e.track.id===leftId),false,'the card under the arm stays');
  // The arm leaves: the left card goes too.
- r.skinNearAt=undefined;r.shadow=undefined;const after=r.at;for(let i=0;i<12&&!r.events.some(e=>e.type==='removed'&&e.track.id===leftId);i++)await r.tick(150);
+ r.skinNearAt=undefined;r.occludedAt=undefined;r.shadow=undefined;const after=r.at;for(let i=0;i<12&&!r.events.some(e=>e.type==='removed'&&e.track.id===leftId);i++)await r.tick(150);
  assert.ok(r.events.some(e=>e.type==='removed'&&e.track.id===leftId));assert.ok(r.at-after<=1500,`left after ${r.at-after} ms`);r.watcher.dispose();
 });
 
@@ -1614,7 +1714,7 @@ test('a phantom track with no box on the mat plane expires in two full scans des
  r.watcher.setCalibration(zones.createFieldCalibration([{x:.11,y:.25},{x:.84,y:.84}],{playerSide:'bottom',mirrored:false}));
  const tall:DetectedQuad={...card(.23,.47,.09,.36),kind:'face-down',confidence:.8};
  r.known=[{id:'set-1',zone:'S1',faceDown:true,card:tall}];r.outlines=[tall];r.appearanceAt=()=>Array(288).fill(.7);
- for(let i=0;i<4;i++)await r.tick(333);
+ await r.tick(333);
  assert.equal(r.watcher.getSnapshot().tracks.find(t=>t.id==='set-1')?.removed,false,'the restored track exists');
  // The arm stays beside it; only a weak kept outline of the arm remains.
  r.skinNearAt=()=>.2;r.outlines=[{...tall,confidence:.3,kept:true}];const from=r.at;
@@ -1832,4 +1932,122 @@ test('Scan field never promotes an unsupported back into a flip witness',async()
  r.outlines=[{...card(.43,.6,.1,.2),kind:'face-down',confidence:.536}];r.cropAt=()=>phantomCrop();r.appearance=Array(288).fill(.92);for(let i=0;i<20;i++)await r.tick(100);
  r.watcher.scanNow();for(let i=0;i<8;i++)await r.tick(100);
  assert.deepEqual(r.watcher.getSnapshot().lastScanBacks,[]);assert.equal(r.events.filter(e=>e.type==='prompt').length,1);assert.equal(r.events.some(e=>e.type==='placed'||e.type==='flipped'),false);r.watcher.dispose();
+});
+
+async function rememberedStackRig(reverse=false) {
+ const r=fieldRig(),cal=zones.createFieldCalibration([{x:0,y:0},{x:1,y:1}]);r.watcher.setCalibration(cal);
+ const p=card(.40,.35,.10,.15),q=card(.54,.35,.10,.15),mat=Array(288).fill(.2);
+ const look=(seed:number)=>Array.from({length:288},(_,i)=>((Math.floor(i/3)*seed+i%3*(seed+6))%(211+seed))/255);
+ let names:Record<string,string>={},looks:Record<string,number[]>={};
+ const zone=(c:DetectedQuad)=>zones.mapFieldZone(c,cal,[],'normal').zone;
+ r.appearanceAt=c=>c.kept?look(13):looks[zone(c)]??mat;r.identityAt=c=>names[zone(c)]??'X';r.decklist=['P','Q','X'];r.outlines=[];
+ for(let i=0;i<50;i++)await r.tick(100);
+ names={M3:'P',M4:'Q'};looks={M3:look(13),M4:look(17)};r.outlines=reverse?[q,p]:[p,q];r.motion=.2;await r.tick(100);r.motion=0;
+ for(let i=0;i<40&&r.events.filter(e=>e.type==='placed').length<2;i++)await r.tick(100);
+ assert.ok(r.events.some(e=>e.type==='placed'&&e.track.cardId==='P'),JSON.stringify(r.watcher.getSnapshot().debug));
+ const bottom=r.events.find(e=>e.type==='placed'&&e.track.cardId==='P')!.track.id;
+ const incoming=r.events.find(e=>e.type==='placed'&&e.track.cardId==='Q')!.track.id;
+ r.events.length=0;r.watcher.confirm(bottom,'P');r.watcher.confirm(incoming,'Q');let known:field.KnownFieldCard[]=[{id:bottom,zone:'M3',cardId:'P'},{id:incoming,zone:'M4',cardId:'Q'}];r.known=known;
+ r.watcher.subscribe(e=>{if(e.type==='removed'){known=known.map(k=>k.id===e.track.id?{...k,zone:'HAND'}:k);r.known=known;}});
+ for(let i=0;i<5;i++)await r.tick(100);
+ return {r,p,q,bottom,incoming,show(top:'P'|'Q'|'X'|null,keepQ=false){names=top?{M3:top,...(keepQ?{M4:'Q'}:{})}:{};looks=top?{M3:look(top==='P'?13:top==='Q'?17:29),...(keepQ?{M4:look(17)}:{})}:{};r.outlines=top?[p,...(keepQ?[q]:[])]:[];},track:(id:string)=>r.watcher.getSnapshot().tracks.find(t=>t.id===id)};
+}
+
+test('empty source plus a changed occupied spot retains two known monsters when the intermediate move was between scans',async()=>{
+ const s=await rememberedStackRig();try{
+  s.show('X');for(let i=0;i<35;i++)await s.r.tick(100);
+  const xyz=s.r.events.find(e=>e.type==='placed'&&e.track.cardId==='X');assert.ok(xyz,'the new top is read');
+  assert.equal(s.track(s.bottom)?.under,s.incoming,'stationary monster stays bottom');
+  assert.equal(s.track(s.incoming)?.under,xyz.track.id,'incoming monster is remembered beneath the new top');
+  assert.equal(s.r.events.some(e=>e.type==='removed'&&[s.bottom,s.incoming].includes(e.track.id)),false,'neither material goes to hand');
+  assert.equal(s.r.events.some(e=>e.type==='flipped'&&e.track.faceDown),false,'no material becomes a Set');
+ }finally{s.r.watcher.dispose();}
+});
+
+test('a hand over a missing monster and a changed neighbour cannot establish a cover',async()=>{
+ const s=await rememberedStackRig();try{
+  s.r.touchedAt=()=>.3;s.r.occludedAt=()=>true;s.show('X');for(let i=0;i<25;i++)await s.r.tick(100);
+  assert.equal(s.track(s.bottom)?.under,undefined);assert.equal(s.track(s.incoming)?.under,undefined);
+  assert.equal(s.r.events.some(e=>e.type==='placed'&&e.track.cardId==='X'),false);
+ }finally{s.r.watcher.dispose();}
+});
+
+test('a known monster leaving to empty mat without a receiving stack is removed promptly',async()=>{
+ const s=await rememberedStackRig();try{
+  s.show(null);const from=s.r.at;for(let i=0;i<35;i++)await s.r.tick(100);
+  for(const id of [s.bottom,s.incoming]){assert.equal(s.track(id)?.under,undefined);assert.ok(s.r.events.some(e=>e.type==='removed'&&e.track.id===id));}
+  assert.equal(s.r.events.filter(e=>e.type==='removed'&&[s.bottom,s.incoming].includes(e.track.id)).length,2);
+  assert.equal(s.r.at-from,3500);
+ }finally{s.r.watcher.dispose();}
+});
+
+for(const late of [false,true])test(`two known monsters retain bottom-first order with an Xyz read ${late?'after six seconds':'immediately'}`,async()=>{
+ const s=await rememberedStackRig(true);let release:()=>void=()=>{};
+ try{
+  s.show('Q');for(let i=0;i<20;i++)await s.r.tick(100);
+  assert.equal(s.track(s.bottom)?.under,s.incoming);assert.equal(s.track(s.incoming)?.cardId,'Q');
+  // The board keeps the materials while an Extra Deck search takes longer than the old five-second default.
+  for(let i=0;i<65;i++)await s.r.tick(100);
+  assert.equal(s.track(s.bottom)?.under,s.incoming);
+  if(late)s.r.readGate=new Promise<void>(resolve=>{release=resolve;});
+  s.show('X');for(let i=0;i<(late?60:25);i++)await s.r.tick(100);
+  assert.equal(s.r.events.some(e=>e.type==='removed'&&[s.bottom,s.incoming].includes(e.track.id)),false);
+  release();s.r.readGate=undefined;for(let i=0;i<20;i++)await s.r.tick(100);
+  const xyz=s.r.events.find(e=>e.type==='placed'&&e.track.cardId==='X');assert.ok(xyz);
+  const {fieldStackUnder}=await import('./field-stack-memory');
+  assert.deepEqual(fieldStackUnder(xyz.track.id,s.r.watcher.getSnapshot().tracks),[s.bottom,s.incoming]);
+  assert.equal(s.r.events.filter(e=>e.type==='placed'&&e.track.cardId==='X').length,1);
+ }finally{release();s.r.watcher.dispose();}
+});
+
+test('a material lifted off the waiting stack is removed when the original bottom reappears',async()=>{
+ const s=await rememberedStackRig();try{
+  s.show('Q');for(let i=0;i<20;i++)await s.r.tick(100);
+  assert.equal(s.track(s.bottom)?.under,s.incoming);
+  s.show('P');for(let i=0;i<35;i++)await s.r.tick(100);
+  assert.equal(s.track(s.bottom)?.under,undefined);assert.equal(s.track(s.bottom)?.removed,false);
+  assert.equal(s.track(s.incoming)?.removed,true,'the lifted material leaves, it is not covered by the original bottom');
+  assert.equal(s.r.events.find(e=>e.type==='removed'&&e.track.id===s.incoming)?.uncoveredRef,s.bottom,'the glue receives positive separation evidence');
+  s.show('X');for(let i=0;i<25;i++)await s.r.tick(100);
+  const xyz=s.r.events.find(e=>e.type==='placed'&&e.track.cardId==='X');assert.ok(xyz);
+  const {fieldStackUnder}=await import('./field-stack-memory');
+  assert.deepEqual(fieldStackUnder(xyz.track.id,s.r.watcher.getSnapshot().tracks),[s.bottom]);
+ }finally{s.r.watcher.dispose();}
+});
+
+test('an unsure top over two known monsters asks once and never silently takes the best match',async()=>{
+ const s=await rememberedStackRig();try{
+  s.show('Q');for(let i=0;i<20;i++)await s.r.tick(100);
+  s.r.tierAt=()=> 'not sure';s.show('X');for(let i=0;i<45;i++)await s.r.tick(100);
+  assert.equal(s.r.events.filter(e=>e.type==='placed'&&e.track.cardId==='X').length,0);
+  assert.equal(s.r.events.filter(e=>e.type==='prompt'&&e.result?.candidates[0]?.cardId==='X').length,1);
+  assert.equal(s.r.events.some(e=>e.type==='removed'&&[s.bottom,s.incoming].includes(e.track.id)),false);
+ }finally{s.r.watcher.dispose();}
+});
+
+test('a kept enlarged lower outline cannot steal visibility from the clean new stack top',async()=>{
+ const s=await rememberedStackRig();try{
+  for(let i=0;i<20;i++)await s.r.tick(100);
+  s.show('X',true);s.r.outlines=[s.p,s.q,{...card(.395,.34,.11,.17),confidence:.329,kept:true,covered:true}];
+  for(let i=0;i<40;i++)await s.r.tick(100);
+  const xyz=s.r.events.find(e=>e.type==='placed'&&e.track.cardId==='X');assert.ok(xyz);
+  const {fieldStackUnder}=await import('./field-stack-memory');
+  assert.deepEqual(fieldStackUnder(xyz.track.id,s.r.watcher.getSnapshot().tracks),[s.bottom]);
+  assert.equal(s.track(s.incoming)?.under,undefined,'the separate monster is not a material');
+  assert.equal(s.track(s.bottom)?.visible,false);
+  assert.equal(s.r.events.some(e=>e.type==='removed'&&[s.bottom,s.incoming].includes(e.track.id)),false);
+ }finally{s.r.watcher.dispose();}
+});
+
+test('a weak lower outline during a new top does not claim the waiting material was lifted away',async()=>{
+ const s=await rememberedStackRig();try{
+  s.show('Q');for(let i=0;i<25;i++)await s.r.tick(100);
+  assert.equal(s.track(s.bottom)?.under,s.incoming);
+  s.show('X');s.r.outlines=[s.p,{...card(.395,.34,.11,.17),confidence:.329,kept:true,covered:true}];
+  for(let i=0;i<40;i++)await s.r.tick(100);
+  const xyz=s.r.events.find(e=>e.type==='placed'&&e.track.cardId==='X');assert.ok(xyz);
+  const {fieldStackUnder}=await import('./field-stack-memory');
+  assert.deepEqual(fieldStackUnder(xyz.track.id,s.r.watcher.getSnapshot().tracks),[s.bottom,s.incoming]);
+  assert.equal(s.r.events.some(e=>e.type==='removed'&&e.track.id===s.incoming),false);
+ }finally{s.r.watcher.dispose();}
 });

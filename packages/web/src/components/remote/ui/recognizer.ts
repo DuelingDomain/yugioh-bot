@@ -74,6 +74,8 @@ let meta: Promise<Meta | null> | null = null;
 let recognizer: Promise<VisionRecognizer | null> | null = null;
 let warming: Promise<void> | null = null;
 let recognizerEpoch=0;
+let hybridCatalogFailed=false;
+const HYBRID_CATALOG_NOTE='Hybrid reader could not load. Using the current reader. Switch readers to retry.';
 /** Start on table open, without needing a local camera or waiting for a phone read. */
 export function prewarmRecognizer(): Promise<void> {
   const epoch=recognizerEpoch;
@@ -89,7 +91,7 @@ export function prewarmRecognizer(): Promise<void> {
 }
 /** Loaded once per page. A missing local index (404) is a normal state, not an error. */
 function loadMeta() {
-  const selected=cardReader();
+  const selected=cardReader(),epoch=recognizerEpoch;
   meta ??= import("@yugidraft/vision").then(async ({ yugioh }) => {
     const response = await fetch(yugioh.metaUrl, { cache: "force-cache" });
     if (!response.ok) return null;
@@ -98,7 +100,7 @@ function loadMeta() {
       try {
         const {loadHybridCatalog}=await import('@yugidraft/vision');
         const extra=await loadHybridCatalog();found.entries=[...new Map([...extra.entries,...found.entries].map(e=>[e.cardId,e])).values()];
-      }catch { /* The worker reports a visible fallback if hybrid data is unavailable. */ }
+      }catch { if(epoch===recognizerEpoch){hybridCatalogFailed=true;reportReaderNote(HYBRID_CATALOG_NOTE);} }
     }
     // Optional generated knowledge is loaded once, outside the per-read path.
     try {
@@ -117,7 +119,7 @@ function loadRecognizer() {
   recognizer ??= loadMeta().then(async found => {
     if (!found) return null;
     const { createRecognizer, yugioh } = await import("@yugidraft/vision");
-    return createRecognizer({ profile: yugioh, reader:selected, backend: engineBackend(), onBackendChange: status => {if(epoch!==recognizerEpoch)return;reportBackend(status.backend, undefined, status.fallbackReason ?? "");reportReaderNote(status.readerNote??"");} }) as unknown as VisionRecognizer;
+    return createRecognizer({ profile: yugioh, reader:hybridCatalogFailed?'current':selected, backend: engineBackend(), onBackendChange: status => {if(epoch!==recognizerEpoch)return;reportBackend(status.backend, undefined, status.fallbackReason ?? "");reportReaderNote(status.readerNote??(hybridCatalogFailed?HYBRID_CATALOG_NOTE:""));} }) as unknown as VisionRecognizer;
   }).catch(() => null);
   return recognizer;
 }
@@ -194,7 +196,7 @@ export function readBoard(frame: HTMLCanvasElement, cards: ReadCard[], priors: P
 }
 
 export function disposeRecognizer() {
-  const current = recognizer; recognizer = null; meta = null; warming = null;recognizerEpoch++;
+  const current = recognizer; recognizer = null; meta = null; warming = null;recognizerEpoch++;hybridCatalogFailed=false;
   void current?.then(value => value?.dispose());
 }
 // A new mode (or a GPU failure) restarts the reader; the open camera warms the new one so the badge shows where it runs.

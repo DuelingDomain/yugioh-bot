@@ -1,3 +1,4 @@
+import { tapRoom } from "./tap-room-fixture";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
@@ -548,9 +549,9 @@ it('review S5: cached receiver checks present public face-up twin and uses its c
 it('review B3: manual and watcher transactions serialize copy checks against returned state before render',async()=>{
  const {createRoomMutationQueue}=await import('../src/lib/remote/room-mutations');
  for(const [first,second] of [['manual','watcher'],['watcher','manual']]){
- const stale={lastSeq:0,state:{seats:[{twin:[]}]}} as any;
+ const stale=tapRoom();
  let server=stale;const posts:string[]=[];
- const queue=createRoomMutationQueue(()=>stale,async proposal=>{await Promise.resolve();posts.push(proposal.type);server={lastSeq:server.lastSeq+1,state:{seats:[{twin:[...(server.state.seats[0].twin),{ref:(proposal as any).card.ref,cardId:1}]}]}};return server;});
+ const queue=createRoomMutationQueue(()=>stale,async proposal=>{await Promise.resolve();posts.push(proposal.type);server={...server,lastSeq:server.lastSeq+1,state:{...server.state,seats:server.state.seats.map((s,i)=>i===0?{...s,twin:[...s.twin,{ref:(proposal as any).card.ref,cardId:1,zone:'monster',faceUp:true,position:'attack'}]}:s)}};return server;});
  const place=(ref:string)=>queue.transaction(async(room,act)=>{if(room.state.seats[0].twin.some(c=>c.cardId===1))return room;return act({type:'twin.place',actorSeat:0,seat:0,zone:'monster',card:{ref,cardId:1,faceUp:true,position:'attack'}});});
  await Promise.all([place(first),place(second)]);
  expect(posts).toEqual(['twin.place']);expect(server.state.seats[0].twin).toHaveLength(1);
@@ -560,7 +561,8 @@ it('review B3: manual and watcher transactions serialize copy checks against ret
 
 it('queued phone retries preserve the caller idempotency key through action and transaction',async()=>{
  const {createRoomMutationQueue}=await import('../src/lib/remote/room-mutations');
- const room={lastSeq:0} as any,post=vi.fn(async()=>room);
+ const {tapRoom}=await import('./tap-room-fixture');
+ const room=tapRoom(),post=vi.fn(async()=>room);
  const queue=createRoomMutationQueue(()=>room,post);
  const proposal={type:'card.identified',actorSeat:0,seat:0,cardId:46986414,source:'camera'} as any;
  const key='phone-scan-physical-1';
@@ -1384,11 +1386,14 @@ it('the virtual field starts hidden in Tap to identify and shown with Auto-detec
   expect(resolveWebcamOnly({hidden:true,mode:'tap'},'auto')).toBe(false);
 });
 
-it('Set comparison switches default on and query overrides take precedence over saved settings',async()=>{
+it('Set comparison switches default on and query overrides take precedence over env and saved settings',async()=>{
  const {readSetGuards}=await import('../src/lib/remote/set-card-settings');
- vi.stubGlobal('localStorage',{getItem:()=>JSON.stringify({positiveBack:false,prompt:false,ignore:false,startup:false})});
+ vi.stubGlobal('localStorage',{getItem:()=>JSON.stringify({positiveBack:false,prompt:false,ignore:false,startup:false,handRelease:false})});
  vi.stubGlobal('window',{location:{search:'?setPositiveBack=1&setStartup=1'}});
- expect(readSetGuards()).toEqual({positiveBack:true,prompt:false,ignore:false,startup:true});
+ expect(readSetGuards()).toEqual({positiveBack:true,prompt:false,ignore:false,startup:true,handRelease:false});
+ vi.stubEnv('NEXT_PUBLIC_FIELD_SET_HAND_RELEASE','1');expect(readSetGuards().handRelease).toBe(true);
+ vi.stubGlobal('window',{location:{search:'?setHandRelease=0'}});expect(readSetGuards().handRelease).toBe(false);
+ vi.unstubAllEnvs();
  vi.stubGlobal('localStorage',{getItem:()=>null});vi.stubGlobal('window',{location:{search:''}});
- expect(readSetGuards()).toEqual({positiveBack:true,prompt:true,ignore:true,startup:true});
+ expect(readSetGuards()).toEqual({positiveBack:true,prompt:true,ignore:true,startup:true,handRelease:true});
 });

@@ -9,9 +9,10 @@ export const SET_GUARD_SETTINGS=[
   {key:'prompt',label:'Ask about uncertain Sets',query:'setPrompt'},
   {key:'ignore',label:'Remember Not a card',query:'setIgnore'},
   {key:'startup',label:'Ignore setup objects',query:'setStartup'},
+  {key:'handRelease',label:'Wait for hand release',query:'setHandRelease'},
 ] as const;
-const schema=z.object({positiveBack:z.boolean(),prompt:z.boolean(),ignore:z.boolean(),startup:z.boolean()}).partial();
-const env=()=>({positiveBack:process.env.NEXT_PUBLIC_FIELD_SET_POSITIVE_BACK,prompt:process.env.NEXT_PUBLIC_FIELD_SET_PROMPT,ignore:process.env.NEXT_PUBLIC_FIELD_SET_IGNORE,startup:process.env.NEXT_PUBLIC_FIELD_SET_STARTUP});
+const schema=z.object({positiveBack:z.boolean(),prompt:z.boolean(),ignore:z.boolean(),startup:z.boolean(),handRelease:z.boolean()}).partial();
+const env=()=>({positiveBack:process.env.NEXT_PUBLIC_FIELD_SET_POSITIVE_BACK,prompt:process.env.NEXT_PUBLIC_FIELD_SET_PROMPT,ignore:process.env.NEXT_PUBLIC_FIELD_SET_IGNORE,startup:process.env.NEXT_PUBLIC_FIELD_SET_STARTUP,handRelease:process.env.NEXT_PUBLIC_FIELD_SET_HAND_RELEASE});
 export function readSetGuards():SetGuards {
   let saved:Partial<SetGuards>={};
   try{const parsed=schema.safeParse(JSON.parse(localStorage.getItem(KEY)??'{}'));if(parsed.success)saved=parsed.data;}catch{/* Defaults without storage. */}
