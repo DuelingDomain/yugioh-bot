@@ -406,7 +406,7 @@ function createTwoRowCalibration(cards:DetectedQuad[],monsterIndex:number):Field
  * its shape there: opposite edges stay parallel and of equal length (an affine property, so it holds whatever the
  * unknown cell aspect is), and its size in cell units is the same at every position. A card held above the mat is
  * closer to the camera, so it maps larger; tilted toward the camera, its opposite edges stop being parallel.
- * `size`: sqrt(area) in default cell units (one cell = 1). `tilt`: worst angle between opposite edges (degrees).
+ * `size`: sqrt(area) in default cell units (one cell = 1). `tilt`: worst angle between opposite edges in 59:86 physical units (degrees).
  * `sides`: worst opposite-edge length ratio (1 = equal). `cellShare`: share of its mat box inside its own cell.
  */
 export interface MatRestGeometry { size:number; tilt:number; sides:number; cellShare:number; zone:FieldZone }
@@ -415,7 +415,10 @@ export function matRestGeometry(card:Pick<DetectedQuad,'quad'>, calibration:Fiel
   const m=card.quad.map(p=>onMat(p,calibration));
   if(m.some(p=>!Number.isFinite(p.x)||!Number.isFinite(p.y)))return;
   const w=FIELD_ZONE_PITCH*normalizeZoneSpacing(calibration.zoneSpacing),h=FIELD_ROW,uv=m.map(p=>({x:p.x/w,y:p.y/h}));
-  const edges=uv.map((a,i)=>{const b=uv[(i+1)%4];return {x:b.x-a.x,y:b.y-a.y,length:Math.hypot(b.x-a.x,b.y-a.y)};});
+  // A cell is rectangular, not square. Angles and lengths need the same physical
+  // scale on both axes; area remains in cells for the existing size limits.
+  const physical=uv.map(p=>({x:p.x*59,y:p.y*86}));
+  const edges=physical.map((a,i)=>{const b=physical[(i+1)%4];return {x:b.x-a.x,y:b.y-a.y,length:Math.hypot(b.x-a.x,b.y-a.y)};});
   if(edges.some(e=>!(e.length>1e-6)))return;
   let tilt=0,sides=1;
   for(const [i,j] of [[0,2],[1,3]]){
