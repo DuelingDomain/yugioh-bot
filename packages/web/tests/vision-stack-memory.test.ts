@@ -10,6 +10,15 @@ const track = (id: string, zone: FieldTrack['zone'], x: number, cardId?: string)
   id,zone,card:box(x),cardId,position:'attack',faceDown:false,state:cardId?'identified':'candidate',firstSeen:0,lastSeen:1000,removed:false,
 });
 
+it.each(['pending','vanished','recent'] as const)('a separated material is not reclaimed by the Xyz %s fallback', phase=>{
+  const p={ref:'p',zone:'monster',slot:3,faceUp:true,position:'attack' as const,cardId:1};
+  const q={ref:'q',zone:phase==='pending'?'monster':'hand',faceUp:true,position:'attack' as const,cardId:2,...(phase==='pending'?{slot:4}:{departedFrom:{zone:'monster',slot:4,at:2000,auto:true}})};
+  const input={kind:'xyz' as const,covered:['p'],vanished:phase==='vanished'?[{ref:'q',at:2000}]:[],pending:phase==='pending'?[{ref:'q',at:2000}]:[],firstSeen:2500,twins:[p,q],removed:()=>true,now:3000,separated:new Set(['q'])};
+  expect(fieldSummonMaterials(input)).toBeUndefined();
+  expect(fieldSummonMaterials({...input,covered:['p','q']})).toEqual(['p','q']);
+  expect(fieldSummonMaterials({...input,kind:'synchro'})).toEqual(['p','q']);
+});
+
 it.each([false,true])('one atomic Xyz placement keeps ordered known materials, including a returning preview (%s)', preview => {
   let state=ygoModule.initialState({seatCount:2}),serial=0;
   const act=(proposal:unknown)=>{state=ygoModule.reduce(state,remoteActionSchema.parse({...Object(proposal),at:10000,idempotencyKey:`stack-${++serial}`}));};

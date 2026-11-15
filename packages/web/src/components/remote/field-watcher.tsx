@@ -112,11 +112,12 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   const debugBackend=()=>{const loss=gpuLossReason();return `${recognition.backend==='webgpu'?'GPU':recognition.backend?'CPU':'reader'}${recognition.note?` (${recognition.note})`:''}${loss?` · GPU lost ${new Date(loss.at).toLocaleTimeString()}: ${loss.reason}`:''}`;};
   const prompted=useRef(new Set<string>()),placeholders=useRef(new Map<string,string>()),readerRemovals=useRef(new Set<string>());
   // Summon window: monsters that left the field (watcher time) and Extra Deck summons placed moments ago.
+  const separatedStackCards=useRef(new Set<string>());
   const vanishes=useRef<FieldVanish[]>([]),summons=useRef(new Map<string,{kind:RemoteSummonKind;name:string;rating?:number;at:number;count:number;pending:string[];trackId:string}>());
   // Stacks the glue holds back (a card moved on top of another card): the summon window decides, then the default applies.
   // stackKept: a stack whose default the player undid; the camera leaves it alone while it stays stacked.
   const heldStacks=useRef(new Set<string>()),stackKept=useRef(new Set<string>()),stackTimers=useRef(new Set<ReturnType<typeof setTimeout>>()),undoChain=useRef<{after:string;ids:string[];/** The pile track that follows the departed card, restored to its stand-in by Undo. */rebind?:{trackId:string;ref:string}}>({after:'',ids:[]}),watchStartedAt=useRef(performance.now());
-  useEffect(()=>{vanishes.current=[];summons.current.clear();heldStacks.current.clear();stackKept.current.clear();watchStartedAt.current=performance.now();},[room.slug,seat,source]);
+  useEffect(()=>{separatedStackCards.current.clear();vanishes.current=[];summons.current.clear();heldStacks.current.clear();stackKept.current.clear();watchStartedAt.current=performance.now();},[room.slug,seat,source]);
   useEffect(()=>()=>{for(const timer of stackTimers.current)clearTimeout(timer);stackTimers.current.clear();},[]);
   /**
    * A new pile card needs entry evidence (not a restart re-read): the camera ran 2 s, and a hand was over that pile up to
@@ -451,7 +452,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     }
     // Extra Deck summon: the monsters under this card or that left the field in the window are its materials.
     const summonType=(!existing||!publicField(existing.zone))&&!track.faceDown&&code?fieldSummonKind(cardInfo(code)):undefined;
-    const materialRefs=summonType&&/^(M[1-5]|EMZ[12])$/.test(track.zone)?fieldSummonMaterials({kind:summonType.kind,rating:summonType.rating,covered:stackUnder(event.track.id),vanished:vanishes.current,pending:[...pendingLeft.current.values()],firstSeen:track.firstSeen,twins,removed:outOfView,now:serverNow()}):undefined;
+    const materialRefs=summonType&&/^(M[1-5]|EMZ[12])$/.test(track.zone)?fieldSummonMaterials({kind:summonType.kind,rating:summonType.rating,covered:stackUnder(event.track.id),vanished:vanishes.current,pending:[...pendingLeft.current.values()],firstSeen:track.firstSeen,twins,removed:outOfView,now:serverNow(),separated:separatedStackCards.current}):undefined;
     const summon=summonType&&materialRefs?{kind:summonType.kind,materialRefs}:undefined;
     const stale=staleFieldOccupant(twins,watch.getTracks().map(track=>({...track,id:bindings.current.get(track.id)??track.id})),track.zone,existing?.ref??track.id);
     // Release a slot only for a card that lands in it: a Trap seen in M4 goes to the Spell/Trap row and leaves the M4 twin alone.
@@ -635,6 +636,12 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   // The 10 s start when the pick is on screen (a notice with Undo shows first).
   useEffect(()=>{if(!heldPick||notice)return;const timer=setTimeout(()=>setHeldPick(null),10_000);return()=>clearTimeout(timer);},[heldPick,notice]);
   function handle(event:FieldEvent,departureOrigin?:Pick<TwinCard,'ref'|'zone'|'slot'>) {
+    const observedRef=bindings.current.get(event.track.id)??event.track.id;
+    if(event.type==='removed'&&event.uncoveredRef){
+      separatedStackCards.current.add(observedRef);
+      for(const summon of summons.current.values())if(summon.kind==='xyz')summon.pending=summon.pending.filter(ref=>ref!==observedRef);
+    }
+    else if(['placed','moved','covered'].includes(event.type))separatedStackCards.current.delete(observedRef);
     if(event.type==='placed'&&!live()){if(syncHoldRef.current)heldPlaced.current.deferred++;else heldPlaced.current.dropped++;}
     if(event.type!=='removed'){
       const timer=departureTimers.current.get(event.track.id);if(timer){clearTimeout(timer);departureTimers.current.delete(event.track.id);}
@@ -780,7 +787,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
           const nowAt=performance.now(),twinsNow=current.current.room.state.seats[seat].twin;
           for(const [topRef] of summons.current)if(!twinsNow.some(c=>c.ref===topRef&&['monster','extra-monster'].includes(c.zone)))summons.current.delete(topRef);
           const recent=[...summons.current].filter(([,s])=>{
-            if(nowAt-s.at>SUMMON_WINDOW_MS||s.count+s.pending.length>=fieldSummonMinimum(s.kind))return false;
+            if(nowAt-s.at>SUMMON_WINDOW_MS||s.count+s.pending.length>=fieldSummonMinimum(s.kind)||s.kind==='xyz'&&separatedStackCards.current.has(card.ref))return false;
             const box=watch.getTrack(s.trackId)?.card.quad;return s.kind!=='xyz'||!!box&&!distinctFieldQuads(box,event.track.card.quad);
           }).sort((a,b)=>b[1].at-a[1].at)[0];
           if(recent){

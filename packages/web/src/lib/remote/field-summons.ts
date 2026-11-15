@@ -50,9 +50,10 @@ export const fieldSummonMinimum = (kind: RemoteSummonKind) => kind === 'link' ? 
  *   a pile), newest first, only as many as needed (Link: up to its rating; others: up to the minimum).
  * Undefined = no summon (the default rules apply).
  */
-export function fieldSummonMaterials({ kind, rating, covered, vanished, pending = [], firstSeen, twins, removed, now }: {
+export function fieldSummonMaterials({ kind, rating, covered, vanished, pending = [], firstSeen, twins, removed, now, separated }: {
   kind: RemoteSummonKind; rating?: number; covered: readonly string[]; vanished: readonly FieldVanish[]; firstSeen: number; twins: readonly TwinCard[];
   /** Monsters that left the view during the 2 s departure wait: still on the field in the twin, not yet in the hand. */ pending?: readonly FieldVanish[];
+  /** A waiting stack was visibly separated. Only fresh cover evidence may reclaim these refs for an Xyz. */ separated?: ReadonlySet<string>;
   /** True while the camera still has this card out of view. */ removed: (ref: string) => boolean;
   /** Server time: a covered card that the default sent to the hand (held stack) still counts for 30 s. */ now: number;
 }): string[] | undefined {
@@ -69,11 +70,11 @@ export function fieldSummonMaterials({ kind, rating, covered, vanished, pending 
   // A pending departure is not in the hand yet: it counts while its twin still lies face-up in a Monster Zone and the camera has not seen it again.
   const waiting = (ref: string) => { const card = find(ref); return !!card && card.faceUp && MONSTER_ZONES.has(card.zone); };
   const left = [...vanished.map(v => ({ ...v, ok: gone })), ...pending.map(v => ({ ...v, ok: waiting }))]
-    .filter(v => Math.abs(v.at - firstSeen) <= SUMMON_WINDOW_MS).sort((a, b) => b.at - a.at)
+    .filter(v => !(kind==='xyz'&&separated?.has(v.ref))&&Math.abs(v.at - firstSeen) <= SUMMON_WINDOW_MS).sort((a, b) => b.at - a.at)
     .filter((v, index, all) => all.findIndex(o => o.ref === v.ref) === index)
     .map(v => v.ok(v.ref) ? v.ref : '').filter(ref => ref && !under.includes(ref) && removed(ref));
   // Cards the board already holds in the hand after a camera lift (the default for a card out of view), newest first, after the window ones.
-  const recent = twins.filter(c => c.zone === 'hand' && !!c.departedFrom?.auto && MONSTER_ZONES.has(c.departedFrom.zone) && c.departedFrom.at !== undefined && now - c.departedFrom.at <= SUMMON_RECENT_MS &&
+  const recent = twins.filter(c => !(kind==='xyz'&&separated?.has(c.ref))&&c.zone === 'hand' && !!c.departedFrom?.auto && MONSTER_ZONES.has(c.departedFrom.zone) && c.departedFrom.at !== undefined && now - c.departedFrom.at <= SUMMON_RECENT_MS &&
     !under.includes(c.ref) && !left.includes(c.ref)).sort((a, b) => b.departedFrom!.at! - a.departedFrom!.at!).map(c => c.ref);
   const want = Math.max(0, (kind === 'link' ? limit : rankUp ? 0 : fieldSummonMinimum(kind)) - under.length);
   const refs = [...under, ...[...left, ...recent].slice(0, kind === 'link' ? Math.max(0, limit - under.length) : want).reverse()].slice(0, kind === 'link' ? limit : undefined);

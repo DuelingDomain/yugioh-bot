@@ -18,7 +18,10 @@ The five-second window still bounds inference from cards that really left the fi
   saved empty frame stays separate from the scenery the hand test learns later. True departures still use the existing
   sharpness, motion, hand and empty-spot checks.
 - New covers require a resting outline with no hand or moving shadow. An existing cover can survive a hand passing over
-  it. When the known bottom reappears, two clean full scans release the lifted top instead of reversing the cover relation.
+  it. When a genuine outline of the known bottom reappears, two clean full scans release the lifted top instead of
+  reversing the cover relation. A weak kept outline cannot establish this separation.
+  The separation receipt prevents the Xyz vanished/pending/recent fallbacks from reclaiming that card until fresh
+  cover or field-placement evidence appears. Link/Synchro departure inference is unchanged.
 - A newly read Xyz binds the eligible known materials observed under it. The two-material minimum (or a rank-up
   holder) remains; an expired or unregistered material is not invented. A returning preview can use the same atomic
   `twin.place`/`fromRef` summon path as a new top. Vanished-only inference keeps its minimum material count.
@@ -135,47 +138,37 @@ Opponent cards under my cards; Pendulum/Link arrows; material identity reads fro
 
 ## Replay diagnosis and proof (15 November 2026)
 
-The recovered baseline runs reproduce `343e98570`: v2 original 26/3/36 and v3 field/action 2/2/35
-(on time/late/missed). Their source receipts match HEAD. The existing contact sheet was inspected during resume;
-no new frame dumps were made. Detailed trace indexes and the eleven individual diagnoses are local in
-[`stack-diagnosis.md`](../../data/replay/stack-memory-20261115/stack-diagnosis.md) and
-[`stack-diagnosis-reviewed.json`](../../data/replay/stack-memory-20261115/stack-diagnosis-reviewed.json).
+The fresh baseline runs reproduce `343e98570`: v2 original 26/3/36 and v3 field/action 2/2/35
+(on time/late/missed). Their 22 source hashes match `343e98570`. The stack contact sheet and three fresh placement frames were inspected locally;
+raw labels, frame strips and per-label traces remain gitignored. Detailed trace indexes and the eleven individual diagnoses are local in
+[`DIAGNOSIS.md`](../../data/replay/stack-memory-20261115/DIAGNOSIS.md) and
+[`stack-diagnosis.json`](../../data/replay/stack-memory-20261115/baseline-v3/stack-diagnosis.json).
 
-Primary causes count each label once: **9 unconfirmed materials or parent stacks, 1 top not admitted/read,
-1 material-model mismatch**. Several labels have more than one blocker; this is not an attribution experiment.
-
-| Local label ID | First failed step; additional evidence |
-| --- | --- |
-| king-purrely:truth-8 | Starting materials never confirmed. Later top reads are low match; hand-release checks persist. |
-| king-purrely:truth-10 | No registered parent stack or attaching spells. The top remains low match. |
-| king-purrely:truth-12 | No registered parent or attaching spell; monster-only selection cannot infer a spell attachment. |
-| king-purrely:truth-14 | No registered earlier Xyz/material refs to carry into rank-up; top remains low match. |
-| retro-purrely:truth-11 | Known monster plus a spell from S3: spell is ineligible, leaving fewer than two materials. Top reads sure at 85.036 s. Kept lower outlines also interrupt the cover. |
-| oshea-tenpai:truth-3 | Both material refs existed; top has no read. Grip/contact and unclean face/outline checks block admission. |
-| toptier-dracossack:truth-6 | One material never confirmed, the other already departed. Top has no read; outline/plane/face checks remain unresolved. |
-| toptier-dracossack:truth-7 | Preceding parent/material relation was never created; the detached card has no read. |
-| toptier-dracossack:truth-11 | Token marker became a Set, not a token ref. Top has no read. |
-| toptier-dracossack:truth-13 | No token ref. Top reads sure at 88.506 s; local catalog also lacks the production Link-rating adapter. |
-| dark-swordsoul:truth-11 | Material monster and token never confirmed; top has no read. |
+Primary causes count each label once: **7 missing confirmed prerequisites, 2 token-marker role failures,
+1 top admission failure, and 1 incomplete-material binding/eligibility failure**. Additional blockers overlap.
+The eleven individual label records and frame/trace links remain in the local diagnosis; they are not copied here.
 
 The inherited offline harness already runs `fieldSummonKind`, `fieldSummonMaterials`, placement helpers and a
 five-second summon/default window. It does not mount React. Its local copy now uses the new bottom-first traversal
-and known-monster waiting rule. Browser queue effects and mutations remain an offline model; shared reducer tests
+and known-monster waiting rule, including cancellation when a waiting material is visibly lifted away. Browser queue effects and mutations remain an offline model; shared reducer tests
 exercise actual material state separately. No label identities or deck lists seed the watcher. Missing Link `level`
 in the raw local catalog is an additional harness limitation, not proof of a browser catalog bug; the production
 contract supplies Link rating as `level`. No complete label is attributed solely to window expiry.
 
-Verification run during resume, using Node 22.23.4:
+Final verification, using Node 22.23.4:
 
-- Full vision suite: **333 passed / 2 failed / 0 skipped**. Failures are the unchanged `mat-fit.test.ts` printed-centres
+- Full vision suite: **334 passed / 2 failed / 0 skipped**. Failures are the unchanged `mat-fit.test.ts` printed-centres
   case and `pipeline.test.ts` deck-restriction case supplied as baseline failures. The suite includes watcher, pile,
   stack and pixel tests. `--test-force-exit` lets the unchanged client Worker test finish without excluding it.
-- Related web tests: **164 passed / 2 failed** across six files, including all three new stack/glue cases.
+- Related web tests: **167 passed / 2 failed** across six files, including all six new stack/glue cases.
   Failures are the missing `double-metaphone` dependency and the pending-identity-transfer test. The latter also fails
-  with the baseline watcher in the recovered baseline check.
+  with the baseline watcher in the separate baseline check.
 - Related shared tests: **274 passed / 0 failed** (`card-behaviour` and `remote-duels.integration`).
 - Typechecks fail in unchanged source: vision `web-runtime.ts` GPU-adapter typing; web voice room fields and missing
-  `double-metaphone`. A missing `ImageData.colorSpace` in the new pixel fixture was fixed before final verification.
+  `double-metaphone`. The new test fixtures typecheck without additional errors.
+- Fail-before/pass-after checks cover stack separation in all three Xyz fallback paths and a weak lower outline
+  during arrival of the new top. The requested immediate/late-read, lifted material, empty-mat departure and passing
+  hand cases all pass. These are synthetic watcher/helper/reducer checks, not browser-camera proof.
 
 ```sh
 export PATH=/Users/imranqureshi/.nvm/versions/node/v22.23.4/bin:$PATH
@@ -192,16 +185,15 @@ node node_modules/vitest/vitest.mjs run --config packages/shared/vitest.config.t
 Removed during review: allowing one observed material to trigger a new Xyz summon. It broke the existing
 expired-material contract (one remaining live monster is insufficient). The normal two-material minimum and rank-up
 exception are retained. Superseded and incomplete trial run folders were removed after preserving summary/receipt
-files; the recovered baseline and final traces remain local.
+files; the fresh baseline and final traces remain local.
 
 
 ### Measured result of the retained build
 
 The keep rule passes, but **complete stack/summon-material labels remain 0/11**. The requested normal sequence is
 verified by synthetic watcher and shared-reducer tests; this clip set does not establish end-to-end stack success.
-All fifteen final clips were rerun during resume with the current reader, four-corner calibration, 30 fps,
-170/228 ms simulated detector/reader costs, and one native inference thread per lane. The recovered baseline is
-carried from the interrupted run, with its complete receipts and source hashes verified now.
+All fifteen final clips were rerun with the current reader, four-corner calibration, 30 fps,
+170/228 ms simulated detector/reader costs, and one native inference thread per lane. The baseline was freshly reproduced before the product edits; its complete receipts and source hashes were verified again after interruptions.
 
 | Metric | v2 before | v2 after | v3 before | v3 after |
 | --- | ---: | ---: | ---: | ---: |
@@ -212,34 +204,38 @@ carried from the interrupted run, with its complete receipts and source hashes v
 | Non-card phantoms | 0 | 0 | 0 | 0 |
 | Hand/search/Extra preview placements | 0 | 0 | 3 | 3 |
 | Real wrong names | 0 | 0 | 0 | 0 |
+| Wrong-name outcomes (original scorer) | 3 | 3 | 0 | 0 |
 | Stale registered sources | 0 | 0 | 0 | 0 |
 | Wrong zones (original task scoring) | 3 | 3 | 4 | 4 |
 | Scored Sets / 6 | 3 | 3 | — | — |
 | Scored flips / 2 | 2 | 2 | — | — |
 | Token markers placed as Sets | 0 | 0 | 2 | 2 |
 | Placement delay median / p95, seconds | .663 / 12.180 | .663 / 12.180 | 3.157 / 8.074 | 3.157 / 8.074 |
+| Corrected v2 placement median, seconds | .678 | .678 | — | — |
 | Detector requests / reads per minute | 85 / 10.1 | 85 / 10.1 | 79 / 5.857 | 79 / 5.857 |
 | Complete stack/material labels / 11 | — | — | 0 | 0 |
 
 The corrected v2 scorer prevents one label consuming another label's card, excludes a 0.4-second censored arrival,
 and separates an unchanged pile-top name from a real wrong read. It reports one wrong-zone outcome instead of three;
-the original scorer's three wrong-name outcomes are unchanged old pile-top names. No labels were edited. V3 uses the
+the original wrong-name outcomes include label-consumption conflicts and retained pile-top names, rather than new wrong-name placements. No labels were edited. V3 uses the
 reviewed 43 field/action labels; 15 held observations remain separate. The legacy all-kind v3 script also remains
 unchanged at 4/1/57, which is a different scoring universe from the task's field/action totals.
 
 V2's 39 placement payloads and times are identical after ignoring event-log join keys. All 54 final placements
-transfer one-to-one from the recovered frame review with matching identity, face, zone and pose, within one second
+transfer one-to-one from the control frame review with matching identity, face, zone and pose, within one second
 and .02 per corner; no unreviewed placement was accepted. V3 loses one repeated top-card placement, with no change to
 scored field outcomes. The two token-marker Sets and three private/preview placements are existing errors, not
 successful stack behavior. Source-clear accounting covers eight established v2 sources and four registered v3 lifts;
 all clear in both builds. It cannot measure cards that were never registered. No covered known material becomes a
 new Set in the owner tests, and no new phantom or Set placement appears in either replay.
 
-Evidence: local `kept-v2/`, `kept-v3/`, `kept-summary.json`, `keep-review.json`, `v2-placement-comparison.json` and
-`final-provenance.json`. Final product-source receipts match the current files. Replay helpers and inference artifacts
-remain gitignored. Existing inference caches were read only; cache misses ran without saving tensors. No new media or
-frame files were written. Superseded trial folders were removed. The final evidence folder is about 335 MB including
-the recovered baseline/cache; new retained artifacts are about 110 MB, below the 500 MB allowance.
+Evidence: local `verified-v2/`, `verified-v3/`, `verified-summary.json`, `verified-keep-review.json`,
+`verified-keep-gates.json`, `verified-v2-placement-comparison.json`, `verified-source-equivalence.json` and
+`verified-provenance.json`. Both complete run receipts report code 0. Final product-source receipts match the current
+files, and rebuilding the current source produces byte-identical replay cores. Replay helpers and inference artifacts
+remain gitignored. The retained replay read existing inference caches and did not save cache misses. Diagnostic placement frames and a
+contact sheet were decoded earlier into the gitignored review folder. No recordings were changed. Superseded trial
+folders were removed after preserving receipts.
 
 Execution note: a sandbox-denied PID stop briefly overlapped two incomplete retry pairs. Both were interrupted through
 the execution sessions and their incomplete folders removed. The completed retained replay used two parents. Disk
@@ -261,4 +257,5 @@ these clips. No model was trained and the recording pipeline was not changed.
   `packages/web/tests/vision-stack-memory.test.ts`.
 - This document: `docs/remote-duels/stacks-and-summons.md`.
 
-All changes are left uncommitted for the orchestrator. No push, merge, deployment or PR update was performed.
+No commit was created by this execution. HEAD advanced externally to `a706cf0c8` while verification was finishing;
+the follow-up separation handling and final documentation corrections remain uncommitted. No push, merge, deployment or PR update was performed.

@@ -2005,6 +2005,7 @@ test('a material lifted off the waiting stack is removed when the original botto
   s.show('P');for(let i=0;i<35;i++)await s.r.tick(100);
   assert.equal(s.track(s.bottom)?.under,undefined);assert.equal(s.track(s.bottom)?.removed,false);
   assert.equal(s.track(s.incoming)?.removed,true,'the lifted material leaves, it is not covered by the original bottom');
+  assert.equal(s.r.events.find(e=>e.type==='removed'&&e.track.id===s.incoming)?.uncoveredRef,s.bottom,'the glue receives positive separation evidence');
   s.show('X');for(let i=0;i<25;i++)await s.r.tick(100);
   const xyz=s.r.events.find(e=>e.type==='placed'&&e.track.cardId==='X');assert.ok(xyz);
   const {fieldStackUnder}=await import('./field-stack-memory');
@@ -2033,5 +2034,18 @@ test('a kept enlarged lower outline cannot steal visibility from the clean new s
   assert.equal(s.track(s.incoming)?.under,undefined,'the separate monster is not a material');
   assert.equal(s.track(s.bottom)?.visible,false);
   assert.equal(s.r.events.some(e=>e.type==='removed'&&[s.bottom,s.incoming].includes(e.track.id)),false);
+ }finally{s.r.watcher.dispose();}
+});
+
+test('a weak lower outline during a new top does not claim the waiting material was lifted away',async()=>{
+ const s=await rememberedStackRig();try{
+  s.show('Q');for(let i=0;i<25;i++)await s.r.tick(100);
+  assert.equal(s.track(s.bottom)?.under,s.incoming);
+  s.show('X');s.r.outlines=[s.p,{...card(.395,.34,.11,.17),confidence:.329,kept:true,covered:true}];
+  for(let i=0;i<40;i++)await s.r.tick(100);
+  const xyz=s.r.events.find(e=>e.type==='placed'&&e.track.cardId==='X');assert.ok(xyz);
+  const {fieldStackUnder}=await import('./field-stack-memory');
+  assert.deepEqual(fieldStackUnder(xyz.track.id,s.r.watcher.getSnapshot().tracks),[s.bottom,s.incoming]);
+  assert.equal(s.r.events.some(e=>e.type==='removed'&&e.track.id===s.incoming),false);
  }finally{s.r.watcher.dispose();}
 });

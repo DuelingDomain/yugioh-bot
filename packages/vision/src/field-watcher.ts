@@ -119,7 +119,7 @@ export interface FieldTrack {
 /** Epoch origin crosses browser/worker/HTTP boundaries; stages are offsets, never mixed clocks. */
 /** Per card trace for the Debug panel and clips: `stagesMs` (stable, embedStart, searchDone, commit), `durationsMs` (`hold.<reason>` ms waited, embedCount, readMs) and `notes` (search source, tier). */
 export interface FieldTiming { id:string; originAt:number; stagesMs:Record<string,number>; durationsMs:Record<string,number>; notes?:Record<string,string> }
-export type FieldEvent = { type:'reading'|'placed'|'moved'|'flipped'|'removed'|'prompt'|'covered'; /** covered: the track now on top of this card. */ coverRef?:string; track:FieldTrack; bindRef?:string; fromRef?:string; previousId?:string; result?:RecognitionResult; latencyMs?:number; reason?:'card-presence'|'uncertain'|'recognition-error'|'reappeared'|'changed'|'restart'|'pile'|'spread'|'suppressed'|'empty'|/** No plausible card box ever backed this track (an arm, a held card): the board card it placed is taken back, not sent to the hand. */'phantom'; source:'auto'; /** A watcher-placed Set ref that this event's pile ref replaces: the card left the pile face-up. */ replacesRef?:string; destination?:'DECK'|'EXTRA'; timing?:FieldTiming };
+export type FieldEvent = { type:'reading'|'placed'|'moved'|'flipped'|'removed'|'prompt'|'covered'; /** covered: the track now on top of this card. */ coverRef?:string; /** Removed: the known bottom revealed by this card leaving a waiting stack. */ uncoveredRef?:string; track:FieldTrack; bindRef?:string; fromRef?:string; previousId?:string; result?:RecognitionResult; latencyMs?:number; reason?:'card-presence'|'uncertain'|'recognition-error'|'reappeared'|'changed'|'restart'|'pile'|'spread'|'suppressed'|'empty'|/** No plausible card box ever backed this track (an arm, a held card): the board card it placed is taken back, not sent to the hand. */'phantom'; source:'auto'; /** A watcher-placed Set ref that this event's pile ref replaces: the card left the pile face-up. */ replacesRef?:string; destination?:'DECK'|'EXTRA'; timing?:FieldTiming };
 export interface FieldMetrics { detectorMs:number; recognitionMs:number; dutyPercent:number; intervalMs:number; samples:number; skipped:number; placements:number; latencyMs:number; errors:number; event?:FieldTiming }
 /** What the watcher saw on its last sample, for the owner's debug overlay. Local only, never sent. */
 export interface FieldDebug { at:number; path:string; full:boolean; region?:FractionalBox; detections:{quad:DetectedQuad['quad'];kind:DetectedQuad['kind'];confidence:number;zone:FieldZone;use:string; /** The box centre lies between two zone cells (zone shown is the nearest). */ gap?:boolean}[]; reasons:Record<string,string>; /** Best raw detector score inside the calibrated Deck/Extra cell this full pass (null: no outline at or above the decode floor .2). */ pileScores?:Partial<Record<'DECK'|'EXTRA',number|null>> }
@@ -1273,17 +1273,18 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
           emptyLooks.set(zone,next);
         }
       }
-      for(const [bottom,c]of matched)if(bottom.under&&bound(bottom)&&followsAppearance(bottom,c)&&!handOver(evidence,c)&&planeVerdict(c).ok){
+      const genuineUncover=(c:DetectedQuad)=>!c.kept&&!c.cell&&!c.covered&&!c.partial&&c.confidence>=.7;
+      for(const [bottom,c]of matched)if(bottom.under&&bound(bottom)&&genuineUncover(c)&&followsAppearance(bottom,c)&&!handOver(evidence,c)&&planeVerdict(c).ok){
         const top=tracks.find(t=>t.view.id===bottom.under);if(top&&!exposedTops.has(top))exposedTops.set(top,{bottom:bottom.view.id,since:sample.at,scans:0});
       }
       for(const [top,proof]of exposedTops){
         const bottom=tracks.find(t=>t.view.id===proof.bottom),c=bottom&&matched.get(bottom);
-        if(top.view.removed||matched.has(top)||!bottom||!c||!followsAppearance(bottom,c)){exposedTops.delete(top);continue;}
+        if(top.view.removed||matched.has(top)||!bottom||!c||!genuineUncover(c)||!followsAppearance(bottom,c)){exposedTops.delete(top);continue;}
         if(detectorRan&&!region&&!handOver(evidence,c)&&!removalHold(c)&&planeVerdict(c).ok&&evidence.motion(c)<=.025){
           proof.scans++;
           if(proof.scans>=2&&sample.at-proof.since>=250){
             top.under=undefined;delete top.view.under;top.view.removed=true;top.view.visible=false;
-            note(top,'known bottom reappeared: the top left the stack');emit('removed',top);exposedTops.delete(top);
+            note(top,'known bottom reappeared: the top left the stack');emit('removed',top,{uncoveredRef:proof.bottom});exposedTops.delete(top);
           }
         }
       }
