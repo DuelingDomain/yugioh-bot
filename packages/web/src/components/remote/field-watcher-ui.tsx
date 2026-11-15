@@ -12,6 +12,7 @@ export type FieldWatcherPrompt={
   candidates:readonly {id:string;label:string;disabled?:boolean}[];emptyMessage?:string;
 };
 export type FieldWatcherUIProps={
+  changes?: readonly string[];onChanged?(zone:string):void;
   zoneSeat?:number;keepUnresolved?:boolean;onWrong?(promptId:string):void;onNotACard?(promptId:string):void;
   host:HTMLElement|null;enabled:boolean;onEnabledChange(enabled:boolean):void;
   statusLabel:string;statusTitle?:string;/** Something waits for the player: the chip is drawn loud, and with `onStatusAction` it is a button (open the notices, or resume). */attention?:boolean;onStatusAction?():void;statusExtra?:ReactNode;calibrated:boolean;calibrationDisabled:boolean;onCalibrate():void;
@@ -74,7 +75,7 @@ function ZonePrompt({prompt,first,zone,pending,onChoose,onWrong,onNotACard}:{pro
 }
 
 /** Feed watcher presentation, independent of recognition and table actions. */
-export function FieldWatcherUI({host,enabled,onEnabledChange,statusLabel,statusTitle,statusExtra,attention,onStatusAction,calibrated,calibrationDisabled,onCalibrate,prompts,pending,onChoose,onDismiss,notice,noticeTestId,dock,zoneSeat,keepUnresolved=false,onWrong,onNotACard}:FieldWatcherUIProps) {
+export function FieldWatcherUI({host,enabled,onEnabledChange,statusLabel,statusTitle,statusExtra,attention,onStatusAction,calibrated,calibrationDisabled,onCalibrate,prompts,pending,onChoose,onDismiss,notice,noticeTestId,dock,zoneSeat,keepUnresolved=false,onWrong,onNotACard,changes=[],onChanged}:FieldWatcherUIProps) {
   const [collapsed,setCollapsed]=useState<ReadonlySet<string>>(new Set());
   const prompt=enabled?prompts.find(p=>!collapsed.has(promptKey(p))):undefined,description=useId();
   const ignored=prompts.filter(p=>collapsed.has(promptKey(p)));
@@ -111,6 +112,11 @@ export function FieldWatcherUI({host,enabled,onEnabledChange,statusLabel,statusT
   const controls=host.querySelector('[data-field-watcher-controls]'),status=host.querySelector('[data-field-watcher-status-slot]');
   const tooltip=[statusTitle,statusLabel,enabled&&!calibrated?'Calibrate zones for exact columns':null].filter(Boolean).join(' · ');
   return <>
+    {enabled && zoneSeat !== undefined ? changes.map(zone => {
+      const key=zone.startsWith('EMZ')?`e${zone.slice(3)}`:zone==='FIELD'?'f':zone.toLowerCase();
+      const cell=document.querySelector(`[data-testid="field-${zoneSeat}"] [data-zone="${key}"]`);
+      return cell ? createPortal(<button type="button" className={s.zoneBadge} data-testid="zone-changed" aria-label={`Changed here: ${zoneName(zone)}`} title="Changed here" onPointerDown={stop} onKeyDown={keepControlKey} onClick={event=>{event.stopPropagation();onChanged?.(zone);}}>?</button>,cell,`changed:${zone}`) : null;
+    }) : null}
     {enabled&&keepUnresolved&&ignored.length?createPortal(<div className={`${s.theme} ${s.notice} ${dock?s.docked:''}`} data-testid="field-unresolved" onClick={stop} onPointerDown={stop}><b>Unresolved ({ignored.length})</b>{ignored.map(p=><button type="button" key={promptKey(p)} onClick={()=>setCollapsed(before=>{const next=new Set(before);next.delete(promptKey(p));return next;})}>Check {zoneName(p.zone)}</button>)}</div>,dock??document.body):null}
     {enabled&&zoneSeat!==undefined?prompts.map(p=>{
       const key=p.zone.startsWith('EMZ')?`e${p.zone.slice(3)}`:p.zone==='FIELD'?'f':p.zone.toLowerCase();

@@ -1202,3 +1202,22 @@ it('shows a local Reading cue before the placement HTTP reply and suppresses it 
   expect(ghosts.result.current).toEqual([]);expect(fixture.room().state.seats[0].twin).toHaveLength(0);
  }finally{ready.resolve();ghosts.unmount();fixture.dispose();}
 });
+
+it('an occupied zone gets one Changed here cue, opens manual actions, clears on a hold, and leaves camera placements running',async()=>{
+ const {onManualZoneRequest}=await import('../src/lib/remote/manual-moves');
+ const old={ref:'confirmed-zone',zone:'monster',slot:4,cardId:46986414,name:'Dark Magician',faceUp:true,position:'attack'};
+ const field=document.createElement('div');field.dataset.testid='field-0';field.innerHTML='<div data-zone="m4"></div>';document.body.append(field);
+ const request=vi.fn(),stop=onManualZoneRequest(request);
+ const fixture=await typedWatcherFixture(cards[0],'M4',[old],'prompt');
+ try{
+  Object.assign(fixture.track,{state:'candidate',cardId:undefined,restSince:0,visible:true});fixture.refresh();
+  const cue=await screen.findByRole('button',{name:'Changed here: Main Monster Zone 4'},{timeout:4000});
+  expect(screen.getAllByTestId('zone-changed')).toHaveLength(1);expect(screen.queryByTestId('field-watcher-prompt')).toBeNull();expect(fixture.post).not.toHaveBeenCalled();
+  fireEvent.click(cue);expect(request).toHaveBeenCalledWith({seat:0,zone:'M4',actions:true});
+  Object.assign(fixture.track,{state:'identified',bestMatch:true,cardId:'89631139'});await fixture.emit({type:'placed'});expect(fixture.post).not.toHaveBeenCalled();
+  await act(async()=>{await fixture.action({type:'twin.flip',actorSeat:0,seat:0,cardRef:old.ref,faceUp:false});});fixture.refresh();
+  await waitFor(()=>expect(screen.queryByTestId('zone-changed')).toBeNull());
+  Object.assign(fixture.track,{id:'normal-placement',zone:'M2',state:'identified',cardId:'89631139',faceDown:false,bestMatch:false});fixture.refresh();
+  await fixture.emit({type:'placed',result:{...result,tier:'sure',candidates:[{cardId:'89631139',score:.99}]}});await waitFor(()=>expect(fixture.room().state.seats[0].twin.some((c:any)=>c.ref==='normal-placement'&&c.slot===2)).toBe(true));
+ }finally{stop();fixture.dispose();field.remove();}
+},20_000);

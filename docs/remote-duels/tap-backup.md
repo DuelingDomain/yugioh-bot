@@ -1,4 +1,94 @@
-# Tap backup
+# Tap backup: stacks, tokens and sleeved Sets
+
+15 November 2026 extension, `feat/remote-tap-backup` / PR #612. Work is uncommitted for the orchestrator. Logic, state and tests only; existing popup, picker, token controls and button styles are reused. No vision-package, recording-pipeline, training, deployment or PR changes.
+
+## Actions and decisions
+
+- Tap an own playable field zone, occupied or empty, or its **Changed here** badge, to open zone actions. Piles retain their existing pile viewer. Opponent zones retain their existing inspection/attack behavior.
+- **Put a card on top** uses My deck / Recent reads / Search and the existing physical-copy choice. After selection, choose **Summon using the card(s) here as material** or **Replace (old card to GY)**. The current card is selected as material; other own field monsters can be selected too. Xyz uses `twin.place.summon` and the existing `materials` / `materialOf` relation, carrying an older Xyz's materials through a rank-up. Synchro, Fusion and Link materials go to GY under the existing rules. No second stack model was added.
+- **Detach material to GY / banished** uses `twin.detach`. Targeted Undo uses the existing history and conflict checks.
+- **Add token** opens the existing token dialog: generic or catalog token, Attack/Defense and a free Main Monster Zone. An empty tapped Main Monster Zone is preselected. From another zone, choose a free Main Monster Zone. Extra Monster Zones remain excluded by the existing server contract. Tokens have `token` stats/art, never a guessed physical-card identity.
+- **Set a card here** on an empty Main Monster or Spell/Trap Zone creates a nameless face-down twin (Defense in a Monster Zone). On an occupied zone it Sets that same card; an already public identity follows the existing server rules. **Flip** opens the picker and sends one `twin.flip` with the chosen identity, preserving the ref. Naming before flipping would lose the identity under the existing hidden-card contract.
+- Opening a menu, selecting a candidate or closing a menu does not write board state. Commands reserve manual holds before entering the room queue. Stale occupants/copies are rechecked in the transaction. A summon and a flip are single server actions. Replace is two existing actions (old card to GY, then top placement); a partial failure explicitly directs the player to the dock's Undo before retrying. This is not an atomic replacement transaction.
+
+## Changed here lifecycle
+
+`src/lib/remote/changed-zones.ts` consumes the existing watcher tracks, never detector frames. A confirmed occupied cell gets one local episode after **1.2 seconds** of resting unresolved evidence: another outline, a candidate/blank read, a Best match, a waiting weak-back decision, a face mismatch or a name mismatch. Track-ID churn does not restart an episode. A temporary occlusion retains an already shown cue. A matching known resting state, a cleared board cell or a manual hold clears it. Opening the menu alone does not count as a correction.
+
+The badge has the accessible label “Changed here: <zone>” and opens the same zone actions. It does not pause the watcher or place a guessed card. Resting uncertain prompts on confirmed occupied cells use this cue; the existing prompts remain for empty cells and evidence without a resting observation. A resting Best match cannot overwrite an occupied confirmed cell. Sure camera placements keep their existing path and timing gates.
+
+Holds now cover an action's top ref, selected material refs, carried materials and cells together. A covered source track's removal cannot release the top's hold. The hold survives reload and blocks stale identity, removal and placement writes at the queue boundary. Undo adopts a restored field ref. Existing physical-departure / sustained-pose-change release remains; a hidden material has no independent visible departure proof, so its protection follows the stack's top until another manual action or physical release.
+
+## Designer handoff
+
+All paths below are under `packages/web/src/`.
+
+| Screen / state to style | Component paths |
+| --- | --- |
+| Own field: occupied, empty, nameless Set, token, materials; one Changed here badge; badge keyboard focus; cue cleared / camera disabled | `components/remote/field-watcher-ui.tsx`, `components/remote/ui/holo-field.tsx`, `components/remote/ui/seat-panel.tsx` |
+| Zone actions: occupied / empty, Set / Flip, token, material list with both destinations; saving and refusal text | `components/remote/ui/zone-actions.tsx`, mounted by `components/remote/ui/table.tsx` |
+| Card selection: deck / recent / search, no results, physical-copy choice, forced face-up for top/Flip, stale target | `components/remote/ui/zone-card-picker.tsx` |
+| Top-card decision: selected name, material checkboxes, Xyz carry vs materials to GY, summon unavailable, replace, saving, partial failure, changed zone, Back / Close | `components/remote/ui/zone-actions.tsx` |
+| Tokens: generic stats / named token search, chosen art, zone / position, all zones full; existing token move / remove | `components/remote/ui/token-ui.tsx` |
+| Flip: nameless/private Set to picker to public named card; privacy and unchanged ref | `components/remote/ui/zone-actions.tsx`, `components/remote/ui/zone-card-picker.tsx`, `components/remote/ui/holo-field.tsx` |
+| Existing detail sheet, materials, targeted Undo and departures after replacing | `components/remote/ui/card-view.tsx`, `components/remote/ui/recent-departures.tsx`, `components/remote/ui/dock.tsx` |
+
+Review these states on desktop and phone, with the software keyboard, tilted field, touch scrolling, focus return and long material names. No visual/device review is claimed for this extension. The paired camera-only phone page remains unchanged; these actions live on the full duel page.
+
+## Verification and replay receipt
+
+**Ran:** Node `v22.23.4`, the three requested Vitest files with `--maxWorkers=1`: **266/266 pass** (27 tap-backup, 123 vision-lab, 116 remote-recognition). Before edits, the same three files passed **255/255**. The new covered-card/removal/stale-name race fails against the original HEAD hold implementation and passes with the final implementation. Token tests exercise both generic and catalog choices, zone and position; watcher integration exercises cue-to-action routing, hold clearing, no Best-match overwrite and normal placement elsewhere. `git diff --check` passes.
+
+**Ran, fails:** `npm run typecheck --workspace=packages/web`, with eight diagnostics reproduced on the untouched baseline before implementation. No new diagnostic remains. The file `table.tsx` is edited, but each failing expression is unchanged; `use-remote-room.ts` is entirely unchanged. Installed shared declarations omit the voice fields that shared source declares. Shared build output was not changed.
+
+| Current file under `packages/web/src/components/remote/ui/` | Diagnostic | Baseline status |
+| --- | --- | --- |
+| `table.tsx:127:129` | TS2339: `RemoteRoom.voiceEnabled` missing | unchanged expression |
+| `table.tsx:156:33` | TS2339: `RemoteRoom.voiceEnabled` missing | unchanged expression |
+| `table.tsx:1028:68` | TS2339: `RemoteRoom.voiceDiagnosticsEnabled` missing | unchanged expression |
+| `table.tsx:1110:18` | TS2339: `RemoteRoom.voiceDiagnosticsEnabled` missing | unchanged expression |
+| `table.tsx:1561:152` | TS2339: `RemoteRoom.voiceDiagnosticsEnabled` missing | unchanged expression |
+| `use-remote-room.ts:95:237` | TS2353: object member `voiceEnabled` unknown | unchanged file |
+| `use-remote-room.ts:95:259` | TS2339: `RemoteRoom.voiceEnabled` missing | unchanged file |
+| `use-remote-room.ts:95:306` | TS2339: `RemoteRoom.voiceDiagnosticsEnabled` missing | unchanged file |
+
+The initial new popup test-ID errors and a missing timestamp in a test's camera stamp were fixed; they are absent from the final check. A cold targeted watcher test hit its five-second timeout on this loaded Mac; its integration timeout now includes cold module loading and the 1.2-second cue wait. The full final run passes.
+
+**Reverted approaches:** broad occupied-zone prompt suppression hid existing questions without resting evidence, so routing is now limited to resting evidence (or an already shown cue). The initial name-then-flip sequence failed to name a nameless Set and was replaced by the server's existing atomic reveal. No vision candidate was tried or retained.
+
+**Files changed:** this document; under `packages/web/src/components/remote/`, `field-watcher.tsx`, `field-watcher-ui.tsx`, `ui/table.tsx`, `ui/zone-card-picker.tsx`, `ui/zone-placement.ts`, new `ui/zone-actions.tsx`; under `packages/web/src/lib/remote/`, `manual-corrections.ts`, `manual-moves.ts`, new `changed-zones.ts`; under `packages/web/tests/`, `tap-backup.test.tsx`, `vision-lab.test.tsx`, `remote-recognition.test.ts`. No CSS file changed.
+
+ Evidence and replay scripts stay only in ignored `data/replay/tap-stacks-20261115/`; clips and labels are read from the supplied local evaluation folders. The harness uses a `git archive` snapshot of **343e98570**, not this branch's older vision source. All eleven recorded source digests match the supplied `final2` build. At most two replay lanes and one inference thread per lane run.
+
+**Ran:** all **15 baseline clips**, zero watcher errors. Inputs, frozen labels and all **55 placement payloads and times** (39 v2, 16 v3) exactly match the supplied `final2` run. The before column below is the requested **343e98570** snapshot. This branch's vision predates that snapshot; the table is not a measurement of this branch's camera behavior.
+
+| Clip set | Before: original on time / late / missed (ran) | Before: corrected on time / late / missed (ran) | Questions | Placement median, original / corrected (s) | After this tap work |
+| --- | --- | --- | --- | --- | --- |
+| v2, 10 clips | 26 / 3 / 36 | 27 / 5 / 37 | 4 | 0.663 / 0.678 | Not measured by clip harness; manual behavior tested separately |
+| v3, 5 clips | 2 / 2 / 35 | Same field/action score; no corrected variant | 5 | 3.157 / same | Not measured by clip harness; manual behavior tested separately |
+
+Original v2 scores 71 labels; corrected v2 scores 70 after the censored exclusion. Original v2 has three wrong-name outcomes from old pile-top names; the corrected scorer has none. **Carried safety review, with exact placement parity verified now:** non-card phantoms 0 / 0, hand/search/Extra-preview placements 0 / 3, real wrong names 0 / 0 (v2 / v3). No fresh frame classification is claimed. **Ran:** v2 establishes eight of twelve labelled sources and clears all eight, leaving zero stale registered sources; the four unestablished sources are excluded. V3 source clearance remains unmeasured. V3's 15 held observations remain misses and do not authorize field placement.
+
+The after-tap clip metrics are **not inferred to be unchanged**. The offline observer omits the changed React boundary, so replaying it as an “after” build would not prove these actions. Real-camera, network and phone outcomes remain unmeasured. The keep rule was conditional on editing `packages/vision`, which this task does not do.
+
+Reproduction commands (all replay outputs are ignored):
+
+```sh
+export PATH=/Users/imranqureshi/.nvm/versions/node/v22.23.4/bin:$PATH
+node data/replay/tap-stacks-20261115/scripts/sim-l-pair.mjs baseline
+node data/replay/tap-stacks-20261115/scripts/fable-corrected-score.mjs data/replay/tap-stacks-20261115/baseline-v2
+python3 data/replay/tap-stacks-20261115/scripts/tap-baseline-report.py
+node node_modules/vitest/vitest.mjs run packages/web/tests/tap-backup.test.tsx packages/web/tests/vision-lab.test.tsx packages/web/tests/remote-recognition.test.ts -c packages/web/vitest.config.ts --maxWorkers=1
+npm run typecheck --workspace=packages/web
+```
+
+Use a fresh stage name if replaying again; do not overwrite the retained receipt. Original and corrected scoring preserve the labels. Corrected v2 reserves exact matches before the greedy scorer, excludes the 0.4-second censored label and separates stale pile names from real wrong names. No corrected-v3 conflict variant was supplied.
+
+The offline observer models watcher events and board glue. It does **not** run React, manual taps, `ZoneActions`, the Changed here lifecycle or this room queue. Its camera scores cannot measure success of these manual actions or certify their phantom/hand rates. `packages/vision` is untouched, so the task's replay keep gate is not invoked.
+
+---
+
+# Earlier tap-backup handoff (historical)
 
 Task K, 14 November 2026. Worktree `yugioh-bot-vision-tap`, branch `feat/remote-tap-backup`, base `063cf7aa5`. Read `data/replay/recon-seamless.md` first.
 

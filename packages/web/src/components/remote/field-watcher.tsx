@@ -17,6 +17,7 @@ import {createFieldFaceCheck,type FieldFaceFix} from '@/lib/remote/field-face';
 import {fieldTrackMessage} from '@/lib/remote/field-track-cache';
 import {onManualMove,requestManualZone} from '@/lib/remote/manual-moves';
 import {correctionsFor,cameraCorrectionBlocked} from '@/lib/remote/manual-corrections';
+import {createChangedZones} from '@/lib/remote/changed-zones';
 import {projectFieldZone,tokenInCell,freeFieldZones,fieldCandidateFitsZone,hardFieldZone,zoneMoveLabel,equipSourceOnField,becomesTrapMonster,nearestFreeMonsterZone,fieldZoneLabel} from '@/lib/remote/field-legality';
 import {bindFieldTiming,markFieldTiming,bindBackTiming,fieldCameraStamp,playerStamp} from '@/lib/remote/field-timing';
 import {behaviourOf} from '@/lib/remote/card-behaviour';
@@ -378,6 +379,8 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     let track={...observed!,id:bindings.current.get(event.track.id)??event.track.id,...(chosen?{cardId:chosen,faceDown:false}:{})};
     const entry=track.cardId?entries.current.get(track.cardId):undefined;
     let twins=current.current.room.state.seats[seat].twin;
+    const physicalCell=fieldZoneLocation(track.zone);
+    if(!humanChoice&&track.bestMatch&&track.restSince!==undefined&&twins.some(c=>publicField(c.zone)&&c.zone===physicalCell.zone&&c.slot===physicalCell.slot&&(cardCode(c)||!c.faceUp||c.token)))return;
     let existing=twins.find(c=>c.ref===track.id);
     let location=fieldZoneLocation(track.zone);
     if(!track.faceDown&&!entry)throw new Error('Card details are unavailable. Use Retry field update.');
@@ -975,6 +978,17 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   useEffect(()=>{if(!tapOffer)return;const timer=setTimeout(()=>setTapOffer(false),TAP_OFFER_MS);return()=>clearTimeout(timer);},[tapOffer]);
   // Show a still outline on the board at once (local only). The saved "Reading" card takes its place with the same look.
   const ghostState=useRef(newGhostState());
+  const changedZones=useRef(createChangedZones());
+  const [changes,setChanges]=useState<readonly FieldZone[]>([]);
+  useEffect(()=>{changedZones.current=createChangedZones();setChanges([]);},[room.slug,seat,room.state.match.games.length]);
+  useEffect(()=>{
+    const update=()=>{
+      const holds=correctionsFor(current.current.room,seat);
+      const next=watch.enabled&&!watch.calibrationNeeded&&!syncHold ? changedZones.current.observe(watch.getTracks(),current.current.room.state.seats[seat].twin,performance.now(),id=>bindings.current.get(id)??id,(ref,at)=>holds.blocks([ref],at)) : [];
+      setChanges(before=>before.join(',')===next.join(',')?before:next);
+    };
+    update();const timer=setInterval(update,300);return()=>clearInterval(timer);
+  },[watch.enabled,watch.calibrationNeeded,syncHold,room.state,seat]);
   const restingReads=useRef(new Map<string,FieldEvent>());
   function observeCorrections(tracks:readonly FieldTrack[]){
     correctionsFor(current.current.room,seat).observe(tracks.map(t=>({id:t.id,ref:bindings.current.get(t.id)??t.id,...fieldZoneLocation(t.zone),faceDown:t.faceDown,position:t.position,removed:t.removed,resting:!!t.visible&&t.restSince!==undefined})),performance.now());
@@ -1464,7 +1478,12 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   useEffect(()=>{if(!notice)return;const timer=setTimeout(()=>{setNotice('');setDeparture(null);setUndoId('');},5000);return()=>clearTimeout(timer);},[notice,undoId]);
   const activePrompts=prompts.filter(event=>{const live=watch.getTrack(event.track.id);return live?.state==='prompt'&&(live.revision??0)===(event.track.revision??0)&&!correctionsFor(current.current.room,seat).blocks([bindings.current.get(live.id)??live.id],fieldZoneLocation(live.zone));});
   const promptInfo=useCardInfo(activePrompts.flatMap(event=>(event.result?.candidates??[]).map(candidate=>{const entry=entries.current.get(candidate.cardId);return entry?catalogCardId(entry):undefined;})));
-  const promptViews=activePrompts.map(event=>{
+  const promptViews=activePrompts.filter(event=>{
+    const at=fieldZoneLocation(event.track.zone);
+    if(changes.includes(event.track.zone))return false;
+    if(watch.getTrack(event.track.id)?.restSince===undefined)return true;
+    return !current.current.room.state.seats[seat].twin.some(c=>c.zone===at.zone&&c.slot===at.slot&&publicField(c.zone)&&(cardCode(c)||!c.faceUp||c.token));
+  }).map(event=>{
     const observed=watch.getTrack(event.track.id)!,twins=current.current.room.state.seats[seat].twin;
     if(event.reason==='card-presence')return {id:event.track.id,revision:event.track.revision,zone:observed.zone,title:'Card here?',presence:true,quad:observed.card.quad,candidates:[{id:'face-down',label:'Set card'}]};
     // Cards that fit the observed zone come first; others stay available (a monster can be an Equip Card).
@@ -1491,7 +1510,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   })).join('');
   return <>
     <style>{readingStyles}</style>
-    <FieldWatcherUI keepUnresolved zoneSeat={seat} onWrong={id=>{const event=activePrompts.find(p=>p.track.id===id);if(event)requestManualZone({seat,zone:event.track.zone,ref:bindings.current.get(id)??event.bindRef??id,faceDown:event.track.faceDown});}} onNotACard={id=>{
+    <FieldWatcherUI keepUnresolved zoneSeat={seat} changes={syncHold?[]:changes} onChanged={zone=>requestManualZone({seat,zone,actions:true})} onWrong={id=>{const event=activePrompts.find(p=>p.track.id===id);if(event)requestManualZone({seat,zone:event.track.zone,ref:bindings.current.get(id)??event.bindRef??id,faceDown:event.track.faceDown});}} onNotACard={id=>{
       const event=activePrompts.find(p=>p.track.id===id);if(!event)return;
       const ref=bindings.current.get(id)??event.bindRef??id;
       correctionsFor(current.current.room,seat).begin(ref,[fieldZoneLocation(event.track.zone)]);

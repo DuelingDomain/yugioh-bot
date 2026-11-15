@@ -1,15 +1,21 @@
 // @vitest-environment jsdom
-import React from 'react';
+import React, { useRef, useState } from 'react';
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { projectRemoteState, type RemoteActionProposal, type TwinCard } from '@yugidraft/shared/remote';
 import { createRoomMutationQueue } from '../src/lib/remote/room-mutations';
 import { createManualCorrections, correctionsFor, type CorrectionObservation } from '../src/lib/remote/manual-corrections';
-import { zonePlacement } from '../src/components/remote/ui/zone-placement';
+import { zonePlacement, zoneSet, zoneCardAction } from '../src/components/remote/ui/zone-placement';
 import { ZoneCardPicker } from '../src/components/remote/ui/zone-card-picker';
 import { RecentDepartures } from '../src/components/remote/ui/recent-departures';
 import { FieldWatcherUI } from '../src/components/remote/field-watcher-ui';
 import { InspectorBody, type CardActions } from '../src/components/remote/ui/card-view';
+import { useTokens } from '../src/components/remote/ui/token-ui';
+import { useLayers } from '../src/components/remote/ui/use-layers';
+import { ZoneActions } from '../src/components/remote/ui/zone-actions';
+import { loadCards } from '../src/components/remote/ui/catalog';
+import { createChangedZones } from '../src/lib/remote/changed-zones';
+import type { FieldTrack } from '@yugidraft/vision';
 import { tapRoom, applyTap } from './tap-room-fixture';
 
 afterEach(() => { cleanup(); sessionStorage.clear(); vi.useRealTimers(); vi.unstubAllGlobals(); });
@@ -147,4 +153,133 @@ it('uncertainty stays on its zone when ignored, with explicit choices and no aut
     fireEvent.click(open().getByRole('button',{name:'Confirm'}));expect(choose).toHaveBeenCalledWith('outline','46986414');fireEvent.click(open().getByRole('button',{name:'Not a card'}));expect(reject).toHaveBeenCalledWith('outline');
     fireEvent.click(badge);fireEvent.keyDown(screen.getByTestId('zone-uncertainty-choices'),{key:'Escape'});expect(screen.queryByTestId('zone-uncertainty-choices')).toBeNull();expect(badge).toHaveFocus();
   } finally {host.remove();field.remove();}
+});
+
+
+const topCard = { ref:'top', cardId:900001001, name:'Test Xyz', slot:1, faceUp:true, position:'attack' as const };
+const summonTop = (): RemoteActionProposal => ({type:'twin.place',actorSeat:0,seat:0,zone:'monster',card:topCard,anotherCopy:true,summon:{kind:'xyz',materialRefs:['paper']}});
+
+it('a shared stack hold survives covered-card removal and a stale reread of the top, including reload', async () => {
+  let room=tapRoom();room.state.seats[0].twin=[monster(),{...monster('under'),zone:'material',slot:undefined,materialOf:'paper'}];room.state.seats[0].twin[0].materials=['under'];
+  const holds=correctionsFor(room,0);holds.observe([observed()],0);
+  let release!:()=>void;const gate=new Promise<void>(done=>{release=done;});
+  const post=vi.fn(async(a:RemoteActionProposal)=>room=applyTap(room,a));const queue=createRoomMutationQueue(()=>room,post);
+  const busy=queue.transaction(async()=>{await gate;});
+  const removed=queue.action({type:'twin.remove',source:'auto',actorSeat:0,seat:0,cardRef:'paper'});
+  const human=queue.action(summonTop());release();await Promise.all([busy,removed,human]);
+  holds.observe([observed({removed:true,resting:false})],100);
+  await queue.action({type:'twin.remove',source:'auto',actorSeat:0,seat:0,cardRef:'paper'});
+  await queue.action({type:'card.identified',source:'auto',actorSeat:0,seat:0,cardRef:'top',cardId:46986414,name:'Dark Magician'});
+  expect(room.state.seats[0].twin.find(c=>c.ref==='top')).toMatchObject({cardId:900001001,materials:['under','paper']});
+  expect(room.state.seats[0].twin.filter(c=>c.zone==='material').map(c=>[c.ref,c.materialOf])).toEqual([['paper','top'],['under','top']]);
+  expect(post).toHaveBeenCalledTimes(1);
+  const stored=Object.keys(sessionStorage).find(key=>key.includes(room.slug))!;
+  const reload=createManualCorrections(sessionStorage,stored);
+  expect(reload.blocks(['top'])).toBe(true);expect(reload.blocks(['under'])).toBe(true);
+});
+
+it.each(['graveyard','banished'] as const)('detaches a material to %s, Undo restores the stack, and the camera cannot redo the detach',async zone=>{
+  let room=tapRoom();room.state.seats[0].twin=[monster()];room=applyTap(room,summonTop());
+  const queue=createRoomMutationQueue(()=>room,async a=>room=applyTap(room,a));
+  await queue.action({type:'twin.detach',actorSeat:0,seat:0,cardRef:'top',materialRef:'paper',zone});
+  expect(room.state.seats[0].twin.find(c=>c.ref==='paper')).toMatchObject({zone});
+  await queue.action({type:'undo',actorSeat:0,targetActionId:room.state.undo!.actionId});
+  await queue.action({type:'twin.detach',actorSeat:0,seat:0,cardRef:'top',materialRef:'paper',zone,cam:{by:'camera',sentAt:1000}});
+  expect(room.state.seats[0].twin.find(c=>c.ref==='top')?.materials).toEqual(['paper']);
+  expect(room.state.seats[0].twin.find(c=>c.ref==='paper')).toMatchObject({zone:'material',materialOf:'top'});
+});
+
+it('a token marker low match cannot name or replace a manual token, and Undo keeps the marker off the board',async()=>{
+  let room=tapRoom();const queue=createRoomMutationQueue(()=>room,async a=>room=applyTap(room,a));
+  const token:RemoteActionProposal={type:'twin.place',actorSeat:0,seat:0,zone:'monster',card:{ref:'token',name:'Token',slot:3,faceUp:true,position:'defense',token:{atk:0,def:0}}};
+  correctionsFor(room,0).observe([observed({id:'marker',ref:'low-match',slot:3,faceDown:true})],0);
+  await queue.action(token);
+  const low:RemoteActionProposal={type:'twin.place',source:'auto',actorSeat:0,seat:0,zone:'monster',card:{ref:'marker-read',slot:3,faceUp:false,position:'defense'}};
+  await queue.action(low);
+  expect(room.state.seats[0].twin).toEqual([expect.objectContaining({ref:'token',token:{atk:0,def:0},position:'defense'})]);
+  await queue.action({type:'undo',actorSeat:0,targetActionId:room.state.undo!.actionId});await queue.action(low);
+  expect(room.state.seats[0].twin).toEqual([]);
+});
+
+it('a nameless sleeved Set flips through the picker and shares the normal manual hold',async()=>{
+  let room=tapRoom();const queue=createRoomMutationQueue(()=>room,async a=>room=applyTap(room,a));
+  await queue.action(zoneSet(room,0,'m3','sleeve'));
+  expect(room.state.seats[0].twin).toEqual([{ref:'sleeve',zone:'monster',slot:3,faceUp:false,position:'defense'}]);
+  expect(projectRemoteState(room.state,new Set([1])).seats[0].twin[0]).not.toHaveProperty('cardId');
+  for(const a of zonePlacement(room,{seat:0,key:'m3',cardId:46986414,name:'Dark Magician',faceUp:true,targetRef:'sleeve'},'unused'))await queue.action(a);
+  await queue.action({type:'twin.flip',source:'auto',actorSeat:0,seat:0,cardRef:'sleeve',faceUp:false});
+  expect(room.state.seats[0].twin).toEqual([expect.objectContaining({ref:'sleeve',cardId:46986414,faceUp:true,slot:3})]);
+  expect(()=>zoneSet(room,1,'m1','foreign')).toThrow(/own active field/);
+  expect(()=>zoneSet(room,0,'m3','occupied')).toThrow(/occupied/);
+});
+
+it('top placement uses the existing summon model and rejects a zone changed since the tap',async()=>{
+  vi.stubGlobal('fetch',vi.fn(async()=>Response.json({cards:[{id:900001001,name:'Test Xyz',type:'Warrior / Xyz Monster',frameType:'xyz'}]})));
+  await loadCards([900001001]);let room=tapRoom();room.state.seats[0].twin=[monster(),{...monster('second'),slot:2}];
+  const pick={seat:0,key:'m1' as const,cardId:900001001,name:'Test Xyz',faceUp:true,top:{ref:'paper',kind:'summon' as const,materialRefs:['paper','second']}};
+  for(const a of zonePlacement(room,pick,'top'))room=applyTap(room,a);
+  expect(room.state.seats[0].twin.find(c=>c.ref==='top')).toMatchObject({materials:['paper','second'],zone:'monster',slot:1});
+  expect(()=>zonePlacement(room,pick,'stale')).toThrow(/zone changed/);
+  expect(()=>zoneCardAction(room,'m2',{type:'twin.flip',actorSeat:0,seat:0,cardRef:'top',faceUp:false})).toThrow(/zone changed/);
+  expect(()=>zonePlacement(room,{...pick,anotherCopy:true,top:{...pick.top,ref:'top',materialRefs:['paper']}},'wrong')).toThrow(/material/);
+  const replace={...pick,top:{ref:'top',kind:'replace' as const},anotherCopy:true};
+  for(const a of zonePlacement(room,replace,'replacement'))room=applyTap(room,a);
+  expect(room.state.seats[0].twin.find(c=>c.ref==='top')?.zone).toBe('graveyard');
+  expect(room.state.seats[0].twin.filter(c=>c.zone==='material')).toEqual([]);
+  expect(room.state.seats[0].twin.find(c=>c.ref==='replacement')).toMatchObject({slot:1,zone:'monster'});
+});
+
+const outline = (change: Partial<FieldTrack>={}):FieldTrack => ({id:'outline',zone:'M1',state:'candidate',faceDown:false,position:'attack',firstSeen:0,lastSeen:0,visible:true,removed:false,restSince:0,
+  card:{quad:[{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1}],kind:'face-up',confidence:.9,partial:false},...change});
+it('Changed here waits for resting evidence, survives track churn, and clears on recovery or a manual action',()=>{
+  const cues=createChangedZones(),held=vi.fn(()=>false),twins=[monster()];
+  const see=(tracks:FieldTrack[],now:number)=>cues.observe(tracks,twins,now,id=>id==='known'?'paper':id,held);
+  expect(see([outline({restSince:undefined})],0)).toEqual([]);
+  expect(see([outline()],100)).toEqual([]);expect(see([outline({id:'next'})],1299)).toEqual([]);
+  expect(see([outline({id:'another'})],1300)).toEqual(['M1']);expect(see([],2000)).toEqual(['M1']);
+  expect(see([outline({id:'known',state:'identified',cardId:'46986414'})],2100)).toEqual([]);
+  const weak=outline({id:'known',state:'identified',cardId:'46986414',setEvidence:{detector:.7,pixel:'unknown',pixelConfidence:.2,sd:10,backDistance:null,positive:false,basis:'none',decision:'waiting'}});
+  expect(see([weak],2200)).toEqual([]);expect(see([weak],3400)).toEqual(['M1']);
+  held.mockReturnValue(true);expect(see([outline()],3500)).toEqual([]);
+  expect(cues.observe([outline()],[],5000,id=>id,held)).toEqual([]);
+});
+
+it('own-zone actions offer top placement, both detach destinations, tokens and a nameless Set without changing the board on open',async()=>{
+  vi.stubGlobal('ResizeObserver',class {observe(){} disconnect(){}});
+  const room=tapRoom();room.state.seats[0].twin=[{...monster(),materials:['under']},{...monster('under'),zone:'material',materialOf:'paper',slot:undefined}];
+  const action=vi.fn(),token=vi.fn(),set=vi.fn(),pick=vi.fn();
+  const props={room,seat:0,zone:'m1' as const,at:{anchor:null,feed:null},deck:[900001001],busy:false,error:'',onPick:pick,onAction:action,onSet:set,onToken:token,onDetails:()=>{},onClose:()=>{}};
+  const view=render(<ZoneActions {...props}/>);
+  expect(action).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button',{name:'Detach material to banished'}));expect(action).toHaveBeenLastCalledWith(expect.objectContaining({type:'twin.detach',materialRef:'under',zone:'banished',cam:expect.objectContaining({by:'player',ui:'zone-actions'})}));
+  fireEvent.click(screen.getByRole('button',{name:'Add token'}));expect(token).toHaveBeenCalledOnce();
+  fireEvent.click(screen.getByRole('button',{name:'Put a card on top'}));
+  fireEvent.click(await screen.findByRole('button',{name:'Test Xyz (1)'}));
+  fireEvent.click(screen.getByRole('button',{name:'Summon using the card(s) here as material'}));
+  expect(pick).toHaveBeenLastCalledWith(expect.objectContaining({top:{ref:'paper',kind:'summon',materialRefs:['paper']}}));
+  view.unmount();render(<ZoneActions {...props} zone="m3"/>);
+  fireEvent.click(screen.getByRole('button',{name:'Set a card here'}));expect(set).toHaveBeenCalledOnce();
+});
+
+
+it.each(['generic','named'] as const)('the existing token dialog creates a %s token in the chosen Main Monster Zone and position',async kind=>{
+  vi.stubGlobal('ResizeObserver',class {observe(){} disconnect(){}});
+  vi.stubGlobal('fetch',vi.fn(async()=>Response.json({cards:[{id:900001002,name:'Fixture Token',type:'Token',frameType:'token',atk:100,def:200}]})));
+  function Tokens() {
+    const [room,setRoom]=useState(tapRoom),current=useRef(room);current.current=room;
+    const [queue]=useState(()=>createRoomMutationQueue(()=>current.current,async a=>{const next=applyTap(current.current,a);current.current=next;setRoom(next);return next;}));
+    const layers=useLayers();
+    const tokens=useTokens({room,act:queue.action,live:true,extraZones:false,layers,info:()=>undefined});
+    return <>{tokens.trigger(0)}{tokens.node}<output data-testid="token-board">{JSON.stringify(room.state.seats[0].twin)}</output></>;
+  }
+  render(<Tokens/>);fireEvent.click(screen.getByRole('button',{name:'Token'}));
+  if(kind==='generic'){
+    fireEvent.click(screen.getByRole('button',{name:'Generic token'}));fireEvent.click(screen.getByRole('button',{name:'Defense'}));
+  }else{
+    fireEvent.change(screen.getByTestId('token-search'),{target:{value:'Fixture'}});
+    fireEvent.click(await screen.findByRole('button',{name:'Fixture Token · ATK 100 / DEF 200'}));
+  }
+  fireEvent.change(screen.getByTestId('token-zone'),{target:{value:'m5'}});fireEvent.click(screen.getByRole('button',{name:'Create token'}));
+  await act(async()=>{await Promise.resolve();});
+  expect(JSON.parse(screen.getByTestId('token-board').textContent!)).toEqual([expect.objectContaining({zone:'monster',slot:5,faceUp:true,position:kind==='generic'?'defense':'attack',token:kind==='generic'?{atk:0,def:0}:{atk:100,def:200,artId:900001002}})]);
 });

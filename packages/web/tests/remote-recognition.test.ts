@@ -561,7 +561,8 @@ it('review B3: manual and watcher transactions serialize copy checks against ret
 
 it('queued phone retries preserve the caller idempotency key through action and transaction',async()=>{
  const {createRoomMutationQueue}=await import('../src/lib/remote/room-mutations');
- const room={lastSeq:0} as any,post=vi.fn(async()=>room);
+ const {tapRoom}=await import('./tap-room-fixture');
+ const room=tapRoom(),post=vi.fn(async()=>room);
  const queue=createRoomMutationQueue(()=>room,post);
  const proposal={type:'card.identified',actorSeat:0,seat:0,cardId:46986414,source:'camera'} as any;
  const key='phone-scan-physical-1';

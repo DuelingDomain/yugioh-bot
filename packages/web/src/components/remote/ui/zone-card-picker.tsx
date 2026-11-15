@@ -9,16 +9,16 @@ import s from './remote-ui.module.css';
 
 const SOURCES = ['My deck', 'Recent reads', 'Search'];
 
-export function ZoneCardPicker({ seat, zone, targetRef, initialFaceUp=true, at, deck, recent, twin, busy, error, onPick, onClose }: {
+export function ZoneCardPicker({ seat, zone, targetRef, initialFaceUp=true, allowFaceDown=true, excludeRef, at, deck, recent, twin, busy, error, onPick, onClose }: {
   seat: number; zone: ZoneKey; targetRef?: string; initialFaceUp?:boolean; at: PopAt; deck: number[]; recent: readonly RecentRead[]; twin: readonly TwinCard[];
-  busy: boolean; error: string; onPick(pick: ZonePick): void; onClose(): void;
+  busy: boolean; error: string; allowFaceDown?: boolean; excludeRef?: string; onPick(pick: ZonePick): void; onClose(): void;
 }) {
   const [tab, setTab] = useState('My deck'), [query, setQuery] = useState(''), [results, setResults] = useState<RecentRead[]>([]);
   const [selected, setSelected] = useState<RecentRead | null>(null), [faceUp, setFaceUp] = useState(initialFaceUp);
-  const info = useCardInfo(deck);
+  const info = useCardInfo([...deck, ...recent.map(c => c.cardId)]);
   useEffect(() => { let alive = true; const timer = setTimeout(() => { void searchCards(query).then(cards => { if (alive) setResults(cards.map(c => ({ cardId: c.id, name: c.name }))); }); }, 200); return () => { alive = false; clearTimeout(timer); }; }, [query]);
   const rows = tab === 'My deck' ? [...new Set(deck)].flatMap(id => { const c = info(id); return c ? [{ cardId: id, name: c.name }] : []; }) : tab === 'Recent reads' ? recent : results;
-  const copies = selected && !targetRef ? twin.filter(c => cardCode(c) === selected.cardId && !c.token && c.zone !== 'material') : [];
+  const copies = selected && !targetRef ? twin.filter(c => c.ref !== excludeRef && cardCode(c) === selected.cardId && !c.token && c.zone !== 'material') : [];
   const choose = (card: RecentRead, origin?: { fromRef?: string; anotherCopy?: boolean }) => {
     if (busy) return;
     if (!origin && !targetRef && twin.some(c => cardCode(c) === card.cardId && !c.token && c.zone !== 'material')) { setSelected(card); return; }
@@ -26,7 +26,7 @@ export function ZoneCardPicker({ seat, zone, targetRef, initialFaceUp=true, at, 
   };
   return <PopupFrame at={at} layer="zone" label={`Place a card in ${ZN[zone]}`} testid="zone-card-picker" className={s.zonePicker}>
     <header><strong>{targetRef ? 'Choose the right card' : `Place in ${ZN[zone]}`}</strong><button type="button" className={`${s.btn} ${s.q} ${s.zpClose}`} onClick={onClose} disabled={busy}>Close</button></header>
-    <label className={s.zpFace}><input type="checkbox" checked={!faceUp} disabled={busy} onChange={e => setFaceUp(!e.target.checked)} /> Face down (private)</label>
+    {allowFaceDown ? <label className={s.zpFace}><input type="checkbox" checked={!faceUp} disabled={busy} onChange={e => setFaceUp(!e.target.checked)} /> Face down (private)</label> : null}
     <div role="tablist" aria-label="Card source" className={s.zpTabs} onKeyDown={e => {
       const at = SOURCES.indexOf(tab), next = e.key === 'ArrowRight' ? at + 1 : e.key === 'ArrowLeft' ? at - 1 : -1;
       if (next < 0) return;

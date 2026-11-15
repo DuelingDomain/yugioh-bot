@@ -21,9 +21,8 @@ import type { FieldDrag } from "./holo-field";
 import { judgeMove, landingForCell, landingLabel, type Landing } from "./placement";
 import { announceManualMove, onManualZoneRequest } from "@/lib/remote/manual-moves";
 import { beginManualCorrection } from "@/lib/remote/manual-corrections";
-import { recentReadsFor } from "@/lib/remote/recent-reads";
-import { ZoneCardPicker } from './zone-card-picker';
-import { zonePlacement, type ZonePick } from './zone-placement';
+import { ZoneActions } from './zone-actions';
+import { zonePlacement, zoneSet, zoneCardAction, type ZonePick } from './zone-placement';
 import { RecentDepartures } from './recent-departures';
 import { COLORS, battleMath, leavePosition, pileEntryFace, cardCode, cellsFor, isPile, sameObservedCard, cardName, cellKeyOf, deckFlag, deckIdsOf, facingSeat, foundationZone, hasDeck, hasExtraZones, mirrorEmz, PHASES, PHASE_LONG, readCardOf, placedTwin, sg, type TwinCard, type ZoneKey } from "./model";
 import { findTwinGroups } from "./twins";
@@ -178,7 +177,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
   const twinCodes = state.seats.flatMap(item => item.twin.map(card => cardCode(card) ?? card.token?.artId));
   const deckCodes = seatIds.flatMap(seat => deckIdsOf(room, seat));
   const [subject, setSubject] = useState<Subject | null>(null);
-  const [zonePicker, setZonePicker] = useState<{ seat: number; key: ZoneKey; targetRef?: string; initialFaceUp?:boolean } | null>(null);
+  const [zonePicker, setZonePicker] = useState<{ seat: number; key: ZoneKey; requestId: number; targetRef?: string; initialFaceUp?:boolean; startPicker?:boolean } | null>(null);
   const [zoneBusy, setZoneBusy] = useState(false), [zoneError, setZoneError] = useState('');
   const [flagSeat, setFlagSeat] = useState(0);
   const info = useCardInfo([...twinCodes, ...deckCodes, subject?.cardId || undefined]);
@@ -291,33 +290,34 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     if(updated&&proposal.type==='effect.activated'&&proposal.source.cardId){const wanted=controlOffer(proposal.source.cardId),seat=proposal.actorSeat;if(wanted)setTimeout(()=>controlOfferRef.current?.(seat,wanted),0);}
     return updated;
   },[ctl.action,toast]);
-  const openZonePicker = (seat: number, key: ZoneKey, targetRef?: string, initialFaceUp=true) => {
+  const openZonePicker = (seat: number, key: ZoneKey, targetRef?: string, initialFaceUp=true, startPicker=false) => {
     if (!live || !(solo || seat === mySeat) || state.seats[seat]?.eliminated || isPile(key)) return;
-    layers.open('zone'); setZoneError(''); setZonePicker({ seat, key, targetRef, initialFaceUp });
+    layers.open('zone'); setZoneError(''); setZonePicker(previous => ({ seat, key, targetRef, initialFaceUp, startPicker, requestId: (previous?.requestId ?? 0) + 1 }));
   };
   useEffect(() => onManualZoneRequest(request => {
     const key = request.zone.startsWith('EMZ') ? `e${request.zone.slice(3)}` : request.zone === 'FIELD' ? 'f' : request.zone.toLowerCase();
     if (!['m1','m2','m3','m4','m5','s1','s2','s3','s4','s5','e1','e2','f'].includes(key)) return;
     const card = R.current.state.seats[request.seat]?.twin.find(c => c.ref === request.ref);
-    openZonePicker(request.seat, key as ZoneKey, card?.ref, request.faceDown ? false : card?.faceUp ?? true);
+    openZonePicker(request.seat, key as ZoneKey, request.actions ? undefined : card?.ref, request.faceDown ? false : card?.faceUp ?? true, !request.actions);
   }), [live, solo, mySeat]);
-  const placeInZone = async (pick: ZonePick) => {
+  const saveZoneActions = async (build: (room: RemoteRoom) => RemoteActionProposal[]) => {
     if (zoneBusy) return;
     setZoneBusy(true); setZoneError('');
-    const ref = crypto.randomUUID(); let rollback = () => {};
+    let rollback = () => {}; let wrote = false;
     try {
-      const initial = zonePlacement(R.current.room, pick, ref);
+      const initial = build(R.current.room);
       const restores = initial.map(a => beginManualCorrection(R.current.room, a)); rollback = () => [...restores].reverse().forEach(f => f());
       const saved = await ctl.transaction(async (latest, apply) => {
         let updated: RemoteRoom | null = latest;
-        for (const action of zonePlacement(latest, pick, ref)) { updated = await apply(action); if (!updated) return null; }
+        for (const action of build(latest)) { updated = await apply(action); if (!updated) return null; wrote = true; }
         return updated;
       });
-      if (!saved) { rollback(); setZoneError('Could not save. Choose the card again.'); return; }
+      if (!saved) { if (!wrote) rollback(); setZoneError(wrote ? 'Only part of the change saved. Use Undo in the dock before trying again.' : 'Could not save. Choose the card again.'); return; }
       setZonePicker(null); layers.close('zone');
-    } catch (error) { rollback(); setZoneError(error instanceof Error ? error.message : 'Could not place this card.'); }
+    } catch (error) { if (!wrote) rollback(); setZoneError(wrote ? 'Only part of the change saved. Use Undo in the dock before trying again.' : error instanceof Error ? error.message : 'Could not place this card.'); }
     finally { setZoneBusy(false); }
   };
+  const placeInZone = (pick: ZonePick) => { const ref = crypto.randomUUID(); return saveZoneActions(latest => zonePlacement(latest, pick, ref)); };
   const tokens = useTokens({ act, room, live, extraZones, layers, info });
   const control = useControlChange({ act, room, live, layers, info, name, toast });
   controlOfferRef.current = control.offer;
@@ -1540,7 +1540,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
             selectedRef={picking?.seat === seat ? picking.ref : selected?.seat === seat ? selected.ref : undefined} targetRef={attack?.targetSeat === seat ? attack.targetCardRef : undefined} freshRef={fresh}
             warnRefs={warnRefs(seat)} twinCounts={twinCounts(seat)} pickPlate={plate} detectionMode={isTournamentTable(room) && seat !== mySeat ? stateMode(room.state, seat) ?? "unknown" : undefined} viewScope={String(seatCount)} webcamOnly={webcamOnly && !needsBoard(seat)} onDock={onSeatDock} onToggleView={needsBoard(seat) ? undefined : () => setWebcamOnly(!webcamOnly)}
             onZoneCard={onZoneCard} onCamPick={onCamPick} hoverTip={hoverTip} onCardMenu={onCardMenu}
-            onActivate={(key, card) => { if (picking && card && seat !== picking.seat && (card.zone === "monster" || card.zone === "extra-monster")) void declare(seat, card.ref); else if (card) openSubject(card); else if (!picking) openZonePicker(seat,key); }}
+            onActivate={(key, card) => { if (picking && card && seat !== picking.seat && (card.zone === "monster" || card.zone === "extra-monster")) void declare(seat, card.ref); else if (!picking && (solo || seat === mySeat) && !isPile(key)) openZonePicker(seat,key); else if (card) openSubject(card); }}
             onAttack={(_key, card) => startAttack(seat, card)} onInspect={card => openSubject(card)} onPile={(zone, opener) => openPile(seat, zone, opener)} onDeck={(solo || seat === mySeat) && surrenderable(seat) ? el => { setDeckAt({ seat, rect: el.getBoundingClientRect() }); layers.toggle("deck", el); } : undefined} live={live} drag={fieldDrag(seat)} onPlate={() => { if (plate) void declare(seat); }}
             onLp={delta => void changeLp(seat, delta)} canLp={live} deckWarning={deckFlag(room, seat)?.message} onDeckFlag={el => { setFlagSeat(seat); layers.toggle("flag", el); }}
             hand={handOf(seat)}
@@ -1569,7 +1569,10 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
       extra={!solo ? <VisionFeedbackSetting promptOnly onChange={onFeedbackPref} /> : undefined}
       onConcede={canSurrender ? surrender : undefined} declare={declareResult}
       seats={players.map(p => ({ seat: p.seat, name: p.name, color: p.color, turn: p.seat === turnShown, lp: lpOf(p.seat), note: p.seat === turnShown ? "Turn" : p.seat === nextSeat ? "Next" : "" }))} />
-    {zonePicker && layers.layer === 'zone' && live && (solo || zonePicker.seat === mySeat) ? <ZoneCardPicker key={`${zonePicker.seat}:${zonePicker.key}:${zonePicker.targetRef ?? ''}`} seat={zonePicker.seat} zone={zonePicker.key} targetRef={zonePicker.targetRef} initialFaceUp={zonePicker.initialFaceUp} at={{anchor:zoneRect(zonePicker.seat,zonePicker.key),feed:null}} deck={deckIdsOf(room,zonePicker.seat)} recent={recentReadsFor(room,zonePicker.seat)} twin={state.seats[zonePicker.seat].twin} busy={zoneBusy} error={zoneError} onPick={pick => void placeInZone(pick)} onClose={() => layers.close('zone')} /> : null}
+    {zonePicker && layers.layer === 'zone' && live && (solo || zonePicker.seat === mySeat) ? <ZoneActions key={zonePicker.requestId} room={room} seat={zonePicker.seat} zone={zonePicker.key} targetRef={zonePicker.targetRef} initialFaceUp={zonePicker.initialFaceUp} startPicker={zonePicker.startPicker} at={{anchor:zoneRect(zonePicker.seat,zonePicker.key),feed:null}} deck={deckIdsOf(room,zonePicker.seat)} busy={zoneBusy} error={zoneError} onPick={pick => void placeInZone(pick)}
+      onAction={action => void saveZoneActions(latest => [zoneCardAction(latest, zonePicker.key, action)])} onSet={() => { const ref = crypto.randomUUID(); void saveZoneActions(latest => [zoneSet(latest, zonePicker.seat, zonePicker.key, ref)]); }}
+      onToken={() => tokens.create(zonePicker.seat, /^m[1-5]$/.test(zonePicker.key) && !cellsFor(state.seats[zonePicker.seat].twin, extraZones)[zonePicker.key]?.card ? zonePicker.key : undefined)}
+      onDetails={card => openSubject(card)} onClose={() => layers.close('zone')} /> : null}
     <InspectorDrawer open={layers.layer === "insp"} onClose={() => layers.close("insp")}>
       <InspectorBody subject={subjectDetails} info={subjectInfo} warning={subject ? deckFlag(room, subject.seat)?.message : undefined} actions={shownActions}
         sourceLine={subject ? `Identified by ${subject.via} on ${name(subject.seat)}'s side` : ""} />
