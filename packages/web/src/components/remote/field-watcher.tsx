@@ -2,7 +2,7 @@
 import { recognitionPriorsFor } from "@/lib/remote/recognition-priors";
 
 import {useCallback,useEffect,useMemo,useRef,useState} from 'react';
-import {catalogCardId,fieldZoneLocation,yugioh,type HeldCardEvent,type HeldUnsureEvent,type FieldEvent,type FieldTrack,type FieldZone,type KnownFieldCard,type FieldCalibration,fieldPacerDevice} from '@yugidraft/vision';
+import {catalogCardId,fieldZoneLocation,fieldStackUnder,yugioh,type HeldCardEvent,type HeldUnsureEvent,type FieldEvent,type FieldTrack,type FieldZone,type KnownFieldCard,type FieldCalibration,fieldPacerDevice} from '@yugidraft/vision';
 import {useSendHealth} from '@/lib/remote/send-health-store';
 import {markVideoOfferShown,readVideoChoice,VIDEO_OFFER_MS,videoOfferShown} from '@/lib/remote/video-rate';
 import {createSlowWatch,isWeakDevice,markTapOfferShown,readTapChoice,saveTapChoice,tapOfferShown,TAP_OFFER_MS,type TapChoice} from '@/lib/remote/tap-offer';
@@ -35,7 +35,7 @@ import {nextFieldGhosts,setFieldGhosts,blockGhostCell,newGhostState} from '@/lib
 import {FieldWatcherUI} from './field-watcher-ui';
 import {serverNow} from './ui/api';
 import {cardInfo,loadCards,useCardInfo} from './ui/catalog';
-import {fieldSummonKind,fieldSummonMaterials,fieldSummonMinimum,fieldSummonNotice,heldStackStillStacked,SUMMON_WINDOW_MS,type FieldVanish} from '@/lib/remote/field-summons';
+import {fieldSummonKind,fieldSummonMaterials,fieldSummonMinimum,fieldSummonNotice,heldStackStillStacked,fieldKeepsMonsterStack,fieldStackXyzCandidates,SUMMON_WINDOW_MS,type FieldVanish} from '@/lib/remote/field-summons';
 import {distinctFieldQuads,xyzAttachTargets} from '@/lib/remote/field-proposals';
 
 const toZone=(zone:string,slot?:number):FieldZone|undefined=>zone==='monster'?`M${slot??1}` as FieldZone:zone==='spell-trap'?`S${slot??1}` as FieldZone:zone==='extra-monster'?`EMZ${slot??1}` as FieldZone:({field:'FIELD',graveyard:'GY',banished:'BANISHED',deck:'DECK',extra:'EXTRA'} as Record<string,FieldZone>)[zone];
@@ -126,7 +126,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   /** True while the camera has this twin out of view (by its ref or a bound track id). */
   const outOfView=(ref:string)=>watch.isRemoved(ref)||watch.getTracks().some(t=>t.removed&&(bindings.current.get(t.id)??t.id)===ref);
   /** Twin refs of the cards under this track (the whole stack), bottom first. */
-  const stackUnder=(trackId:string)=>{const out:string[]=[],all=watch.getTracks();let level=[trackId];for(let n=0;n<10&&level.length;n++){level=all.filter(t=>t.under&&level.includes(t.under)&&!t.removed).map(t=>t.id);out.unshift(...level.map(id=>bindings.current.get(id)??id));}return [...new Set(out)];};
+  const stackUnder=(trackId:string)=>fieldStackUnder(trackId,watch.getTracks()).map(id=>bindings.current.get(id)??id);
   const missingCopies=useRef(new Map<string,number>()),mergedCopies=useRef(new Map<string,number>()),repairingCopies=useRef(false);
   calibrationBusy.current=calibrating;
   const [failedUpdate,setFailedUpdate]=useState<{work:(act:RoomMutation)=>Promise<void>;event?:FieldEvent;humanChoice?:boolean}|null>(null);
@@ -450,7 +450,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       return;
     }
     // Extra Deck summon: the monsters under this card or that left the field in the window are its materials.
-    const summonType=!existing&&!track.faceDown&&code?fieldSummonKind(cardInfo(code)):undefined;
+    const summonType=(!existing||!publicField(existing.zone))&&!track.faceDown&&code?fieldSummonKind(cardInfo(code)):undefined;
     const materialRefs=summonType&&/^(M[1-5]|EMZ[12])$/.test(track.zone)?fieldSummonMaterials({kind:summonType.kind,rating:summonType.rating,covered:stackUnder(event.track.id),vanished:vanishes.current,pending:[...pendingLeft.current.values()],firstSeen:track.firstSeen,twins,removed:outOfView,now:serverNow()}):undefined;
     const summon=summonType&&materialRefs?{kind:summonType.kind,materialRefs}:undefined;
     const stale=staleFieldOccupant(twins,watch.getTracks().map(track=>({...track,id:bindings.current.get(track.id)??track.id})),track.zone,existing?.ref??track.id);
@@ -806,8 +806,13 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
         const location=fieldZoneLocation(projected.zone);
         if(keepsManual(card.ref,location,observed.position))return;
         const under=stackUnder(event.track.id);
+        if(under.length&&!publicField(card.zone)&&fieldSummonKind(cardInfo(code))){await apply(event,act);return;}
         const stacked=current.current.room.state.seats[seat].twin.find(c=>c.ref!==card.ref&&under.includes(c.ref)&&c.zone===location.zone&&c.slot===location.slot);
         if(stacked){
+          if(fieldKeepsMonsterStack(card,stacked)){
+            if(!heldStacks.current.has(card.ref)){heldStacks.current.add(card.ref);setNotice('Known monsters stacked · waiting for the top card');}
+            return;
+          }
           // Wait for a summon (it takes both cards). With no summon in the window, the default: the card under it leaves
           // (to the hand, with Undo) and this card moves to the zone. A stack whose default was undone stays as it is.
           if(stackKept.current.has(card.ref))return;
@@ -1438,14 +1443,21 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   useEffect(()=>{if(!tokenPrompt)return;if(!room.state.seats[seat].twin.some(c=>c.ref===tokenPrompt.token.ref)||!watch.getTrack(tokenPrompt.event.track.id)||watch.isRemoved(tokenPrompt.event.track.id))setTokenPrompt(null);},[room.state.seats,tokenPrompt,seat,watch]);
   useEffect(()=>{if(!notice)return;const timer=setTimeout(()=>{setNotice('');setDeparture(null);setUndoId('');},5000);return()=>clearTimeout(timer);},[notice,undoId]);
   const activePrompts=prompts.filter(event=>{const live=watch.getTrack(event.track.id);return live?.state==='prompt'&&(live.revision??0)===(event.track.revision??0);});
-  const promptInfo=useCardInfo(activePrompts.flatMap(event=>(event.result?.candidates??[]).map(candidate=>{const entry=entries.current.get(candidate.cardId);return entry?catalogCardId(entry):undefined;})));
+  const extraIds=current.current.room.seats.find(s=>s.seat===seat)?.deck?.deck.extra??[];
+  const promptMaterials=(event:FieldEvent)=>stackUnder(event.track.id).flatMap(ref=>{const card=current.current.room.state.seats[seat].twin.find(c=>c.ref===ref);return card?[card]:[];});
+  const promptInfo=useCardInfo(activePrompts.flatMap(event=>[
+    ...(event.result?.candidates??[]).map(candidate=>{const entry=entries.current.get(candidate.cardId);return entry?catalogCardId(entry):undefined;}),
+    ...(promptMaterials(event).length>=2?[...extraIds,...promptMaterials(event).map(cardCode)]:[]),
+  ]));
   const promptViews=activePrompts.map(event=>{
     const observed=watch.getTrack(event.track.id)!,twins=current.current.room.state.seats[seat].twin;
     if(event.reason==='card-presence')return {id:event.track.id,zone:observed.zone,title:'Card here?',presence:true,quad:observed.card.quad,candidates:[{id:'face-down',label:'Set card'}]};
     // Cards that fit the observed zone come first; others stay available (a monster can be an Equip Card).
     const fits=(cardId:string)=>{const entry=entries.current.get(cardId);return fieldCandidateFitsZone(observed.zone,entry?promptInfo(catalogCardId(entry)):undefined);};
-    const choices=event.reason==='pile'?[]:observed.faceDown?[{cardId:'face-down'}]:[...(event.result?.candidates??[])].sort((a,b)=>Number(fits(b.cardId))-Number(fits(a.cardId))).slice(0,5);
-    return {id:event.track.id,zone:observed.zone,title:event.reason==='changed'?'Card changed?':'New card?',quad:observed.card.quad,emptyMessage:event.reason==='pile'?'Move an existing card to this pile from its popup.':undefined,
+    const prior=fieldStackXyzCandidates({materials:promptMaterials(event),extra:extraIds,facts:promptInfo}).flatMap(id=>{const entry=[...entries.current.values()].find(entry=>catalogCardId(entry)===id);return entry?[{cardId:entry.cardId}]:[];});
+    const ranked=[...prior,...(event.result?.candidates??[])].filter((candidate,index,all)=>all.findIndex(c=>c.cardId===candidate.cardId)===index);
+    const choices=event.reason==='pile'?[]:observed.faceDown?[{cardId:'face-down'}]:ranked.sort((a,b)=>Number(prior.some(c=>c.cardId===b.cardId))-Number(prior.some(c=>c.cardId===a.cardId))||Number(fits(b.cardId))-Number(fits(a.cardId))).slice(0,5);
+    return {id:event.track.id,zone:observed.zone,title:prior.length?'Xyz Monster on this stack?':event.reason==='changed'?'Card changed?':'New card?',quad:observed.card.quad,emptyMessage:event.reason==='pile'?'Move an existing card to this pile from its popup.':undefined,
       candidates:choices.map(candidate=>{
         const entry=entries.current.get(candidate.cardId),track={...observed,id:bindings.current.get(event.track.id)??event.track.id,cardId:candidate.cardId};
         const resolved=resolveExisting(event,track,entry,twins);

@@ -15,7 +15,7 @@ export type FieldFrame=ImageBitmap|ImageData;
 export interface FieldShadow { /** Mean RGB per grid cell (gx x gy x 3) of this frame. */ means?:Float32Array; share:number; changed:number; /** Per-cell flags (row-major, gx x gy) of shadow cells that turned on or off this frame: the watcher holds removals only where a shadow moves. */ moved?:Uint8Array; gx?:number; gy?:number }
 export interface FieldSceneChange { /** Grid cells that changed since the last sample. */ moving:number; /** Grid cells that changed since mark(). */ sinceMark:number; /** The detector saw this frame in a full pass. */ mark():void }
 export type FieldEdgeGrip='clear'|'near'|'grip';
-export interface FieldAnalysis { /** Noise-proof change of the scene, for the detector budget; absent in injected analyzers. */ scene?:FieldSceneChange; motionRegion?:FractionalBox; shadow?:FieldShadow; /** Whole-frame sharpness (Laplacian variance of the downsampled grey frame); the watcher compares it with its recent baseline. */ frameSharpness?:number; crop?(card:DetectedQuad):RGBAImage|undefined; motion(card:DetectedQuad):number; occluded?(card:DetectedQuad):boolean; touched?(card:DetectedQuad):number; /** Share of the thin ring just outside the card (12% of its size) covered by skin connected to the crop edge (a hand or arm touching the card's edge). */ skinNear?(card:DetectedQuad):number; /** New skin on opposite outside edges, relative to the initial mat frame; the detector may crop the fingers out. */ edgeGrip?(card:DetectedQuad):FieldEdgeGrip; motionOutside?(card:DetectedQuad):number; sharpness(card:DetectedQuad):number; halo?(card:DetectedQuad):number[]; background?(card:DetectedQuad):number[]|undefined; appearance?(card:DetectedQuad):number[] }
+export interface FieldAnalysis { /** Noise-proof change of the scene, for the detector budget; absent in injected analyzers. */ scene?:FieldSceneChange; motionRegion?:FractionalBox; shadow?:FieldShadow; /** Whole-frame sharpness (Laplacian variance of the downsampled grey frame); the watcher compares it with its recent baseline. */ frameSharpness?:number; crop?(card:DetectedQuad):RGBAImage|undefined; motion(card:DetectedQuad):number; occluded?(card:DetectedQuad):boolean; touched?(card:DetectedQuad):number; /** Share of the thin ring just outside the card (12% of its size) covered by skin connected to the crop edge (a hand or arm touching the card's edge). */ skinNear?(card:DetectedQuad):number; /** New skin on opposite outside edges, relative to the initial mat frame; the detector may crop the fingers out. */ edgeGrip?(card:DetectedQuad):FieldEdgeGrip; motionOutside?(card:DetectedQuad):number; sharpness(card:DetectedQuad):number; halo?(card:DetectedQuad):number[]; background?(card:DetectedQuad):number[]|undefined; settledAppearance?(card:DetectedQuad):number[]|undefined; appearance?(card:DetectedQuad):number[] }
 export function closeFieldFrame(frame:FieldFrame) { if('close' in frame)frame.close(); }
 export async function cloneFieldFrame(frame:FieldFrame):Promise<FieldFrame> {
   return 'close' in frame?createImageBitmap(frame):new ImageData(new Uint8ClampedArray(frame.data),frame.width,frame.height);
@@ -98,6 +98,18 @@ export function createFieldAnalyzer(options:{downsampleRGBA?:boolean}={}) {
         const patch=warpQuad(image,card.quad.map(p=>({x:p.x*image.width,y:p.y*image.height})) as Quad,8,12);
         if(!patch)return [];
         return Array.from(patch.data).filter((_,i)=>i%4!==3).map(v=>v/255);
+      },
+      settledAppearance(card) {
+        // Unknown cells are never evidence of an empty spot. This is scenery, which may include a resting card;
+        // the watcher uses it only while the zone is independently known to be empty.
+        const map=quadMap(card.quad as Quad);if(!map)return undefined;
+        for(let y=0;y<12;y++)for(let x=0;x<8;x++){
+          const p=map((x+.5)/8,(y+.5)/12);
+          const px=Math.floor(p.x*image.width),py=Math.floor(p.y*image.height);
+          if(px<0||py<0||px>=image.width||py>=image.height||!settledAt(px,py))return undefined;
+        }
+        const patch=warpQuad({width:image.width,height:image.height,data:scenery.data},card.quad.map(p=>({x:p.x*image.width,y:p.y*image.height})) as Quad,8,12);
+        return patch?Array.from(patch.data).filter((_,i)=>i%4!==3).map(v=>v/255):undefined;
       },
       background(card) {
         // A detector quad may extend beyond the camera while a card slides out.

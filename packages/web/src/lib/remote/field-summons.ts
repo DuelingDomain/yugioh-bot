@@ -6,6 +6,23 @@ export type FieldVanish = { ref: string; at: number };
 /** Summon window: materials that went under the card or left the field up to 5 s before its first outline (or after its placement). */
 export const SUMMON_WINDOW_MS = 5000;
 const MONSTER_ZONES = new Set(['monster', 'extra-monster']);
+/** A physical stack of known face-up monsters remains on the board until it separates or is summoned. */
+export const fieldKeepsMonsterStack = (mover: TwinCard | undefined, below: TwinCard | undefined) =>
+  !!mover && !!below && mover.faceUp && below.faceUp && MONSTER_ZONES.has(mover.zone) && MONSTER_ZONES.has(below.zone);
+
+/** Question ordering only. Rank is a prior, never permission to name an unread top. Missing facts abstain. */
+export function fieldStackXyzCandidates({ materials, extra, facts }: {
+  materials: readonly TwinCard[]; extra: readonly number[]; facts: (id: number | undefined) => FieldZoneFacts | undefined;
+}): number[] {
+  if(materials.length<2)return [];
+  const levels=materials.map(card=>{
+    const info=facts(card.cardId??card.passcode);
+    return card.faceUp&&MONSTER_ZONES.has(card.zone)&&info&&/\bmonster\b/i.test(info.type)&&
+      !/\b(xyz|link)\b/i.test(info.type)&&info.level&&info.level>0?info.level:undefined;
+  });
+  const level=levels[0];if(!level||levels.some(value=>value!==level))return [];
+  return [...new Set(extra)].filter(id=>{const info=facts(id);return fieldSummonKind(info)?.kind==='xyz'&&info?.level===level;});
+}
 /** Same as the server: a monster the camera moved off the field this long ago can still be a material. */
 export const SUMMON_DEPARTURE_MS = 30_000;
 /** A card the camera took off a Monster Zone this long ago (server time) is a material candidate whatever the watcher clocks say: an Extra Deck search is often slower than the 5 s window. */
