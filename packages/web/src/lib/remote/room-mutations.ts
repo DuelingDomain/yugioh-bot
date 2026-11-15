@@ -1,4 +1,6 @@
 import { applyPatch, type RemoteActionProposal, type RemoteRoom, type RoomPatch } from '@yugidraft/shared/remote';
+import { adoptManualCorrection, beginManualCorrection, cameraCorrectionBlocked } from './manual-corrections';
+import { rememberRecentRead } from './recent-reads';
 export type RoomMutation = (proposal:RemoteActionProposal,idempotencyKey?:string)=>Promise<RemoteRoom|null>;
 /** The server's last refusal text for a table action, for notices and the Debug view. */
 let lastActionError:{message:string;at:number}|undefined;
@@ -17,15 +19,23 @@ export function createRoomMutationQueue(read:()=>RemoteRoom|undefined,post:RoomM
   const current=()=>{const rendered=read();if(rendered&&(!latest||rendered.lastSeq>=latest.lastSeq))latest=rendered;return latest;};
   // A transaction can start more than one write before awaiting either. Choose
   // baseSeq in post only after the preceding response has updated the room ref.
-  const act:RoomMutation=(proposal,idempotencyKey)=>{
-    const result=writes.then(async()=>{const updated=await post(proposal,idempotencyKey);if(updated&&(!latest||updated.lastSeq>=latest.lastSeq))latest=updated;return updated;});
+  const write=(proposal:RemoteActionProposal,idempotencyKey?:string,prepared?:()=>void)=>{
+    const room=current(),rollback=prepared??(room?beginManualCorrection(room,proposal):()=>{});
+    const result=writes.then(async()=>{const now=current();if(now&&cameraCorrectionBlocked(now,proposal))return null;
+      try{const updated=await post(proposal,idempotencyKey);if(updated){adoptManualCorrection(updated,proposal);rememberRecentRead(updated,proposal);if(!latest||updated.lastSeq>=latest.lastSeq)latest=updated;}else rollback();return updated;}
+      catch(error){rollback();throw error;}
+    });
     writes=result.catch(()=>undefined);return result;
   };
+  const act:RoomMutation=(proposal,idempotencyKey)=>write(proposal,idempotencyKey);
   const transaction:RoomTransaction=work=>{
     const result=chain.then(()=>{const room=current();if(!room)throw new Error('Table is not loaded');return work(room,act);});
     chain=result.catch(()=>undefined);return result;
   };
-  return {transaction,action:(proposal:RemoteActionProposal,idempotencyKey?:string)=>transaction((_,apply)=>apply(proposal,idempotencyKey))};
+  return {transaction,action:(proposal:RemoteActionProposal,idempotencyKey?:string)=>{
+    const room=current(),rollback=room?beginManualCorrection(room,proposal):()=>{};
+    return transaction(()=>write(proposal,idempotencyKey,rollback));
+  }};
 }
 
 /** What a browser holding sequence `held` does with a patch: apply it, drop it as old, or repair because it cannot be applied in order. */
