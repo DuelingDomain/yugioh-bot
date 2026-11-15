@@ -1,0 +1,71 @@
+{
+  "source": "vision-eval/data/vision-eval/simulation/misses.json, sensitivity; APS 2016 fan card at 32.033333 s",
+  "note": "Geometry/contact receipt only. Tests supply a positive sleeve crop or front crop; this is not a pixel or full-trace replay.",
+  "frameSize": {
+    "width": 1080,
+    "height": 960
+  },
+  "calibration": {
+    "version": 1,
+    "layout": 3,
+    "corners": [
+      {
+        "x": -0.15,
+        "y": -0.4
+      },
+      {
+        "x": 1.15,
+        "y": -0.4
+      },
+      {
+        "x": 1.15,
+        "y": 0.98
+      },
+      {
+        "x": -0.15,
+        "y": 0.98
+      }
+    ],
+    "orientation": {
+      "playerSide": "bottom",
+      "mirrored": false
+    }
+  },
+  "card": {
+    "quad": [
+      {
+        "x": 0.18176026806747378,
+        "y": 0.29797000328855344
+      },
+      {
+        "x": 0.35966789628778617,
+        "y": 0.29449277276225666
+      },
+      {
+        "x": 0.3722735224278639,
+        "y": 0.5655116790822614
+      },
+      {
+        "x": 0.18583513239534644,
+        "y": 0.5618334825858803
+      }
+    ],
+    "kind": "face-down",
+    "confidence": 0.831,
+    "partial": false,
+    "covered": false
+  },
+  "evidence": {
+    "geometry": {
+      "size": 0.7739847163902377,
+      "tilt": 4.599210935927893,
+      "sides": 0.954243026019718,
+      "cellShare": 0.6004194350124612,
+      "zone": "M2"
+    },
+    "motion": 0.003969281632988833,
+    "touched": 0.6191335740072202,
+    "skinNear": 0.6769911504424779,
+    "sharpness": 1335.8160732709325
+  }
+}

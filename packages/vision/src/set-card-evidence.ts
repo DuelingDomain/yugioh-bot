@@ -3,7 +3,7 @@ import type {RGBAImage} from './pixels';
 import type {DetectedQuad} from './types';
 import {fieldCenter, onMat, quadIou, type FieldCalibration} from './field-zones';
 
-export const DEFAULT_SET_GUARDS = {positiveBack:true, prompt:true, ignore:true, startup:true};
+export const DEFAULT_SET_GUARDS = {positiveBack:true, prompt:true, ignore:true, startup:true, handRelease:true};
 export type SetGuards = typeof DEFAULT_SET_GUARDS;
 export type SetEvidence = {
   detector:number; pixel:FaceStateResult['state']; pixelConfidence:number;
@@ -49,7 +49,10 @@ export function measureSetEvidence(crop:RGBAImage|undefined,detector:number,obse
   const pixels=crop?classifyFaceState(crop):undefined;
   const matching=backDistance!==null&&backDistance<=SET_BACK_DISTANCE;
   const uniform=sd!==null&&sd<=SET_UNIFORM_SD&&sleeveBoundary&&observation.state!=='up';
-  const positive=matching||uniform||!!pixels&&pixels.state==='down'&&pixels.confidence>=.8&&sd!==null&&sd<=SET_MAX_SD;
+  // A weak outline plus a marginal texture verdict also describes small screens. One signal must be strong;
+  // an accepted sleeve or a near-uniform back with a mat boundary retains its independent path.
+  const pixelConfidence=detector>=.7?.8:.9;
+  const positive=matching||uniform||!!pixels&&pixels.state==='down'&&pixels.confidence>=pixelConfidence&&sd!==null&&sd<=SET_MAX_SD;
   return {look,evidence:{detector,pixel:observation.state,pixelConfidence:observation.confidence,sd,backDistance,positive,basis:matching?'known-back':uniform?'uniform':positive?'pixels':'none',decision:'waiting'}};
 }
 export function rememberSetBack(memory:SetCardMemory,look:number[]) {

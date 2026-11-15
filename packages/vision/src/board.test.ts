@@ -133,6 +133,97 @@ function fieldRig(tier: RecognitionResult['tier'] = 'sure',maxTracks=20,gallery?
   return {watcher,events,inputs,detectOptions,set shadowPasses(v:number){shadowPasses=v;},set scene(v:typeof scene){scene=v;},set backend(v:typeof backend){backend=v;},set tierAt(v:((card:DetectedQuad)=>RecognitionResult['tier'])|undefined){tierAt=v;},set shadow(v:{share:number;changed:number;moved?:Uint8Array;gx?:number;gy?:number}|undefined){shadow=v;},set frameSharpness(v:number|undefined){frameSharpness=v;},get crops(){return cropCalls;},get keeps(){return keeps;},set detectorCost(v:number){detectorCost=v;},set identityAt(v:((card:DetectedQuad)=>string)|undefined){identityAt=v;},set motionAt(v:((card:DetectedQuad)=>number)|undefined){motionAt=v;},set motionRegion(v:{x:number;y:number;w:number;h:number}|undefined){motionRegion=v;},set cropAware(v:boolean){cropAware=v;},set cropAt(v:((card:DetectedQuad)=>ReturnType<typeof fieldCrop>)|undefined){cropAt=v;},set appearanceAt(v:((card:DetectedQuad)=>number[])|undefined){appearanceAt=v;},set touchedAt(v:((card:DetectedQuad)=>number)|undefined){touchedAt=v;},set occludedAt(v:((card:DetectedQuad)=>boolean)|undefined){occludedAt=v;},set skinNearAt(v:((card:DetectedQuad)=>number)|undefined){skinNearAt=v;},set qualityAt(v:((card:DetectedQuad)=>Record<string,boolean>)|undefined){qualityAt=v;},get reads(){return reads;},get detects(){return detects;},get at(){return at;},set embedding(v:number[]){embedding=v;},set embeddingSpace(v:'art-box'|'whole-card'){embeddingSpace=v;},
     async tick(ms=333){at+=ms;await watcher.tick();},set identity(v:string){identity=v;},set decklist(v:string[]){decklist=v;},set known(v:field.KnownFieldCard[]){known=v;},set outlines(v:DetectedQuad[]){outlines=v;},set motion(v:number){motion=v;},set detail(v:number){detail=v;},set appearance(v:number[]){appearance=v;appearanceExplicit=true;},set halo(v:number[]|undefined){halo=v;},set hidden(v:boolean){hidden=v;},set busy(v:boolean){busy=v;}};
 }
+test('a still fan card with 61.9134% hand contact asks once instead of placing either face',async()=>{
+ const trace=JSON.parse(readFileSync(new URL('./fixtures/held-fan-contact.json',import.meta.url),'utf8'));
+ for(const kind of ['face-down','face-up'] as const)for(const occluded of [true,false])for(const handRelease of [true,false]){
+  const r=fieldRig('sure',20,undefined,{width:trace.frameSize.width/10,height:trace.frameSize.height/10},{setGuards:{handRelease}}),all:field.FieldEvent[]=[];r.watcher.subscribe(e=>all.push(e));r.watcher.setCalibration(trace.calibration);
+  const c:DetectedQuad={...trace.card,kind},geometry=zones.matRestGeometry(c,trace.calibration)!;
+  assert.ok(Math.abs(geometry.size-trace.evidence.geometry.size)<1e-6);assert.ok(Math.abs(geometry.cellShare-trace.evidence.geometry.cellShare)<1e-6);
+  r.outlines=[c];r.motion=trace.evidence.motion;r.touchedAt=()=>trace.evidence.touched;r.occludedAt=()=>occluded;
+  for(let i=0;i<120;i++)await r.tick(100);
+  if(!handRelease){assert.equal(all.filter(e=>e.type==='placed').length,1,'comparison control reproduces the held placement');r.watcher.dispose();continue;}
+  assert.equal(all.filter(e=>e.type==='placed'||e.type==='reading').length,0,`${kind}, occluded=${occluded}: hand contact must outlive print/read timeouts`);
+  const prompts=all.filter(e=>e.type==='prompt');assert.equal(prompts.length,1);
+  assert.equal(prompts[0].reason,'card-presence');
+  if(kind==='face-down')assert.equal(prompts[0].track.setEvidence?.positive,true,'a real back still cannot prove field placement');
+  r.watcher.dispose();
+ }
+});
+test('a finger kept on a still card asks after ten seconds and the presence choice remains usable',async()=>{
+ const r=fieldRig(),all:field.FieldEvent[]=[];r.watcher.subscribe(e=>all.push(e));
+ r.outlines=[{...card(.3,.3,.17,.25),kind:'face-down'}];
+ r.touchedAt=()=>.04;r.motion=.012; // Still enough to place, but no 1500 ms print escape.
+ for(let i=0;i<100;i++)await r.tick(100);
+ assert.equal(all.length,0,'no question before ten seconds of continuous still contact');
+ await r.tick(100);
+ const prompt=all.find(e=>e.type==='prompt');assert.ok(prompt);assert.equal(prompt.reason,'card-presence');
+ assert.equal(r.watcher.acceptSet(prompt.track.id),true,'an explicit choice can resolve persistent contact');
+ r.watcher.confirm(prompt.track.id,undefined,undefined,true);
+ for(let i=0;i<20;i++)await r.tick(100);
+ assert.equal(r.watcher.getSnapshot().tracks[0].state,'identified');
+ assert.equal(all.filter(e=>e.type==='prompt').length,1);assert.equal(all.some(e=>e.type==='placed'||e.type==='reading'),false);
+ r.watcher.dispose();
+});
+test('after placement contact clears for 200 ms before publishing, adding 100 ms over the old rest check',async t=>{
+ const times:number[]=[];
+ for(const handRelease of [true,false]){
+  const r=fieldRig('sure',20,undefined,undefined,{setGuards:{handRelease}});
+  r.outlines=[{...card(.3,.3,.17,.25),kind:'face-down'}];r.touchedAt=()=>.619134;r.occludedAt=()=>true;
+  for(let i=0;i<3;i++)await r.tick(100);
+  assert.equal(r.events.length,0);
+  r.touchedAt=()=>0;r.occludedAt=()=>false;await r.tick(100);const released=r.at;
+  for(let i=0;i<10&&!r.events.some(e=>e.type==='placed');i++)await r.tick(100);
+  const placed=r.events.find(e=>e.type==='placed');assert.ok(placed);
+  times.push(placed.track.lastSeen-released);assert.equal(r.events.filter(e=>e.type==='placed').length,1);r.watcher.dispose();
+ }
+ assert.deepEqual(times,[200,100]);t.diagnostic(`release to placement: on=${times[0]} ms, off=${times[1]} ms; added=${times[0]-times[1]} ms`);
+});
+test('a one-second finger hold and a brief forearm cover both place once after release, while a nearby hand adds no wait',async()=>{
+ for(const kind of ['face-down','face-up'] as const)for(const mode of ['finger','forearm','nearby'] as const){
+  const r=fieldRig(),all:field.FieldEvent[]=[];r.watcher.subscribe(e=>all.push(e));r.outlines=[{...card(.3,.3,.17,.25),kind}];
+  r.touchedAt=()=>mode==='finger'?.04:mode==='forearm'?.619134:0;r.occludedAt=()=>mode==='forearm';r.skinNearAt=()=>.6;
+  for(let i=0;i<(mode==='forearm'?4:10);i++)await r.tick(100);
+  if(mode==='nearby')assert.equal(r.events.filter(e=>e.type==='placed').length,1);
+  else{
+   assert.equal(all.length,0,`${kind}/${mode}: no placeholder or premature question`);
+   r.touchedAt=()=>0;r.occludedAt=()=>false;
+   for(let i=0;i<10&&!r.events.some(e=>e.type==='placed');i++)await r.tick(100);
+   assert.equal(r.events.filter(e=>e.type==='placed').length,1,`${kind}/${mode}: released card is retained`);
+  }
+  assert.equal(r.events.some(e=>e.type==='prompt'),false);r.watcher.dispose();
+ }
+});
+test('release settling restarts after contact, missing outlines or a pause and a held prompt can recover',async()=>{
+ for(const kind of ['face-down','face-up'] as const)for(const interruption of ['contact','miss','pause'] as const){
+  const r=fieldRig(),all:field.FieldEvent[]=[];r.watcher.subscribe(e=>all.push(e));const c={...card(.3,.3,.17,.25),kind};r.outlines=[c];
+  r.touchedAt=()=>.619134;r.occludedAt=()=>true;for(let i=0;i<115;i++)await r.tick(100);
+  assert.equal(all.filter(e=>e.type==='prompt').length,1);
+  r.touchedAt=()=>0;r.occludedAt=()=>false;await r.tick(100);await r.tick(100);
+  assert.equal(all.some(e=>e.type==='placed'||e.type==='reading'),false);
+  if(interruption==='contact')r.touchedAt=()=>.04;
+  if(interruption==='miss'){r.outlines=[];r.watcher.scanNow();}
+  if(interruption==='pause')r.hidden=true;
+  await r.tick(100);
+  r.touchedAt=()=>0;r.outlines=[c];r.hidden=false;r.watcher.scanNow();
+  await r.tick(100);await r.tick(100);
+  assert.equal(all.some(e=>e.type==='placed'||e.type==='reading'),false,`${interruption}: stale low samples must not release the gate`);
+  for(let i=0;i<10&&!r.events.some(e=>e.type==='placed');i++)await r.tick(100);
+  assert.equal(r.events.filter(e=>e.type==='placed').length,1,interruption);assert.equal(r.events.filter(e=>e.type==='prompt').length,1);r.watcher.dispose();
+ }
+});
+test('the live hand-release switch restores legacy placement and prompt-off keeps a held card pending',async()=>{
+ for(const mode of ['switch-off','prompt-off'] as const){
+  const r=fieldRig('sure',20,undefined,undefined,{setGuards:{prompt:mode!=='prompt-off'}}),all:field.FieldEvent[]=[];r.watcher.subscribe(e=>all.push(e));
+  r.outlines=[{...card(.3,.3,.17,.25),kind:'face-down'}];r.touchedAt=()=>.619134;r.occludedAt=()=>true;
+  for(let i=0;i<30;i++)await r.tick(100);
+  assert.equal(all.some(e=>e.type==='placed'||e.type==='reading'),false);
+  if(mode==='switch-off'){
+   r.watcher.setGuards({handRelease:false});for(let i=0;i<10&&!r.events.some(e=>e.type==='placed');i++)await r.tick(100);
+   assert.equal(r.events.filter(e=>e.type==='placed').length,1);
+  }else assert.equal(r.events.length,0);
+  r.watcher.dispose();
+ }
+});
 for(const object of ['phone','calculator'])test(`unknown ${object} back trace asks once without placing a Set`,async()=>{
   const trace=JSON.parse(readFileSync(new URL(`./fixtures/phantom-${object}.json`,import.meta.url),'utf8'));
   const crop={width:trace.crop.width,height:trace.crop.height,data:new Uint8ClampedArray(inflateSync(Buffer.from(trace.crop.rgbaDeflate,'base64')))};
@@ -405,11 +496,15 @@ test('a kept low-score outline over a spot that no longer shows the card does no
   }
 });
 
-test('still skin-coloured print on a still front (locked camera colour) is not a hand: the card is placed in about 1 s',async()=>{
+test('ambiguous skin-coloured print asks for presence; the comparison switch retains the old one-second print escape',async()=>{
   // Owner 2026-11-04: Man with the Mark seen clearly (front .81) stayed "cand · hid" under the first camera lock.
-  const r=fieldRig();r.occludedAt=()=>true;r.touchedAt=()=>.3;
-  for(let i=0;i<10;i++)await r.tick(100);
-  assert.equal(r.events.filter(e=>e.type==='placed').length,1);r.watcher.dispose();
+  for(const handRelease of [true,false]){
+    const r=fieldRig('sure',20,undefined,undefined,{setGuards:{handRelease}});r.occludedAt=()=>true;r.touchedAt=()=>.3;
+    for(let i=0;i<10;i++)await r.tick(100);
+    assert.equal(r.events.filter(e=>e.type==='placed').length,handRelease?0:1);
+    for(let i=0;i<110;i++)await r.tick(100);
+    assert.equal(r.events.filter(e=>e.type==='prompt').length,handRelease?1:0);r.watcher.dispose();
+  }
 });
 
 test('an unsure identity check (.68-.84) reads again and keeps the same card, never a candidate for ever',async()=>{
@@ -1018,7 +1113,7 @@ test('owner Fenrir: M3 -> GY -> back to M3 face-up with a white Set in M2 and an
  assert.ok(r.at-clearedFrom<=3500,`empty mat cleared after ${r.at-clearedFrom} ms`);
  assert.equal(r.events.slice(before).some(e=>e.type==='removed'&&['gy-old',s3Set.track.id].includes(e.track.id)),false,'piles stay');
  // Owner on :3000, monitor glare: a blue-white cast and an uneven glare ring
- // around M4. An arm rests by the new card (skin on its crop) and every read
+ // around M4. An arm briefly touches the new card, then rests beside it; every read
  // is flagged covered. The card still gets a best match (never "Reading"
  // forever), the watcher never errors, and the card leaves when it is lifted.
  const m4=card(.54,.35,.1,.15),glare=Array.from({length:288},(_,i)=>i%3===2?.95:.8),dragon=Array.from({length:288},(_,i)=>((Math.floor(i/3)*13+(i%3)*41)%233)/255);
@@ -1027,11 +1122,14 @@ test('owner Fenrir: M3 -> GY -> back to M3 face-up with a white Set in M2 and an
  r.halo=Array.from({length:192},(_,i)=>(i%24)/24);r.touchedAt=c=>inM4(c)?.05:0;r.qualityAt=()=>({covered:true});
  r.appearanceAt=c=>zones.fieldCenter(c).x>.8?imperm:inM4(c)?dragon:glare;
  const glareFrom=r.at,beforeGlare=r.events.length;r.outlines=[{...gy},m4];
+ for(let i=0;i<10;i++)await r.tick(100);
+ assert.equal(r.events.slice(beforeGlare).some(e=>e.type==='placed'&&e.track.zone==='M4'),false,'contact cannot time out into placement');
+ r.touchedAt=undefined;r.skinNearAt=c=>inM4(c)?.05:0;
  for(let i=0;i<30&&!r.events.slice(beforeGlare).some(e=>e.type==='placed'&&e.track.zone==='M4');i++)await r.tick(100);
  const named=r.events.slice(beforeGlare).find(e=>e.type==='placed'&&e.track.zone==='M4');
  assert.ok(named&&named.track.cardId==='D'&&named.track.bestMatch,'a glare card gets a best match, never Reading forever');
  assert.ok(r.at-glareFrom<=2500,`named after ${r.at-glareFrom} ms`);assert.notEqual(r.watcher.getSnapshot().status,'error');
- r.known=[{id:'gy-old',zone:'GY',cardId:'B'},{id:s3Set.track.id,zone:'GY',cardId:'C'},{id:named.track.id,zone:'M4',cardId:'D'}];r.touchedAt=undefined;
+ r.known=[{id:'gy-old',zone:'GY',cardId:'B'},{id:s3Set.track.id,zone:'GY',cardId:'C'},{id:named.track.id,zone:'M4',cardId:'D'}];r.touchedAt=undefined;r.skinNearAt=undefined;
  const goneFrom=r.at;r.outlines=[{...gy}];r.appearanceAt=c=>zones.fieldCenter(c).x>.8?imperm:glare;
  for(let i=0;i<30&&!r.events.some(e=>e.type==='removed'&&e.track.id===named.track.id);i++)await r.tick(100);
  assert.ok(r.events.some(e=>e.type==='removed'&&e.track.id===named.track.id),'removed by detector absence, without a uniform mat ring');
@@ -1374,7 +1472,7 @@ test('a face-up card turned face-down in its zone flips in place, also after a l
 });
 
 // Owner cleared the field: S2, S4, M3 and FIELD stayed ~10 s while an arm lay on the mat at the far side.
-// A hand/arm or a moving shadow holds only the removals of the cards it lies over or beside; a clear spot
+// A hand/arm or a moving shadow holds only the removals of the cards it lies over; a clear spot
 // elsewhere is removed after two empty full scans (~1 s).
 test('a removal hold for a hand, arm or moving shadow is local to the cards it covers or touches',async()=>{
  const r=fieldRig('sure',20,undefined,{width:160,height:90});
@@ -1385,16 +1483,16 @@ test('a removal hold for a hand, arm or moving shadow is local to the cards it c
  const placed=r.events.filter(e=>e.type==='placed'),ids=placed.map(e=>e.track.id);assert.equal(placed.length,2);
  for(const e of placed)r.watcher.confirm(e.track.id,'A');r.known=placed.map(e=>({id:e.track.id,zone:e.track.zone,cardId:'A',faceDown:false}));r.events.length=0;
  const leftId=placed.find(e=>near(e.track.card))!.track.id,midId=ids.find(id=>id!==leftId)!;
- // The arm lies beside the left card and its shadow moves there; the middle card is lifted.
+ // The arm covers the left card and its shadow moves there; the middle card is lifted.
  const moved=new Uint8Array(32*24);for(let y=7;y<17;y++)for(let x=4;x<10;x++)moved[y*32+x]=1;
- r.skinNearAt=c=>near(c)?.2:0;r.outlines=[];r.appearanceAt=()=>mat;const from=r.at;
+ r.skinNearAt=c=>near(c)?.2:0;r.occludedAt=near;r.outlines=[];r.appearanceAt=()=>mat;const from=r.at;
  for(let i=0;i<10&&!r.events.some(e=>e.type==='removed');i++){r.shadow={share:.3,changed:.05,moved,gx:32,gy:24};await r.tick(150);}
  const gone=r.events.filter(e=>e.type==='removed').map(e=>e.track.id);
  assert.deepEqual(gone,[midId],JSON.stringify(r.watcher.getSnapshot().debug?.reasons));assert.ok(r.at-from<=1500,`removed after ${r.at-from} ms`);
  for(let i=0;i<6;i++){r.shadow={share:.3,changed:.05,moved,gx:32,gy:24};await r.tick(150);}
  assert.equal(r.events.some(e=>e.type==='removed'&&e.track.id===leftId),false,'the card under the arm stays');
  // The arm leaves: the left card goes too.
- r.skinNearAt=undefined;r.shadow=undefined;const after=r.at;for(let i=0;i<12&&!r.events.some(e=>e.type==='removed'&&e.track.id===leftId);i++)await r.tick(150);
+ r.skinNearAt=undefined;r.occludedAt=undefined;r.shadow=undefined;const after=r.at;for(let i=0;i<12&&!r.events.some(e=>e.type==='removed'&&e.track.id===leftId);i++)await r.tick(150);
  assert.ok(r.events.some(e=>e.type==='removed'&&e.track.id===leftId));assert.ok(r.at-after<=1500,`left after ${r.at-after} ms`);r.watcher.dispose();
 });
 
