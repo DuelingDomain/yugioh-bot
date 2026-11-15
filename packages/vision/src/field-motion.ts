@@ -2,6 +2,7 @@ import { boundsOf, quadMap, warpQuad, type Quad } from './geometry';
 import { sharpness } from './quality';
 import type { DetectedQuad, FractionalBox } from './types';
 import { resizeRGBA, type RGBAImage } from './pixels';
+const SKIN_CONNECT_RGB=32;
 export type FieldFrame=ImageBitmap|ImageData;
 /** Shadow evidence: share of the frame darker than its recent background with the same chromaticity, and the share that changed since the last frame. */
 export interface FieldShadow { /** Mean RGB per grid cell (gx x gy x 3) of this frame. */ means?:Float32Array; share:number; changed:number; /** Per-cell flags (row-major, gx x gy) of shadow cells that turned on or off this frame: the watcher holds removals only where a shadow moves. */ moved?:Uint8Array; gx?:number; gy?:number }
@@ -133,7 +134,14 @@ export function createFieldAnalyzer(options:{downsampleRGBA?:boolean}={}) {
         for(let head=0;head<queue.length;head++){
           const index=queue[head],x=index%w,y=Math.floor(index/w);covered+=inside[index];near+=edge[index];
           for(const next of [x>0?index-1:-1,x+1<w?index+1:-1,y>0?index-w:-1,y+1<h?index+w:-1])
-            if(next>=0&&mask[next]===1){mask[next]=2;queue.push(next);}
+            if(next>=0&&mask[next]===1){
+              // A skin-coloured print touching a hand is not part of that hand. Keep smooth skin/shadow
+              // gradients connected, but stop at the colour edge between the sleeve/artwork and the hand.
+              const a=((b.top+y*step)*image.width+b.left+x*step)*4;
+              const nextX=next%w,nextY=Math.floor(next/w),z=((b.top+nextY*step)*image.width+b.left+nextX*step)*4;
+              if(Math.max(Math.abs(image.data[a]-image.data[z]),Math.abs(image.data[a+1]-image.data[z+1]),Math.abs(image.data[a+2]-image.data[z+2]))>SKIN_CONNECT_RGB)continue;
+              mask[next]=2;queue.push(next);
+            }
         }
         let ring=0;for(let i=0;i<w*h;i++)ring+=edge[i];
         const result=total>0?covered/total:0;occlusions.set(card,result);nearSkin.set(card,ring>0?near/ring:0);return result;

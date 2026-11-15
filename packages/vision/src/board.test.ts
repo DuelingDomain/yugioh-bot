@@ -140,7 +140,7 @@ test('a still fan card with 61.9134% hand contact asks once instead of placing e
   const c:DetectedQuad={...trace.card,kind},geometry=zones.matRestGeometry(c,trace.calibration)!;
   assert.ok(Math.abs(geometry.size-trace.evidence.geometry.size)<1e-6);assert.ok(Math.abs(geometry.cellShare-trace.evidence.geometry.cellShare)<1e-6);
   r.outlines=[c];r.motion=trace.evidence.motion;r.touchedAt=()=>trace.evidence.touched;r.occludedAt=()=>occluded;
-  for(let i=0;i<40;i++)await r.tick(100);
+  for(let i=0;i<120;i++)await r.tick(100);
   if(!handRelease){assert.equal(all.filter(e=>e.type==='placed').length,1,'comparison control reproduces the held placement');r.watcher.dispose();continue;}
   assert.equal(all.filter(e=>e.type==='placed'||e.type==='reading').length,0,`${kind}, occluded=${occluded}: hand contact must outlive print/read timeouts`);
   const prompts=all.filter(e=>e.type==='prompt');assert.equal(prompts.length,1);
@@ -149,12 +149,12 @@ test('a still fan card with 61.9134% hand contact asks once instead of placing e
   r.watcher.dispose();
  }
 });
-test('a finger kept on a still card asks after two seconds and the presence choice remains usable',async()=>{
+test('a finger kept on a still card asks after ten seconds and the presence choice remains usable',async()=>{
  const r=fieldRig(),all:field.FieldEvent[]=[];r.watcher.subscribe(e=>all.push(e));
  r.outlines=[{...card(.3,.3,.17,.25),kind:'face-down'}];
  r.touchedAt=()=>.04;r.motion=.012; // Still enough to place, but no 1500 ms print escape.
- for(let i=0;i<20;i++)await r.tick(100);
- assert.equal(all.length,0,'no question before the two-second contact deadline');
+ for(let i=0;i<100;i++)await r.tick(100);
+ assert.equal(all.length,0,'no question before ten seconds of continuous still contact');
  await r.tick(100);
  const prompt=all.find(e=>e.type==='prompt');assert.ok(prompt);assert.equal(prompt.reason,'card-presence');
  assert.equal(r.watcher.acceptSet(prompt.track.id),true,'an explicit choice can resolve persistent contact');
@@ -196,7 +196,7 @@ test('a one-second finger hold and a brief forearm cover both place once after r
 test('release settling restarts after contact, missing outlines or a pause and a held prompt can recover',async()=>{
  for(const kind of ['face-down','face-up'] as const)for(const interruption of ['contact','miss','pause'] as const){
   const r=fieldRig(),all:field.FieldEvent[]=[];r.watcher.subscribe(e=>all.push(e));const c={...card(.3,.3,.17,.25),kind};r.outlines=[c];
-  r.touchedAt=()=>.619134;r.occludedAt=()=>true;for(let i=0;i<25;i++)await r.tick(100);
+  r.touchedAt=()=>.619134;r.occludedAt=()=>true;for(let i=0;i<115;i++)await r.tick(100);
   assert.equal(all.filter(e=>e.type==='prompt').length,1);
   r.touchedAt=()=>0;r.occludedAt=()=>false;await r.tick(100);await r.tick(100);
   assert.equal(all.some(e=>e.type==='placed'||e.type==='reading'),false);
@@ -502,7 +502,7 @@ test('ambiguous skin-coloured print asks for presence; the comparison switch ret
     const r=fieldRig('sure',20,undefined,undefined,{setGuards:{handRelease}});r.occludedAt=()=>true;r.touchedAt=()=>.3;
     for(let i=0;i<10;i++)await r.tick(100);
     assert.equal(r.events.filter(e=>e.type==='placed').length,handRelease?0:1);
-    for(let i=0;i<20;i++)await r.tick(100);
+    for(let i=0;i<110;i++)await r.tick(100);
     assert.equal(r.events.filter(e=>e.type==='prompt').length,handRelease?1:0);r.watcher.dispose();
   }
 });
