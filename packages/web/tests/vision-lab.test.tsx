@@ -733,7 +733,7 @@ async function typedWatcherFixture(entry:{cardId:string;passcode:number;name:str
  const post=vi.fn(async(proposal:any)=>{if(await beforePost?.(proposal)===false)return null;const key=`typed-${room.lastSeq+1}`;room={...room,lastSeq:room.lastSeq+1,state:ygoModule.reduce(room.state,{...proposal,idempotencyKey:key}),...(fixture.recordEvents?{events:[...(room.events??[]),{id:key,seq:room.lastSeq+1,actorSeat:proposal.actorSeat,userId:null,at:0,action:{...proposal,idempotencyKey:key}}]}:{})};if(fixture.refreshAfterPosts)flushSync(()=>view.rerender(<AutoFieldWatcher room={room} transaction={queue.transaction} diagnosticsAllowed={diagnosticsAllowed}/>));return room;});
  const queue=createRoomMutationQueue(()=>room,post),host=document.createElement('div');host.dataset.testid='feed-box-0';host.innerHTML='<span data-field-watcher-status-slot></span><div data-feed-toolbar><span data-field-watcher-controls></span></div>';document.body.append(host);
  let view=render(<AutoFieldWatcher room={room} transaction={queue.transaction} diagnosticsAllowed={diagnosticsAllowed}/>);await waitFor(()=>expect(fixture.ready).toBe(true));
- return {addTrack(values:any){const added=Object.assign(Object.create(Object.getPrototypeOf(track),Object.getOwnPropertyDescriptors(track)),values),tracks=fixture.watch.snapshot.tracks;tracks.push(added);fixture.watch.getTrack=(id:string)=>tracks.find((t:any)=>t.id===id);confirm.mockImplementation((id:string,cardId?:string,ref?:string)=>Object.assign(tracks.find((t:any)=>t.id===id)??track,{id:ref??id,cardId,state:'identified'}));view.rerender(<AutoFieldWatcher room={room} transaction={queue.transaction} diagnosticsAllowed={diagnosticsAllowed}/>);return added;},refreshAfterPosts(){fixture.refreshAfterPosts=true;},refresh(){view.rerender(<AutoFieldWatcher room={room} transaction={queue.transaction} diagnosticsAllowed={diagnosticsAllowed}/>);},setTwins(twins:any[]){room={...room,lastSeq:room.lastSeq+1,state:{...room.state,seats:room.state.seats.map((seat:any,i:number)=>i===0?{...seat,twin:twins}:seat)}};view.rerender(<AutoFieldWatcher room={room} transaction={queue.transaction} diagnosticsAllowed={diagnosticsAllowed}/>);},async restart(){view.unmount();fixture.ready=false;view=render(<AutoFieldWatcher room={room} transaction={queue.transaction} diagnosticsAllowed={diagnosticsAllowed}/>);await waitFor(()=>expect(fixture.ready).toBe(true));},switchCamera(){source={local:true};view.rerender(<AutoFieldWatcher room={room} transaction={queue.transaction} diagnosticsAllowed={diagnosticsAllowed}/>);},known:()=>fixture.config.getKnownCards(),track,post,confirm,room:()=>room,async emit(event:any={}){await act(async()=>fixture.onEvent({type,track:{...track},source:'auto',...(bindRef?{bindRef}:{}),result:{...result,candidates:[{cardId:entry.cardId,score:.99}]},...event}));},dispose(){cleanup();host.remove();state.fieldWatch=null;}};
+ return {addTrack(values:any){const added=Object.assign(Object.create(Object.getPrototypeOf(track),Object.getOwnPropertyDescriptors(track)),values),tracks=fixture.watch.snapshot.tracks;tracks.push(added);fixture.watch.getTrack=(id:string)=>tracks.find((t:any)=>t.id===id);confirm.mockImplementation((id:string,cardId?:string,ref?:string)=>Object.assign(tracks.find((t:any)=>t.id===id)??track,{id:ref??id,cardId,state:'identified'}));view.rerender(<AutoFieldWatcher room={room} transaction={queue.transaction} diagnosticsAllowed={diagnosticsAllowed}/>);return added;},refreshAfterPosts(){fixture.refreshAfterPosts=true;},refresh(){view.rerender(<AutoFieldWatcher room={room} transaction={queue.transaction} diagnosticsAllowed={diagnosticsAllowed}/>);},setTwins(twins:any[]){room={...room,lastSeq:room.lastSeq+1,state:{...room.state,seats:room.state.seats.map((seat:any,i:number)=>i===0?{...seat,twin:twins}:seat)}};view.rerender(<AutoFieldWatcher room={room} transaction={queue.transaction} diagnosticsAllowed={diagnosticsAllowed}/>);},async restart(){view.unmount();fixture.ready=false;view=render(<AutoFieldWatcher room={room} transaction={queue.transaction} diagnosticsAllowed={diagnosticsAllowed}/>);await waitFor(()=>expect(fixture.ready).toBe(true));},switchCamera(){source={local:true};view.rerender(<AutoFieldWatcher room={room} transaction={queue.transaction} diagnosticsAllowed={diagnosticsAllowed}/>);},action:queue.action,known:()=>fixture.config.getKnownCards(),track,post,confirm,room:()=>room,async emit(event:any={}){await act(async()=>fixture.onEvent({type,track:{...track},source:'auto',...(bindRef?{bindRef}:{}),result:{...result,candidates:[{cardId:entry.cardId,score:.99}]},...event}));},dispose(){cleanup();host.remove();state.fieldWatch=null;}};
 }
 
 const physicalHintsKey='dd-field-physical:v1:g:typed-zone:0';
@@ -1182,4 +1182,23 @@ it('Not a card remembers the physical region while Auto-detect is off',async()=>
  const {result,unmount}=renderHook(()=>useFieldWatcher({owner:false,active:false,seatKey:'off-seat',duelKey:'off-duel',deviceKey:'off-camera',create:async()=>null,onEvent:()=>{}}));
  act(()=>result.current.notACard('old-phantom','M3'));
  expect(loadSetMemory('dd-field-set-memory:v1:off-seat:off-duel:off-camera').ignored).toMatchObject([{source:'player',clear:false}]);unmount();
+});
+
+
+it('shows a local Reading cue before the placement HTTP reply and suppresses it after manual removal',async()=>{
+ const {useFieldGhosts}=await import('../src/lib/remote/field-ghosts');
+ const ready=deferred<void>();let wait=true;
+ const fixture=await typedWatcherFixture(cards[0],'M4',[],'placed',undefined,async proposal=>{if(wait&&proposal.type==='twin.place')await ready.promise;});
+ const ghosts=renderHook(()=>useFieldGhosts('0'));
+ try{
+  Object.assign(fixture.track,{state:'candidate',cardId:undefined,visible:true,restSince:0});
+  await fixture.emit({type:'reading'});
+  expect(ghosts.result.current).toEqual([expect.objectContaining({id:'physical-typed',zone:'monster',slot:4,faceDown:false})]);
+  expect(fixture.room().state.seats[0].twin).toHaveLength(0);
+  await act(async()=>{wait=false;ready.resolve();await ready.promise;});
+  await waitFor(()=>expect(fixture.room().state.seats[0].twin).toHaveLength(1));
+  await act(async()=>{await fixture.action({type:'twin.remove',actorSeat:0,seat:0,cardRef:'physical-typed'});});fixture.refresh();
+  await fixture.emit({type:'reading'});
+  expect(ghosts.result.current).toEqual([]);expect(fixture.room().state.seats[0].twin).toHaveLength(0);
+ }finally{ready.resolve();ghosts.unmount();fixture.dispose();}
 });

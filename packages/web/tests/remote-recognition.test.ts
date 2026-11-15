@@ -1,3 +1,4 @@
+import { tapRoom } from "./tap-room-fixture";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
@@ -548,9 +549,9 @@ it('review S5: cached receiver checks present public face-up twin and uses its c
 it('review B3: manual and watcher transactions serialize copy checks against returned state before render',async()=>{
  const {createRoomMutationQueue}=await import('../src/lib/remote/room-mutations');
  for(const [first,second] of [['manual','watcher'],['watcher','manual']]){
- const stale={lastSeq:0,state:{seats:[{twin:[]}]}} as any;
+ const stale=tapRoom();
  let server=stale;const posts:string[]=[];
- const queue=createRoomMutationQueue(()=>stale,async proposal=>{await Promise.resolve();posts.push(proposal.type);server={lastSeq:server.lastSeq+1,state:{seats:[{twin:[...(server.state.seats[0].twin),{ref:(proposal as any).card.ref,cardId:1}]}]}};return server;});
+ const queue=createRoomMutationQueue(()=>stale,async proposal=>{await Promise.resolve();posts.push(proposal.type);server={...server,lastSeq:server.lastSeq+1,state:{...server.state,seats:server.state.seats.map((s,i)=>i===0?{...s,twin:[...s.twin,{ref:(proposal as any).card.ref,cardId:1,zone:'monster',faceUp:true,position:'attack'}]}:s)}};return server;});
  const place=(ref:string)=>queue.transaction(async(room,act)=>{if(room.state.seats[0].twin.some(c=>c.cardId===1))return room;return act({type:'twin.place',actorSeat:0,seat:0,zone:'monster',card:{ref,cardId:1,faceUp:true,position:'attack'}});});
  await Promise.all([place(first),place(second)]);
  expect(posts).toEqual(['twin.place']);expect(server.state.seats[0].twin).toHaveLength(1);

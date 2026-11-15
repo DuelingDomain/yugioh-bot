@@ -1290,3 +1290,18 @@
 .voiceTools label, .voiceTools form { display:flex; flex-wrap:wrap; align-items:center; gap:6px; }
 .voiceTools select, .voiceTools input { color:var(--ink); background:var(--bg, #171820); border:1px solid var(--line, #565866); border-radius:5px; max-width:100%; padding:5px; }
 .voiceLogBadge { color:#f3c970; border:1px solid currentColor; padding:3px 5px; border-radius:4px; font-weight:700; }
+
+/* Tap backup uses the table's existing buttons, panels and color tokens. */
+.zonePicker { width:min(392px,94vw); max-height:85dvh; overflow:auto; padding:16px; background:var(--p1); color:var(--ink); border:1px solid var(--line); border-radius:12px; }
+.zonePicker header { display:flex; justify-content:space-between; align-items:center; gap:12px; }
+.zonePicker [role="tablist"], .zonePicker [role="group"] { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
+.zonePicker [role="group"] > button { width:100%; min-height:44px; text-align:left; white-space:normal; }
+.zonePicker label { display:block; margin-top:12px; }
+.zonePicker input:not([type="checkbox"]) { display:block; width:100%; min-height:44px; font-size:16px; }
+@media(max-width:600px) { .zonePicker { position:fixed; left:3vw!important; top:auto!important; bottom:max(12px,env(safe-area-inset-bottom)); max-height:80dvh; } }
+.departureHistory { margin:8px; padding:8px; border:1px solid var(--line); border-radius:8px; background:var(--p1); }
+.departureHistory summary { min-height:44px; cursor:pointer; align-content:center; }
+.departureHistory [role="group"] { display:flex; flex-wrap:wrap; gap:6px; padding:8px 0; border-top:1px solid var(--line); }
+.departureHistory [role="group"] b { flex-basis:100%; }
+.departureHistory button { min-height:44px; }
+@media(pointer:coarse),(max-width:600px) { .dact button,.dact select { min-height:44px; } }
