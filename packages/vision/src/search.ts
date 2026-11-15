@@ -79,14 +79,13 @@ export function topK(query: Float32Array, index: LoadedIndex, k = 5, priors?: Re
   return best.map(({cardId,score})=>({cardId,score}));
 }
 
-/** Deck suggestions win ambiguous reads; a clear catalog answer always wins.
- * Confidence is still checked against the unboosted full catalog by the pipeline.
- */
+/** A deck prior may strengthen confidence, but cannot replace the visual winner. */
 export function preferDeck(deck: Candidate[], catalog: Candidate[], thresholds: ConfidenceThresholds, cleanCatalog:Candidate[]=catalog): Candidate[] {
   if(decide(cleanCatalog,thresholds).confident) {
     const winner=catalog.find(c=>c.cardId===cleanCatalog[0]?.cardId);
     return winner?[winner,...catalog.filter(c=>c.cardId!==winner.cardId)]:catalog;
   }
+  if(deck[0]?.cardId!==cleanCatalog[0]?.cardId)return catalog;
   if (!decide(deck, thresholds).confident || decide(catalog, thresholds).confident) return catalog;
   const first = deck[0];
   if (first.score < (catalog[0]?.score ?? 0) - thresholds.margin) return catalog;
@@ -109,11 +108,12 @@ export function withDeckSuggestions(deck:Candidate[], catalog:Candidate[], k=5):
  * calibrations use one rule and retain their complete, measured limits. */
 /**
  * Closed-set accept bar (deck list, or cards confirmed in this duel): a read is taken from the small set when its best card scores at least
- * `score`, leads the set's runner-up by `margin`, and the full catalog does not hold a different card that scores `openBetter` or more above it.
+ * `score`, leads the set's runner-up by `margin`, and is also the full catalog's visual winner.
  * Anything else falls through to the open catalog path and its stricter rules.
  */
-export const CLOSED_ACCEPT={score:.80,margin:.05,openBetter:.03};
-export const closedConfidenceThresholds=(t:ConfidenceThresholds):ConfidenceThresholds=>({...t,score:Math.min(t.score,CLOSED_ACCEPT.score),margin:Math.min(t.margin,CLOSED_ACCEPT.margin),second:undefined});
+export const CLOSED_ACCEPT={score:.80,margin:.05};
+export const DECK_ACCEPT={score:.78,margin:.06};
+export const closedConfidenceThresholds=(t:ConfidenceThresholds,source?:'deck'|'dynamic'|'likely'):ConfidenceThresholds=>{const limits=source==='deck'?DECK_ACCEPT:CLOSED_ACCEPT;return {...t,score:Math.min(t.score,limits.score),margin:Math.min(t.margin,limits.margin),second:undefined};};
 export function deckConfidenceThresholds(t:ConfidenceThresholds):ConfidenceThresholds {
   return t.second ? {...t,score:Math.max(.78,t.score-.02,t.floor),margin:Math.max(.08,t.margin),second:undefined} : t;
 }

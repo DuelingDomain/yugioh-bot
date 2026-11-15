@@ -17,11 +17,16 @@ function fixture(full=true,counter?:{calls:number},scores=[.9,.95]) {
   return new RecognitionPipeline(profile,index(['A','B']),detector,embedder,Tensor as unknown as TensorCtor,full?index(['C','D']):undefined);
 }
 test('clear full-catalog answer survives decklist preference across indexes',async()=>{
-  const result=await fixture(true,undefined,[.78,.95]).recognize([frame],{card:selected,k:5,priors:{decklist:['A'],voiceMentioned:['A']}});
-  assert.equal(result.candidates[0].cardId,'C');
-  assert.ok(result.candidates.some(c=>c.cardId==='A'));
-  assert.equal(result.tier,'sure');
-  assert.equal(result.quality.framesUsed,1);
+  const results=[
+    await fixture(true,undefined,[.78,.95]).recognize([frame],{card:selected,k:5,priors:{decklist:['A'],voiceMentioned:['A']}}),
+    await fixture(true,undefined,[.9,.7,.95,.95]).recognize([frame],{card:selected,includeRaw:true,preferUpright:true,priors:{decklist:['A']}}),
+  ];
+  for(const result of results) {
+    assert.equal(result.candidates[0].cardId,'C');
+    assert.ok(result.candidates.some(c=>c.cardId==='A'));
+    assert.equal(result.tier,'sure');
+    assert.equal(result.quality.framesUsed,1);
+  }
 });
 test('selected quad skips detector and returns its warp even without full-art references',async()=>{
   const result=await fixture(false).recognize([frame],{card:selected,includeCrop:true});
@@ -211,17 +216,18 @@ test('deck restriction searches only its artwork rows before catalog fallback',a
     {seat:1,twin:[{ref:'b',cardId:4,zone:'graveyard',faceUp:true}]},
   ]},events:[{actorSeat:0,action:{type:'card.identified',seat:0,cardId:3}}]};
   assert.deepEqual(recognitionPriorsFor(room,0).decklist,[1,2,3]);
-  assert.deepEqual(recognitionPriorsFor(room,0).context,[1,3]);
-  assert.ok(!recognitionPriorsFor(room,0).seen.includes(4));
-  assert.deepEqual(recognitionPriorsFor(room,1).context,[4]);
+  assert.deepEqual(recognitionPriorsFor(room,0).context,[1,3,4]);
+  assert.ok(recognitionPriorsFor(room,0).seen.includes(4));
+  assert.ok(!recognitionPriorsFor(room,0).seen.includes(2));
+  assert.deepEqual(recognitionPriorsFor(room,1).context,[4,1]);
   room.events.push({action:{type:'match.first'},seq:2});
-  assert.deepEqual(recognitionPriorsFor(room,0).context,[1]);
+  assert.deepEqual(recognitionPriorsFor(room,0).context,[1,4]);
   // A draw or siding timeout can start game 2 without a match.first action.
   room.state.match.games=[{endedAt:200}];
   room.events=[{at:100,actorSeat:0,action:{type:'card.identified',seat:0,cardId:3}},
     {at:210,actorSeat:0,action:{type:'side.ready',seat:0}},
     {at:220,actorSeat:0,action:{type:'card.identified',seat:0,cardId:6}}];
-  assert.deepEqual(recognitionPriorsFor(room,0).context,[1,6]);
+  assert.deepEqual(recognitionPriorsFor(room,0).context,[1,6,4]);
   assert.ok(!recognitionPriorsFor(room,0).seen.includes(3));
   room.state.seats[0].twin.push({ref:'scale',cardId:8,zone:'pendulum',faceUp:true},{ref:'private-set',cardId:9,zone:'monster',faceUp:false});
   room.events.push({at:230,actorSeat:0,action:{type:'card.identified',seat:0,cardRef:'private-set',cardId:9,zone:'monster'}});
@@ -288,7 +294,7 @@ test('remote message retains tier and guards and maps zero-passcode Tokens to ca
   assert.equal(message.tier,result.tier);assert.equal(message.candidates[0].cardId,999);assert.equal(message.candidates.length,1);
   result.quality.faceDown=true;assert.deepEqual(toRemoteRecognitionResult(result,new Map(),'request').candidates,[]);
 });
-function temporalFixture(counter:{detect:number},switchIdentity=false) {
+function temporalFixture(counter:{detect:number},switchIdentity=false,vectors?:number[][]) {
   const profile={...yugioh,id:'fixture',detector:{...yugioh.detector,longSide:32},card:{...yugioh.card,warpWidth:10,warpHeight:15},embedding:{...yugioh.embedding,dim:2,inputSize:2}};
   class Tensor {constructor(public type:unknown,public data:unknown,public dims:number[]) {}}
   const detector={backend:'wasm',run:async()=>{
@@ -298,7 +304,7 @@ function temporalFixture(counter:{detect:number},switchIdentity=false) {
     return {heat:{dims:[1,2,8,8],data:heat},box:{dims:[1,6,8,8],data:box}};
   }} as unknown as ModelSession;
   let calls=0;
-  const embedder={backend:'wasm',run:async()=>({[profile.embedding.outputName]:{dims:[1,2],data:new Float32Array(switchIdentity&&calls++>0?[.3,.95]:[.95,.3])}})} as unknown as ModelSession;
+  const embedder={backend:'wasm',run:async()=>({[profile.embedding.outputName]:{dims:[1,2],data:new Float32Array(vectors?vectors[Math.min(calls++,vectors.length-1)]:switchIdentity&&calls++>0?[.3,.95]:[.95,.3])}})} as unknown as ModelSession;
   return new RecognitionPipeline(profile,searchIndex(['1','2'],[1,0,0,1]),detector,embedder,Tensor as unknown as TensorCtor);
 }
 test('temporal frames redetect moved outlines instead of reusing a selected quad',async()=>{
@@ -430,9 +436,9 @@ test('runtime refuses thresholds calibrated for a different index or model',()=>
   assert.throws(()=>calibratedThresholds({...config,modelSha256:'wrong'},yugioh,index),/Incompatible/);
 });
 
-test('ambiguous catalog suggestions prefer deck; a clear off-deck card still wins',async()=>{
+test('deck suggestions preserve the visual winner and remain available for manual choice',async()=>{
   const t=yugioh.embedding.thresholds,deck=[{cardId:'2',score:.81}],catalog=[{cardId:'1',score:.82},deck[0]];
-  assert.equal(preferDeck(deck,catalog,t)[0].cardId,'2');
+  assert.equal(preferDeck(deck,catalog,t)[0].cardId,'1');
   assert.equal(preferDeck(deck,[{cardId:'1',score:.96},deck[0]],t)[0].cardId,'1');
   const search=await import('./search');
   const weakDeck=[{cardId:'nibiru',score:.66},{cardId:'deck-2',score:.56},{cardId:'too-low',score:.54}];
@@ -464,4 +470,66 @@ import {catalogCards,physicalCatalogCards} from '../../../scripts/vision/catalog
 test('builder selects physical catalog entries while source parsing retains all records',()=>{
   const rows=['Trap Card','Token','Skill Card'].map((type,i)=>({id:i+1,type,name:type==='Trap Card'?'Skill Drain':type,card_images:[{id:i+1,image_url:'https://example.test/card.jpg'}]}));
   const all=catalogCards(rows);assert.equal(all.length,3);assert.deepEqual(physicalCatalogCards(all).map(c=>c.name),['Skill Drain','Token']);
+});
+
+test('deck prior lowers the in-list floor without ever renaming a better off-list match',async()=>{
+  const profile={...yugioh,id:'fixture',card:{...yugioh.card,warpWidth:10,warpHeight:15},embedding:{...yugioh.embedding,dim:2,inputSize:2}};
+  class DeckTensor {constructor(public type:unknown,public data:unknown,public dims:unknown){}}
+  const model={backend:'wasm',run:async()=>({[profile.embedding.outputName]:{dims:[1,2],data:new Float32Array([1,0])}})} as unknown as ModelSession;
+  const run=(scores:number[],decklist:string[])=>new RecognitionPipeline(profile,searchIndex(['off-list','deck'],scores.flatMap(s=>[s,Math.sqrt(1-s*s)])),model,model,DeckTensor as unknown as TensorCtor).recognize([frame],{card:selected,priors:{decklist},preclean:false,includeRaw:true});
+  const off=await run([.82,.81],['deck']);
+  assert.equal(off.candidates[0].cardId,'off-list');assert.equal(off.quality.searchSource,'catalog');assert.equal(off.quality.notInDecklist,true);
+  const noList=await run([.72,.79],[]);
+  assert.equal(noList.tier,'not sure');
+  const on=await run([.72,.79],['deck']);
+  assert.equal(on.candidates[0].cardId,'deck');assert.equal(on.quality.searchSource,'deck');assert.equal(on.tier,'sure');
+  const absent=await run([.9,.65],['missing']);
+  assert.equal(absent.candidates[0].cardId,'off-list');assert.equal(absent.tier,'sure');assert.equal(absent.quality.searchSource,'catalog');
+});
+
+test('a weak deck view cannot hide a stronger off-list card in the reverse view',async()=>{
+  const result=await fixture(false,undefined,[.79,.3]).recognize([frame],{
+    card:selected,preclean:false,includeRaw:true,preferUpright:true,priors:{decklist:['A']},
+  });
+  assert.equal(result.candidates[0].cardId,'B');
+  assert.equal(result.quality.searchSource,'catalog');
+  assert.equal(result.tier,'sure');
+});
+
+test('a clear off-list upright card stays fast even when a reverse deck view could score higher',async()=>{
+  const calls={calls:0};
+  const result=await fixture(false,calls,[.5,1]).recognize([frame],{
+    card:selected,preclean:false,includeRaw:true,preferUpright:true,priors:{decklist:['A']},
+    gallery:[{cardId:'A',embedding:{values:[-1,0],space:'art-box'}}],
+  });
+  assert.equal(result.candidates[0].cardId,'B');assert.equal(result.tier,'sure');
+  assert.equal(calls.calls,1);
+});
+
+test('a deck confidence boost cannot skip the clean view that identifies an off-list card',async()=>{
+  const profile={...yugioh,id:'fixture',card:{...yugioh.card,warpWidth:96,warpHeight:140},embedding:{...yugioh.embedding,dim:3,inputSize:2}};
+  const image={width:20,height:30,data:new Uint8ClampedArray(2400)};
+  for(let i=0;i<image.data.length;i+=4)image.data.set([40,80,120,255],i);
+  const index:LoadedIndex={meta:{dim:3,count:2,entries:['deck','off-list'].map(cardId=>({cardId,name:cardId,passcode:1}))} as LoadedIndex['meta'],vectors:new Float32Array([.79,Math.sqrt(1-.79**2),0,.72,0,Math.sqrt(1-.72**2)])};
+  class CleanTensor {constructor(public type:unknown,public data:Float32Array,public dims:number[]){}}
+  const detector={backend:'wasm',run:()=>{throw Error('provided quad');}} as unknown as ModelSession;
+  const model={backend:'wasm',run:async(feeds:Record<string,CleanTensor>)=>({[profile.embedding.outputName]:{
+    dims:[1,3],data:new Float32Array(feeds[profile.embedding.inputName].data[0]<-1.6?[.72,0,Math.sqrt(1-.72**2)]:[1,0,0]),
+  }})} as unknown as ModelSession;
+  const run=(decklist:string[])=>new RecognitionPipeline(profile,index,detector,model,CleanTensor as unknown as TensorCtor).recognize([image],{card:selected,includeRaw:true,preferUpright:true,priors:{decklist}});
+  const plain=await run([]),listed=await run(['deck']);
+  assert.equal(plain.candidates[0].cardId,'off-list');assert.equal(plain.preclean?.used,'clean');
+  assert.equal(listed.candidates[0].cardId,'off-list');assert.equal(listed.preclean?.used,'clean');
+});
+
+test('temporal mean follows majority image evidence without manufacturing certainty on disagreement',async()=>{
+  const views=[[0,1],[1,0],[1,0]],make=()=>temporalFixture({detect:0},false,views);
+  const first=await make().recognize([frame],{card:selected,preclean:false});
+  const mean=await make().recognize([frame,frame,frame],{card:selected,maxFrames:3,earlyExit:false,preclean:false});
+  assert.equal(first.candidates[0].cardId,'2');assert.equal(mean.candidates[0].cardId,'1');
+  assert.equal(mean.quality.framesUsed,3);assert.equal(mean.quality.framesAgree,false);assert.equal(mean.tier,'not sure');
+});
+test('three agreeing complete card views retain a sure identity',async()=>{
+  const mean=await temporalFixture({detect:0},false,[[1,0],[1,0],[1,0]]).recognize([frame,frame,frame],{card:selected,maxFrames:3,earlyExit:false,preclean:false});
+  assert.equal(mean.candidates[0].cardId,'1');assert.equal(mean.quality.framesAgree,true);assert.equal(mean.tier,'sure');
 });

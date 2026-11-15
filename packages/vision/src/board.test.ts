@@ -116,7 +116,7 @@ const fieldCrop=(c:DetectedQuad)=>{
  return {width,height,data};
 };
 const sureResult = (tier: RecognitionResult['tier'] = 'sure') => ({candidates:[{cardId:'A',score:.95},{cardId:'B',score:.5}],tier,quality:{detected:true,cornersFound:true,framesUsed:1,selectedFrameIndices:[0],sharpness:10,fallback:false},timingsMs:{total:20},backend:'wasm'}) as RecognitionResult;
-function fieldRig(tier: RecognitionResult['tier'] = 'sure',maxTracks=20,gallery?:ReturnType<typeof createFieldIdentityGallery>,size={width:frame.width,height:frame.height},setOptions:Pick<field.FieldWatcherOptions,'setGuards'|'setCardMemory'|'onSetDecision'>={}) {
+function fieldRig(tier: RecognitionResult['tier'] = 'sure',maxTracks=20,gallery?:ReturnType<typeof createFieldIdentityGallery>,size={width:frame.width,height:frame.height},setOptions:Pick<field.FieldWatcherOptions,'setGuards'|'setCardMemory'|'onSetDecision'|'nameVoting'>={}) {
   let appearanceExplicit=false;
   let detectorCost=0;
   let scene:import('./field-motion').FieldAnalysis['scene'];
@@ -355,7 +355,8 @@ test('automatic dismissals keep weak outlines even without a provisional placeme
 
 test('automatic prompt and read dismissals re-arm on two full front scans at .6',async()=>{
  for(const path of ['prompt','read'] as const){
-  const r=fieldRig(path==='prompt'?'low match':'sure');
+  // This exercises dismissal/re-arm state transitions with immediate reader replies.
+  const r=fieldRig(path==='prompt'?'low match':'sure',20,undefined,undefined,{nameVoting:false});
   try{
    if(path==='read')r.qualityAt=()=>({faceDown:true});
    for(let i=0;i<8&&(path==='prompt'||r.watcher.getSnapshot().tracks[0]?.state!=='dismissed');i++)await r.tick();
@@ -396,7 +397,8 @@ test('Scan field re-arms player dismissals and persists only named gallery entri
  let saved:unknown=[];const gallery=createFieldIdentityGallery([],()=>{saved=gallery.entries();});
  const named={space:'art-box' as const,values:[0,1]},dismissed={space:'art-box' as const,values:[1,0]};
  gallery.remember(named,'B');const otherSeat=createFieldIdentityGallery();otherSeat.remember(dismissed);
- const r=fieldRig('low match',20,gallery);r.embedding=dismissed.values;
+ // Voting's timed default path has separate watcher coverage. Keep this gallery/Scan test synchronous.
+ const r=fieldRig('low match',20,gallery,undefined,{nameVoting:false});r.embedding=dismissed.values;
  try{
   for(let i=0;i<8;i++)await r.tick();const id=r.watcher.getSnapshot().tracks[0].id;
   r.watcher.dismiss(id);assert.deepEqual(gallery.resolve(dismissed),{kind:'match',cardId:undefined});
