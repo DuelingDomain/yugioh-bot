@@ -1016,7 +1016,7 @@
 .btn.dremove{margin-left:auto;color:var(--bad,#ff8a8f);border-color:color-mix(in srgb,var(--bad,#e5484d) 45%,transparent)}
 .btn.dremove:hover{border-color:var(--bad,#e5484d)}
 /* Short laptop screens: the art sits beside the name, so the controls fit with no scroll. */
-@media (max-height:850px) and (min-width:701px){
+@media (max-height:850px) and (min-width:701px),(max-width:700px){
   .dhead{display:grid;grid-template-columns:104px minmax(0,1fr);gap:12px;align-items:start}
   .dhead .dart{width:100%;margin:0}
   .dhead .dname{font-size:18px}
@@ -1172,7 +1172,7 @@
 
 /* A card the watcher sees but has not read. Looks the same as the saved "Reading" card, so nothing jumps when it arrives. */
 .cd.unk.reading{border:1px solid #507b70;border-style:solid;background:linear-gradient(110deg,#233c3b 20%,#507b70 45%,#233c3b 70%) 0 0/240% 100%;color:#e5f5ef;animation:readsweep 1.2s linear infinite}
-.cd.unk.reading span{font:600 10px/1.1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif}
+.cd.unk.reading span{font:600 min(10px,calc(var(--cw,44px) * .23))/1.1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif}
 @keyframes readsweep{to{background-position:-240% 0}}
 .cd.back.shimmer{position:relative;overflow:hidden}
 .cd.back.shimmer::after{content:"";position:absolute;inset:0;background:linear-gradient(110deg,transparent 30%,rgb(255 255 255/.22) 48%,transparent 66%);background-size:240% 100%;animation:readsweep 1.6s linear infinite;pointer-events:none}
@@ -1291,17 +1291,52 @@
 .voiceTools select, .voiceTools input { color:var(--ink); background:var(--bg, #171820); border:1px solid var(--line, #565866); border-radius:5px; max-width:100%; padding:5px; }
 .voiceLogBadge { color:#f3c970; border:1px solid currentColor; padding:3px 5px; border-radius:4px; font-weight:700; }
 
-/* Tap backup uses the table's existing buttons, panels and color tokens. */
-.zonePicker { width:min(392px,94vw); max-height:85dvh; overflow:auto; padding:16px; background:var(--p1); color:var(--ink); border:1px solid var(--line); border-radius:12px; }
-.zonePicker header { display:flex; justify-content:space-between; align-items:center; gap:12px; }
-.zonePicker [role="tablist"], .zonePicker [role="group"] { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
-.zonePicker [role="group"] > button { width:100%; min-height:44px; text-align:left; white-space:normal; }
-.zonePicker label { display:block; margin-top:12px; }
-.zonePicker input:not([type="checkbox"]) { display:block; width:100%; min-height:44px; font-size:16px; }
-@media(max-width:600px) { .zonePicker { position:fixed; left:3vw!important; top:auto!important; bottom:max(12px,env(safe-area-inset-bottom)); max-height:80dvh; } }
-.departureHistory { margin:8px; padding:8px; border:1px solid var(--line); border-radius:8px; background:var(--p1); }
-.departureHistory summary { min-height:44px; cursor:pointer; align-content:center; }
-.departureHistory [role="group"] { display:flex; flex-wrap:wrap; gap:6px; padding:8px 0; border-top:1px solid var(--line); }
-.departureHistory [role="group"] b { flex-basis:100%; }
-.departureHistory button { min-height:44px; }
+/* Tap backup: the same panel, buttons and tokens as the rest of the table. */
+/* Picker: a compact panel beside the tapped cell on a desktop, a bottom sheet on a phone. One list, thumb-sized rows. */
+.pop.big.show.zonePicker{display:flex;flex-direction:column;align-items:stretch;gap:10px;width:min(330px,calc(100vw - 16px));max-height:min(64dvh,480px);padding:12px;overflow:hidden}
+.zonePicker>*{flex:none}
+.zonePicker header{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.zonePicker header strong{font:700 15px/1.2 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;color:var(--ink)}
+.zpClose{height:30px;padding:0 11px}
+.zpFace{display:flex;align-items:center;gap:8px;min-height:30px;color:var(--ink2);font-size:13px;font-weight:600;cursor:pointer}
+.zpFace input{width:18px;height:18px;margin:0;accent-color:var(--gold)}
+.zpTabs{display:grid;grid-template-columns:repeat(3,1fr);border:1px solid var(--line2);border-radius:6px;overflow:hidden;background:var(--p0)}
+.zpTab{min-height:34px;padding:0 6px;background:none;border:0;border-right:1px solid var(--line);font-weight:600;font-size:13px;color:var(--ink3);white-space:nowrap}
+.zpTab:last-child{border-right:0}
+.zpTab:hover{color:var(--ink)}
+.zpTab[aria-selected=true]{background:var(--p3);color:var(--gold-ink);box-shadow:inset 0 -2px 0 var(--gold)}
+.zpTab:focus-visible{outline-offset:-2px}
+.zpSearch{display:flex;flex-direction:column;gap:5px}
+.zpSearch .inp,.zonePicker input[type=text],.zonePicker input:not([type]){width:100%;min-height:38px;padding:0 10px;font-size:16px;color:var(--ink);background:var(--p0);border:1px solid var(--line2);border-radius:6px}
+.zonePicker>.zpList{flex:1 1 auto}
+.zpList{display:flex;flex-direction:column;gap:6px;min-height:0;overflow:auto;overscroll-behavior:contain;margin:0 -4px;padding:2px 4px}
+.zpRow{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;min-height:40px;padding:6px 12px;text-align:left;border:1px solid var(--line2);border-radius:6px;background:var(--p2);color:var(--ink);font-weight:600;font-size:14px;line-height:1.25}
+.zpRow:hover:not(:disabled){border-color:var(--pen)}
+.zpRow:disabled{opacity:.55;cursor:default}
+.zpName{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.zpCount{flex:none;font:700 12px/1 var(--font-duel-display),Oxanium,sans-serif;font-variant-numeric:tabular-nums;color:var(--gold-ink)}
+.zpBack{background:none;color:var(--ink2);justify-content:center}
+.zpNote{margin:0;color:var(--ink3);font-size:13px;line-height:1.35}
+.zpNote b{color:var(--ink)}
+.zpErr{margin:0;padding:6px 10px;border:1px solid var(--lossd);border-radius:6px;background:rgb(228 90 77/.12);color:var(--loss);font-size:13px}
+@media(pointer:coarse),(max-width:900px){
+  .zpClose{min-height:44px}.zpTab{min-height:44px}.zpFace{min-height:44px}.zpFace input{width:22px;height:22px}.zpRow{min-height:44px}.zpSearch .inp,.zonePicker input:not([type=checkbox]){min-height:44px}
+}
+@media(max-width:900px){
+  .pop.big.show.zonePicker{left:8px!important;right:8px;top:auto!important;bottom:max(8px,env(safe-area-inset-bottom));width:auto;max-height:62dvh;padding:10px 12px 12px;border-radius:14px 14px 12px 12px}
+}
+/* Recent departures: a collapsed row under the board. Open it and every card that just left has its own destinations and Undo. */
+.departureHistory{margin:8px;border:1px solid var(--line);border-radius:8px;background:var(--p1)}
+.departureHistory summary{display:flex;align-items:center;min-height:36px;padding:0 12px;cursor:pointer;color:var(--ink2);font-weight:600;font-size:13px;list-style:none}
+.departureHistory summary::-webkit-details-marker{display:none}
+.departureHistory summary::before{content:"";width:6px;height:6px;margin-right:9px;border-right:2px solid var(--gold-ink);border-bottom:2px solid var(--gold-ink);transform:rotate(-45deg);transition:transform .15s}
+.departureHistory[open] summary::before{transform:rotate(45deg)}
+.departureHistory summary:hover{color:var(--ink)}
+.departureHistory[open] summary{border-bottom:1px solid var(--line)}
+.departureHistory [role="group"]{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:8px 12px;border-top:1px solid var(--line)}
+.departureHistory [role="group"]:first-of-type{border-top:0}
+.departureHistory [role="group"] b{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink);font-size:14px}
+.departureHistory [role="group"] > span{flex:none;color:var(--ink3);font-size:12px}
+.departureHistory [role="group"] .dwhere{flex:1 0 100%;display:flex;flex-wrap:wrap;gap:6px}
+@media(pointer:coarse),(max-width:900px){.departureHistory summary{min-height:44px}.departureHistory button{min-height:44px;padding:0 12px}.departureHistory [role="group"] b{flex-basis:100%;white-space:normal}.departureHistory [role="group"] > span{flex-basis:100%}}
 @media(pointer:coarse),(max-width:600px) { .dact button,.dact select { min-height:44px; } }

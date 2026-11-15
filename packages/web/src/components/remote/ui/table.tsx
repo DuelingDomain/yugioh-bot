@@ -104,6 +104,13 @@ type ReadCtx = { from?: CardSource; cardRef?: string; seat: number; x: number; y
   /** The click was on a Set card of the table: nothing from this read may tell the table. */ setClick?: boolean };
 type Pending = Proposal & { requestId?: string; run: () => void };
 
+/** The tapped cell, so the picker opens beside it and leaves the rest of the board in view. */
+function zoneRect(seat: number, key: ZoneKey): { left: number; top: number; right: number; bottom: number } | null {
+  if (typeof document === 'undefined') return null;
+  const box = document.querySelector(`[data-testid="field-${seat}"] [data-zone="${key}"]`)?.getBoundingClientRect();
+  return box ? { left: box.left, top: box.top, right: box.right, bottom: box.bottom } : null;
+}
+
 /** Entry point of /duels/remote/[slug]: the lobby room before the start, the table after it. */
 export function RemoteTableScreen({ slug, tournament = null, watchAsAdmin = false }: { slug: string; /** Set when the viewer is one of the two paired players of a tournament match on this table. */ tournament?: RemoteTournamentLink | null;
   /** The admin list's Watch button: open the table as a spectator, a private one too (the server checks the owner list). */ watchAsAdmin?: boolean }) {
@@ -1562,7 +1569,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
       extra={!solo ? <VisionFeedbackSetting promptOnly onChange={onFeedbackPref} /> : undefined}
       onConcede={canSurrender ? surrender : undefined} declare={declareResult}
       seats={players.map(p => ({ seat: p.seat, name: p.name, color: p.color, turn: p.seat === turnShown, lp: lpOf(p.seat), note: p.seat === turnShown ? "Turn" : p.seat === nextSeat ? "Next" : "" }))} />
-    {zonePicker && layers.layer === 'zone' && live && (solo || zonePicker.seat === mySeat) ? <ZoneCardPicker key={`${zonePicker.seat}:${zonePicker.key}:${zonePicker.targetRef ?? ''}`} seat={zonePicker.seat} zone={zonePicker.key} targetRef={zonePicker.targetRef} initialFaceUp={zonePicker.initialFaceUp} at={{anchor:null,feed:null}} deck={deckIdsOf(room,zonePicker.seat)} recent={recentReadsFor(room,zonePicker.seat)} twin={state.seats[zonePicker.seat].twin} busy={zoneBusy} error={zoneError} onPick={pick => void placeInZone(pick)} onClose={() => layers.close('zone')} /> : null}
+    {zonePicker && layers.layer === 'zone' && live && (solo || zonePicker.seat === mySeat) ? <ZoneCardPicker key={`${zonePicker.seat}:${zonePicker.key}:${zonePicker.targetRef ?? ''}`} seat={zonePicker.seat} zone={zonePicker.key} targetRef={zonePicker.targetRef} initialFaceUp={zonePicker.initialFaceUp} at={{anchor:zoneRect(zonePicker.seat,zonePicker.key),feed:null}} deck={deckIdsOf(room,zonePicker.seat)} recent={recentReadsFor(room,zonePicker.seat)} twin={state.seats[zonePicker.seat].twin} busy={zoneBusy} error={zoneError} onPick={pick => void placeInZone(pick)} onClose={() => layers.close('zone')} /> : null}
     <InspectorDrawer open={layers.layer === "insp"} onClose={() => layers.close("insp")}>
       <InspectorBody subject={subjectDetails} info={subjectInfo} warning={subject ? deckFlag(room, subject.seat)?.message : undefined} actions={shownActions}
         sourceLine={subject ? `Identified by ${subject.via} on ${name(subject.seat)}'s side` : ""} />

@@ -39,6 +39,40 @@ function promptAnchor(host:HTMLElement,quad:FieldWatcherPrompt['quad']):{anchor:
   return {feed,anchor:{left:left+Math.min(...quad.map(p=>p.x))*width,right:left+Math.max(...quad.map(p=>p.x))*width,top:top+Math.min(...quad.map(p=>p.y))*height,bottom:top+Math.max(...quad.map(p=>p.y))*height}};
 }
 
+/** The "?" on a zone that still needs a look. The choices open in a floating panel: the field is tilted and clipped, so nothing can open inside it. */
+function ZonePrompt({prompt,first,zone,pending,onChoose,onWrong,onNotACard}:{prompt:FieldWatcherPrompt;first:FieldWatcherPrompt['candidates'][number]|undefined;zone:string;pending:boolean;onChoose(id:string,cardId:string):void;onWrong?(id:string):void;onNotACard(id:string):void}) {
+  const [open,setOpen]=useState(false),badge=useRef<HTMLButtonElement>(null),panel=useRef<HTMLDivElement>(null);
+  const [style,setStyle]=useState<CSSProperties>({visibility:'hidden'});
+  const close=(refocus=false)=>{setOpen(false);if(refocus)badge.current?.focus();};
+  useLayoutEffect(()=>{
+    const cell=badge.current?.parentElement,node=panel.current;
+    if(!open||!cell||!node)return;
+    const place=()=>{
+      const box=cell.getBoundingClientRect(),w=node.offsetWidth,h=node.offsetHeight,vw=window.innerWidth,vh=window.innerHeight;
+      const left=Math.max(8,Math.min(box.left+box.width/2-w/2,vw-w-8));
+      const below=box.bottom+6,top=below+h<=vh-8?below:Math.max(8,box.top-6-h);
+      setStyle({left,top});
+    };
+    place();window.addEventListener('resize',place);window.addEventListener('scroll',place,true);
+    const outside=(event:PointerEvent)=>{if(!node.contains(event.target as Node)&&!badge.current?.contains(event.target as Node))setOpen(false);};
+    document.addEventListener('pointerdown',outside);
+    node.querySelector('button')?.focus();
+    return()=>{window.removeEventListener('resize',place);window.removeEventListener('scroll',place,true);document.removeEventListener('pointerdown',outside);};
+  },[open]);
+  const run=(act:()=>void)=>()=>{act();close();};
+  return <>
+    <button ref={badge} type="button" className={s.zoneBadge} data-testid="zone-uncertainty" aria-haspopup="dialog" aria-expanded={open} aria-label={`Check card in ${zone}`} title="Check this card" onClick={event=>{event.stopPropagation();setOpen(o=>!o);}} onPointerDown={stop} onKeyDown={event=>{event.stopPropagation();}}>?</button>
+    {open?createPortal(<div ref={panel} className={`${duelFontClasses} ${s.theme} ${s.zonePanel}`} style={style} role="group" aria-label={`Check ${zone}`} data-testid="zone-uncertainty-choices" onClick={stop} onPointerDown={stop} onKeyDown={event=>{event.stopPropagation();if(event.key==='Escape'){event.preventDefault();close(true);}}}>
+      <p>{first?<>Is this <b>{first.label}</b>?</>:`Which card is in ${zone}?`}</p>
+      <div className={s.zoneActions}>
+        <button type="button" className={`${table.btn} ${table.go}`} disabled={pending||!first} onClick={run(()=>{if(first)onChoose(prompt.id,first.id);})}>Confirm</button>
+        <button type="button" className={table.btn} disabled={pending||!onWrong} onClick={run(()=>onWrong?.(prompt.id))}>Wrong card</button>
+        <button type="button" className={table.btn} disabled={pending} onClick={run(()=>onNotACard(prompt.id))}>Not a card</button>
+      </div>
+    </div>,document.body):null}
+  </>;
+}
+
 /** Feed watcher presentation, independent of recognition and table actions. */
 export function FieldWatcherUI({host,enabled,onEnabledChange,statusLabel,statusTitle,statusExtra,attention,onStatusAction,calibrated,calibrationDisabled,onCalibrate,prompts,pending,onChoose,onDismiss,notice,noticeTestId,dock,zoneSeat,keepUnresolved=false,onWrong,onNotACard}:FieldWatcherUIProps) {
   const [collapsed,setCollapsed]=useState<ReadonlySet<string>>(new Set());
@@ -83,14 +117,7 @@ export function FieldWatcherUI({host,enabled,onEnabledChange,statusLabel,statusT
       const cell=document.querySelector(`[data-testid="field-${zoneSeat}"] [data-zone="${key}"]`);
       if(!cell)return null;
       const first=p.candidates.find(c=>!c.disabled);
-      return createPortal(<details className={`${s.theme} ${s.zonePrompt}`} data-testid="zone-uncertainty" onClick={stop} onPointerDown={stop} onKeyDown={stop}>
-        <summary aria-label={`Check card in ${zoneName(p.zone)}`}>Card here?<span className={s.announcement}> Unresolved</span></summary>
-        <div role="group" aria-label={`Check ${zoneName(p.zone)}`}><p>{first?.label??'Choose the card in this zone.'}</p>
-          <button type="button" className={table.btn} disabled={pending||!first} onClick={()=>{if(first)onChoose(p.id,first.id);}}>Confirm</button>
-          <button type="button" className={table.btn} disabled={pending||!onWrong} onClick={()=>onWrong?.(p.id)}>Wrong card</button>
-          <button type="button" className={table.btn} disabled={pending} onClick={()=>(onNotACard??onDismiss)(p.id)}>Not a card</button>
-        </div>
-      </details>,cell,p.id);
+      return createPortal(<ZonePrompt prompt={p} first={first} zone={zoneName(p.zone)} pending={pending} onChoose={onChoose} onWrong={onWrong} onNotACard={onNotACard??onDismiss}/>,cell,p.id);
     }):null}
     {controls?createPortal(<div className={s.controls} onClick={stop} onPointerDown={stop} onKeyDown={keepControlKey}>
       <label className={`${table.fzbtn} ${s.toggle}`}><input type="checkbox" checked={enabled} onChange={event=>onEnabledChange(event.target.checked)}/>Auto-detect cards</label>
@@ -103,10 +130,12 @@ export function FieldWatcherUI({host,enabled,onEnabledChange,statusLabel,statusT
       <p id={description} className={s.zone}>Detected in {zoneName(prompt.zone)}. {prompt.presence?'Is this a Set card?':'Choose a card or dismiss.'}</p>
       <div className={s.choices}>{prompt.candidates.slice(0,5).map(candidate=><button type="button" className={table.btn} key={candidate.id} disabled={pending||candidate.disabled} onClick={()=>onChoose(prompt.id,candidate.id)} title={candidate.label}>{candidate.label}</button>)}</div>
       {!prompt.candidates.length?<p className={s.zone}>{prompt.emptyMessage??'Use the feed reader to confirm this card.'}</p>:null}
+      <div className={s.promptActions}>
       {onWrong?<button type="button" className={`${table.btn} ${table.q}`} disabled={pending} onClick={()=>onWrong(prompt.id)}>Wrong card</button>:null}
       {!prompt.presence&&onNotACard?<button type="button" className={`${table.btn} ${table.q}`} disabled={pending} onClick={()=>onNotACard(prompt.id)}>Not a card</button>:null}
       <button type="button" className={`${table.btn} ${table.q} ${s.dismiss}`} disabled={pending} onClick={()=>prompt.presence?onDismiss(prompt.id):ignore(prompt.id)}>{prompt.presence?'Not a card':keepUnresolved?'Later':'Dismiss'}</button>
       {prompt.presence&&keepUnresolved?<button type="button" className={`${table.btn} ${table.q}`} disabled={pending} onClick={()=>ignore(prompt.id)}>Later</button>:null}
+      </div>
     </div>,dock??document.body):null}
     {notice?createPortal(<div ref={toast} className={`${duelFontClasses} ${s.theme} ${s.notice} ${dock?s.docked:''}`} style={dock?undefined:noticeStyle} role="status" data-testid={noticeTestId} onClick={stop} onPointerDown={stop} onKeyDown={stop}>{notice}</div>,dock??document.body):null}
   </>;

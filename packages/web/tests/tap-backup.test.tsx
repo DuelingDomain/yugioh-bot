@@ -141,8 +141,10 @@ it('uncertainty stays on its zone when ignored, with explicit choices and no aut
   const choose=vi.fn(),wrong=vi.fn(),reject=vi.fn();
   try { render(<FieldWatcherUI keepUnresolved zoneSeat={0} host={host} enabled onEnabledChange={()=>{}} statusLabel="Watching" calibrated calibrationDisabled={false} onCalibrate={()=>{}} prompts={[{id:'outline',zone:'M2',title:'Card here?',candidates:[{id:'46986414',label:'Dark Magician'}]}]} pending={false} onChoose={choose} onDismiss={()=>{}} onWrong={wrong} onNotACard={reject}/>);
     fireEvent.click(screen.getByRole('button',{name:'Later'}));expect(screen.getByTestId('field-unresolved')).toHaveTextContent('Unresolved (1)');
-    act(()=>vi.advanceTimersByTime(30000));expect(choose).not.toHaveBeenCalled();const badge=screen.getByTestId('zone-uncertainty');expect(field).toContainElement(badge);expect(badge).not.toHaveAttribute('open');
-    fireEvent.click(within(badge).getByText('Card here?'));fireEvent.click(within(badge).getByRole('button',{name:'Wrong card'}));expect(wrong).toHaveBeenCalledWith('outline');
-    fireEvent.click(within(badge).getByRole('button',{name:'Confirm'}));expect(choose).toHaveBeenCalledWith('outline','46986414');fireEvent.click(within(badge).getByRole('button',{name:'Not a card'}));expect(reject).toHaveBeenCalledWith('outline');
+    act(()=>vi.advanceTimersByTime(30000));expect(choose).not.toHaveBeenCalled();const badge=screen.getByTestId('zone-uncertainty');expect(field).toContainElement(badge);expect(badge).toHaveAttribute('aria-expanded','false');
+    const open=()=>{fireEvent.click(badge);return within(screen.getByTestId('zone-uncertainty-choices'));};
+    fireEvent.click(open().getByRole('button',{name:'Wrong card'}));expect(wrong).toHaveBeenCalledWith('outline');expect(screen.queryByTestId('zone-uncertainty-choices')).toBeNull();
+    fireEvent.click(open().getByRole('button',{name:'Confirm'}));expect(choose).toHaveBeenCalledWith('outline','46986414');fireEvent.click(open().getByRole('button',{name:'Not a card'}));expect(reject).toHaveBeenCalledWith('outline');
+    fireEvent.click(badge);fireEvent.keyDown(screen.getByTestId('zone-uncertainty-choices'),{key:'Escape'});expect(screen.queryByTestId('zone-uncertainty-choices')).toBeNull();expect(badge).toHaveFocus();
   } finally {host.remove();field.remove();}
 });

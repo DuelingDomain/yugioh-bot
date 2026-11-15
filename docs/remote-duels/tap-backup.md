@@ -59,3 +59,14 @@ The supplied corrected clip baseline is **19 on time, 3 late, 36 missed, 42 plac
 **After: not measured.** The existing `sim-v2x-observer.mjs` models watcher events, departures and summons, but omits this React mutation queue, manual taps and UI. Its build sources also select other worktrees. Re-running it unchanged would not measure Task K. No replay process, inference run, download, training, clip copy or evaluation-data write was performed. No claim about a changed clip phantom rate is made. The new guards only suppress automatic writes; they add no automatic admission path.
 
 All six web paths are built. Remaining work: designer review of density and zone-panel placement; real-camera and phone checks with the software keyboard, camera restart, several removals, stacks and two identical cards. The separate watcher work still owns contact stalls, inference misses and Best match policy. The paired camera-only phone page is unchanged; these controls are on the full duel page.
+
+## Design pass
+
+Visual and interaction polish only; no behaviour changed.
+
+- **Zone card picker.** One flex column with `My deck`, `Recent reads` and `Search` tabs in the `.seg` look (arrow keys move between tabs). Rows are 40 px, 44 px on touch. On desktop it opens beside the tapped cell; under 900 px it is a bottom sheet (max 62% of the viewport height) with a Close button. The which-copy question reads "<name> is already on your side. Which copy?".
+- **On-zone check prompt.** The in-cell panel was clipped by the seat and skewed by the table tilt, so it is now a small gold "?" badge on the cell (22 px with a larger hit area on touch) that opens a fixed panel under or over the cell: "Is this <name>?" with Confirm, Wrong card, Not a card. Escape or an outside tap closes it and returns focus to the badge. The docked prompt buttons (Wrong card, Not a card, Later) share one row and are 44 px on touch.
+- **Recent departures.** Chevron summary, grouped rows, 44 px buttons on touch.
+- **Card sheet on phones.** The art sits beside the name so Move to, Activate and the Attach control are reachable without scrolling past a large image.
+- **Checked** at 1366x768 and 390x844 (touch): no horizontal scroll, touch targets 44 px. Screenshots are kept locally in `data/replay/design/` (gitignored).
+- **Not checked.** Prompts on real tilted 25 px cells with a live camera, the Reading cue on a live feed, the phone software keyboard on the Search tab, and the card-sheet Attach selector in a live room.
