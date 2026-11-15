@@ -421,6 +421,9 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
    * Never when a hand, a shaded card or motion is over the spot (blur and shadow holds still delay the removal itself), nor when the spot lies mostly outside the frame (no evidence there). */
   const lookRefs=(t:InternalTrack)=>[t.realLook,t.identityAppearance].filter((l):l is number[]=>!!l?.length);
   const couldBeSource=(t:InternalTrack,other:InternalTrack,evidence:FieldAnalysis)=>{
+    // A read in flight decides identity: the look can differ after a move (light, turn), so it does not rule the source out before the
+    // name is back. An outline that was already there while the source was still seen is another card.
+    if(other.read&&!other.read.result&&!other.read.error&&other.view.firstSeen>=t.view.lastSeen-100)return true;
     const refs=lookRefs(t),pixels=evidence.appearance?.(other.view.card);
     return !refs.length||!pixels?.length||refs.some(ref=>sameRotatedFieldAppearance(ref,pixels)||sameShadedFieldAppearance(ref,pixels));
   };
