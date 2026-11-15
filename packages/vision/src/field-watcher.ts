@@ -1,3 +1,5 @@
+import { sharpness } from './quality';
+import { glareMask } from './preclean';
 import {classifyFaceState,createFaceStateHysteresis,type FaceStateOptions,type FaceStateResult} from './face-state';
 import type {RGBAImage} from './pixels';
 import {createFieldIdentityGallery, type FieldIdentityGallery} from './field-gallery';
@@ -132,12 +134,14 @@ export interface FieldWatcherOptions {
   onHeldUnsure?:(event:HeldUnsureEvent)=>void;
   getPriors?:()=>RecognitionPriors|undefined; getKnownCards?:()=>KnownFieldCard[]; calibration?:FieldCalibration; format?:FieldFormat;
   setGuards?:Partial<SetGuards>; setCardMemory?:SetCardMemory; onSetMemoryChange?:()=>void; onSetDecision?:(decision:SetDecision)=>void;
+  /** Default on: one three-frame mean after a fast, unusable first read of a new resting front. */ nameVoting?:boolean;
   gallery?:FieldIdentityGallery; earlyExitMargin?:number; stableMs?:number; removalMs?:number; cpuBudget?:number; maxTracks?:number;
   now?:()=>number; hidden?:()=>boolean; cpuBusy?:()=>boolean;
   /** Dependency injection for replay/tests; production defaults sample browser pixels. */
   analyze?:((frame:FieldFrame,/** Sample time on the watcher clock. */at?:number)=>FieldAnalysis)&{reset?:()=>void}; clone?:(frame:FieldFrame)=>Promise<FieldFrame>;
 }
-interface PendingRead { /** Crop sharpness when the read started. */ sharp?:number; crop?:RGBAImage; at:number; /** Low reads from a moving outline may get one settled retry. */ moving?:boolean; appearance?:number[]; result?:RecognitionResult; error?:boolean; card?:DetectedQuad; art?:number[] }
+interface NameSample {frame:FieldFrame;score:number;at:number}
+interface PendingRead { voting?:NameSample[]; /** Crop sharpness when the read started. */ sharp?:number; crop?:RGBAImage; at:number; /** Low reads from a moving outline may get one settled retry. */ moving?:boolean; appearance?:number[]; result?:RecognitionResult; error?:boolean; card?:DetectedQuad; art?:number[] }
 interface IdentityCheck { state:FieldTrack['state']; cardId?:string; result?:RecognitionResult; reason?:FieldEvent['reason']; strongSamples:number; /** Fresh reads taken while the embedding stayed in the unsure band (.68-.84). */ rereads?:number }
 /** One sample's verdict on whether an outline lies on the mat plane (size, shape, cells). `hard`: certainly not on the mat (held well above it). */
 export interface PlaneVerdict { ok:boolean; hard:boolean; text:string; size?:number }
@@ -192,6 +196,8 @@ const backOutline=(card:DetectedQuad)=>card.kind==='face-down'&&(card.confidence
 /** Lowest top score that names a new sideways card; below it the player is asked. A holo sideways card under glare matched a
  * wrong card at .748 to .750 depending on the frame, while correct sideways names in the replay clips scored .751 to .793.
  * No limit separates them: this one keeps a .02 gap above the wrong read and turns the weakest correct ones into a question. */
+// Spend another window only on a fast first read; a slow device keeps the ordinary one-frame path.
+const NAME_VOTE_FIRST_READ_MS=500,NAME_VOTE_WINDOW_MS=420,NAME_VOTE_SAMPLE_MS=100;
 export const SIDEWAYS_NAME_MIN=.77;
 export const weakSidewaysRead=(r:RecognitionResult|undefined,position:FieldTrack['position'])=>!!r&&position==='defense'&&r.tier!=='low match'&&!r.quality.faceDown&&(r.candidates[0]?.score??0)<SIDEWAYS_NAME_MIN;
 const closedRead=(r:RecognitionResult)=>r.tier==='sure'&&['deck','dynamic','likely'].includes(r.quality.searchSource??'');
@@ -667,7 +673,21 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       await options.recognizer.prepare?.(preparation());
       if(generation!==epoch||disposed||t.read!==pending)return;
       const priors=options.getPriors?.();
-      const result=await options.recognizer.recognize([input] as ImageBitmap[]|ImageData[],{card,k:5,maxFrames:1,includeIdentityEmbedding:true,includeDiagnosticCrop:true,includeRaw:true,preferUpright:true,priors,gallery:gallery.entries(),deckFirst:true,earlyExitMargin:options.earlyExitMargin??.02});
+      const readOptions={k:5,maxFrames:1 as const,includeIdentityEmbedding:true,includeDiagnosticCrop:true,includeRaw:true,preferUpright:true,priors,gallery:gallery.entries(),deckFirst:true,earlyExitMargin:options.earlyExitMargin??.02};
+      let result=await options.recognizer.recognize([input] as ImageBitmap[]|ImageData[],{...readOptions,card});
+      if(options.nameVoting!==false && now()-start<=NAME_VOTE_FIRST_READ_MS && result.tier!=='sure' && (result.tier==='low match'||weakSidewaysRead(result,t.view.position)) && t.view.state==='candidate' && !t.binding && !t.identityCheck && !t.confirming && restOk(t) && !pending.moving && !result.quality.faceDown && !result.quality.fallback && !result.quality.partial && !result.quality.covered) {
+        const samples:NameSample[]=[];pending.voting=samples;
+        try {
+          // The ordinary watcher supplies fresh, clean resting frames. Never sample around its hand/plane gates.
+          await new Promise<void>(resolve=>setTimeout(resolve,NAME_VOTE_WINDOW_MS));
+          pending.voting=undefined;
+          if(generation===epoch&&!disposed&&t.read===pending&&samples.length>=2) {
+            const chosen=samples.sort((a,b)=>b.score-a.score).slice(0,2);
+            count(t,'reads');
+            result=await options.recognizer.recognize([input,...chosen.map(s=>s.frame)] as ImageBitmap[]|ImageData[],{...readOptions,card,clickPoint:fieldCenter(card),maxFrames:3,earlyExit:false});
+          }
+        } finally {pending.voting=undefined;for(const sample of samples)closeFieldFrame(sample.frame);}
+      }
       if(generation===epoch&&!disposed&&t.read===pending){metrics.recognitionMs=now()-start;pending.result=result;stage(t,'searchDone');if(t.timing){Object.assign(t.timing.durationsMs,result.timingsMs);t.timing.durationsMs.readMs=now()-start;t.timing.notes={source:result.quality.searchSource??'catalog',tier:result.tier};}wakeAfterRead=true;}
     }catch(cause){if(generation===epoch&&!disposed&&t.read===pending){console.error('[remote field] recognition failed',t.view.id,cause);metrics.errors++;pending.error=true;}}
     finally{closeFieldFrame(input);}
@@ -1735,6 +1755,15 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         if(clean&&t.early&&t.view.state==='identified'&&!t.read&&!reading&&t.observations>=1&&still){t.early=undefined;t.confirming=true;t.needsRead=true;}
         t.observations++;stage(t,'stable');
         const score=evidence.sharpness(c),scoreOk=sharpOk(t,score,sample.at);
+        const vote=t.read?.voting;
+        if(vote && vote.length<4 && restOk(t) && clean && still && !blurHold && !handNear(evidence,c) && !handContact(evidence,c) && sameFieldAppearance(t.read?.art,evidence.appearance?.(artBox(c))) && sample.at-(vote.at(-1)?.at??t.read!.at)>=NAME_VOTE_SAMPLE_MS) {
+          const voteCrop=evidence.crop?.(c);
+          if(voteCrop) {
+            const frame=await clone(current);
+            if(generation===epoch&&!disposed&&t.read?.voting===vote)vote.push({frame,score:sharpness(voteCrop)*(1-glareMask(voteCrop).share),at:sample.at});
+            else closeFieldFrame(frame);
+          }
+        }
         // One sample per card per settle, never in a blurred frame or while the card moves.
         if(clean&&!blurHold&&still&&!t.sharpLearned&&c.kind==='face-up'&&observation.state==='up'&&!handNear(evidence,c)){t.sharpLearned=true;learnCropSharpness(score);}
         if((!t.best||score>t.best.score)&&!(t.view.state==='candidate'&&c.kind==='face-up'&&handBlocks(t,evidence.touched?.(c))))t.best={frame:current,card:structuredClone(c),score,crop};

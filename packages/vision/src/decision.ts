@@ -12,7 +12,7 @@ export function replayTier(raw: RecognitionEvidence, thresholds: ConfidenceThres
   const deckLimits=deckConfidenceThresholds(thresholds);
   const deckSure=winner!==raw.cardBackId && Boolean(winner && raw.priors?.decklist?.includes(winner)) && decide(raw.visual,deckLimits,raw.cardBackId).confident && agrees(deckLimits);
   // A closed-set answer already passed its accept bar and the open-catalog check inside the pipeline.
-  const closedLimits=closedConfidenceThresholds(thresholds);
+  const closedLimits=closedConfidenceThresholds(thresholds,raw.closedSet);
   const closedSure=raw.closedSet!==undefined && winner!==raw.cardBackId && decide(raw.visual,closedLimits,raw.cardBackId).confident && agrees(closedLimits);
   return (catalogSure || deckSure || closedSure) && !raw.blocked.length && raw.winnerId===winner ? 'sure' : 'not sure';
 }
