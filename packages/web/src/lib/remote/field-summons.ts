@@ -6,6 +6,23 @@ export type FieldVanish = { ref: string; at: number };
 /** Summon window: materials that went under the card or left the field up to 5 s before its first outline (or after its placement). */
 export const SUMMON_WINDOW_MS = 5000;
 const MONSTER_ZONES = new Set(['monster', 'extra-monster']);
+/** A physical stack of known face-up monsters remains on the board until it separates or is summoned. */
+export const fieldKeepsMonsterStack = (mover: TwinCard | undefined, below: TwinCard | undefined) =>
+  !!mover && !!below && mover.faceUp && below.faceUp && MONSTER_ZONES.has(mover.zone) && MONSTER_ZONES.has(below.zone);
+
+/** Question ordering only. Rank is a prior, never permission to name an unread top. Missing facts abstain. */
+export function fieldStackXyzCandidates({ materials, extra, facts }: {
+  materials: readonly TwinCard[]; extra: readonly number[]; facts: (id: number | undefined) => FieldZoneFacts | undefined;
+}): number[] {
+  if(materials.length<2)return [];
+  const levels=materials.map(card=>{
+    const info=facts(card.cardId??card.passcode);
+    return card.faceUp&&MONSTER_ZONES.has(card.zone)&&info&&/\bmonster\b/i.test(info.type)&&
+      !/\b(xyz|link)\b/i.test(info.type)&&info.level&&info.level>0?info.level:undefined;
+  });
+  const level=levels[0];if(!level||levels.some(value=>value!==level))return [];
+  return [...new Set(extra)].filter(id=>{const info=facts(id);return fieldSummonKind(info)?.kind==='xyz'&&info?.level===level;});
+}
 /** Same as the server: a monster the camera moved off the field this long ago can still be a material. */
 export const SUMMON_DEPARTURE_MS = 30_000;
 /** A card the camera took off a Monster Zone this long ago (server time) is a material candidate whatever the watcher clocks say: an Extra Deck search is often slower than the 5 s window. */
@@ -33,9 +50,10 @@ export const fieldSummonMinimum = (kind: RemoteSummonKind) => kind === 'link' ? 
  *   a pile), newest first, only as many as needed (Link: up to its rating; others: up to the minimum).
  * Undefined = no summon (the default rules apply).
  */
-export function fieldSummonMaterials({ kind, rating, covered, vanished, pending = [], firstSeen, twins, removed, now }: {
+export function fieldSummonMaterials({ kind, rating, covered, vanished, pending = [], firstSeen, twins, removed, now, separated }: {
   kind: RemoteSummonKind; rating?: number; covered: readonly string[]; vanished: readonly FieldVanish[]; firstSeen: number; twins: readonly TwinCard[];
   /** Monsters that left the view during the 2 s departure wait: still on the field in the twin, not yet in the hand. */ pending?: readonly FieldVanish[];
+  /** A waiting stack was visibly separated. Only fresh cover evidence may reclaim these refs for an Xyz. */ separated?: ReadonlySet<string>;
   /** True while the camera still has this card out of view. */ removed: (ref: string) => boolean;
   /** Server time: a covered card that the default sent to the hand (held stack) still counts for 30 s. */ now: number;
 }): string[] | undefined {
@@ -52,11 +70,11 @@ export function fieldSummonMaterials({ kind, rating, covered, vanished, pending 
   // A pending departure is not in the hand yet: it counts while its twin still lies face-up in a Monster Zone and the camera has not seen it again.
   const waiting = (ref: string) => { const card = find(ref); return !!card && card.faceUp && MONSTER_ZONES.has(card.zone); };
   const left = [...vanished.map(v => ({ ...v, ok: gone })), ...pending.map(v => ({ ...v, ok: waiting }))]
-    .filter(v => Math.abs(v.at - firstSeen) <= SUMMON_WINDOW_MS).sort((a, b) => b.at - a.at)
+    .filter(v => !(kind==='xyz'&&separated?.has(v.ref))&&Math.abs(v.at - firstSeen) <= SUMMON_WINDOW_MS).sort((a, b) => b.at - a.at)
     .filter((v, index, all) => all.findIndex(o => o.ref === v.ref) === index)
     .map(v => v.ok(v.ref) ? v.ref : '').filter(ref => ref && !under.includes(ref) && removed(ref));
   // Cards the board already holds in the hand after a camera lift (the default for a card out of view), newest first, after the window ones.
-  const recent = twins.filter(c => c.zone === 'hand' && !!c.departedFrom?.auto && MONSTER_ZONES.has(c.departedFrom.zone) && c.departedFrom.at !== undefined && now - c.departedFrom.at <= SUMMON_RECENT_MS &&
+  const recent = twins.filter(c => !(kind==='xyz'&&separated?.has(c.ref))&&c.zone === 'hand' && !!c.departedFrom?.auto && MONSTER_ZONES.has(c.departedFrom.zone) && c.departedFrom.at !== undefined && now - c.departedFrom.at <= SUMMON_RECENT_MS &&
     !under.includes(c.ref) && !left.includes(c.ref)).sort((a, b) => b.departedFrom!.at! - a.departedFrom!.at!).map(c => c.ref);
   const want = Math.max(0, (kind === 'link' ? limit : rankUp ? 0 : fieldSummonMinimum(kind)) - under.length);
   const refs = [...under, ...[...left, ...recent].slice(0, kind === 'link' ? Math.max(0, limit - under.length) : want).reverse()].slice(0, kind === 'link' ? limit : undefined);
