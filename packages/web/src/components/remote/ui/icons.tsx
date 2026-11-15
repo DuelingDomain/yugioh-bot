@@ -21,6 +21,13 @@ const PATHS = {
   grip: <path d="M9 5v.01M15 5v.01M9 12v.01M15 12v.01M9 19v.01M15 19v.01" strokeWidth="3" strokeLinecap="round" />,
   flag: <path d="M5 21V4M5 4h11l-2 4 2 4H5" />,
   sword: <path d="M14 4h6v6L10 20l-6-6zM5 19l-2 2M8 16l-3 3" />,
+  layers: <><path d="m12 3 9 5-9 5-9-5 9-5z" /><path d="m3 13 9 5 9-5" /></>,
+  cardback: <><rect x="6" y="3" width="12" height="18" rx="2" /><path d="m12 9 2.5 3-2.5 3-2.5-3z" /></>,
+  flip: <><path d="M4 11a8 8 0 0 1 14-4l2 2" /><path d="M20 4v5h-5" /><path d="M20 13a8 8 0 0 1-14 4l-2-2" /><path d="M4 20v-5h5" /></>,
+  coin: <><circle cx="12" cy="12" r="8.5" /><circle cx="12" cy="12" r="3.5" /></>,
+  info: <><circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 8v.01" /></>,
+  chev: <path d="m9 6 6 6-6 6" />,
+  back: <path d="m15 6-6 6 6 6" />,
 } as const;
 
 export type IconName = keyof typeof PATHS;

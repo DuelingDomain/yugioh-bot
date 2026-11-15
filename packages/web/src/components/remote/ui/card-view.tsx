@@ -64,6 +64,7 @@ export type CardEdit = {
 export type CardMaterial = { ref: string; cardId?: number; name: string; onDetach?: () => void };
 
 export type CardActions = {
+  attach?: { label: string; options: { ref: string; label: string }[]; onPick(ref: string): void };
   /** Xyz materials under this card, bottom first. */
   materials?: CardMaterial[];
   canAdd: boolean; adding: boolean; onAdd: () => void;
@@ -130,6 +131,7 @@ function Actions({ a, subject }: { a: CardActions; subject: Subject }) {
       <button type="button" className={BTN} onClick={a.onAttack} disabled={!a.canAttack} title={a.attackHint}>Attack from here</button>
     </Group>
     {edit ? <MoveGroup edit={edit} /> : null}
+    {a.attach?.options.length ? <Group label={a.attach.label}><select aria-label={a.attach.label} className={s.inp} value="" onChange={e => { if (e.target.value) a.attach?.onPick(e.target.value); }}><option value="">Choose a card…</option>{a.attach.options.map(o => <option key={o.ref} value={o.ref}>{o.label}</option>)}</select></Group> : null}
     <Group label="Card">
       {edit ? <button type="button" className={BTN} onClick={edit.onFlip}>{edit.faceUp ? "Turn face down" : "Turn face up"}</button> : null}
       {edit?.position ? <button type="button" className={BTN} onClick={edit.position.onTurn} data-testid="card-position">{edit.position.defense ? "Change to Attack" : "Change to Defense"}</button> : null}
@@ -149,7 +151,7 @@ function Actions({ a, subject }: { a: CardActions; subject: Subject }) {
 }
 
 const MOVES: { zone: string; label: string; mr5?: boolean }[] = [{ zone: "monster", label: "Monster" }, { zone: "extra-monster", label: "Extra Monster", mr5: true }, { zone: "spell-trap", label: "Spell/Trap" },
-  { zone: "pendulum", label: "Pendulum", mr5: true }, { zone: "hand", label: "Hand" }, { zone: "graveyard", label: "Graveyard" }, { zone: "banished", label: "Banish" }];
+  { zone: "pendulum", label: "Pendulum", mr5: true }, { zone: "field", label: "Field" }, { zone: "hand", label: "Hand" }, { zone: "deck", label: "Deck" }, { zone: "extra", label: "Extra Deck" }, { zone: "graveyard", label: "Graveyard" }, { zone: "banished", label: "Banish" }];
 /** Corrections to the virtual field: the camera is the truth, this only fixes what the table believes. */
 function MoveGroup({ edit }: { edit: CardEdit }) {
   return <Group label="Move to" testid="card-edit">
