@@ -1472,7 +1472,7 @@ test('a face-up card turned face-down in its zone flips in place, also after a l
 });
 
 // Owner cleared the field: S2, S4, M3 and FIELD stayed ~10 s while an arm lay on the mat at the far side.
-// A hand/arm or a moving shadow holds only the removals of the cards it lies over or beside; a clear spot
+// A hand/arm or a moving shadow holds only the removals of the cards it lies over; a clear spot
 // elsewhere is removed after two empty full scans (~1 s).
 test('a removal hold for a hand, arm or moving shadow is local to the cards it covers or touches',async()=>{
  const r=fieldRig('sure',20,undefined,{width:160,height:90});
@@ -1483,16 +1483,16 @@ test('a removal hold for a hand, arm or moving shadow is local to the cards it c
  const placed=r.events.filter(e=>e.type==='placed'),ids=placed.map(e=>e.track.id);assert.equal(placed.length,2);
  for(const e of placed)r.watcher.confirm(e.track.id,'A');r.known=placed.map(e=>({id:e.track.id,zone:e.track.zone,cardId:'A',faceDown:false}));r.events.length=0;
  const leftId=placed.find(e=>near(e.track.card))!.track.id,midId=ids.find(id=>id!==leftId)!;
- // The arm lies beside the left card and its shadow moves there; the middle card is lifted.
+ // The arm covers the left card and its shadow moves there; the middle card is lifted.
  const moved=new Uint8Array(32*24);for(let y=7;y<17;y++)for(let x=4;x<10;x++)moved[y*32+x]=1;
- r.skinNearAt=c=>near(c)?.2:0;r.outlines=[];r.appearanceAt=()=>mat;const from=r.at;
+ r.skinNearAt=c=>near(c)?.2:0;r.occludedAt=near;r.outlines=[];r.appearanceAt=()=>mat;const from=r.at;
  for(let i=0;i<10&&!r.events.some(e=>e.type==='removed');i++){r.shadow={share:.3,changed:.05,moved,gx:32,gy:24};await r.tick(150);}
  const gone=r.events.filter(e=>e.type==='removed').map(e=>e.track.id);
  assert.deepEqual(gone,[midId],JSON.stringify(r.watcher.getSnapshot().debug?.reasons));assert.ok(r.at-from<=1500,`removed after ${r.at-from} ms`);
  for(let i=0;i<6;i++){r.shadow={share:.3,changed:.05,moved,gx:32,gy:24};await r.tick(150);}
  assert.equal(r.events.some(e=>e.type==='removed'&&e.track.id===leftId),false,'the card under the arm stays');
  // The arm leaves: the left card goes too.
- r.skinNearAt=undefined;r.shadow=undefined;const after=r.at;for(let i=0;i<12&&!r.events.some(e=>e.type==='removed'&&e.track.id===leftId);i++)await r.tick(150);
+ r.skinNearAt=undefined;r.occludedAt=undefined;r.shadow=undefined;const after=r.at;for(let i=0;i<12&&!r.events.some(e=>e.type==='removed'&&e.track.id===leftId);i++)await r.tick(150);
  assert.ok(r.events.some(e=>e.type==='removed'&&e.track.id===leftId));assert.ok(r.at-after<=1500,`left after ${r.at-after} ms`);r.watcher.dispose();
 });
 
