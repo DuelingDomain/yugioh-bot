@@ -9,8 +9,8 @@ import s from './remote-ui.module.css';
 
 const SOURCES = ['My deck', 'Recent reads', 'Search'];
 
-export function ZoneCardPicker({ seat, zone, targetRef, initialFaceUp=true, allowFaceDown=true, excludeRef, at, deck, recent, twin, busy, error, onPick, onClose }: {
-  seat: number; zone: ZoneKey; targetRef?: string; initialFaceUp?:boolean; at: PopAt; deck: number[]; recent: readonly RecentRead[]; twin: readonly TwinCard[];
+export function ZoneCardPicker({ title, seat, zone, targetRef, initialFaceUp=true, allowFaceDown=true, excludeRef, at, deck, recent, twin, busy, error, onPick, onClose }: {
+  title?: string; seat: number; zone: ZoneKey; targetRef?: string; initialFaceUp?:boolean; at: PopAt; deck: number[]; recent: readonly RecentRead[]; twin: readonly TwinCard[];
   busy: boolean; error: string; allowFaceDown?: boolean; excludeRef?: string; onPick(pick: ZonePick): void; onClose(): void;
 }) {
   const [tab, setTab] = useState('My deck'), [query, setQuery] = useState(''), [results, setResults] = useState<RecentRead[]>([]);
@@ -25,14 +25,14 @@ export function ZoneCardPicker({ seat, zone, targetRef, initialFaceUp=true, allo
     onPick({ seat, key: zone, cardId: card.cardId, name: card.name, faceUp, targetRef, ...origin });
   };
   return <PopupFrame at={at} layer="zone" label={`Place a card in ${ZN[zone]}`} testid="zone-card-picker" className={s.zonePicker}>
-    <header><strong>{targetRef ? 'Choose the right card' : `Place in ${ZN[zone]}`}</strong><button type="button" className={`${s.btn} ${s.q} ${s.zpClose}`} onClick={onClose} disabled={busy}>Close</button></header>
+    <header><strong>{title ?? (targetRef ? 'Choose the right card' : `Place in ${ZN[zone]}`)}</strong><button type="button" className={`${s.btn} ${s.q} ${s.zpClose}`} onClick={onClose} disabled={busy}>Close</button></header>
     {allowFaceDown ? <label className={s.zpFace}><input type="checkbox" checked={!faceUp} disabled={busy} onChange={e => setFaceUp(!e.target.checked)} /> Face down (private)</label> : null}
     <div role="tablist" aria-label="Card source" className={s.zpTabs} onKeyDown={e => {
       const at = SOURCES.indexOf(tab), next = e.key === 'ArrowRight' ? at + 1 : e.key === 'ArrowLeft' ? at - 1 : -1;
       if (next < 0) return;
       e.preventDefault(); const to = SOURCES[(next + SOURCES.length) % SOURCES.length]!; setTab(to); setSelected(null);
       requestAnimationFrame(() => (e.currentTarget.querySelector('[aria-selected="true"]') as HTMLElement | null)?.focus());
-    }}>{SOURCES.map(t => <button type="button" role="tab" aria-selected={t === tab} tabIndex={t === tab ? 0 : -1} className={s.zpTab} key={t} onClick={() => { setTab(t); setSelected(null); }}>{t}</button>)}</div>
+    }}>{SOURCES.map(t => <button type="button" role="tab" aria-selected={t === tab} tabIndex={t === tab ? 0 : -1} data-autofocus={t === tab ? '' : undefined} className={s.zpTab} key={t} onClick={() => { setTab(t); setSelected(null); }}>{t}</button>)}</div>
     {tab === 'Search' ? <label className={s.zpSearch}><span className={s.cap}>Search cards</span><input className={s.inp} value={query} onChange={e => { setQuery(e.target.value); setSelected(null); }} autoComplete="off" /></label> : null}
     {error ? <p role="alert" className={s.zpErr}>{error}</p> : null}
     {selected ? <div role="group" aria-label="Choose a physical copy" className={s.zpList}><p className={s.zpNote}><b>{selected.name}</b> is already on your side. Which copy?</p>{copies.map(c => <button type="button" className={s.zpRow} key={c.ref} disabled={busy} onClick={() => choose(selected, { fromRef: c.ref })}>Use {c.zone}{c.slot ? ` ${c.slot}` : ''} copy</button>)}<button type="button" className={s.zpRow} disabled={busy} onClick={() => choose(selected, { anotherCopy: true })}>Another physical copy</button><button type="button" className={`${s.zpRow} ${s.zpBack}`} onClick={() => setSelected(null)}>Back</button></div>

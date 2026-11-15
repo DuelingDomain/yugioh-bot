@@ -79,4 +79,12 @@ button.chip{cursor:pointer;font-family:inherit}
   .zoneActions button,.prompt.docked button,.notice.docked button{min-height:44px}
   .prompt.docked .choices button,.prompt.docked .dismiss,.prompt.docked .promptActions button{min-height:44px}
 }
-@media(prefers-reduced-motion:reduce){.zoneBadge{animation:none}}
+/* Changed here: a quiet purple square with a turn arrow, bottom right, outside the card. It does not pulse and never covers the art; the "?" above is the gold round one. */
+.changedCue.changedCue{position:absolute;right:-7px;bottom:-7px;z-index:14;display:grid;place-items:center;width:15px;height:15px;padding:0;border:1px solid var(--pen,#a78bff);border-radius:5px;background:#1c1334;color:#d2c7ff;box-shadow:0 0 0 2px rgb(7 4 14/.85);cursor:pointer;animation:cueIn .2s ease-out}
+.changedCue svg{width:10px;height:10px;fill:none;stroke:currentColor;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
+.changedCue::after{content:"";position:absolute;inset:-8px}
+.changedCue:hover{background:var(--pen,#a78bff);color:#150c2a}
+.changedCue:focus-visible{outline:2px solid var(--gold,#e8b94f);outline-offset:2px}
+@keyframes cueIn{from{opacity:0;transform:scale(.8)}}
+@media(pointer:coarse),(max-width:900px){.changedCue.changedCue{width:20px;height:20px;right:-9px;bottom:-9px}.changedCue svg{width:12px;height:12px}.changedCue::after{inset:-11px}}
+@media(prefers-reduced-motion:reduce){.zoneBadge,.changedCue{animation:none}}

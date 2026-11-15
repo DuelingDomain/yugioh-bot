@@ -115,7 +115,7 @@ export function FieldWatcherUI({host,enabled,onEnabledChange,statusLabel,statusT
     {enabled && zoneSeat !== undefined ? changes.map(zone => {
       const key=zone.startsWith('EMZ')?`e${zone.slice(3)}`:zone==='FIELD'?'f':zone.toLowerCase();
       const cell=document.querySelector(`[data-testid="field-${zoneSeat}"] [data-zone="${key}"]`);
-      return cell ? createPortal(<button type="button" className={s.zoneBadge} data-testid="zone-changed" aria-label={`Changed here: ${zoneName(zone)}`} title="Changed here" onPointerDown={stop} onKeyDown={keepControlKey} onClick={event=>{event.stopPropagation();onChanged?.(zone);}}>?</button>,cell,`changed:${zone}`) : null;
+      return cell ? createPortal(<button type="button" className={s.changedCue} data-changed-cue="" data-testid="zone-changed" aria-label={`Changed here: ${zoneName(zone)}`} title="Changed here" onPointerDown={stop} onKeyDown={keepControlKey} onClick={event=>{event.stopPropagation();onChanged?.(zone);}}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11a8 8 0 0 1 14-4l2 2"/><path d="M20 4v5h-5"/><path d="M20 13a8 8 0 0 1-14 4l-2-2"/><path d="M4 20v-5h5"/></svg></button>,cell,`changed:${zone}`) : null;
     }) : null}
     {enabled&&keepUnresolved&&ignored.length?createPortal(<div className={`${s.theme} ${s.notice} ${dock?s.docked:''}`} data-testid="field-unresolved" onClick={stop} onPointerDown={stop}><b>Unresolved ({ignored.length})</b>{ignored.map(p=><button type="button" key={promptKey(p)} onClick={()=>setCollapsed(before=>{const next=new Set(before);next.delete(promptKey(p));return next;})}>Check {zoneName(p.zone)}</button>)}</div>,dock??document.body):null}
     {enabled&&zoneSeat!==undefined?prompts.map(p=>{
