@@ -98,7 +98,7 @@ export function SeatPanel(p: SeatPanelProps) {
     const target = event.target as HTMLElement;
     if (target.closest("button, a, input, select, textarea")) return;
     const zone = target.closest("[data-zone]");
-    if (zone && zone.querySelector(`.${s.cd}`)) return;
+    if (zone && (zone.querySelector(`.${s.cd}`) || p.you && p.live)) return;
     setFieldView(true);
   };
   const previous = useRef(p.lp); const [delta, setDelta] = useState(0); const [input, setInput] = useState("");
