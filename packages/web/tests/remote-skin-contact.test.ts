@@ -30,3 +30,18 @@ test('a shaded finger crossing the card edge still blocks the card',()=>{
   expect(evidence.touched?.(card)).toBeGreaterThan(.12);
   expect(evidence.occluded?.(card)).toBe(true);
 });
+
+test('skin gripping opposite outside edges is contact even when no skin covers the crop',()=>{
+  const image=scene(false);
+  for(let y=40;y<=60;y++)for(let x=71;x<=82;x++)image.data.set([180,135,108,255],(y*image.width+x)*4);
+  const empty=scene(false);
+  for(let y=40;y<=60;y++)for(let x=18;x<=29;x++)empty.data.set([20,20,20,255],(y*empty.width+x)*4);
+  const analyze=createFieldAnalyzer();analyze(empty);
+  const evidence=analyze(image);
+  expect(evidence.touched?.(card)).toBe(0);
+  expect(evidence.edgeGrip?.(card)).toBe('grip');
+  for(let i=0;i<10;i++)expect(analyze(image).edgeGrip?.(card)).toBe('grip');
+  expect(analyze(empty).edgeGrip?.(card)).not.toBe('grip');
+  const nearby=createFieldAnalyzer();nearby(empty);
+  expect(nearby(scene(false)).edgeGrip?.(card)).not.toBe('grip');
+});

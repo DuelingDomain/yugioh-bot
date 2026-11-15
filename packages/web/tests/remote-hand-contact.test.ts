@@ -2,6 +2,7 @@ import { afterEach, expect, it } from 'vitest';
 import { inflateSync } from 'node:zlib';
 import { createFieldWatcher, type FieldEvent } from '../../vision/src/field-watcher';
 import { yugioh } from '../../vision/src/games/yugioh';
+import type { FieldEdgeGrip } from '../../vision/src/field-motion';
 import type { DetectedQuad, RecognitionResult } from '../../vision/src/types';
 import phone from '../../vision/src/fixtures/phantom-phone.json';
 import calculator from '../../vision/src/fixtures/phantom-calculator.json';
@@ -10,6 +11,7 @@ const watchers: ReturnType<typeof createFieldWatcher>[] = [];
 afterEach(() => { for (const watcher of watchers.splice(0)) watcher.dispose(); });
 
 function rig() {
+  let grip:FieldEdgeGrip='clear';
   const image: ImageData = { width: 96, height: 140, colorSpace: 'srgb', data: new Uint8ClampedArray(96 * 140 * 4).fill(15) };
   const state = {
     at: 0, contact: .6, motion: 0, hidden: false, crop: true, visible: true,
@@ -22,12 +24,21 @@ function rig() {
     profile: yugioh, now: () => state.at, hidden: () => state.hidden, setGuards: { startup: false },
     recognizer: { detectCards: async () => state.visible ? [structuredClone(state.card)] : [], recognize: async () => result },
     buffer: { sample: async () => ({ frame: image, at: state.at }) }, clone: async frame => frame,
-    analyze: () => ({ motion: () => state.motion, sharpness: () => 20, touched: () => state.contact, occluded: () => false,
+    analyze: () => ({ motion: () => state.motion, sharpness: () => 20, touched: () => state.contact, occluded: () => false, edgeGrip: () => grip,
       appearance: () => state.look, halo: () => Array(192).fill(.6), crop: () => state.crop ? state.pixels : undefined }),
   });
   watchers.push(watcher); watcher.subscribe(event => events.push(event));
-  return { state, events, watcher, async tick(count = 1) { for (let i = 0; i < count; i++) { state.at += 100; await watcher.tick(); } } };
+  return { state, events, watcher, setGrip(value:FieldEdgeGrip) { grip=value; }, async tick(count = 1, ms = 100) { for (let i = 0; i < count; i++) { state.at += ms; await watcher.tick(); } } };
 }
+
+it('release keeps two clean back samples across the CPU detector cadence', async () => {
+  const r = rig();r.state.crop = false;
+  await r.tick(10);
+  r.state.contact = 0;r.state.crop = true;
+  await r.tick(2, 800);
+  expect(r.events.filter(event => event.type === 'placed')).toHaveLength(1);
+  expect(r.events.filter(event => event.type === 'prompt')).toEqual([]);
+});
 
 it('a released card places after 200 ms without an expired contact question', async () => {
   const r = rig();
@@ -37,6 +48,18 @@ it('a released card places after 200 ms without an expired contact question', as
   await r.tick(5);
   expect(r.events.filter(event => event.type === 'prompt')).toEqual([]);
   expect(r.events.filter(event => event.type === 'placed')).toHaveLength(1);
+});
+
+it('fingers outside opposite edges cannot time out into a placement', async () => {
+  const r = rig();r.state.contact = 0;r.setGrip('grip');
+  await r.tick(40);
+  expect(r.events.some(event => ['placed','reading','prompt'].includes(event.type))).toBe(false);
+  r.setGrip('near');await r.tick(10);
+  expect(r.events.some(event => ['placed','reading','prompt'].includes(event.type))).toBe(false);
+  r.setGrip('clear');
+  await r.tick(5);
+  expect(r.events.filter(event => event.type === 'placed')).toHaveLength(1);
+  expect(r.events.filter(event => event.type === 'prompt')).toEqual([]);
 });
 
 it('a drifting held outline never earns a stationary-contact question', async () => {

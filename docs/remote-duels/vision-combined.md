@@ -1,5 +1,9 @@
 # Combined hand, Set, flip, and removal rules
 
+The latest Task J results are in [Task J follow-up](#task-j-follow-up-2026-11-15).
+That candidate is **not acceptance-ready**. The Task H report below is retained as the
+joined control; its accepted runs are not the Task J runs.
+
 The combined watcher retains the hand rework and ports `b1dd8e1fc` and `7af1194a4` by hand.
 It repairs both known regressions. The tilt branch is absent. All changes remain uncommitted
 on `fix/vision-combined`, starting at `000e5b6a0`.
@@ -222,3 +226,202 @@ and a long placement-delay tail. V3 still confuses hand and Extra Deck previews 
 cards. Token roles, material consumption, attachment, and banish behavior remain incomplete.
 The offline sink exercises product proposal helpers. It does not verify browser queues,
 React reducers, network ownership, or live camera behavior.
+
+## Task J follow-up, 2026-11-15
+
+Started from `fix/vision-combined` at `063cf7aa571cb6129b4082005f204434b6038c56`.
+Task J output is `data/replay/sim-j-20261114/`, called `T` in this section.
+The final selected candidate runs are **`T/release-safe-v2` and `T/release-safe-v3`**.
+The folder name describes the release guard, not acceptance of the full task.
+Other Task J runs are experiments or intermediate checks.
+
+The candidate clears all eight registered source cards and reduces source-clear p95
+below four seconds. It does **not** meet the two-second median, placement-tail, or v3
+hand/prompt limits. Do not treat this as a completed board-equality fix.
+
+### Main / joined / new
+
+This table uses the same 71-label v2 comparison as Task H, not the older 64-label
+baseline in the task context. V3 has 43 field/action labels and 15 held observations;
+six exclusions and one context observation remain unscored. Main and joined are
+retained controls, not fresh executions. New uses the same frozen inputs and labels,
+current reader, summon glue, and explicit 170/228 ms virtual detector/reader costs.
+`T/final-provenance.json` verifies 22 final source hashes and four input/label comparisons.
+
+| Measure | Main | Joined | New |
+| --- | ---: | ---: | ---: |
+| V2 on time | 19 | 25 | 26 |
+| V2 late | 3 | 3 | 2 |
+| V2 missed | 44 | 38 | 40 |
+| V2 watcher placements | 44 | 37 | 37 |
+| V2 all prompts | 7 | 4 | 3 |
+| V2 wrong-name outcomes | 3 | 2 | 0 |
+| V2 wrong-zone outcomes | 2 | 3 | 3 |
+| V2 wrong-name flags | 4 | 3 | 1 |
+| V2 wrong-zone flags | 2 | 3 | 3 |
+| V2 hand-card placements | 3 | 0 | 0 |
+| V2 non-card phantoms | 2 | 0 | 0 |
+| V2 exact-slot Set observations / 6 | 1 | 3 | 3 |
+| V2 flips / 2 | 1 | 2 | 2 |
+| V2 correct/late removal matches | 6 | 6 | 6 |
+| V2 established sources / 12 | 8 | 8 | 8 |
+| V2 stale established sources | 3 | 1 | 0 |
+| V2 board source-clear median, s | 3.586 | 3.312 | 2.280 |
+| V2 board source-clear p95, s | 4.116 | 5.958 | 3.708 |
+| V2 placement median, s | 1.060 | 0.577 | 0.605 |
+| V2 placement p95, s | 5.630 | 11.322 | 12.180 |
+| V2 watcher errors | 0 | 0 | 0 |
+| V3 field/action on time | 4 | 4 | 3 |
+| V3 field/action late | 2 | 2 | 3 |
+| V3 field/action missed | 33 | 30 | 33 |
+| V3 wrong-name outcomes | 1 | 2 | 0 |
+| V3 wrong-zone outcomes | 3 | 5 | 4 |
+| V3 missed held observations | 15 | 15 | 15 |
+| V3 watcher placements | 18 | 18 | 19 |
+| V3 all prompts | 4 | 3 | 4 |
+| V3 hand/search previews as field | 2 | 2 | 2 |
+| V3 non-card phantoms | 1 | 0 | 0 |
+| V3 Extra Deck previews as field | 1 | 1 | 1 |
+| V3 token markers emitted as Sets | 2 | 2 | 2 |
+| V3 placement median, s | 2.523 | 2.431 | 3.851 |
+| V3 placement p95, s | 5.656 | 8.092 | 9.708 |
+| V3 watcher errors | 0 | 0 | 0 |
+| Cold false-box rejections / 48 | 31 historical | 36 | 36 |
+
+V2 correct+late matches remain 28. Two extra raw misses replace wrong-name GY outcomes;
+they are not lost correct matches. V3 correct+late matches remain six; one on-time card
+becomes late while waiting for hand release. Two wrong names and one wrong zone become
+misses. Outcome classes are exclusive; flags can overlap. A zero wrong-name outcome
+count therefore does not mean every matched name is correct.
+
+Source clearance has eight samples in new, seven in joined, and five in main. Four of
+the 12 physical lifts have no prior registered source and are excluded from stale and
+latency counts. Placement latency has 16 samples in joined and new, 11 in main.
+These are differing cohorts with nearest-rank p95, not paired speedup measurements.
+
+The false-box check rejects 36/48 and retains all 31 historical rejections, with none
+lost. The older 31/48 report used the earlier weak-outline pixel floor; joined HEAD
+already has the stricter floor. Task J does not change that admission filter.
+See `T/false-boxes.json` and `T/false-boxes-final.log`.
+
+### What changed and why
+
+`packages/vision/src/field-watcher.ts` now judges the last published source footprint
+separately from the outline following a lifted card. Three full sharp scans can clear
+that source when its own pixels are gone, even if a hand holds the card elsewhere or
+the lifted outline disappears. Actual hand coverage, intervening blur, motion, or the
+source's own appearance interrupts that evidence. Nearby skin alone does not cover
+the source. This removes the stale Lostzone Spirit source without associating it to
+the different Field Spell beside it under a shadow.
+
+An unrelated pending reader request no longer postpones an empty source check. A
+possible same-card request keeps its bounded wait. A known card returning to its own
+published spot after a long pickup can retain its ref; a different card cannot.
+Known-card pose/move callbacks also wait for rest and actual hand release.
+
+The hand-release branch used a default face-sample gap shorter than the CPU detector
+cadence. It now uses the same 1500 ms gap as the ordinary Set branch. A fresh release
+resets pre-release face evidence and face/back/question deadlines. No held quorum or
+elapsed hold timeout can become release evidence.
+
+`packages/vision/src/field-motion.ts` adds opposite-edge grip evidence. Some detector
+boxes exclude fingers, so their inside-crop contact is zero while a card is held.
+New connected skin on opposing outside edges establishes a grip. The initial frame
+suppresses unchanged mat print; illumination-only changes are excluded. Once gripped,
+one remaining edge keeps it held until a fresh matched frame clears the edges. This
+does not time out or use the resting-card shortcut. A pre-grip diagnostic placed held
+Ashuna at 41.434 s with touched=0 and skinNear=0.1434. The final run suppresses it.
+See `T/grip-pixel-probe.json` and the rejected `T/gate-v3/safety-review.json`.
+
+Physical review covers every final placement, directly or by a strict transfer from
+a reviewed episode with matching identity, face, slot, pose, time and position. V2 has
+37 real-card episodes, zero hand cards and zero non-card phantoms. V3 has no added held
+card or mat phantom, but retains the two flat hand/search previews and one Extra Deck
+preview already present in joined. Its two token markers emitted as Sets are separate
+role errors. These categories do not establish that the virtual board equals the paper
+board. See `T/release-safe-v2/safety-review.json` and
+`T/release-safe-v3/safety-review.json` for every episode and transfer bound.
+
+### Late tail and rejected shortcuts
+
+The joined 11.322 s placement p95 comes from the late weak Jimothy S4 Set. New still
+waits for the same physical episode: rest label 33.5 s, placement 45.680 s, delay
+12.180 s. Its trace shows a weak crop without positive back evidence, contact at
+33.832 s, missing outlines from 34.662 through 37.194 s, release samples at 38.064
+and 38.894 s, then another missed outline at 42.320 s. A fresh release/face sequence
+after that miss adds the final scan. This is not reader inference time; no naming
+request is needed for the Set. `T/tail-evidence.json` contains the exact gates.
+
+Local back confirmation cut p95 to 5.466 s but placed two red hand piles in Solemn
+at 28.104 and 35.516 s. Keeping pre-release face quorum independently admitted the
+same two hand piles. Both changes were removed. A rest-retention experiment also
+included the unsafe face carry, so it does not isolate rest retention's safety.
+No unproved shortcut remains. `T/tail-premise.json` records these failed premises.
+The placement-tail target remains open.
+
+### Remaining misses and limits
+
+[Every miss and its cause](../../data/replay/sim-j-20261114/misses-final.md) lists all
+38 joined V2 misses, all 40 final V2 misses, and all 48 final V3 misses (33 field/action,
+15 held). It links exact run logs and per-label traces. Nearby-track assignment uses
+approximate label points; ambiguous detector/association causes are marked unresolved,
+not reported as a proven physical identity. The machine-readable list is
+`T/misses-final.json`.
+
+Remaining blockers include low-match crops, clipped/tilted/overlapping outlines,
+unclean backs, interrupted release evidence, unregistered sources, and hand/field
+role ambiguity. Oshea's sure Chundra read still lands on a dismissed ref. Retro's
+correct Noir watcher output waits five seconds in `board.stack-wait` and never becomes
+a proposal before the clip ends. Token consumption, attachment, Xyz/Link/Synchro
+material relations and banish ownership remain incomplete. The caller's 800 ms
+departure wait and destination default also remain; clearing a source does not prove
+a correct transfer. Web glue/UI source is outside this task's write boundary.
+
+The v3 prompt count is four against a cap of three: two TopTier uncertain reads and
+two King uncertain reads. The extra King Noir question is a real released but unread
+card. Suppressing that question to meet a count would not solve the identity failure.
+The existing v3 preview errors also fail the literal zero-hand-card rule. Therefore
+the full Task J acceptance checks fail; `T/comparison-final.json` has `accepted: false`.
+
+### Files, tests and replay receipts
+
+Product files changed: `packages/vision/src/field-watcher.ts` and
+`packages/vision/src/field-motion.ts`. Tests changed:
+
+- `packages/vision/src/board.test.ts` (the arm fixture now explicitly models coverage).
+- `packages/web/tests/field-removal.test.ts`.
+- `packages/web/tests/remote-hand-contact.test.ts`.
+- `packages/web/tests/remote-skin-contact.test.ts`.
+
+The source, shadow, hand-cover, blur interruption, different-card, long-return,
+slow-release, deadline reset, and grip lifecycle cases have failing-before/passing-after
+receipts under `T`. Final focused verification passes **73 tests in nine Vitest files**
+and **154/154 board/face/pile tests**. Scoped TypeScript checking passes. Receipts:
+`T/vitest-grip2.log`, `T/watcher-grip2.log`, `T/typecheck-grip2.log`.
+No package-wide or live-camera result is claimed.
+
+The same nine Vitest files listed in Task H were run with `--maxWorkers=1`. The native
+test command added `--test-concurrency=1`; scoped TypeScript uses
+`T/tsconfig-scoped.json`. Final replay commands were:
+
+```sh
+export PATH=/Users/imranqureshi/.nvm/versions/node/v22.23.4/bin:$PATH
+T=data/replay/sim-j-20261114
+J=data/replay/sim-combined-20261114
+node "$T/scripts/sim-j-v2x-run.mjs" baseline --source combined --reader current \
+  --glue summons --threads 1 --detector-ms 170 --reader-ms 228 \
+  --stage-times "$T/stage-times.json" --inputs "$J/complete-v2/inputs.json" \
+  --labels "$J/complete-v2/label-inputs.json" --out "$T/release-safe-v2"
+node "$T/scripts/sim-j-v3-run.mjs" baseline --source combined --reader current \
+  --glue summons --threads 1 --detector-ms 170 --reader-ms 228 \
+  --stage-times "$T/stage-times.json" --inputs "$J/complete-v3/inputs.json" \
+  --labels "$J/complete-v3/label-inputs.json" --out "$T/release-safe-v3"
+node "$T/scripts/sim-j-v3-reviewed.mjs" "$T/release-safe-v3"
+python3 "$T/scripts/sim-j-report.py"
+python3 "$T/scripts/sim-j-miss-report.py"
+```
+
+Both final replays exited zero with zero watcher errors. At most two replay parents
+ran concurrently. Only `sim-j-` script copies were edited; evaluation scripts and
+other worktrees remained read only. No clip media was copied or saved outside eval
+data, and no downloads, training, commits, pushes, PRs or deployments occurred.

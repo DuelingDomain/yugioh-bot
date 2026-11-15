@@ -7,7 +7,8 @@ export type FieldFrame=ImageBitmap|ImageData;
 /** Shadow evidence: share of the frame darker than its recent background with the same chromaticity, and the share that changed since the last frame. */
 export interface FieldShadow { /** Mean RGB per grid cell (gx x gy x 3) of this frame. */ means?:Float32Array; share:number; changed:number; /** Per-cell flags (row-major, gx x gy) of shadow cells that turned on or off this frame: the watcher holds removals only where a shadow moves. */ moved?:Uint8Array; gx?:number; gy?:number }
 export interface FieldSceneChange { /** Grid cells that changed since the last sample. */ moving:number; /** Grid cells that changed since mark(). */ sinceMark:number; /** The detector saw this frame in a full pass. */ mark():void }
-export interface FieldAnalysis { /** Noise-proof change of the scene, for the detector budget; absent in injected analyzers. */ scene?:FieldSceneChange; motionRegion?:FractionalBox; shadow?:FieldShadow; /** Whole-frame sharpness (Laplacian variance of the downsampled grey frame); the watcher compares it with its recent baseline. */ frameSharpness?:number; crop?(card:DetectedQuad):RGBAImage|undefined; motion(card:DetectedQuad):number; occluded?(card:DetectedQuad):boolean; touched?(card:DetectedQuad):number; /** Share of the thin ring just outside the card (12% of its size) covered by skin connected to the crop edge (a hand or arm touching the card's edge). */ skinNear?(card:DetectedQuad):number; motionOutside?(card:DetectedQuad):number; sharpness(card:DetectedQuad):number; halo?(card:DetectedQuad):number[]; background?(card:DetectedQuad):number[]|undefined; appearance?(card:DetectedQuad):number[] }
+export type FieldEdgeGrip='clear'|'near'|'grip';
+export interface FieldAnalysis { /** Noise-proof change of the scene, for the detector budget; absent in injected analyzers. */ scene?:FieldSceneChange; motionRegion?:FractionalBox; shadow?:FieldShadow; /** Whole-frame sharpness (Laplacian variance of the downsampled grey frame); the watcher compares it with its recent baseline. */ frameSharpness?:number; crop?(card:DetectedQuad):RGBAImage|undefined; motion(card:DetectedQuad):number; occluded?(card:DetectedQuad):boolean; touched?(card:DetectedQuad):number; /** Share of the thin ring just outside the card (12% of its size) covered by skin connected to the crop edge (a hand or arm touching the card's edge). */ skinNear?(card:DetectedQuad):number; /** New skin on opposite outside edges, relative to the initial mat frame; the detector may crop the fingers out. */ edgeGrip?(card:DetectedQuad):FieldEdgeGrip; motionOutside?(card:DetectedQuad):number; sharpness(card:DetectedQuad):number; halo?(card:DetectedQuad):number[]; background?(card:DetectedQuad):number[]|undefined; appearance?(card:DetectedQuad):number[] }
 export function closeFieldFrame(frame:FieldFrame) { if('close' in frame)frame.close(); }
 export async function cloneFieldFrame(frame:FieldFrame):Promise<FieldFrame> {
   return 'close' in frame?createImageBitmap(frame):new ImageData(new Uint8ClampedArray(frame.data),frame.width,frame.height);
@@ -16,11 +17,11 @@ export async function cloneFieldFrame(frame:FieldFrame):Promise<FieldFrame> {
  *  Live frames are ImageBitmaps and get drawn at 320 px wide; a plain RGBA frame is used as is unless `downsampleRGBA` is set
  *  (clip replay: the saved frames are RGBA at up to 960 px, and motion must be measured at the live size). `crop()` always reads the full frame. */
 export function createFieldAnalyzer(options:{downsampleRGBA?:boolean}={}) {
-  let previous:RGBAImage|undefined,faceCanvas:OffscreenCanvas|undefined;
+  let previous:RGBAImage|undefined,skinReference:RGBAImage|undefined,faceCanvas:OffscreenCanvas|undefined;
   let shadows=createShadowBaseline();
   let lastMeans:Float32Array|undefined,markMeans:Float32Array|undefined;
   /** A camera lock or exposure change: learn the shadow baseline and the motion reference again. */
-  const reset=()=>{shadows=createShadowBaseline();previous=undefined;lastMeans=undefined;markMeans=undefined;};
+  const reset=()=>{shadows=createShadowBaseline();previous=undefined;skinReference=undefined;lastMeans=undefined;markMeans=undefined;};
   return Object.assign((frame:FieldFrame):FieldAnalysis=>{
     let image:RGBAImage;
     if(!('close' in frame))image=options.downsampleRGBA&&frame.width>320?resizeRGBA(frame,320,Math.max(3,Math.round(frame.height*320/frame.width))):frame;
@@ -29,6 +30,8 @@ export function createFieldAnalyzer(options:{downsampleRGBA?:boolean}={}) {
       const canvas=new OffscreenCanvas(width,height),context=canvas.getContext('2d',{willReadFrequently:true})!;
       context.drawImage(frame,0,0,width,height);image=context.getImageData(0,0,width,height);
     }
+    const reference=skinReference?.width===image.width&&skinReference.height===image.height?skinReference:undefined;
+    if(!reference)skinReference={width:image.width,height:image.height,data:new Uint8ClampedArray(image.data)};
     const before=previous;previous=image;
     let motionRegion:FractionalBox|undefined;
     if(before&&before.width===image.width&&before.height===image.height){
@@ -42,7 +45,7 @@ export function createFieldAnalyzer(options:{downsampleRGBA?:boolean}={}) {
       if(changed>=4)motionRegion={x:left/image.width,y:top/image.height,w:(Math.min(right,image.width)-left)/image.width,h:(Math.min(bottom,image.height)-top)/image.height};
     }
     const crop=(card:DetectedQuad,padding:number)=>{const b=boundsOf(card.quad);return {left:Math.max(1,Math.floor((b.x-b.w*padding)*image.width)),top:Math.max(1,Math.floor((b.y-b.h*padding)*image.height)),right:Math.min(image.width-1,Math.ceil((b.x+b.w*(1+padding))*image.width)),bottom:Math.min(image.height-1,Math.ceil((b.y+b.h*(1+padding))*image.height))};};
-    const occlusions=new WeakMap<DetectedQuad,number>(),nearSkin=new WeakMap<DetectedQuad,number>();
+    const occlusions=new WeakMap<DetectedQuad,number>(),nearSkin=new WeakMap<DetectedQuad,number>(),grips=new WeakMap<DetectedQuad,FieldEdgeGrip>();
     const shadow=shadows(image),means=shadow.means,lastScene=lastMeans,markScene=markMeans;lastMeans=means;
     const scene:FieldSceneChange|undefined=means&&{moving:changedCells(means,lastScene),sinceMark:changedCells(means,markScene),mark(){markMeans=means;}};
     const analysis:FieldAnalysis={
@@ -111,6 +114,7 @@ export function createFieldAnalyzer(options:{downsampleRGBA?:boolean}={}) {
       },
       occluded(card) {return analysis.touched!(card)>.12;},
       skinNear(card) {if(!nearSkin.has(card))analysis.touched!(card);return nearSkin.get(card)??0;},
+      edgeGrip(card) {if(!grips.has(card))analysis.touched!(card);return grips.get(card)??'clear';},
       /** Fraction of the card covered by skin connected to the crop edge (a hand). */
       touched(card) {
         const cached=occlusions.get(card);if(cached!==undefined)return cached;
@@ -119,6 +123,8 @@ export function createFieldAnalyzer(options:{downsampleRGBA?:boolean}={}) {
         const b=crop(card,.3),box=boundsOf(card.quad),step=2,w=Math.ceil((b.right-b.left)/step),h=Math.ceil((b.bottom-b.top)/step);
         if(w<=0||h<=0)return 0;
         const mask=new Uint8Array(w*h),inside=new Uint8Array(w*h),edge=new Uint8Array(w*h),queue:number[]=[];
+        const sides=new Int8Array(w*h).fill(-1),newSkin=new Uint8Array(w*h),sideTotal=[0,0,0,0],sideSkin=[0,0,0,0];
+        const corners=card.quad.map(p=>({x:p.x*image.width,y:p.y*image.height}));
         let total=0,covered=0,near=0;
         for(let y=0;y<h;y++)for(let x=0;x<w;x++){
           const px=b.left+x*step,py=b.top+y*step,i=(py*image.width+px)*4,index=y*w+x;
@@ -129,10 +135,25 @@ export function createFieldAnalyzer(options:{downsampleRGBA?:boolean}={}) {
           inside[index]=Number(signs.every(v=>v>=0)||signs.every(v=>v<=0));total+=inside[index];
           // The edge ring: just outside the card (12% of its size), not the neighbouring zone (an orange card frame there is not a hand).
           const fx=px/image.width,fy=py/image.height;edge[index]=Number(!inside[index]&&fx>=box.x-box.w*.12&&fx<=box.x+box.w*1.12&&fy>=box.y-box.h*.12&&fy<=box.y+box.h*1.12);
+          if(edge[index]){
+            let best=Infinity,side=-1;
+            for(let j=0;j<4;j++){
+              const a=corners[j],z=corners[(j+1)%4],dx=z.x-a.x,dy=z.y-a.y;
+              const t=Math.max(0,Math.min(1,((px-a.x)*dx+(py-a.y)*dy)/Math.max(1e-9,dx*dx+dy*dy)));
+              const d=(px-a.x-t*dx)**2+(py-a.y-t*dy)**2;
+              if(d<best){best=d;side=j;}
+            }
+            sides[index]=side;sideTotal[side]++;
+            if(mask[index]&&reference){
+              const old=reference.data,nowSum=Math.max(1,r+g+blue),oldSum=Math.max(1,old[i]+old[i+1]+old[i+2]);
+              newSkin[index]=Number(Math.max(Math.abs(r-old[i]),Math.abs(g-old[i+1]),Math.abs(blue-old[i+2]))>SKIN_CONNECT_RGB&&
+                Math.max(Math.abs(r/nowSum-old[i]/oldSum),Math.abs(g/nowSum-old[i+1]/oldSum),Math.abs(blue/nowSum-old[i+2]/oldSum))>.04);
+            }
+          }
           if(mask[index]&&(x===0||y===0||x===w-1||y===h-1)){mask[index]=2;queue.push(index);}
         }
         for(let head=0;head<queue.length;head++){
-          const index=queue[head],x=index%w,y=Math.floor(index/w);covered+=inside[index];near+=edge[index];
+          const index=queue[head],x=index%w,y=Math.floor(index/w);covered+=inside[index];near+=edge[index];if(sides[index]>=0&&newSkin[index])sideSkin[sides[index]]++;
           for(const next of [x>0?index-1:-1,x+1<w?index+1:-1,y>0?index-w:-1,y+1<h?index+w:-1])
             if(next>=0&&mask[next]===1){
               // A skin-coloured print touching a hand is not part of that hand. Keep smooth skin/shadow
@@ -144,6 +165,8 @@ export function createFieldAnalyzer(options:{downsampleRGBA?:boolean}={}) {
             }
         }
         let ring=0;for(let i=0;i<w*h;i++)ring+=edge[i];
+        const heldEdge=(side:number)=>sideSkin[side]>=3&&sideTotal[side]>0&&sideSkin[side]/sideTotal[side]>=.06;
+        grips.set(card,heldEdge(0)&&heldEdge(2)||heldEdge(1)&&heldEdge(3)?'grip':sideSkin.some(n=>n>=3)?'near':'clear');
         const result=total>0?covered/total:0;occlusions.set(card,result);nearSkin.set(card,ring>0?near/ring:0);return result;
       },
       sharpness(card) {
