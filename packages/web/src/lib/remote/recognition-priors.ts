@@ -58,6 +58,6 @@ export function recognitionPriorsFor(room: RemoteRoom, seat: number): Priors {
     for (const id of ids) { seen.add(id); recent.push(id); }
   }
   const deck=room.seats.find(s=>s.seat===seat)?.deck?.deck;
-  return { decklist: deck?[...deck.main,...deck.extra,...deck.side]:[], seen: [...seen].slice(-512),
+  return { decklist: deck?[...deck.main,...deck.extra,...deck.side,...(deck.deckMaster?[deck.deckMaster]:[])]:[], seen: [...seen].slice(-512),
     context: [...new Set([...board, ...recent.slice(-24), ...opposing.slice(-16)])].slice(0, 64), scope: scopeFor(room, seat), forbidden: forbiddenFor(room) };
 }

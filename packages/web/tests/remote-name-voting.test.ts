@@ -6,7 +6,7 @@ import type {DetectedQuad,RecognitionResult} from '../../vision/src/types';
 const watchers:ReturnType<typeof createFieldWatcher>[]=[];
 afterEach(()=>{for(const watcher of watchers.splice(0))watcher.dispose();vi.useRealTimers();});
 
-function rig(firstTier:RecognitionResult['tier']='low match',firstMs=228,nameVoting=true) {
+function rig(firstTier:RecognitionResult['tier']='low match',firstMs=228,nameVoting=true,fuseAfterRead=2) {
   vi.useFakeTimers();
   let at=0,hand=false,release:(()=>void)|undefined;
   const ready=new Promise<void>(done=>{release=done;});
@@ -24,7 +24,7 @@ function rig(firstTier:RecognitionResult['tier']='low match',firstMs=228,nameVot
     recognizer:{separateDetector:true,detectCards:async()=>[card],recognize:async frames=>{
       reads.push(frames.length);at+=reads.length===1?firstMs:228*frames.length;
       if(reads.length===1)await ready;
-      const tier=frames.length===1?firstTier:'sure';
+      const tier=frames.length===1||reads.length<fuseAfterRead?firstTier:'sure';
       return {candidates:[{cardId:'A',score:tier==='low match'?.65:.95}],tier,quality:{detected:true,cornersFound:true,framesUsed:frames.length,selectedFrameIndices:[0],sharpness:20,fallback:false},timingsMs:{sharpness:0,detect:0,warp:0,embed:0,search:0,total:228},backend:'wasm'};
     }},
     analyze:()=>({motion:()=>0,sharpness:()=>20,crop:()=>crop,appearance:()=>Array(12).fill(.6),halo:()=>Array(12).fill(.8),touched:()=>hand?.5:0,occluded:()=>hand}),
@@ -59,4 +59,15 @@ it('hand contact during the window cannot feed a vote or place a card',async()=>
   await vi.advanceTimersByTimeAsync(420);await r.tick();
   expect(r.reads.every(frames=>frames===1)).toBe(true);
   expect(r.events.some(e=>e.type==='placed')).toBe(false);
+});
+
+it('an unanswered resting card feeds fresh background frames into the existing voting mean',async()=>{
+ const r=rig('low match',228,true,4);await r.first();await r.tick();await r.tick();await r.tick();
+ await vi.advanceTimersByTimeAsync(420);await r.tick();await r.tick();
+ expect(r.events.filter(e=>e.type==='prompt')).toHaveLength(1);
+ for(let i=0;i<25&&r.reads.length<3;i++)await r.tick();
+ await r.tick();await r.tick();await r.tick();await vi.advanceTimersByTimeAsync(420);await r.tick();await r.tick();
+ expect(r.reads).toEqual([1,3,1,3]);
+ expect(r.events.filter(e=>e.type==='placed'&&e.track.cardId==='A')).toHaveLength(1);
+ expect(r.events.filter(e=>e.type==='prompt')).toHaveLength(1);
 });

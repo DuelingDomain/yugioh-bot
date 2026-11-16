@@ -11,11 +11,12 @@ function ownTwins(room: RemoteRoom, seat: number) {
   if (room.status !== 'active' || room.state.ended || room.state.match.phase !== 'duel' || room.state.seats[seat]?.eliminated || !(room.solo || seat === room.mySeat)) throw new Error('You can only edit your own active field.');
   return room.state.seats[seat].twin;
 }
-export type ZoneCardAction = Extract<RemoteActionProposal, { type: 'twin.flip' | 'twin.detach' }>;
+export type ZoneCardAction = Extract<RemoteActionProposal, { type: 'twin.flip' | 'twin.detach' | 'card.identified' }>;
 /** Direct zone commands must still refer to the card that occupies that cell at save time. */
 export function zoneCardAction(room: RemoteRoom, key: ZoneKey, action: ZoneCardAction): ZoneCardAction {
   const twins = ownTwins(room, action.seat);
   if (cellsFor(twins, hasExtraZones(room.format?.id))[key]?.card?.ref !== action.cardRef) throw new Error('This zone changed. Open it again.');
+  if(action.type==='card.identified'&&!twins.find(c=>c.ref===action.cardRef)?.nameCandidates?.some(c=>c.cardId===action.cardId))throw new Error('The name changed. Open this zone again.');
   return action;
 }
 /** Re-run inside the room transaction: a picker never displaces a card that arrived while it was open. */

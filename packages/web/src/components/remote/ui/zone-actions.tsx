@@ -72,6 +72,10 @@ export function ZoneActions({ room, seat, zone, at, deck, targetRef, startPicker
       <button type="button" className={`${s.btn} ${s.q} ${s.zpClose}`} disabled={busy} onClick={onClose}>Close</button>
     </header>
     <div className={s.zmBody}>
+      {card?.faceUp&&card.nameCandidates?<section aria-label="Unsure name" className={s.zaList}>
+        <p className={s.zpNote}>Unsure · choose the card name</p>
+        {card.nameCandidates.map(candidate=><Row key={candidate.cardId} icon="check" disabled={busy} onClick={()=>action({type:'card.identified',actorSeat,seat,cardRef:card.ref,cardId:candidate.cardId,name:candidate.name,source:'click'})}>{candidate.name}</Row>)}
+      </section>:null}
       <div className={s.zaList}>
         {card ? <>
           {!card.token ? <Row icon="layers" next primary data-autofocus="" disabled={busy} onClick={() => { setTopRef(card.ref); setMode('top'); }}>Put a card on top</Row> : null}

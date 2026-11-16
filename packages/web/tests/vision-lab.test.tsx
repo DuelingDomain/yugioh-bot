@@ -1221,3 +1221,42 @@ it('an occupied zone gets one Changed here cue, opens manual actions, clears on 
   await fixture.emit({type:'placed',result:{...result,tier:'sure',candidates:[{cardId:'89631139',score:.99}]}});await waitFor(()=>expect(fixture.room().state.seats[0].twin.some((c:any)=>c.ref==='normal-placement'&&c.slot===2)).toBe(true));
  }finally{stop();fixture.dispose();field.remove();}
 },20_000);
+
+it('a sure correction of an unsure name is one identification, even when the new card type prefers another row',async()=>{
+ const choices=[{cardId:41420027,name:'Solemn Judgment',score:.72},{cardId:46986414,name:'Dark Magician',score:.58}];
+ const old={ref:'physical-typed',zone:'spell-trap',slot:4,faceUp:true,position:'attack',cardId:41420027,name:'Solemn Judgment',nameCandidates:choices};
+ const fixture=await typedWatcherFixture(cards[0],'S4',[old]);
+ try{
+  await fixture.emit({result:{...result,tier:'sure',candidates:[{cardId:cards[0].cardId,score:.99}]}});
+  await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());
+  expect(fixture.post.mock.calls.map(([proposal])=>proposal.type)).toEqual(['card.identified']);
+  expect(fixture.room().state.seats[0].twin).toEqual([expect.objectContaining({ref:old.ref,zone:'spell-trap',slot:4,cardId:46986414})]);
+  expect(fixture.room().state.seats[0].twin[0].nameCandidates).toBeUndefined();
+  await fixture.action({type:'undo',actorSeat:0,targetActionId:fixture.room().state.undo.actionId});
+  expect(fixture.room().state.seats[0].twin[0]).toMatchObject({ref:old.ref,cardId:41420027,nameCandidates:choices});
+ }finally{fixture.dispose();}
+});
+
+it('saves the watcher tentative candidates on the real twin through the owner action queue',async()=>{
+ const fixture=await typedWatcherFixture(cards[0],'M4');
+ try{
+  Object.assign(fixture.track,{bestMatch:true,nameCandidates:[{cardId:cards[0].cardId,score:.72},{cardId:cards[1].cardId,score:.55}]});
+  await fixture.emit({result:{...result,tier:'low match'}});
+  await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());
+  expect(fixture.post.mock.calls.map(([proposal])=>proposal.type)).toEqual(['twin.place']);
+  expect(fixture.room().state.seats[0].twin[0].nameCandidates).toEqual([{cardId:46986414,name:'Dark Magician',score:.72},{cardId:89631139,name:'Blue-Eyes White Dragon',score:.55}]);
+ }finally{fixture.dispose();}
+});
+
+it('a sure automatic placement withdraws an unanswered name question without a tap',async()=>{
+ const fixture=await typedWatcherFixture(cards[0],'M4',[],'prompt');
+ try{
+  await fixture.emit({type:'prompt',reason:'uncertain',result:{...result,tier:'low match'}});
+  await screen.findByTestId('field-watcher-prompt');
+  Object.assign(fixture.track,{state:'identified',cardId:cards[0].cardId});
+  await fixture.emit({type:'placed',result:{...result,tier:'sure'}});
+  await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());
+  expect(screen.queryByTestId('field-watcher-prompt')).toBeNull();
+  expect(fixture.post.mock.calls.map(([proposal])=>proposal.type)).toEqual(['twin.place']);
+ }finally{fixture.dispose();}
+});
