@@ -8,7 +8,7 @@ import { engineRankingStats } from "./bridge-engine-ranking.js";
 import { bridgeLegal } from "./bridge-engine.js";
 import { CAPABILITY_KEYS, REASON_CAPS, type ArchetypeBridge, type BridgeGraphData, type CardCapability } from "./bridge-types.js";
 
-export const BRIDGE_ARTIFACT_MANIFEST_SHA256 = "65bf2e4ba13c9f91c94c6a152d48705e34b53c5743577cb614f93135699c1e52";
+export const BRIDGE_ARTIFACT_MANIFEST_SHA256 = "55d1adabcf5e6fc97d268bcd93a7b5a33784fc442e717082af6e95c96231cbf6";
 export interface BridgeArtifactFile { path: string; records: number; bytes: number; sha256: string; gzipBytes: number; gzipSha256: string }
 export interface BridgeManifest {
   schema_version: 1;
