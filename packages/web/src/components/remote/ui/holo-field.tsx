@@ -270,6 +270,7 @@ export function HoloField({ seat, name, twin, info, extraZones, facing, rv, onRv
           desc = cardName(card, cardInfo) + (card.token ? " (token)" : "") + (hasBattleStats(cardInfo) || card.token ? (defense ? ", defense position" : ", attack position") : "") + (stats ? `, ${statsText(stats)}` : "");
           inner = <><CardFace card={card} info={cardInfo} stats="none" />{stats ? <StatPlate stats={stats} turned={rotated} /> : null}</>; }
         else if (trapHolder) inner = <div className={z.held} data-testid="trap-zone-held"><small>{zoneLabel(key)} · TRAP MONSTER</small><b>{nameOf(trapHolder)}</b></div>;
+        if (card?.faceUp&&card.nameCandidates) desc += '. Unsure card name';
         if (card && zoneCheck) desc += `. Check zone: ${zoneCheck}`;
         if (stacked_) desc += `. ${under} material${under === 1 ? "" : "s"} under it`;
         if (card?.equippedTo) desc += `. Equipped to ${target ? nameOf(target) : "a monster"}`;
@@ -277,6 +278,7 @@ export function HoloField({ seat, name, twin, info, extraZones, facing, rv, onRv
         return <div key={key} className={classes} style={offMat?{opacity:.35}:undefined} data-off-mat={offMat?'on':undefined} role="button" tabIndex={rv === key ? 0 : -1} data-z={key} data-zone={key} data-seat={seat} data-ref={card && !pile ? card.ref : undefined} data-up={card?.faceUp ? "1" : "0"} data-def={defense ? "1" : "0"} data-ghost={ghost ? "on" : undefined} data-row={emzCell || key === "ban" ? undefined : ZK.indexOf(key as (typeof ZK)[number]) < 7 ? 1 : 2}
           title={desc} aria-label={`${name}, ${ZN[key]}${extraZones && isPendulumCell(key) ? " (Pendulum zone)" : ""}: ${desc}`} onFocus={() => onRv(key)} onKeyDown={event => move(event, key)} onClick={event => { if (ghost) { onActivate(key,undefined); return; } if (carried) dropCarried(key); else activate(key, card, event.currentTarget); }} onPointerDown={card ? event => begin(event, card) : undefined}>
           {inner}
+          {card?.faceUp&&card.nameCandidates?<span className={s.originLabel} data-testid="unsure-name" title="Unsure card name. Tap this card to choose.">Unsure</span>:null}
           {zoneCheck ? <span className={`${z.check} ${down ? z.checkHigh : ""}`} data-testid="zone-check" title={`${zoneCheck} Click the card for details.`}><span aria-hidden="true" className={z.checkIcon}>?</span><span className={z.checkText}>Check zone?</span></span> : null}
           {card?.equippedTo ? <span className={z.link} data-testid="equip-link" title={`Equipped to ${target ? nameOf(target) : "a monster"}`}>Equip → {target ? nameOf(target) : "monster"}</span>
             : equipped.length ? <span className={z.link} data-testid="equip-link" title={`Equipped with ${equipped.map(nameOf).join(", ")}`}>+{equipped.length} Equip</span> : null}

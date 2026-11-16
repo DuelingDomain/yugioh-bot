@@ -12,11 +12,14 @@ export const remoteSummonKinds = ["xyz", "synchro", "link", "fusion"] as const;
 export type RemoteSummonKind = (typeof remoteSummonKinds)[number];
 const summon = z.strictObject({ kind: z.enum(remoteSummonKinds), materialRefs: z.array(id).min(1).max(10)
   .refine(refs => new Set(refs).size === refs.length, "Duplicate material") });
+const nameCandidates = z.array(z.strictObject({cardId,name:z.string().trim().min(1).max(200),score:z.number().min(-1).max(1)})).min(2).max(3)
+  .refine(list=>new Set(list.map(c=>c.cardId)).size===list.length,'Duplicate name candidate');
 const sighting = {
   cardId: cardId.optional(), passcode: cardId.optional(), zone: zone.optional(),
   name: z.string().trim().min(1).max(200).optional(),
   slot: slot.optional(), cardRef: id.optional(),
   bestMatch: z.boolean().optional(),
+  nameCandidates: nameCandidates.nullable().optional(),
 };
 export const twinCardSchema = z.strictObject({
   ref: id, cardId: cardId.optional(), passcode: cardId.optional(),
@@ -24,6 +27,7 @@ export const twinCardSchema = z.strictObject({
   name: z.string().trim().min(1).max(200).optional(), race: z.string().trim().min(1).max(40).optional(), slot: slot.optional(),
   faceUp: z.boolean().default(true), position: z.enum(["attack", "defense"]).default("attack"),
   bestMatch: z.boolean().optional(),
+  nameCandidates: nameCandidates.optional(),
   /** A token: table state with no physical card. Its name is the token name; ATK/DEF are the values shown to everyone. `artId` is the catalog card whose art it borrows. */
   token: z.strictObject({ atk: z.number().int().min(0).max(999999), def: z.number().int().min(0).max(999999), artId: cardId.optional() }).optional(),
 });

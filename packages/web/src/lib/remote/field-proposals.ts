@@ -55,11 +55,11 @@ export function fieldFaceProposal(card:Pick<TwinCard,'ref'|'zone'|'faceUp'|'mate
   return identity?{...base,faceUp:true,position:track.position,cardId:identity.cardId,name:identity.name,...(track.bestMatch?{bestMatch:true}:{})}:undefined;
 }
 /** A new placement records the sighting atomically, so one Undo removes both. */
-export function fieldPlacementProposals({track,seat,cardId,name,existing=false,fromRef,copyProof,summon}:{track:FieldTrack;seat:number;cardId?:number;name?:string;existing?:boolean;fromRef?:string;copyProof?:{simultaneousQuads:number;at:number};summon?:{kind:RemoteSummonKind;materialRefs:string[]}}):RemoteActionProposal[] {
+export function fieldPlacementProposals({track,seat,cardId,name,existing=false,fromRef,copyProof,summon,nameCandidates}:{track:FieldTrack;seat:number;cardId?:number;name?:string;existing?:boolean;nameCandidates?:TwinCard['nameCandidates']|null;fromRef?:string;copyProof?:{simultaneousQuads:number;at:number};summon?:{kind:RemoteSummonKind;materialRefs:string[]}}):RemoteActionProposal[] {
   const location=fieldZoneLocation(track.zone),faceUp=!track.faceDown;
   if(['DECK','EXTRA'].includes(track.zone))return [];
-  if(existing)return faceUp&&cardId?[{type:'card.identified',actorSeat:seat,seat,cardId,name,source:'auto',cardRef:track.id,...(track.bestMatch?{bestMatch:true}:{}),...location}]:[];
-  return [{type:'twin.place',source:'auto',...(fromRef?{fromRef}:{}),actorSeat:seat,seat,zone:location.zone,card:{ref:track.id,...(faceUp?{cardId,name,...(track.bestMatch?{bestMatch:true}:{})}:{}),...(location.slot?{slot:location.slot}:{}),faceUp,position:fieldTwinPosition(track)},...(copyProof?{copyProof}:{}),...(summon?{summon}:{})}];
+  if(existing)return faceUp&&cardId?[{type:'card.identified',actorSeat:seat,seat,cardId,name,source:'auto',cardRef:track.id,...(nameCandidates!==undefined?{nameCandidates}:{}),bestMatch:!!track.bestMatch,...location}]:[];
+  return [{type:'twin.place',source:'auto',...(fromRef?{fromRef}:{}),actorSeat:seat,seat,zone:location.zone,card:{ref:track.id,...(nameCandidates?{nameCandidates}:{}),...(faceUp?{cardId,name,...(track.bestMatch?{bestMatch:true}:{})}:{}),...(location.slot?{slot:location.slot}:{}),faceUp,position:fieldTwinPosition(track)},...(copyProof?{copyProof}:{}),...(summon?{summon}:{})}];
 }
 
 /** A clear lift leaves its public zone once, retaining the physical ref privately. */
