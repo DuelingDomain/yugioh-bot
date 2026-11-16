@@ -283,6 +283,7 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
     case "twin.merge": ownField(action.seat); break;
     case "twin.place": {
       const s = ownField(action.seat); validZone(action.zone);
+      if(action.card.nameCandidates)remoteAssert(action.source==='auto'&&action.card.faceUp&&remoteFieldZone(action.zone)&&!action.card.token&&action.card.nameCandidates[0]?.cardId===(action.card.cardId??action.card.passcode),'Unsure names require a named public field placement',409);
       if (action.card.token) {
         const token = action.card;
         remoteAssert(action.source !== "auto" && action.zone === "monster" && token.slot !== undefined && token.slot >= 1 && token.slot <= 5 && token.faceUp && !token.cardId && !token.passcode,
@@ -375,6 +376,7 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
         if(action.position!==undefined)card.position=action.position;
         if(action.faceUp&&action.cardId){remoteAssert(remoteFieldZone(card.zone)||['graveyard','banished','hand-reveal'].includes(card.zone),'Reveal identity requires a public card zone',409);deckAction={type:'card.identified',idempotencyKey:action.idempotencyKey,actorSeat:action.actorSeat,seat:action.seat,at:action.at,cardRef:card.ref,cardId:action.cardId,name:action.name,bestMatch:action.bestMatch,zone:card.zone,slot:card.slot,source:action.source??'click'};}
       }
+      if(!card.faceUp)delete card.nameCandidates;
       if (action.type === "twin.remove") s.twin = s.twin.filter(c => c.ref !== action.cardRef);
       // A controlled card that leaves the field goes to its owner's side (their Graveyard, hand, Deck…).
       if (action.type !== "twin.remove" && card.ownerSeat !== undefined && !FIELD_ZONES.has(card.zone)) returnToOwner(next.seats, s, card);
@@ -406,7 +408,7 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
         const kept: NonNullable<TwinCard["ownerIdentity"]> = {};
         for (const key of ["cardId", "passcode", "name", "race"] as const) if (card[key] !== undefined) (kept as Record<string, unknown>)[key] = card[key];
         if (Object.keys(kept).length && !card.ownerIdentity && owner !== to.seat) card.ownerIdentity = kept;
-        for (const key of ["cardId", "passcode", "name", "race", "bestMatch", "publicIdentity"] as const) delete card[key];
+        for (const key of ["cardId", "passcode", "name", "race", "bestMatch", "nameCandidates", "publicIdentity"] as const) delete card[key];
       }
       if (!pile) freeSlot(to, action.zone, action.slot, card.ref);
       // Xyz materials stay under the Xyz and change sides with it (they go to their owner's Graveyard when it leaves the field).
