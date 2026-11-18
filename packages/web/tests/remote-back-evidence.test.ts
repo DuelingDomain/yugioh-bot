@@ -16,10 +16,11 @@ test.each([
   {name:'strong box and marginal pixels',score:.95,patterned:true,known:false,positive:true},
   {name:'an accepted patterned sleeve',score:.55,patterned:true,known:true,positive:true},
   {name:'a plain back with strong pixels',score:.55,patterned:false,known:false,positive:true},
-])('$name',({score,patterned,known,positive})=>{
+  {name:'a weak box and marginal pixels held steady over clean scans',score:.55,patterned:true,known:false,steady:true,positive:true},
+])('$name',({score,patterned,known,positive,steady})=>{
   const crop=back(patterned),observation=classifyFaceState(crop),memory=newSetCardMemory();
   expect(observation.state).toBe('down');
   if(patterned)expect(observation.confidence).toBeLessThan(.9);
   if(known)memory.backs.push(setCropLook(crop));
-  expect(measureSetEvidence(crop,{kind:'face-down',confidence:score},observation,memory).evidence.positive).toBe(positive);
+  expect(measureSetEvidence(crop,{kind:'face-down',confidence:score},observation,memory,false,steady).evidence.positive).toBe(positive);
 });
