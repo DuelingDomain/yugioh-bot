@@ -168,7 +168,7 @@ async function loadBank(spec: RecognizerSpec, threads: number): Promise<LoadedRe
   };
   return {
     name: spec.name, spec, nameOf, threads,
-    recognizer: { detectorBackend: 'wasm', separateDetector: true, detectCards: frame => detectScene(frame as unknown as RGBAImage, yugioh as GameProfile, detectorSession, Tensor), recognize },
+    recognizer: { detectorBackend: 'wasm', separateDetector: true, detectCards: (frame, opts) => detectScene(frame as unknown as RGBAImage, yugioh as GameProfile, detectorSession, Tensor, opts as any), recognize },
     release: async () => { await detector.release(); await embedder.release(); },
     settings: { kind: spec.kind, embedder: spec.embedder, bank: spec.bank, rows: bank.names.length, dim: bank.dim, inputSize: size, mean, std, inputName: input.inputName, outputName: input.outputName, thresholds: { score: tau, margin: delta } },
   };
