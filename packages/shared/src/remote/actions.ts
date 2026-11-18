@@ -29,7 +29,7 @@ export const twinCardSchema = z.strictObject({
   bestMatch: z.boolean().optional(),
   nameCandidates: nameCandidates.optional(),
   /** A token: table state with no physical card. Its name is the token name; ATK/DEF are the values shown to everyone. `artId` is the catalog card whose art it borrows. */
-  token: z.strictObject({ atk: z.number().int().min(0).max(999999), def: z.number().int().min(0).max(999999), artId: cardId.optional() }).optional(),
+  token: z.strictObject({ atk: z.number().int().min(0).max(999999), def: z.number().int().min(0).max(999999), artId: cardId.optional(), /** The seat that placed it on another player's field. Set by the reducer; absent when the owner placed it. */ by: remoteSeatSchema.optional() }).optional(),
 });
 const effectSource = z.strictObject({ cardId: cardId.optional(), cardRef: id.optional(), name: z.string().trim().min(1).max(200).optional() })
   .refine(source=>!!(source.cardId || source.cardRef || source.name), "Identify the effect source");
@@ -109,7 +109,9 @@ export const remoteActionSchema = z.discriminatedUnion("type", [
   z.strictObject({ ...meta, type: z.literal("twin.detach"), seat: remoteSeatSchema, cardRef: id, materialRef: id,
     zone: z.enum(["graveyard", "banished", "hand", "deck", "extra"]).default("graveyard") }),
   z.strictObject({ ...meta, type: z.literal("twin.flip"), seat: remoteSeatSchema, cardRef: id, faceUp: z.boolean(),
-    cardId:cardId.optional(),name:sighting.name,bestMatch:z.boolean().optional(),position:z.enum(['attack','defense']).optional(),source:z.literal('auto').optional() })
+    cardId:cardId.optional(),name:sighting.name,bestMatch:z.boolean().optional(),position:z.enum(['attack','defense']).optional(),source:z.literal('auto').optional(),
+    /** A token's new ATK/DEF, set by its controller or creator. Only a face-up token takes it. */
+    tokenStats:z.strictObject({atk:z.number().int().min(0).max(999999),def:z.number().int().min(0).max(999999)}).optional() })
     .refine(a=>a.faceUp||a.cardId===undefined&&a.name===undefined&&a.bestMatch===undefined,'Only a reveal can carry identity'),
   z.strictObject({ ...meta, type: z.literal("twin.remove"), seat: remoteSeatSchema, cardRef: id, source: z.literal("auto").optional() }),
   z.strictObject({ ...meta, type: z.literal("log.note"), text: z.string().trim().min(1).max(500) }),

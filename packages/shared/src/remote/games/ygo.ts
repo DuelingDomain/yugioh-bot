@@ -186,6 +186,12 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
     const s = next.seats[n]; remoteAssert(s && !s.eliminated, "Target seat is unavailable", 409); return s;
   };
   const ownField = (n: number) => { remoteAssert(n === action.actorSeat, "Only the field owner can edit their twin", 403); return seat(n); };
+  /** A token may sit on any living seat's field. Only the live reducer (or a replay that recorded the rule) allows a foreign one. */
+  const tokenField = (n: number) => {
+    if (n === action.actorSeat) return ownField(n);
+    remoteAssert(!context?.replay || context.foreignTokens === 1, "Only the field owner can edit their twin", 403);
+    return seat(n);
+  };
   const validZone = (z: string) => remoteAssert(zones.some(item => item.id === z), "Unknown zone");
   const freeSlot = (s: RemoteSeatState, zone: string, slot?: number, exceptRef?: string, materials: readonly string[] = []) => {
     const shape = zones.find(item => item.id === zone)?.shape;
@@ -282,7 +288,7 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
     case "deck.flag.dismiss": break;
     case "twin.merge": ownField(action.seat); break;
     case "twin.place": {
-      const s = ownField(action.seat); validZone(action.zone);
+      const s = action.card.token ? tokenField(action.seat) : ownField(action.seat); validZone(action.zone);
       if(action.card.nameCandidates)remoteAssert(action.source==='auto'&&action.card.faceUp&&remoteFieldZone(action.zone)&&!action.card.token&&action.card.nameCandidates[0]?.cardId===(action.card.cardId??action.card.passcode),'Unsure names require a named public field placement',409);
       if (action.card.token) {
         const token = action.card;
@@ -290,7 +296,9 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
           "A token goes face-up into a Main Monster Zone", 409);
         remoteAssert(s.twin.length < 100 && !s.twin.some(c => c.ref === token.ref), "Duplicate card ref or field is full", 409);
         freeSlot(s, "monster", token.slot);
-        s.twin.push({ ...token, zone: "monster" });
+        // The creator is recorded by the reducer, never taken from the client.
+        const { by: _by, ...stats } = token.token!;
+        s.twin.push({ ...token, token: action.seat === action.actorSeat ? stats : { ...stats, by: action.actorSeat }, zone: "monster" });
         tokenAction = true; break;
       }
       const reuse = !context?.replay || context.twinPlacementGuard !== undefined ? guardTwinPlacement(next, action, context) : undefined;
@@ -313,8 +321,12 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
       break;
     }
     case "twin.move": case "twin.flip": case "twin.remove": {
-      const s = ownField(action.seat); const card = s.twin.find(c => c.ref === action.cardRef);
+      // A token belongs to the field it sits on and to the seat that placed it there.
+      const tokenHere = action.seat !== action.actorSeat ? next.seats[action.seat]?.twin.find(c => c.ref === action.cardRef) : undefined;
+      const s = tokenHere?.token && tokenHere.token.by === action.actorSeat ? tokenField(action.seat) : ownField(action.seat);
+      const card = s.twin.find(c => c.ref === action.cardRef);
       remoteAssert(card, "Unknown twin card", 409);
+      remoteAssert(card.token || action.type !== "twin.flip" || !action.tokenStats, "Only a token has ATK/DEF to set", 409);
       if (card.token) {
         // The camera never touches a token: nothing physical backs it.
         if ("source" in action && action.source === "auto") return state;
@@ -324,6 +336,7 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
         if (action.type === "twin.flip") {
           remoteAssert(action.faceUp, "A token stays face-up", 409);
           if (action.position !== undefined) card.position = action.position;
+          if (action.tokenStats) card.token = { ...card.token, ...action.tokenStats };
           break;
         }
         validZone(action.zone);

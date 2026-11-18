@@ -254,6 +254,11 @@
 .zc.dropOk{border-color:rgb(121 217 168/.95);box-shadow:0 0 0 2px rgb(121 217 168/.45),0 0 14px rgb(121 217 168/.4)}
 .zc.dropAsk{border-color:rgb(232 185 79/.95);box-shadow:0 0 0 2px rgb(232 185 79/.45),0 0 14px rgb(232 185 79/.35)}
 .zc.dropNo{border-color:rgb(240 100 120/.9);box-shadow:0 0 0 2px rgb(240 100 120/.4)}
+/* Placing a token: every free Main Monster Zone glows and takes the click. No dashed outline, no dimming. */
+.zc.tokSlot{cursor:pointer;border-color:rgb(232 185 79/.9);background:rgb(232 185 79/.09);box-shadow:0 0 0 1px rgb(232 185 79/.4),0 0 14px rgb(167 139 255/.5);transition:box-shadow .15s,background .15s}
+.zc.tokSlot::after{content:"+";position:absolute;top:2px;right:3px;z-index:3;width:13px;height:13px;border-radius:50%;background:var(--gold);color:#1b1204;font:700 11px/13px var(--font-duel-ui),system-ui,sans-serif;text-align:center;pointer-events:none}
+.zc.tokSlot:hover,.zc.tokSlot:focus-visible{background:rgb(232 185 79/.18);box-shadow:0 0 0 2px rgb(232 185 79/.7),0 0 18px rgb(167 139 255/.7)}
+@media (prefers-reduced-motion:reduce){.zc.tokSlot{transition:none}}
 .ghost{position:fixed;z-index:60;pointer-events:none;transform:translate(-50%,-60%);width:64px;display:flex;flex-direction:column;align-items:center;gap:3px;filter:drop-shadow(0 8px 14px #000a)}
 .ghost img,.ghost .cd{width:64px;aspect-ratio:59/86;border-radius:3px;object-fit:cover;display:block}
 .ghost span{max-width:120px;padding:1px 5px;border-radius:3px;background:#0b0818e6;color:#efe8ff;font-size:10px;line-height:1.2;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

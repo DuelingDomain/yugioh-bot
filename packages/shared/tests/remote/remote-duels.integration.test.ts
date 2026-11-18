@@ -4182,6 +4182,69 @@ it('keeps a token as public table state: created, moved and removed by its owner
   expect(mine()).toMatchObject({ zone: 'monster', slot: 2 });
 });
 
+it('lets a seated player put a token on another field: only its creator and that field owner can change it, a watching spectator cannot, and replay keeps it', () => {
+  const { db, users, service } = setup();
+  const [a, b, c, watcher] = users; let n = 0;
+  const table = service.create({ guildId: 'g', userId: a, displayName: 'A', gameId: 'ygo', seatCount: 3 }, 3000);
+  const slug = table.slug;
+  service.join(slug, 'g', b, 'B', 1, 3001); service.join(slug, 'g', c, 'C', 2, 3001);
+  for (const user of [a, b, c]) service.ready(slug, 'g', user, true, 3002);
+  service.start(slug, 'g', a, 3003);
+  db.prepare("update remote_tables set visibility='public' where slug=?").run(slug);
+  expect(service.spectate(slug, 'g', watcher, 3004)).toMatchObject({ spectator: true, mySeat: -1 });
+  const send = (user: number, actorSeat: number, input: Record<string, unknown>) => service.act(slug, 'g', user, { baseSeq: service.get(slug, 'g', a).lastSeq,
+    action: remoteActionSchema.parse({ actorSeat, idempotencyKey: 'foreign-' + (++n), ...input }) }, 3100 + n);
+  const state = () => service.get(slug, 'g', a).state;
+  const theirs = () => state().seats[1].twin.find(card => card.ref === 'primal');
+  const token = { ref: 'primal', name: 'Primal Being Token', slot: 3, faceUp: true, position: 'attack', token: { atk: 2000, def: 2000 } };
+
+  // Seat 0 places on seat 1's free zone. A forged creator is replaced by the real one. Everyone sees it, the watcher too.
+  send(a, 0, { type: 'twin.place', seat: 1, zone: 'monster', card: { ...token, token: { ...token.token, by: 1 } } });
+  expect(theirs()).toMatchObject({ zone: 'monster', slot: 3, position: 'attack', faceUp: true, token: { atk: 2000, by: 0 } });
+  expect(state().seats[0].twin.some(card => card.ref === 'primal')).toBe(false);
+  expect(service.spectate(slug, 'g', watcher, 3005).state.seats[1].twin.find(card => card.ref === 'primal')).toMatchObject({ name: 'Primal Being Token' });
+
+  // The zone must be free; a real card and a Spell/Trap Zone are refused.
+  expect(() => send(a, 0, { type: 'twin.place', seat: 1, zone: 'monster', card: { ...token, ref: 'primal-2' } })).toThrow(/occupied/i);
+  expect(() => send(a, 0, { type: 'twin.place', seat: 1, zone: 'monster', card: { ref: 'real', cardId: 14558127, slot: 4 } })).toThrow('Only the field owner can edit their twin');
+  expect(() => send(a, 0, { type: 'twin.place', seat: 1, zone: 'spell-trap', card: { ...token, ref: 'primal-3', slot: 4 } })).toThrow(/monster|zone/i);
+
+  // The spectator is really watching, so the refusal comes from the service seat check.
+  expect(() => send(watcher, 0, { type: 'twin.place', seat: 1, zone: 'monster', card: { ...token, ref: 'primal-4', slot: 4 } })).toThrow('Spectators cannot act at this table');
+  expect(() => send(watcher, 0, { type: 'twin.remove', seat: 1, cardRef: 'primal' })).toThrow('Spectators cannot act at this table');
+  // The third seat is neither the creator nor the field owner.
+  expect(() => send(c, 2, { type: 'twin.flip', seat: 1, cardRef: 'primal', faceUp: true, position: 'defense' })).toThrow('Only the field owner can edit their twin');
+  expect(() => send(c, 2, { type: 'twin.remove', seat: 1, cardRef: 'primal' })).toThrow('Only the field owner can edit their twin');
+  expect(theirs()).toMatchObject({ position: 'attack' });
+
+  // The field owner turns it and the creator turns it back and removes it.
+  send(b, 1, { type: 'twin.flip', seat: 1, cardRef: 'primal', faceUp: true, position: 'defense' });
+  expect(theirs()).toMatchObject({ position: 'defense' });
+  send(a, 0, { type: 'twin.flip', seat: 1, cardRef: 'primal', faceUp: true, position: 'attack' });
+  send(a, 0, { type: 'twin.remove', seat: 1, cardRef: 'primal' });
+  expect(theirs()).toBeUndefined();
+
+  // The controller can send it off the field too: a token never reaches a pile.
+  send(a, 0, { type: 'twin.place', seat: 1, zone: 'monster', card: token });
+  // The creator and the controller can set its ATK/DEF afterwards; the third seat cannot, and a real card has none to set.
+  const stats = (atk: number, def: number) => ({ type: 'twin.flip', seat: 1, cardRef: 'primal', faceUp: true, position: 'attack', tokenStats: { atk, def } });
+  send(a, 0, stats(2500, 1800));
+  expect(theirs()).toMatchObject({ token: { atk: 2500, def: 1800, by: 0 } });
+  send(b, 1, stats(3000, 2000));
+  expect(theirs()).toMatchObject({ token: { atk: 3000, def: 2000 } });
+  expect(() => send(c, 2, stats(1, 1))).toThrow('Only the field owner can edit their twin');
+  send(b, 1, { type: 'twin.move', seat: 1, zone: 'graveyard', cardRef: 'primal' });
+  expect(theirs()).toBeUndefined();
+  expect(state().seats[1].twin.some(card => card.zone === 'graveyard')).toBe(false);
+
+  // Replay: the stored versions include foreignTokens, so the replayed state equals the live one. Without it a foreign token is still refused.
+  expect(service.replay(slug, 'g', a)).toEqual(state());
+  const foreign = remoteActionSchema.parse({ type: 'twin.place', actorSeat: 0, seat: 1, zone: 'monster', card: token, idempotencyKey: 'old-replay', at: 1 });
+  const fresh = ygoModule.initialState({ seatCount: 3 });
+  expect(() => ygoModule.reduce(fresh, foreign, { replay: true })).toThrow('Only the field owner can edit their twin');
+  expect(ygoModule.reduce(fresh, foreign, { replay: true, foreignTokens: 1 }).seats[1].twin[0]).toMatchObject({ ref: 'primal', token: { by: 0 } });
+});
+
 describe("remote match history and replay", () => {
   function endedTable(privateAnnotations = false) {
     const s = deckSession("normal", false);
