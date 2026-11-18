@@ -438,12 +438,12 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     if(existing)track={...track,id:existing.ref};
     else if(twins.some(c=>c.ref===track.id))track={...track,id:`fw-${crypto.randomUUID()}`};
     const placementRef=track.id;
-    const code=entry?catalogCardId(entry):undefined;
+    const code=entry?catalogCardId(entry):undefined;let slowFacts=false;
     if(code&&!track.faceDown){
       const metadata=loadCards([code]);
       if(existing&&!existing.faceUp&&knownZone(existing)===track.zone)void metadata.catch(()=>undefined);
       // A slow or cold lookup must not hold the serial queue (and every write behind it): after FACTS_WAIT_MS the card is placed with what the camera saw.
-      else if(!cardInfo(code)){let timer:ReturnType<typeof setTimeout>|undefined;await Promise.race([metadata,new Promise<void>(resolve=>{timer=setTimeout(resolve,FACTS_WAIT_MS);})]);clearTimeout(timer);}
+      else if(!cardInfo(code)){let timer:ReturnType<typeof setTimeout>|undefined;await Promise.race([metadata,new Promise<void>(resolve=>{timer=setTimeout(()=>{slowFacts=true;resolve();},FACTS_WAIT_MS);})]);clearTimeout(timer);}
     }
     // The card can move while its details load. Defer like the check above; there is nothing to save yet.
     const latest=watch.getTrack(event.track.id);if(!live()||!matchesEvidence(latest)){defer(latest);return;}
@@ -527,8 +527,8 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       if(summonable(departure.zone)&&stale.faceUp&&['monster','extra-monster'].includes(stale.zone))vanishes.current=[...vanishes.current.filter(v=>v.ref!==stale.ref),{ref:stale.ref,at:absentAt}].slice(-10);
       twins=current.current.room.state.seats[seat].twin.filter(c=>c.ref!==placeholders.current.get(event.track.id));
     }
-    // No facts yet (the lookup is slow): keep the zone the camera saw. The zone-rule effect moves a Field Spell, a Trap in a Monster Zone etc. when the facts arrive.
-    const projected=!track.faceDown&&code&&!cardInfo(code)&&!existing?{zone:track.zone,label:''} as ReturnType<typeof projectFieldZone>:projectObserved(track,twins,existing,entry?cardInfo(catalogCardId(entry)):undefined);
+    // The lookup is still running after FACTS_WAIT_MS (a lookup that ended with no facts still abstains below): keep the zone the camera saw. The zone-rule effect moves a Field Spell, a Trap in a Monster Zone etc. when the facts arrive.
+    const projected=slowFacts&&!cardInfo(code!)&&!existing?{zone:track.zone,label:''} as ReturnType<typeof projectFieldZone>:projectObserved(track,twins,existing,entry?cardInfo(catalogCardId(entry)):undefined);
     if(!projected.zone){abstain(event,projected.reason??'Choose a legal zone manually.');return;}
     if(tokenClash(event,projected.zone,twins,entry?.name,entry?cardInfo(catalogCardId(entry)):undefined))return;
     const physicalAtSave={zone:track.zone,position:track.position};
