@@ -1030,7 +1030,7 @@ describe('typed watcher zone projection',()=>{
    else{expect(dismiss).not.toHaveBeenCalled();expect(fixture.room().state.seats[0].twin).toEqual(placement?[]:[expect.objectContaining({ref:old.ref,zone:'hand'})]);}
   }finally{ready.resolve();fixture.dispose();}
  },10_000);
- it.each(['earlier GY touch','hand over the slot','no full scan during CPU guard','a back candidate'] as const)('holds a slow in-place Set after removal with %s',async scenario=>{
+ it.each(['earlier GY touch','hand over the slot','no full scan during CPU guard','a back candidate','pixels only'] as const)('holds a slow in-place Set after removal with %s',async scenario=>{
   const old={ref:'slow-set',zone:'spell-trap',slot:4,cardId:41420027,name:'Solemn Judgment',faceUp:true,position:'attack'};
   const fixture=await typedWatcherFixture(zoneEntries[0],'S4',[old],'moved');
   vi.useFakeTimers();
@@ -1050,7 +1050,7 @@ describe('typed watcher zone projection',()=>{
    const candidate=scenario==='a back candidate';
    Object.assign(watch.snapshot,{blindZones:candidate?[]:['S4'],handZones:[],lastFullAt:performance.now()});
    if(candidate)watch.snapshot.tracks.push({...fixture.track,id:'pending-back',removed:false,state:'candidate',firstSeen:removedAt,card:{...fixture.track.card,kind:'face-down'}});
-   await advance(candidate?7500:1250);
+   await advance(candidate||scenario==='pixels only'?7500:1250);
    expect(fixture.post).not.toHaveBeenCalled();
 
    Object.assign(fixture.track,{faceDown:true,cardId:undefined,visible:true,removed:false,revision:1});

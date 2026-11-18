@@ -769,11 +769,11 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
         if(!snap||!physicalZonePattern.test(zone)||pileNear(snap,event.removedAt??started))return 0;
         const fullAt=snap.lastFullAt;
         const replacements=snap.tracks.filter(t=>t.id!==id&&!t.removed&&t.zone===zone&&t.firstSeen>=event.track.lastSeen-1000);
-        if(replacements.some(t=>t.state==='candidate'&&t.card.kind==='face-down'))return FIELD_SET_RETURN_MS;
+        if(snap.blindZones?.includes(zone)||replacements.some(t=>t.faceDown||t.state==='candidate'&&t.card.kind==='face-down'))return FIELD_SET_RETURN_MS;
         if(!/^[MS][1-5]$/.test(zone))return 0;
         if(event.removedAt!==undefined&&(fullAt===undefined||fullAt<=event.removedAt))return FLIP_HOLD_MAX_MS;
         if(fullAt!==undefined&&replacements.some(t=>t.visible&&!t.faceDown&&t.card.kind==='face-up'&&t.lastSeen>=fullAt))return 0;
-        return snap.handZones?.includes(zone)||snap.blindZones?.includes(zone)||replacements.some(t=>t.faceDown)?FLIP_HOLD_MAX_MS:0;
+        return snap.handZones?.includes(zone)?FLIP_HOLD_MAX_MS:0;
       };
       const arm=(wait:number)=>departureTimers.current.set(id,setTimeout(()=>{
         if(!live()||!watch.isRemoved(id)){departureTimers.current.delete(id);pendingLeft.current.delete(id);pendingDepartures.current.delete(id);return;}

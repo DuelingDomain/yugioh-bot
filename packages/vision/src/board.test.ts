@@ -487,7 +487,13 @@ test('a flickering still back is placed on its reused outline, never after 1.2 s
   const back={...card(.3,.3,.1,.259),kind:'face-down' as const,confidence:.45},rig=()=>fieldRig('sure',20,undefined,{width:160,height:90}),placed=(r:ReturnType<typeof fieldRig>)=>r.events.filter(e=>e.type==='placed').length;
   const flick=rig();flick.appearance=Array(12).fill(.8);flick.outlines=[back];await flick.tick(200);await flick.tick(200);assert.equal(placed(flick),0);
   flick.outlines=[];flick.watcher.scanNow();await flick.tick(200);assert.equal(placed(flick),1,'a missed scan reuses the still back');
-  for(let i=0;i<6;i++)await flick.tick(200);assert.equal(flick.events.filter(e=>e.type==='removed').length,0,'the placed Set keeps its look through misses');
+  const lastSeen=flick.watcher.getSnapshot().tracks[0].lastSeen;
+  for(let i=0;i<6;i++)await flick.tick(200);
+  assert.equal(flick.watcher.getSnapshot().tracks[0].visible,true,'the committed Set is visible while its remembered sleeve still covers the spot');
+  assert.equal(flick.watcher.getSnapshot().tracks[0].lastSeen,lastSeen,'visibility does not refresh the detector timestamp');
+  assert.equal(flick.events.filter(e=>e.type==='removed').length,0,'the placed Set keeps its look through misses');
+  flick.appearance=Array(12).fill(.2);flick.watcher.scanNow();await flick.tick(200);
+  assert.equal(flick.watcher.getSnapshot().tracks[0].visible,false,'bare mat cannot keep the Set visible');
   const late=rig();late.appearance=Array(12).fill(.8);late.outlines=[back];await late.tick(200);await late.tick(200);late.outlines=[];late.watcher.scanNow();await late.tick(1500);assert.equal(placed(late),0,'no placement more than 1.2 s after the last detector box');
   const lifted=rig();lifted.appearance=Array(12).fill(.3);lifted.outlines=[back];await lifted.tick(200);await lifted.tick(200);lifted.appearance=Array(12).fill(.2);lifted.outlines=[];lifted.watcher.scanNow();await lifted.tick(200);assert.equal(placed(lifted),0,'a lifted card leaves mat that looks like the sleeve');
   const printed=rig();printed.appearance=Array(12).fill(.3);printed.outlines=[back];await printed.tick(200);await printed.tick(200);printed.appearance=Array(12).fill(.38);printed.outlines=[];printed.watcher.scanNow();await printed.tick(200);assert.equal(placed(printed),0,'a lighter printed zone box is not the sleeve, even though its flat look matches with a shift');
@@ -501,13 +507,17 @@ test('a flat plain sleeve the detector never boxes is placed as a Set from its p
   };
   // The padded cell crop holds the cell in its middle 1/1.3; a sleeve about .7 x .8 of the cell sits at its centre.
   const padded=flat(sleeve,[.23,.77,.19,.81]),barePadded=flat(mat),own=flat(sleeve),cell=zones.fieldZoneCells().find(c=>c.zone==='S4')!,inCell=(c:DetectedQuad)=>Math.abs(zones.fieldCenter(c).x-(cell.x+cell.w/2))<cell.w/2&&Math.abs(zones.fieldCenter(c).y-(cell.y+cell.h/2))<cell.h/2;
-  for(const withSleeve of [true,false]){
+  for(const {colour,weakOutline} of [{colour:sleeve,weakOutline:false},{colour:[233,236,229],weakOutline:true},{colour:[4,9,19],weakOutline:true},{colour:undefined,weakOutline:true}]){
     const r=fieldRig('sure',20,undefined,{width:160,height:90});r.outlines=[];r.watcher.setCalibration(zones.createFieldCalibration([{x:0,y:0},{x:1,y:1}]));
     r.appearanceAt=()=>Array(288).fill(.25);r.cropAt=c=>c.blind?own:barePadded;for(let i=0;i<8;i++){r.watcher.scanNow();await r.tick(300);}
-    if(withSleeve){r.appearanceAt=c=>Array(288).fill(inCell(c)?.65:.25);r.cropAt=c=>c.blind?own:inCell(c)?padded:barePadded;}
+    if(colour){
+      const sleeveCrop=flat(colour),paddedCrop=flat(colour,[.23,.77,.19,.81]),look=Array.from({length:288},(_,i)=>colour[i%3]/255);
+      r.appearanceAt=c=>inCell(c)?look:Array(288).fill(.25);r.cropAt=c=>c.blind?sleeveCrop:inCell(c)?paddedCrop:barePadded;
+    }
+    if(weakOutline)r.outlines=[{...card(cell.x,cell.y,cell.w,.2*cell.h),confidence:.25,cell:true}];
     for(let i=0;i<30;i++){r.watcher.scanNow();await r.tick(300);}
     const placed=r.events.filter(e=>e.type==='placed');
-    if(withSleeve){assert.equal(placed.length,1,'the flat sleeve is placed');assert.equal(placed[0].track.zone,'S4');assert.equal(placed[0].track.faceDown,true);}else assert.equal(placed.length,0,'bare mat is never a Set');
+    if(colour){assert.equal(placed.length,1,`the flat sleeve (${colour}) is placed`);assert.equal(placed[0].track.zone,'S4');assert.equal(placed[0].track.faceDown,true);}else assert.equal(placed.length,0,'bare mat is never a Set');
     r.watcher.dispose();
   }
   // A light step (+25/255 on the mat and its ring) is not a sleeve: the baseline follows it, so a Set lifted after the step is removed and bare mat is never placed.
@@ -521,6 +531,25 @@ test('a flat plain sleeve the detector never boxes is placed as a Set from its p
   lit.appearanceAt=()=>Array(288).fill(.25+step);lit.cropAt=c=>c.blind?own:barePadded;await run(30);
   assert.equal(lit.events.filter(e=>e.type==='removed').length,1,'the lifted Set is removed under the new light');
   lit.watcher.dispose();
+});
+test('a pixel-verified detector back can settle while motion elsewhere spends the CPU budget',async()=>{
+  const r=fieldRig('sure',20,undefined,{width:160,height:90});
+  r.watcher.setCalibration(zones.createFieldCalibration([{x:0,y:0},{x:1,y:1}]));
+  const cell=zones.fieldZoneCells().find(c=>c.zone==='S4')!;
+  const back={...card(cell.x+cell.w*.15,cell.y+cell.h*.1,cell.w*.7,cell.h*.8),kind:'face-down' as const,confidence:.43};
+  const inCell=(c:DetectedQuad)=>{const {x,y}=zones.fieldCenter(c);return x>=cell.x&&x<=cell.x+cell.w&&y>=cell.y&&y<=cell.y+cell.h;};
+  r.outlines=[];r.appearanceAt=()=>Array(288).fill(.25);
+  for(let i=0;i<8;i++){r.watcher.scanNow();await r.tick(300);}
+  r.scene={moving:.1,sinceMark:1,mark(){}};r.backend='wasm';r.detectorCost=800;
+  r.motionAt=c=>c.quad[1].x-c.quad[0].x>.5?.1:0;
+  r.outlines=[back];r.appearanceAt=c=>Array(288).fill(inCell(c)?.65:.25);
+  await r.tick(3000);
+  assert.equal(r.watcher.getSnapshot().tracks[0]?.setEvidence?.positive,true,'the first pass verified the back');
+  const detects=r.detects;
+  for(let i=0;i<2;i++)await r.tick(100);
+  assert.equal(r.detects,detects,'confirmation uses fresh camera pixels between CPU passes');
+  assert.equal(r.events.filter(e=>e.type==='placed'&&e.track.faceDown).length,1);
+  r.watcher.dispose();
 });
 test('a face-up Spell turned Set in place under a flickering shadow is the same card flipped, not a card removed and a new Set; a card taken to the GY is not',async()=>{
   const sleeve=[110,150,130],mat=[60,60,70],flat=(rgb:number[],inner?:[number,number,number,number])=>{
