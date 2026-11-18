@@ -78,6 +78,8 @@ export const remoteActionSchema = z.discriminatedUnion("type", [
     copyProof: z.strictObject({ simultaneousQuads: z.number().int().min(2).max(100), at: z.number().int().nonnegative() }).optional(),
     /** Explicit origin answer; independent of recognition source. */
     fromRef: id.optional(),
+    /** The actor gives this card to the seat's field: it shows there as a proxy owned by the actor. */
+    give: z.literal(true).optional(),
     originRequestRef: id.optional(),
     /** Explicit copy override, also retained for recorded origin answers. */
     anotherCopy: z.boolean().optional(),

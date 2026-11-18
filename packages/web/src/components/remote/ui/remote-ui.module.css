@@ -864,6 +864,9 @@
 .fzbtn:disabled{opacity:.5;cursor:default;border-color:var(--line2);color:var(--ink2)}
 /* Own camera controls sit over the bottom left of the feed. They show on hover or focus, and always on touch screens. */
 /* One row under the video box: it never covers the video and never wraps. Labels drop out (icons stay, with a title) when the row is narrow. */
+/* Token and Give card share one row that wraps, so two buttons never cost two lines at 360px. */
+.toolrow{flex:none;width:100%;display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:6px;min-width:0}
+.toolrow:empty{display:none}
 .camsel{flex:none;width:100%;display:flex;flex-wrap:nowrap;align-items:center;justify-content:center;gap:6px;min-width:0;min-height:28px}
 .camsel>div:not([popover]){display:flex;flex-wrap:nowrap;align-items:center;justify-content:center;gap:6px;min-width:0}
 .camsel select{min-width:0;flex:0 1 180px;max-width:200px;height:28px;border-radius:6px;background:var(--p0);border:1px solid var(--line2);color:var(--ink2);font:600 11.5px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif}

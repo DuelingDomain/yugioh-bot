@@ -1,10 +1,10 @@
 "use client";
 
-import { useCallback, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import type { RemoteActionProposal, RemoteRoom } from "@yugidraft/shared/remote";
 import type { ControlOffer } from "@/lib/remote/card-logic";
-import type { CardInfo } from "./catalog";
-import { cardCode, cardName, type TwinCard } from "./model";
+import { searchCards, type CardInfo } from "./catalog";
+import { cardCode, cardName, cellsFor, type TwinCard, type ZoneKey } from "./model";
 import { PopupFrame } from "./popup";
 import type { useLayers } from "./use-layers";
 import s from "./remote-ui.module.css";
@@ -13,11 +13,16 @@ import t from "./stats-tokens.module.css";
 type Act = (action: RemoteActionProposal) => Promise<RemoteRoom | null>;
 const CENTER = { anchor: null, feed: null };
 const MAIN = [1, 2, 3, 4, 5];
+const ROWS = { monster: ["m1", "m2", "m3", "m4", "m5"], "spell-trap": ["s1", "s2", "s3", "s4", "s5"] } as const;
+type Row = keyof typeof ROWS;
+/** A card the player gives away: what it is and how it lands. A card on the field keeps its own state (`card`); a card from the hand is made from this draft. */
+type Give = { seat: number; row: Row; name: string; card?: TwinCard; draft?: { cardId: number; position: "attack" | "defense"; faceUp: boolean } };
 type Position = "attack" | "defense";
 /** One dialog, three questions. `card` and `equip` pick a card; `place` asks the Monster Zone (and the position of a revived card). The table never guesses any of them. */
 type View =
   | { step: "card"; seat: number; offer: ControlOffer }
-  | { step: "place"; taker: number; from: number; card: TwinCard; revive: boolean; give?: boolean; position?: Position }
+  | { step: "place"; taker: number; from: number; card: TwinCard; revive: boolean; give?: boolean; position?: Position; row?: Row }
+  | { step: "hand"; seat: number }
   | { step: "equip"; seat: number; card: TwinCard };
 
 /** A card that is known not to be a monster (a Spell or Trap in a Graveyard). An unread card is not excluded. */
@@ -29,8 +34,8 @@ const knownNonMonster = (info: CardInfo | undefined) => !!info?.type && !/monste
  * and (for a revived card) the position: the table never guesses which one was meant. An activated card that takes control
  * (card logic) opens the picker by itself. A monster that equips itself asks which monster it equips.
  */
-export function useControlChange({ act, room, live, layers, info, name, toast }: {
-  act: Act; room: RemoteRoom; live: boolean; layers: ReturnType<typeof useLayers>; info: (id: number | undefined) => CardInfo | undefined;
+export function useControlChange({ act, room, live, extraZones, layers, info, name, toast }: {
+  act: Act; room: RemoteRoom; live: boolean; extraZones: boolean; layers: ReturnType<typeof useLayers>; info: (id: number | undefined) => CardInfo | undefined;
   name: (seat: number) => string; toast: (text: string) => void;
 }) {
   const { solo, mySeat, state } = room;
@@ -38,7 +43,7 @@ export function useControlChange({ act, room, live, layers, info, name, toast }:
   const may = useCallback((seat: number) => live && (solo || seat === mySeat), [live, solo, mySeat]);
   const open = (next: View) => { setView(next); layers.open("control"); };
   const close = () => { layers.close("control"); setView(null); };
-  const freeZones = (seat: number) => MAIN.filter(n => !state.seats[seat]?.twin.some(c => c.zone === "monster" && c.slot === n));
+  const freeZones = (seat: number, row: Row = "monster") => MAIN.filter(n => !state.seats[seat]?.twin.some(c => row === "monster" ? c.zone === "monster" && c.slot === n : c.zone === "spell-trap" && c.slot === n || c.trapZone === n));
 
   /** "Take control" from the card menu: asks the zone first. A card in a Graveyard also asks its position. */
   const take = (taker: number, fromSeat: number, card: TwinCard) => {
@@ -50,9 +55,63 @@ export function useControlChange({ act, room, live, layers, info, name, toast }:
   /** "Return control": a taken card goes back to its owner; the player picks the owner's zone. */
   const giveBack = (holder: number, card: TwinCard) => {
     const owner = card.ownerSeat; if (owner === undefined) return;
-    if (!freeZones(owner).length) { toast("Every Main Monster Zone of the owner is taken."); return; }
-    open({ step: "place", taker: owner, from: holder, card, revive: false, give: true });
+    const row: Row = card.zone === "spell-trap" ? "spell-trap" : "monster";
+    if (!freeZones(owner, row).length) { toast(`Every ${row === "monster" ? "Main Monster" : "Spell & Trap"} Zone of the owner is taken.`); return; }
+    open({ step: "place", taker: owner, from: holder, card, revive: false, give: true, ...(row === "spell-trap" ? { row } : {}) });
   };
+
+  /** Give: my card on the field, or one made from the hand, goes to an opponent's free zone of its row. The next click on such a zone does it. */
+  const [giving, setGiving] = useState<Give | null>(null);
+  const canGive = live && !solo && mySeat >= 0 && !room.spectator;
+  useEffect(() => { if (giving && !canGive) setGiving(null); }, [giving, canGive]);
+  useEffect(() => {
+    if (!giving) return;
+    const stop = (event: KeyboardEvent) => { if (event.key === "Escape" && !layers.layer) { event.preventDefault(); event.stopPropagation(); setGiving(null); } };
+    window.addEventListener("keydown", stop, true);
+    return () => window.removeEventListener("keydown", stop, true);
+  }, [giving, layers.layer]);
+  // One give at a time: a second click while the first is still on its way does nothing, so no second proxy is made.
+  const givingNow = useRef(false);
+  // When the mode ends, focus goes back to the Give button, unless a dialog took it.
+  const giveButton = useRef<HTMLButtonElement>(null);
+  const wasGiving = useRef(false);
+  useEffect(() => {
+    const on = !!giving;
+    if (wasGiving.current && !on && !layers.layer) giveButton.current?.focus({ preventScroll: true });
+    wasGiving.current = on;
+  }, [giving, layers.layer]);
+  const rowOf = (card: TwinCard): Row | undefined => card.zone === "monster" || card.zone === "extra-monster" ? "monster" : card.zone === "spell-trap" ? "spell-trap" : undefined;
+  /** "Give to opponent" from the card menu. An Extra Monster Zone card goes into a Main Monster Zone. */
+  const give = (card: TwinCard) => {
+    const row = rowOf(card);
+    if (!canGive || !row || card.token) return false;
+    setGiving({ seat: mySeat, row, name: card.faceUp || card.publicIdentity ? cardName(card, info(cardCode(card))) : "the face-down card", card });
+    return true;
+  };
+  /** The free zones of the card's row on a seat that can take it: an opponent's, alive. */
+  const giveSlots = (seat: number): ZoneKey[] | undefined => {
+    const target = state.seats[seat];
+    if (!giving || !target || target.eliminated || seat === giving.seat) return undefined;
+    const cells = cellsFor(target.twin, extraZones);
+    return ROWS[giving.row].filter(key => !cells[key]?.card);
+  };
+  const giveAt = (seat: number, key: ZoneKey, card: TwinCard | undefined): boolean => {
+    if (!giving || card || !giveSlots(seat)?.includes(key)) return false;
+    if (givingNow.current) return true;
+    const sent = giving, slot = Number(key[1]);
+    givingNow.current = true;
+    const done = (updated: RemoteRoom | null) => { givingNow.current = false; if (updated) setGiving(now => now === sent ? null : now); };
+    const failed = () => { givingNow.current = false; };
+    if (sent.card) void act({ type: "twin.control", actorSeat: sent.seat, seat: sent.seat, toSeat: seat, cardRef: sent.card.ref, zone: sent.row, slot, faceUp: sent.card.faceUp }).then(done).catch(failed);
+    else if (sent.draft) void act({ type: "twin.place", actorSeat: sent.seat, seat, zone: sent.row, give: true, card: { ref: crypto.randomUUID(), cardId: sent.draft.cardId, name: sent.name, slot, faceUp: sent.draft.faceUp,
+      position: sent.row === "monster" && !sent.draft.faceUp ? "defense" : sent.draft.position } }).then(done).catch(failed);
+    else givingNow.current = false;
+    return true;
+  };
+  const giveTrigger = (seat: number): ReactNode => canGive && seat === mySeat
+    ? <button ref={giveButton} type="button" className={`${s.btn} ${s.sm} ${giving ? s.go : ""}`} aria-pressed={!!giving} data-testid={`give-open-${seat}`}
+      onClick={() => { if (giving) setGiving(null); else open({ step: "hand", seat: mySeat }); }}
+      title="Give a card from your hand to an opponent's field (a Kaiju, Lava Golem). It shows there as your proxy.">Give card</button> : null;
 
   const offer = (seat: number, wanted: ControlOffer | undefined) => {
     if (!wanted || !may(seat)) return;
@@ -69,10 +128,11 @@ export function useControlChange({ act, room, live, layers, info, name, toast }:
 
   const place = (v: Extract<View, { step: "place" }>, slot: number) => {
     const actorSeat = solo ? (v.give ? v.from : v.taker) : mySeat;
+    const zone = v.row ?? "monster";
     const done = (updated: RemoteRoom | null) => { if (updated) close(); };
     // The player's own Graveyard: no control change, a plain move.
-    if (v.from === v.taker) void act({ type: "twin.move", actorSeat, seat: v.taker, cardRef: v.card.ref, zone: "monster", slot, faceUp: true, position: v.position ?? "attack" }).then(done);
-    else void act({ type: "twin.control", actorSeat, seat: v.from, toSeat: v.taker, cardRef: v.card.ref, zone: "monster", slot, faceUp: v.revive ? true : v.card.faceUp,
+    if (v.from === v.taker) void act({ type: "twin.move", actorSeat, seat: v.taker, cardRef: v.card.ref, zone, slot, faceUp: true, position: v.position ?? "attack" }).then(done);
+    else void act({ type: "twin.control", actorSeat, seat: v.from, toSeat: v.taker, cardRef: v.card.ref, zone, slot, faceUp: v.revive ? true : v.card.faceUp,
       ...(v.revive && v.position ? { position: v.position } : {}) }).then(done);
   };
 
@@ -103,7 +163,8 @@ export function useControlChange({ act, room, live, layers, info, name, toast }:
     </>;
   } else if (view?.step === "place") {
     const shown = view.card.faceUp || view.card.publicIdentity || view.card.zone === "graveyard" ? cardName(view.card, info(cardCode(view.card))) : "The card";
-    heading = view.give ? `Return ${shown} to ${name(view.taker)}: which Monster Zone?` : `${shown}: which Monster Zone?`;
+    const spell = view.row === "spell-trap", zoneName = spell ? "Spell & Trap Zone" : "Monster Zone";
+    heading = view.give ? `Return ${shown} to ${name(view.taker)}: which ${zoneName}?` : `${shown}: which ${zoneName}?`;
     // A revived card has no battle position yet: ask. A card taken from the field keeps the position it has.
     const needsPosition = view.revive || view.from === view.taker;
     body = <>
@@ -111,13 +172,19 @@ export function useControlChange({ act, room, live, layers, info, name, toast }:
         {(["attack", "defense"] as const).map(position => <button key={position} type="button" aria-pressed={view.position === position}
           data-testid={`control-position-${position}`} onClick={() => setView({ ...view, position })}>{position === "attack" ? "Attack (ATK)" : "Defense (DEF)"}</button>)}
       </div> : null}
-      <div className={t.row} role="group" aria-label="Monster Zone">
-        {freeZones(view.taker).map(n => <button key={n} type="button" className={btn} data-testid={`control-zone-M${n}`} disabled={needsPosition && !view.position}
-          aria-label={`Monster Zone ${n}`} onClick={() => place(view, n)}>M{n}</button>)}
+      <div className={t.row} role="group" aria-label={zoneName}>
+        {freeZones(view.taker, view.row).map(n => <button key={n} type="button" className={btn} data-testid={`control-zone-${spell ? "S" : "M"}${n}`} disabled={needsPosition && !view.position}
+          aria-label={`${zoneName} ${n}`} onClick={() => place(view, n)}>{spell ? "S" : "M"}{n}</button>)}
       </div>
       {needsPosition && !view.position ? <p className={t.chosen} role="status">Choose the position first.</p> : null}
       <div className={t.row}><button type="button" className={`${s.btn} ${s.q}`} onClick={close} data-testid="control-dismiss">Not now</button></div>
     </>;
+  } else if (view?.step === "hand") {
+    heading = "Give a card to an opponent";
+    body = <GiveHand onClose={close} onChoose={(card, draft) => {
+      const row: Row = /spell|trap/i.test(card.type) ? "spell-trap" : "monster";
+      close(); setGiving({ seat: view.seat, row, name: card.name, draft: { cardId: card.id, ...draft } });
+    }} />;
   } else if (view?.step === "equip") {
     const card = view.card;
     heading = `${cardName(card, info(cardCode(card)))}: equipped to which monster?`;
@@ -137,5 +204,47 @@ export function useControlChange({ act, room, live, layers, info, name, toast }:
   const node: ReactNode = layers.layer === "control" && view ? <PopupFrame at={CENTER} layer="control" label={heading} testid="control-dialog">
     <div className={t.dialog}><h3>{heading}</h3>{body}</div>
   </PopupFrame> : null;
-  return { offer, take, giveBack, askEquip, node, may };
+  const bar = giving && canGive ? <div className={t.bar} role="toolbar" aria-label="Give a card" data-testid="give-bar">
+    <span className={t.barText} role="status">Click a free {giving.row === "monster" ? "Monster" : "Spell & Trap"} Zone on an opponent's field for <b>{giving.name}</b>. It stays yours there. Move its paper card off your zones.</span>
+    <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} onClick={() => setGiving(null)} data-testid="give-cancel">Cancel <kbd>Esc</kbd></button>
+  </div> : null;
+  return { offer, take, giveBack, askEquip, node: <>{node}{bar}</>, may, give, giveSlots, giveAt, giveTrigger, giving: !!giving && canGive, canGive };
+}
+
+/** Search the catalog for the card in the hand, then ask how it lands. The zone is the next click. */
+function GiveHand({ onChoose, onClose }: { onChoose: (card: CardInfo, draft: { position: Position; faceUp: boolean }) => void; onClose: () => void }) {
+  const [query, setQuery] = useState(""); const [found, setFound] = useState<CardInfo[] | null>(null); const [chosen, setChosen] = useState<CardInfo | null>(null);
+  const [position, setPosition] = useState<Position>("attack"); const [faceUp, setFaceUp] = useState(true);
+  useEffect(() => {
+    const text = query.trim(); if (text.length < 2) { setFound(null); return; }
+    let on = true; const timer = setTimeout(() => { void searchCards(text, false).then(list => { if (on) setFound(list.slice(0, 30)); }); }, 200);
+    return () => { on = false; clearTimeout(timer); };
+  }, [query]);
+  const monster = !!chosen && !/spell|trap/i.test(chosen.type);
+  const typing = { onKeyDown: (event: React.KeyboardEvent) => { if (event.key !== "Escape") event.stopPropagation(); } };
+  return <>
+    <label className={t.field}>Search the card by name
+      <input className={t.num} style={{ width: "100%" }} type="text" autoComplete="off" placeholder="Gameciel, the Sea Turtle Kaiju" value={query} data-autofocus data-testid="give-search" {...typing}
+        onChange={event => { setQuery(event.target.value); setChosen(null); }} /></label>
+    <div className={t.pick}>
+      {found?.map(card => <button key={card.id} type="button" className={`${s.btn} ${s.sm} ${s.q}`} data-testid="give-pick" onClick={() => { setChosen(card); setQuery(card.name); setFound(null); }}>{card.name}</button>)}
+      {found && !found.length ? <p className={t.note} role="status">No card with that name.</p> : null}
+    </div>
+    {chosen ? <>
+      <p className={t.chosen} data-testid="give-chosen">{chosen.name}</p>
+      <div className={t.row}>
+        <div className={s.seg} role="group" aria-label="Face">
+          {([true, false] as const).map(up => <button key={String(up)} type="button" aria-pressed={faceUp === up} data-testid={up ? "give-face-up" : "give-face-down"} onClick={() => setFaceUp(up)}>{up ? "Face-up" : "Face-down"}</button>)}
+        </div>
+        {monster && faceUp ? <div className={s.seg} role="group" aria-label="Position">
+          {(["attack", "defense"] as const).map(item => <button key={item} type="button" aria-pressed={position === item} data-testid={`give-position-${item}`} onClick={() => setPosition(item)}>{item === "attack" ? "Attack (ATK)" : "Defense (DEF)"}</button>)}
+        </div> : null}
+      </div>
+      {!faceUp ? <p className={t.note}>A face-down card stays hidden from the other players. Only you can see what it is.</p> : null}
+    </> : null}
+    <div className={t.row}>
+      <button type="button" className={`${s.btn} ${s.go}`} disabled={!chosen} data-testid="give-choose-zone" onClick={() => { if (chosen) onChoose(chosen, { position, faceUp }); }}>Choose a zone</button>
+      <button type="button" className={`${s.btn} ${s.q}`} onClick={onClose} data-testid="control-dismiss">Not now</button>
+    </div>
+  </>;
 }

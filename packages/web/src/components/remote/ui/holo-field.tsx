@@ -86,7 +86,9 @@ export const VERDICT_CLASS: Record<Verdict["kind"], string> = { ok: s.dropOk ?? 
 
 export type FieldTarget = { seat: number; key: ZoneKey; ref?: string };
 
-export function HoloField({ seat, name, twin, info, extraZones, facing, rv, onRv, picking, selectedRef, targetRef, freshRef, warnRefs, onActivate, onAttack, onInspect, onPile, onDeck, drag: dnd, tokenSlots, rotated, twinCounts, deckListSizes, deckRegistered, boardSeats }: {
+export function HoloField({ seat, name, twin, info, extraZones, facing, rv, onRv, picking, selectedRef, targetRef, freshRef, warnRefs, onActivate, onAttack, onInspect, onPile, onDeck, drag: dnd, tokenSlots, rotated, twinCounts, deckListSizes, deckRegistered, boardSeats, owners }: {
+  /** Name and colour of every seat: a card another seat owns (a given proxy) wears its owner's mark. */
+  owners?: readonly { seat: number; name: string; color: string }[];
   /** Every seat's cards, so an Equip link can name a monster on another field. */
   boardSeats?: readonly { seat: number; twin: readonly TwinCard[] }[];
   deckListSizes?:{deck:number;extra:number}; deckRegistered?:boolean;
@@ -245,7 +247,7 @@ export function HoloField({ seat, name, twin, info, extraZones, facing, rv, onRv
           picking && monsterZone && card ? s.pickTarget : "", card && card.ref === freshRef && !swapped.has(key) ? s.scanin : "", card && landed.has(card.ref) && !swapped.has(key) ? s.land : "", ghost ? s.ghosted : "", card && revealed.has(key) ? s.reveal : "", zoneCheck || card?.equippedTo || equipped.length ? z.cell : "", stacked_ ? s.matStack : ""].filter(Boolean).join(" ");
         let desc = taken ? `shared with ${facing!.name}: taken by their monster` : trapHolder ? `occupied by ${nameOf(trapHolder)} (Trap Monster)` : "empty";
         if (ghost) desc = ghost.faceUp ? "reading a card" : "a face-down card";
-        else if (tokenSlot) desc = "free, place token here";
+        else if (tokenSlot) desc = "free, click to place here";
         let inner: React.ReactNode = ghost ? <GhostCard faceUp={ghost.faceUp} /> : <span className={s.zl}>{taken ? <>EMZ<small>{facing!.name} has it</small></> : key === "ex" ? <>EXTRA<small>DECK</small></> : zoneLabel(key)}{extraZones && isPendulumCell(key) ? <small>PZ</small> : null}</span>;
         const deckPile=key==='deck'||key==='ex';
         const listed=deckPile?deckListSizes?.[key==='deck'?'deck':'extra']:undefined;
@@ -277,12 +279,15 @@ export function HoloField({ seat, name, twin, info, extraZones, facing, rv, onRv
         if (card?.faceUp&&card.nameCandidates) desc += '. Unsure card name';
         if (card && zoneCheck) desc += `. Check zone: ${zoneCheck}`;
         if (stacked_) desc += `. ${under} material${under === 1 ? "" : "s"} under it`;
+        const proxyOwner = card && !pile && card.ownerSeat !== undefined && card.ownerSeat !== seat ? owners?.find(item => item.seat === card.ownerSeat) : undefined;
+        if (proxyOwner) desc += `. Proxy: owned by ${proxyOwner.name}`;
         if (card?.equippedTo) desc += `. Equipped to ${target ? nameOf(target) : "a monster"}`;
         if (equipped.length) desc += `. Equipped with ${equipped.map(nameOf).join(", ")}`;
         return <div key={key} className={classes} style={offMat?{opacity:.35}:undefined} data-off-mat={offMat?'on':undefined} role="button" tabIndex={rv === key ? 0 : -1} data-z={key} data-zone={key} data-seat={seat} data-ref={card && !pile ? card.ref : undefined} data-up={card?.faceUp ? "1" : "0"} data-def={defense ? "1" : "0"} data-ghost={ghost ? "on" : undefined} data-token-slot={tokenSlot ? "on" : undefined} data-row={emzCell || key === "ban" ? undefined : ZK.indexOf(key as (typeof ZK)[number]) < 7 ? 1 : 2}
           title={desc} aria-label={`${name}, ${ZN[key]}${extraZones && isPendulumCell(key) ? " (Pendulum zone)" : ""}: ${desc}`} onFocus={() => onRv(key)} onKeyDown={event => move(event, key)} onClick={event => { if (ghost) { if (!tokenSlots) onActivate(key,undefined); return; } if (carried) dropCarried(key); else activate(key, card, event.currentTarget); }} onPointerDown={card ? event => begin(event, card) : undefined}>
           {inner}
           {card?.faceUp&&card.nameCandidates?<span className={s.originLabel} data-testid="unsure-name" title="Unsure card name. Tap this card to choose.">Unsure</span>:null}
+          {proxyOwner ? <span className={`${z.owner} ${card?.equippedTo || equipped.length || warnRefs.has(card!.ref) ? z.ownerLow : ""}`} style={{ "--oc": proxyOwner.color } as React.CSSProperties} data-testid="owner-badge" title={`Owned by ${proxyOwner.name}. It goes back to them when it leaves the field.`}><i />{proxyOwner.name}</span> : null}
           {zoneCheck ? <span className={`${z.check} ${down ? z.checkHigh : ""}`} data-testid="zone-check" title={`${zoneCheck} Click the card for details.`}><span aria-hidden="true" className={z.checkIcon}>?</span><span className={z.checkText}>Check zone?</span></span> : null}
           {card?.equippedTo ? <span className={z.link} data-testid="equip-link" title={`Equipped to ${target ? nameOf(target) : "a monster"}`}>Equip → {target ? nameOf(target) : "monster"}</span>
             : equipped.length ? <span className={z.link} data-testid="equip-link" title={`Equipped with ${equipped.map(nameOf).join(", ")}`}>+{equipped.length} Equip</span> : null}

@@ -45,7 +45,9 @@ export const fieldStrongBack=(track:Partial<Pick<FieldTrack,'card'|'pixelsDown'>
  * server hides it from the opponent). A face-up flip needs the fresh read of the card. On a card already face-down, a back the
  * camera sees clears an old "Revealed" (never the public identity of a card Set by an effect). Undefined when there is nothing to do.
  */
-export function fieldFaceProposal(card:Pick<TwinCard,'ref'|'zone'|'faceUp'|'materials'|'publicIdentity'|'setBy'>,track:Pick<FieldTrack,'faceDown'|'position'|'bestMatch'>&Partial<Pick<FieldTrack,'card'|'pixelsDown'>>,seat:number,identity?:{cardId:number;name?:string}):Extract<RemoteActionProposal,{type:'twin.flip'}>|undefined {
+export function fieldFaceProposal(card:Pick<TwinCard,'ref'|'zone'|'faceUp'|'materials'|'publicIdentity'|'setBy'|'ownerSeat'>,track:Pick<FieldTrack,'faceDown'|'position'|'bestMatch'>&Partial<Pick<FieldTrack,'card'|'pixelsDown'>>,seat:number,identity?:{cardId:number;name?:string}):Extract<RemoteActionProposal,{type:'twin.flip'}>|undefined {
+  // A card another seat controls (a proxy) has no paper card here: the camera never turns it.
+  if(card.ownerSeat!==undefined)return;
   const base={type:'twin.flip' as const,source:'auto' as const,actorSeat:seat,seat,cardRef:card.ref};
   if(track.faceDown){
     if(card.faceUp?card.materials?.length&&!fieldStrongBack(track):!card.publicIdentity||card.setBy)return;
@@ -89,7 +91,8 @@ export const FIELD_LEAVE_DESTINATIONS=[{zone:'graveyard',title:'GY'},{zone:'bani
 export const fieldLeaveLabel=(zone:string,faceUp?:boolean)=>zone==='material'?'Under Xyz':FIELD_LEAVE_DESTINATIONS.find(d=>d.zone===zone&&(zone!=='banished'||(('down' in d)===(faceUp===false))))?.title??zone;
 /** `destination`: a pile the camera showed, or a choice. Without one, the card is assumed in the hand (fieldDefaultDestination). A card in a pile that leaves it goes to the hand too. */
 export function fieldDepartureProposal(card:TwinCard,seat:number,destination?:'deck'|'extra'|{zone:'graveyard'|'banished'|'extra';faceUp?:boolean},facts?:{type?:string|null;race?:string|null}):Extract<RemoteActionProposal,{type:'twin.move'}>|undefined {
-  if(card.token||!['monster','extra-monster','spell-trap','field','pendulum','graveyard','banished'].includes(card.zone))return;
+  // A token and a card another seat controls have no paper card on this mat: the camera proposes nothing for them.
+  if(card.token||card.ownerSeat!==undefined||!['monster','extra-monster','spell-trap','field','pendulum','graveyard','banished'].includes(card.zone))return;
   const pile=['graveyard','banished'].includes(card.zone);
   const to=typeof destination==='string'?{zone:destination}:destination??fieldDefaultDestination(card,facts);
   // Back to the Deck/Extra, or a pile card that leaves its pile, turns face-down. The GY is public, so a card sent there (even a
@@ -186,7 +189,7 @@ export function fieldSetReturn({track,twins,tracks,owns,events,seat,at,now,pileT
   const toPile=(since:number)=>tracks.some(t=>/^(GY|BANISHED)$/.test(t.zone)&&t.firstSeen>=since)||[pileTouched?.GY,pileTouched?.BANISHED].some(touched=>touched!==undefined&&touched>=since);
   const occupant=twins.find(there);
   if(occupant){
-    if(!occupant.faceUp||occupant.token||occupant.materials?.length||!(occupant.cardId||occupant.passcode))return;
+    if(!occupant.faceUp||occupant.token||occupant.ownerSeat!==undefined||occupant.materials?.length||!(occupant.cardId||occupant.passcode))return;
     const seen=tracks.filter(t=>owns(t)===occupant.ref);
     // A hidden but not removed track is a card under an arm: it has not gone.
     if(!seen.length||seen.some(t=>!t.removed))return;
@@ -194,7 +197,7 @@ export function fieldSetReturn({track,twins,tracks,owns,events,seat,at,now,pileT
     return now-lastSeen<=FIELD_LEFT_SET_MS&&track.firstSeen>=lastSeen-1000&&track.firstSeen<=lastSeen+FIELD_SET_SEEN_MS+2000&&!toPile(lastSeen-1000)?{kind:'flip',card:occupant}:undefined;
   }
   // A card the camera lifted to the hand, newest first. A manual move has no `auto` mark and never counts.
-  const left=twins.filter(c=>c.zone==='hand'&&c.departedFrom?.auto&&c.departedFrom.at!==undefined&&at-c.departedFrom.at<=FIELD_LEFT_SET_MS&&backAt>=c.departedFrom.at-1500&&backAt<=c.departedFrom.at+FIELD_SET_SEEN_MS).sort((a,b)=>b.departedFrom!.at!-a.departedFrom!.at!);
+  const left=twins.filter(c=>c.zone==='hand'&&c.ownerSeat===undefined&&c.departedFrom?.auto&&c.departedFrom.at!==undefined&&at-c.departedFrom.at<=FIELD_LEFT_SET_MS&&backAt>=c.departedFrom.at-1500&&backAt<=c.departedFrom.at+FIELD_SET_SEEN_MS).sort((a,b)=>b.departedFrom!.at!-a.departedFrom!.at!);
   const gone=(c:TwinCard)=>{const seen=tracks.filter(t=>owns(t)===c.ref);return toPile((seen.length?Math.max(...seen.map(t=>t.lastSeen)):now-(at-c.departedFrom!.at!))-1000);};
   const sized=(c:TwinCard)=>events.some(e=>e.at>=c.departedFrom!.at!&&(e.action.type==='hand.draw'||e.action.type==='hand.count'||e.action.type==='hand.add'||e.action.type==='twin.move'&&e.action.zone==='hand'&&e.action.cardRef!==c.ref)&&('seat' in e.action?e.action.seat:e.action.actorSeat)===seat);
   const back=left.find(c=>there(c.departedFrom!));

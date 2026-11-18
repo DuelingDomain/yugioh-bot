@@ -187,7 +187,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     const away=tokenAway.current.get(track.id),chosen=away?.cell===track.zone?away.zone:undefined;
     return chosen?{zone:chosen,label:''}:saved?{zone:saved,label:''}:projectFieldZone({zone:track.zone,facts,twins,ref:card?.ref,faceDown:track.faceDown,format:current.current.room.format?.id??current.current.room.state.deckChecks.format.id,equipSource:equipSourceOn(twins),equipped:!!card?.equippedTo});
   };
-  const known=():KnownFieldCard[]=>current.current.room.state.seats[seat].twin.flatMap(c=>{if(c.token||[...placeholders.current.values()].includes(c.ref))return [];const zone=c.zone==='hand'?'HAND' as const:knownZone(c);return zone?[{id:c.ref,zone,cardId:c.faceUp||c.publicIdentity||['deck','hand','extra'].includes(c.zone)?String(cardCode(c)??''):undefined,faceDown:!c.faceUp,position:c.position}]:[];});
+  const known=():KnownFieldCard[]=>current.current.room.state.seats[seat].twin.flatMap(c=>{if(c.token||c.ownerSeat!==undefined||[...placeholders.current.values()].includes(c.ref))return [];const zone=c.zone==='hand'?'HAND' as const:knownZone(c);return zone?[{id:c.ref,zone,cardId:c.faceUp||c.publicIdentity||['deck','hand','extra'].includes(c.zone)?String(cardCode(c)??''):undefined,faceDown:!c.faceUp,position:c.position}]:[];});
   const offer=(event:FieldEvent)=>{
     const key=`${event.track.id}:${event.track.revision??0}`;
     if(event.track.faceDown&&event.reason!=='card-presence'||prompted.current.has(key))return;
@@ -223,6 +223,8 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     if(track?.visible&&!track.removed)manual.current.set(ref,{...fieldZoneLocation(track.zone),position:track.position});
     else undoKept.current.add(ref);
   };
+  /** My card an opponent holds as a proxy: its paper card leaves my zone or stays on the mat, and the camera does nothing about it. Read from the live state, so a reload, a take back, an Undo and a return to my Graveyard all end it. */
+  const givenAway=(ref:string)=>current.current.room.state.seats.some((s,i)=>i!==seat&&s.twin.some(c=>c.ref===ref&&c.ownerSeat===seat));
   const undoCards=useRef(new Map<string,string[]>()),undoSeq=useRef<number|null>(null);
   useEffect(()=>{undoCards.current.clear();undoSeq.current=null;},[room.slug,seat]);
   useEffect(()=>{
@@ -232,6 +234,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     for(const e of events){
       if(e.seq<=undoSeq.current)continue;
       if((e.action.type==='twin.flip'||e.action.type==='twin.move'&&e.action.faceUp!==undefined)&&e.action.seat===seat&&e.action.source!=='auto'){holdFace(e.action.cardRef);continue;}
+      if(e.action.type==='twin.control'&&e.action.toSeat===seat){holdForPlayer(e.action.cardRef);continue;}
       if(e.action.type!=='undo')continue;
       const targetId=e.action.targetActionId,target=events.find(x=>x.id===targetId||(x.action as {idempotencyKey?:string}).idempotencyKey===targetId)?.action as Record<string,unknown>|undefined;
       // Fallback when the entry was never seen (action and Undo in one update): the refs the action names.
@@ -364,6 +367,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     if(!after||after.removed||after.revision!==event.track.revision)await removePlaceholder(event.track.id,act);
   }
   async function apply(event:FieldEvent,act:RoomMutation,chosen?:string,attempt=0) {
+    if(givenAway(bindings.current.get(event.track.id)??event.track.id))return;
     console.info('[remote field] identify',event.track.id,chosen??event.track.cardId,event.track.zone,event.type);
     const humanChoice=event.type==='prompt'&&(!!chosen||event.reason==='card-presence');
     const matchesEvidence=(track:FieldTrack|undefined)=>fieldEvidenceMatches(event,track,humanChoice);
@@ -671,6 +675,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   useEffect(()=>{if(!heldPick||notice)return;const timer=setTimeout(()=>setHeldPick(null),10_000);return()=>clearTimeout(timer);},[heldPick,notice]);
   function handle(event:FieldEvent,departureOrigin?:Pick<TwinCard,'ref'|'zone'|'slot'>) {
     const observedRef=bindings.current.get(event.track.id)??event.track.id;
+    if(givenAway(observedRef))return;
     if(event.type==='removed'&&event.uncoveredRef){
       separatedStackCards.current.add(observedRef);
       for(const summon of summons.current.values())if(summon.kind==='xyz')summon.pending=summon.pending.filter(ref=>ref!==observedRef);
@@ -1350,7 +1355,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
           try{const updated=await flipFace(act,fix);if(updated){changes++;lastUndo=updated.state.undo?.actionId??lastUndo;}}catch(error){console.info('[remote field] face write failed',fix.card.ref,error instanceof Error?error.message:error);}
         }
         for(const zone of backs){
-          const card=current.current.room.state.seats[seat].twin.find(c=>(c.faceUp||c.publicIdentity&&!c.setBy)&&publicField(c.zone)&&knownZone(c)===zone&&![...placeholders.current.values()].includes(c.ref));if(!card)continue;
+          const card=current.current.room.state.seats[seat].twin.find(c=>c.ownerSeat===undefined&&(c.faceUp||c.publicIdentity&&!c.setBy)&&publicField(c.zone)&&knownZone(c)===zone&&![...placeholders.current.values()].includes(c.ref));if(!card)continue;
           const proposal=fieldFaceProposal(card,{faceDown:true,position:'attack'},seat);if(!proposal)continue;
           const wasUp=card.faceUp;
           if(!await write(`flip:${card.ref}:true`,proposal))continue;

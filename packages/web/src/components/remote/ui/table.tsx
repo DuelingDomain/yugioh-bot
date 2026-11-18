@@ -319,7 +319,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
   };
   const placeInZone = (pick: ZonePick) => { const ref = crypto.randomUUID(); return saveZoneActions(latest => zonePlacement(latest, pick, ref)); };
   const tokens = useTokens({ act, room, live, extraZones, layers, info });
-  const control = useControlChange({ act, room, live, layers, info, name, toast });
+  const control = useControlChange({ act, room, live, extraZones, layers, info, name, toast });
   controlOfferRef.current = control.offer;
   // A monster that equips itself (Union, Agnumday-style) and sits face up in my Spell & Trap Zone: ask which monster it equips. No link is made without a click.
   const equipNudged = useRef(new Set<string>());
@@ -1301,8 +1301,11 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     onReveal: subject && subjectCard && !subjectCard.faceUp && (solo || subject.seat===mySeat) ? () => void act({type:"twin.flip",actorSeat:subject.seat,seat:subject.seat,cardRef:subjectCard.ref,faceUp:true}) : undefined,
     onPin: () => layers.open("insp"),
     // Control change: take an opponent's monster or revived card, or hand a taken card back. Never guessed; the player presses the button.
-    ...(subject && subjectCard && live && !solo && subject.seat !== mySeat && mySeat >= 0 && ["monster", "extra-monster", "graveyard"].includes(subjectCard.zone) ? { control: { label: "Take control", onClick: () => { control.take(mySeat, subject.seat, subjectCard); } } } : {}),
+    ...(subject && subjectCard && live && !solo && subject.seat !== mySeat && mySeat >= 0 && ["monster", "extra-monster", "graveyard"].includes(subjectCard.zone) && subjectCard.ownerSeat !== mySeat ? { control: { label: "Take control", onClick: () => { control.take(mySeat, subject.seat, subjectCard); } } } : {}),
+    // A card I gave away shows on the other field as my proxy: I can take it back to a free zone of mine.
+    ...(subject && subjectCard && live && !solo && subject.seat !== mySeat && subjectCard.ownerSeat === mySeat ? { control: { label: "Take back", onClick: () => { control.giveBack(subject.seat, subjectCard); } } } : {}),
     ...(subject && subjectCard?.ownerSeat !== undefined && control.may(subject.seat) ? { control: { label: "Return control", onClick: () => { control.giveBack(subject.seat, subjectCard); } } } : {}),
+    ...(subject && subjectCard && subject.seat === mySeat && !subjectCard.token && control.canGive && ["monster", "extra-monster", "spell-trap"].includes(subjectCard.zone) ? { give: { label: "Give to opponent", onClick: () => { if (control.give(subjectCard)) { layers.close(); setSubject(null); } } } } : {}),
     ...(live && (solo || mySeat >= 0) ? { onAddToHand: () => searchForHand(solo ? (subject?.seat ?? mySeat) : mySeat) } : {}),
     undo: cardUndo,
     ...(subject && subjectCard?.materials?.length ? { materials: subjectCard.materials.flatMap(ref => {
@@ -1317,7 +1320,8 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
       return reason ? { zoneCheck: reason } : {};
     })() : {}),
     ...(subject && flagOf(subject.seat) ? { onFlag: (el: HTMLElement) => { setFlagSeat(subject.seat); layers.open("flag", el); } } : {}),
-    ...(subject && subjectCard && live && (solo || subject.seat === mySeat) ? { edit: {
+    // The owner of a proxy edits it on the other field too (position, move, send away).
+    ...(subject && subjectCard && live && (solo || subject.seat === mySeat || subjectCard.ownerSeat === mySeat) ? { edit: {
       faceUp: subjectCard.faceUp !== false, zone: subjectCard.zone, slot: subjectCard.slot, extraZones,
       onCell: (key: ZoneKey) => { tryMove(subject.seat, subjectCard, landOf(subjectCard, key)); },
       onMove: (zone: string) => {
@@ -1342,7 +1346,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
         } } } : {}),
       onRemove: () => { void act({ type: "twin.remove", actorSeat: solo ? subject.seat : mySeat, seat: subject.seat, cardRef: subjectCard.ref, cam: playerStamp("popup-remove") }); layers.close(); setSubject(null); },
       ...(!subjectCard.faceUp&&!subjectCard.token&&['monster','spell-trap','extra-monster','field','pendulum'].includes(subjectCard.zone)?{onNotACard:()=>{announceNotACard(room.slug,subject.seat,subjectCard.ref);void act({type:'twin.remove',actorSeat:solo?subject.seat:mySeat,seat:subject.seat,cardRef:subjectCard.ref,cam:playerStamp('not-a-card')});layers.close();setSubject(null);}}:{}),
-      ...(subjectCard.faceUp !== false && subjectCard.zone === "spell-trap" ? { equip: equipChoice(subject.seat, subjectCard) } : {}),
+      ...(subjectCard.faceUp !== false && subjectCard.zone === "spell-trap" && (solo || subject.seat === mySeat) ? { equip: equipChoice(subject.seat, subjectCard) } : {}),
     } } : {}),
   };
   /** A remembered card is known to this browser only, so it offers nothing that would tell the table. */
@@ -1536,15 +1540,15 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
             health={hub.health(seat)} healthOpen={layers.layer === "health"} onHealth={el => layers.toggle("health", el)}
             marks={marks[seat] ?? []} reticles={reticles[seat] ?? []} onBegin={beginRead} readLive={readLive} onAbort={abortRead} onMiss={noCard} onSearch={searchHere} onPoint={(sd, x, y, point) => void startRead(sd, x, y, { point })} onSelect={(sd, hit) => void startRead(sd, hit.x, hit.y, { hit })}
             holdSelection={(layers.layer === "tray" || layers.layer === "card") && ctx.current?.seat === seat} onAdd={mark => void addToDeck(seat, mark.cardCode)} onReset={resetFeed} onReadBoard={readBoardInto}
-            twin={twin} deckRegistered={!!(registration?.deckRegistered??registration?.deck)} deckListSizes={deck?{deck:deck.main.length,extra:deck.extra.length}:undefined} info={info} extraZones={extraZones} facing={facing(seat)} boardSeats={state.seats} rv={rv[seat] ?? "m1"} onRv={key => setRv(old => ({ ...old, [seat]: key }))} picking={!!picking && seat !== picking.seat}
+            twin={twin} deckRegistered={!!(registration?.deckRegistered??registration?.deck)} deckListSizes={deck?{deck:deck.main.length,extra:deck.extra.length}:undefined} info={info} extraZones={extraZones} facing={facing(seat)} boardSeats={state.seats} owners={state.seats.map(item => ({ seat: item.seat, name: name(item.seat), color: COLORS[item.seat] }))} rv={rv[seat] ?? "m1"} onRv={key => setRv(old => ({ ...old, [seat]: key }))} picking={!!picking && seat !== picking.seat}
             selectedRef={picking?.seat === seat ? picking.ref : selected?.seat === seat ? selected.ref : undefined} targetRef={attack?.targetSeat === seat ? attack.targetCardRef : undefined} freshRef={fresh}
             warnRefs={warnRefs(seat)} twinCounts={twinCounts(seat)} pickPlate={plate} detectionMode={isTournamentTable(room) && seat !== mySeat ? stateMode(room.state, seat) ?? "unknown" : undefined} viewScope={String(seatCount)} webcamOnly={webcamOnly && !needsBoard(seat)} onDock={onSeatDock} onToggleView={needsBoard(seat) ? undefined : () => setWebcamOnly(!webcamOnly)}
             onZoneCard={onZoneCard} onCamPick={onCamPick} hoverTip={hoverTip} onCardMenu={onCardMenu}
-            tokenSlots={tokens.placing && !state.seats[seat]?.eliminated ? tokens.openSlots(seat) : undefined} onActivate={(key, card) => { if (tokens.placeAt(seat, key, card)) return; if (picking && card && seat !== picking.seat && (card.zone === "monster" || card.zone === "extra-monster")) void declare(seat, card.ref); else if (!picking && (solo || seat === mySeat) && !isPile(key)) openZonePicker(seat,key); else if (card) openSubject(card); }}
+            tokenSlots={tokens.placing && !state.seats[seat]?.eliminated ? tokens.openSlots(seat) : control.giveSlots(seat)} onActivate={(key, card) => { if (tokens.placeAt(seat, key, card) || control.giveAt(seat, key, card)) return; if (picking && card && seat !== picking.seat && (card.zone === "monster" || card.zone === "extra-monster")) void declare(seat, card.ref); else if (!picking && (solo || seat === mySeat) && !isPile(key)) openZonePicker(seat,key); else if (card) openSubject(card); }}
             onAttack={(_key, card) => startAttack(seat, card)} onInspect={card => openSubject(card)} onPile={(zone, opener) => openPile(seat, zone, opener)} onDeck={(solo || seat === mySeat) && surrenderable(seat) ? el => { setDeckAt({ seat, rect: el.getBoundingClientRect() }); layers.toggle("deck", el); } : undefined} live={live} drag={fieldDrag(seat)} onPlate={() => { if (plate) void declare(seat); }}
             onLp={delta => void changeLp(seat, delta)} canLp={live} deckWarning={deckFlag(room, seat)?.message} onDeckFlag={el => { setFlagSeat(seat); layers.toggle("flag", el); }}
             hand={handOf(seat)}
-            cameraControl={seat === mySeat ? <><CameraControl room={room} />{tokens.trigger(seat)}</> : tokens.trigger(seat)}
+            cameraControl={seat === mySeat ? <><CameraControl room={room} /><div className={s.toolrow}>{tokens.trigger(seat)}{control.giveTrigger(seat)}</div></> : tokens.trigger(seat)}
             undo={seat === mySeat ? { label: undoShort, enabled: canUndo, reason: newestUndo?.reason, onUndo: () => void doUndo() } : undefined} turnIn={turnIn && seat === turnShown}
             emptyFeedAction={seat === mySeat && !hub.cameraOn ? <button type="button" className={`${s.btn} ${s.sm} ${s.go}`} disabled={hub.starting} onClick={event => { event.stopPropagation(); void (hub.manual(seat) ? hub.useWebcam() : hub.enableCamera()); }} data-testid="camera-on-feed">{hub.starting ? "Starting…" : "Turn camera on"}</button> : undefined}
             emptyFeedText={hub.manual(seat) ? `No camera (manual). Use ${voiceRecognition ? "voice, " : ""}typing and your board twin.` : hub.health(seat).label === "Scan mode" ? "Scan mode · follow the board twin and log." : bot ? "Test opponent. No camera." : seat === mySeat ? "Your camera is off." : `Waiting for ${name(seat)}'s camera.`} />;

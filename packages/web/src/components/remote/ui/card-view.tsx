@@ -72,6 +72,8 @@ export type CardActions = {
   onActivate?: () => void; onReveal?: () => void;
   /** Take control of an opponent's card, or return a taken card to its owner. */
   control?: { label: string; onClick: () => void };
+  /** Give my card on the field to an opponent: it shows there as a proxy that I keep owning. */
+  give?: { label: string; onClick: () => void };
   onWrong?: () => void; onPin?: () => void;
   /** A remembered card: read the camera again. */
   onReadAgain?: () => void;
@@ -128,6 +130,7 @@ function Actions({ a, subject }: { a: CardActions; subject: Subject }) {
       {a.onAddToHand ? <button type="button" className={BTN} onClick={a.onAddToHand} data-testid="add-to-hand">Add card to hand{"\u2026"}</button> : null}
       {a.onReveal ? <button type="button" className={BTN} onClick={a.onReveal}>Reveal card</button> : null}
       {a.control ? <button type="button" className={BTN} onClick={a.control.onClick} data-testid="card-control">{a.control.label}</button> : null}
+      {a.give ? <button type="button" className={BTN} onClick={a.give.onClick} data-testid="card-give">{a.give.label}</button> : null}
       <button type="button" className={BTN} onClick={a.onAttack} disabled={!a.canAttack} title={a.attackHint}>Attack from here</button>
     </Group>
     {edit ? <MoveGroup edit={edit} /> : null}

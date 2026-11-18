@@ -121,6 +121,13 @@ export function reduceRemoteHandAction(state: RemoteState, action: Extract<Remot
     reviewed?{cardId:action.by.cardId,name:context?.facts?.[action.by.cardId]?.name??state.effectTracking?.origins.find(o=>o.source.cardId===action.by!.cardId)?.source.name??'Card '+action.by.cardId}:action.by:undefined);
   return true;
 }
+/** A card given to an opponent leaves the giver's hand: one less in the count, and its known copy is forgotten. */
+export function applyRemoteGive(next: RemoteState, giverSeat: number, code: number | undefined, context?: RemoteReductionContext): void {
+  if (context?.replay && context.handKnowledge !== 1) return;
+  const s = counts(next, giverSeat, !context?.replay || context.handReview === 1);
+  forgetCopy(next, giverSeat, code);
+  s.handCount = Math.max(0, s.handCount! - 1);
+}
 /** Compare physical exits once, after the board and deck checks have updated. */
 export function applyRemoteHand(next: RemoteState, before: RemoteState, action: RemoteAction, context?: RemoteReductionContext): void {
   if (context?.replay && context.handKnowledge !== 1) return;
