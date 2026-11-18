@@ -37,7 +37,7 @@ import {clipAction} from '@/lib/remote/clip-capture';
 import {nextFieldGhosts,setFieldGhosts,blockGhostCell,newGhostState} from '@/lib/remote/field-ghosts';
 import {FieldWatcherUI} from './field-watcher-ui';
 import {serverNow} from './ui/api';
-import {cardInfo,loadCards,useCardInfo} from './ui/catalog';
+import {cardFailed,cardInfo,loadCards,useCardInfo} from './ui/catalog';
 import {fieldSummonKind,fieldSummonMaterials,fieldSummonMinimum,fieldSummonNotice,heldStackStillStacked,fieldKeepsMonsterStack,fieldStackXyzCandidates,SUMMON_WINDOW_MS,SUMMON_RECENT_MS,type FieldVanish} from '@/lib/remote/field-summons';
 import {distinctFieldQuads,fieldSetReturn,xyzAttachTargets,fieldEvidenceMismatch} from '@/lib/remote/field-proposals';
 
@@ -444,13 +444,14 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     const placementRef=track.id;
     const code=entry?catalogCardId(entry):undefined;let slowFacts=false;
     if(code&&!track.faceDown){
-      const metadata=loadCards([code]);
+      // A lookup that already ended with no facts (and is not running again) counts as settled: loadCards would start a new request that always looks pending.
+      const factsFailed=cardFailed(code),metadata=loadCards([code]);
       if(existing&&!existing.faceUp&&knownZone(existing)===track.zone)void metadata.catch(()=>undefined);
       // A slow or cold lookup must not hold the serial queue (and every write behind it): after FACTS_WAIT_MS a NEW card is placed with what the camera saw.
       // The full wait stays where a rule needs the facts first: Extra Deck summon materials (cards under it, a card that just left, an Extra Monster Zone) and a stale occupant to release.
       else if(!cardInfo(code)&&(existing||stackUnder(event.track.id).length||pendingLeft.current.size||vanishes.current.some(v=>Math.abs(v.at-track.firstSeen)<=2*SUMMON_WINDOW_MS)||track.zone.startsWith('EMZ')||twins.some(c=>c.zone==='hand'&&c.departedFrom?.auto&&['monster','extra-monster'].includes(c.departedFrom.zone)&&serverNow()-(c.departedFrom.at??-Infinity)<=SUMMON_RECENT_MS)||staleFieldOccupant(twins,watch.getTracks().map(t=>({...t,id:bindings.current.get(t.id)??t.id})),track.zone,track.id)))await metadata;
       // A Main Deck card in its own row, with that zone free, is placed at once; the facts (already loading since the event) catch up for the zone-rule effect. A taken zone keeps the wait (the legal row may be another slot).
-      else if(!cardInfo(code)&&mainDeckOwnRow(entry?.frameClass,track.zone)&&(spot=>!twins.some(c=>c.zone===spot.zone&&c.slot===spot.slot))(fieldZoneLocation(track.zone))){
+      else if(!cardInfo(code)&&mainDeckOwnRow(entry?.frameClass,track.zone)&&!factsFailed&&(spot=>!twins.some(c=>c.zone===spot.zone&&c.slot===spot.slot))(fieldZoneLocation(track.zone))){
         // Only a lookup that is still running is not waited for. One that settles at once (a macrotask) with no facts abstains below, as before; one that settles empty later keeps the placed card.
         if(!await Promise.race([metadata.then(()=>true),new Promise<boolean>(resolve=>{setTimeout(()=>resolve(false),0);})])){slowFacts=true;void metadata.catch(()=>undefined);}
       }
@@ -712,7 +713,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     else if(['placed','moved','covered'].includes(event.type))separatedStackCards.current.delete(observedRef);
     observeCorrections([...watch.getTracks().filter(t=>t.id!==event.track.id),event.track]);
     // Start the facts lookup now, outside the serial write queue, so `apply` finds the card cached (loadCards shares a running lookup).
-    if(event.track.cardId&&!event.track.faceDown){const factsEntry=entries.current.get(event.track.cardId),factsCode=factsEntry?catalogCardId(factsEntry):undefined;if(factsCode)void loadCards([factsCode]);}
+    if(event.track.cardId&&!event.track.faceDown){const factsEntry=entries.current.get(event.track.cardId),factsCode=factsEntry?catalogCardId(factsEntry):undefined;if(factsCode&&!cardFailed(factsCode))void loadCards([factsCode]);}
     if(event.type==='reading'&&live()){
       restingReads.current.set(event.track.id,event);
       publishReadings();

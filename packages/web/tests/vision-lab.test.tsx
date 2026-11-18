@@ -922,7 +922,10 @@ describe('typed watcher zone projection',()=>{
   const fixture=await typedWatcherFixture(zoneEntries[0],'M4',occupied,'prompt');try{await fixture.emit();const button=await screen.findByRole('button',{name:/Solemn Judgment/i});await waitFor(()=>expect(button).toBeDisabled());expect(fixture.post).not.toHaveBeenCalled();}finally{fixture.dispose();}
  });
  it('abstains when the full type is unavailable instead of using an index-frame guess',async()=>{
-  const fixture=await typedWatcherFixture(zoneEntries[5],'M4');try{await fixture.emit();await screen.findByText(/Card type is unknown/);expect(fixture.post).not.toHaveBeenCalled();expect(fixture.confirm).not.toHaveBeenCalled();}finally{fixture.dispose();}
+  // The lookup takes a real 20 ms and ends empty: after it failed, a new emit abstains (it must not look "still loading" again and place at the camera row).
+  const {loadCards}=await import('../src/components/remote/ui/catalog');
+  fetcher.mockImplementation(async(url)=>String(url).endsWith('/api/cards/resolve')?new Promise<Response>(resolve=>setTimeout(()=>resolve(Response.json({cards:[]})),20)):Response.json({entries:cards}));
+  const fixture=await typedWatcherFixture(zoneEntries[5],'M4');await loadCards([zoneEntries[5].passcode]);try{await fixture.emit();await screen.findByText(/Card type is unknown/);expect(fixture.post).not.toHaveBeenCalled();expect(fixture.confirm).not.toHaveBeenCalled();}finally{fixture.dispose();}
  });
  it('places a Main Deck monster in its own row while its facts are still loading, without abstaining',async()=>{
   const pending=deferred<Response>(),entry={cardId:'900000105',passcode:900000105,frameClass:'Normal',name:'Slow facts monster fixture'};
