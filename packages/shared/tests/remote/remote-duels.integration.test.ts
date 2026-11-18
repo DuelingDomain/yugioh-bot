@@ -4226,6 +4226,13 @@ it('lets a seated player put a token on another field: only its creator and that
 
   // The controller can send it off the field too: a token never reaches a pile.
   send(a, 0, { type: 'twin.place', seat: 1, zone: 'monster', card: token });
+  // The creator and the controller can set its ATK/DEF afterwards; the third seat cannot, and a real card has none to set.
+  const stats = (atk: number, def: number) => ({ type: 'twin.flip', seat: 1, cardRef: 'primal', faceUp: true, position: 'attack', tokenStats: { atk, def } });
+  send(a, 0, stats(2500, 1800));
+  expect(theirs()).toMatchObject({ token: { atk: 2500, def: 1800, by: 0 } });
+  send(b, 1, stats(3000, 2000));
+  expect(theirs()).toMatchObject({ token: { atk: 3000, def: 2000 } });
+  expect(() => send(c, 2, stats(1, 1))).toThrow('Only the field owner can edit their twin');
   send(b, 1, { type: 'twin.move', seat: 1, zone: 'graveyard', cardRef: 'primal' });
   expect(theirs()).toBeUndefined();
   expect(state().seats[1].twin.some(card => card.zone === 'graveyard')).toBe(false);

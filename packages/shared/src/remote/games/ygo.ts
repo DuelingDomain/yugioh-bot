@@ -326,6 +326,7 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
       const s = tokenHere?.token && tokenHere.token.by === action.actorSeat ? tokenField(action.seat) : ownField(action.seat);
       const card = s.twin.find(c => c.ref === action.cardRef);
       remoteAssert(card, "Unknown twin card", 409);
+      remoteAssert(card.token || action.type !== "twin.flip" || !action.tokenStats, "Only a token has ATK/DEF to set", 409);
       if (card.token) {
         // The camera never touches a token: nothing physical backs it.
         if ("source" in action && action.source === "auto") return state;
@@ -335,6 +336,7 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
         if (action.type === "twin.flip") {
           remoteAssert(action.faceUp, "A token stays face-up", 409);
           if (action.position !== undefined) card.position = action.position;
+          if (action.tokenStats) card.token = { ...card.token, ...action.tokenStats };
           break;
         }
         validZone(action.zone);
