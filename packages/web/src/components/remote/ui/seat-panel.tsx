@@ -40,7 +40,7 @@ export type SeatPanelProps = {
   index: number; seat: number; name: string; color: string; you: boolean; turn: boolean; next: boolean; speaking: boolean; frozen: boolean; eliminated: boolean;
   lp: number; startingLp: number; health: Health; healthOpen: boolean; onHealth: (button: HTMLElement) => void;
   marks: FeedMark[]; reticles: FeedReticle[]; onBegin: (seat: number, start: FeedStart) => number; readLive: (id: number) => boolean; onAbort: (seat: number, id: number) => void; onMiss: (seat: number) => void; onSearch: (seat: number, start: FeedStart) => void; onPoint: (seat: number, x: number, y: number, extra: FeedPoint) => void; onSelect: (seat: number, hit: FeedHit) => void; holdSelection: boolean; onAdd: (mark: FeedMark) => void; onReset: (seat: number) => void; onReadBoard?: (seat: number, reading: BoardReading) => Promise<string>;
-  twin: TwinCard[]; info: (id: number | undefined) => CardInfo | undefined; extraZones?: boolean; facing?: { name: string; twin: readonly TwinCard[] } | null; boardSeats?: readonly { seat: number; twin: readonly TwinCard[] }[]; rv: ZoneKey; onRv: (key: ZoneKey) => void; picking: boolean;
+  twin: TwinCard[]; info: (id: number | undefined) => CardInfo | undefined; extraZones?: boolean; facing?: { name: string; twin: readonly TwinCard[] } | null; boardSeats?: readonly { seat: number; twin: readonly TwinCard[] }[]; owners?: readonly { seat: number; name: string; color: string }[]; rv: ZoneKey; onRv: (key: ZoneKey) => void; picking: boolean;
   selectedRef?: string; targetRef?: string; freshRef?: string; warnRefs: ReadonlySet<string>; pickPlate: boolean; plateRef?: (el: HTMLButtonElement | null) => void;
   onActivate: (key: ZoneKey, card: TwinCard | undefined) => void; onAttack: (key: ZoneKey, card: TwinCard) => void; onInspect: (card: TwinCard) => void;
   /** The table is live (not in a match break): only then is my own Deck and Extra shown as mine. */ live?: boolean;
@@ -175,7 +175,7 @@ export function SeatPanel(p: SeatPanelProps) {
             <button type="button" ref={p.plateRef} className={`${s.fplate} ${p.pickPlate ? s.pick : ""}`} tabIndex={p.pickPlate ? 0 : -1} data-plate={p.seat} onClick={p.onPlate}
               aria-label={p.pickPlate ? `Attack ${p.name} directly` : `${p.name}, ${p.lp} life points`}><span className={s.pip} />{p.name} <span className={s.num}>{p.lp}</span></button>
             <HoloField seat={p.seat} name={p.name} twin={p.twin} info={p.info} extraZones={p.extraZones} facing={p.facing} rv={p.rv} onRv={p.onRv} picking={p.picking} selectedRef={p.selectedRef} targetRef={p.targetRef}
-              freshRef={p.freshRef} warnRefs={p.warnRefs} onActivate={p.onActivate} onAttack={p.onAttack} onInspect={p.onInspect} onPile={p.onPile} onDeck={p.onDeck} drag={p.drag} tokenSlots={p.tokenSlots} rotated={!p.you} twinCounts={p.twinCounts} deckListSizes={p.deckListSizes} deckRegistered={p.deckRegistered} boardSeats={p.boardSeats} />
+              freshRef={p.freshRef} warnRefs={p.warnRefs} onActivate={p.onActivate} onAttack={p.onAttack} onInspect={p.onInspect} onPile={p.onPile} onDeck={p.onDeck} drag={p.drag} tokenSlots={p.tokenSlots} rotated={!p.you} twinCounts={p.twinCounts} deckListSizes={p.deckListSizes} deckRegistered={p.deckRegistered} boardSeats={p.boardSeats} owners={p.owners} />
           </div>
           <div className={s.projector} />
         </div>
