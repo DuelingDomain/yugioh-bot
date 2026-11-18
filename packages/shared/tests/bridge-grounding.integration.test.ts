@@ -48,7 +48,11 @@ describe("grounded engine membership and directed access on the pinned catalog",
     expect(engine.groups.get("Blue-Eyes")!.has(named(data.capabilities, "Buster Blader").id)).toBe(false);
     const capabilities = data.capabilities.map(row => row.card.name === "Maiden of White"
       ? { ...row, card: { ...row.card, text: 'This card mentions "True Light" and "Blue-Eyes White Dragon".' }, provides: [] } : row);
-    expect(new BridgeEngine({ ...data, capabilities }).groups.get("Blue-Eyes")!.has(named(capabilities, "Maiden of White").id)).toBe(false);
+    // Fresh artifacts already persist grounded membership. Remove that cached
+    // membership as well as the action before checking the mention-only case.
+    const maiden = named(capabilities, "Maiden of White").id;
+    const groups = { ...data.groups, "Blue-Eyes": data.groups["Blue-Eyes"]!.filter(id => id !== maiden) };
+    expect(new BridgeEngine({ ...data, capabilities, groups }).groups.get("Blue-Eyes")!.has(maiden)).toBe(false);
   });
 
   it("indexes Mikumari's non-Wyrm and Gateway's distinct-name non-Field targets", () => {
