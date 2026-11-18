@@ -547,7 +547,9 @@ test('a face-up Spell turned Set in place under a flickering shadow is the same 
     assert.equal(removed(),false,'the hand delays removal');
     r.occludedAt=undefined;
     for(let i=0;i<8&&!removed();i++)await run(1);
-    assert.ok(removed(),'the front track is removed after the hand clears');
+    const removal=r.events.find(e=>e.type==='removed'&&e.track.id==='twin');
+    assert.ok(removal,'the front track is removed after the hand clears');
+    assert.equal(removal.removedAt,r.at,'the event publishes the removal clock, even after a long absence');
     await run(1);
     assert.ok(r.watcher.getSnapshot().blindZones?.includes('S4'),'the first sleeve scan after removal ignores the old GY motion');
   }

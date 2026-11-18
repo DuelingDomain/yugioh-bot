@@ -1018,6 +1018,33 @@ describe('typed watcher zone projection',()=>{
    else{expect(dismiss).not.toHaveBeenCalled();expect(fixture.room().state.seats[0].twin).toEqual(placement?[]:[expect.objectContaining({ref:old.ref,zone:'hand'})]);}
   }finally{ready.resolve();fixture.dispose();}
  },10_000);
+ it.each(['earlier GY touch','hand over the slot'] as const)('holds a slow in-place Set after removal with %s',async scenario=>{
+  const old={ref:'slow-set',zone:'spell-trap',slot:4,cardId:41420027,name:'Solemn Judgment',faceUp:true,position:'attack'};
+  const fixture=await typedWatcherFixture(zoneEntries[0],'S4',[old],'moved');
+  vi.useFakeTimers();
+  try{
+   const advance=(ms:number)=>act(async()=>{await vi.advanceTimersByTimeAsync(ms);});
+   await advance(5000);
+   const removedAt=performance.now(),earlierPile=scenario==='earlier GY touch',watch=state.fieldWatch.watch;
+   Object.assign(fixture.track,{lastSeen:removedAt-2400,removed:true,visible:false});
+   watch.isRemoved=()=>fixture.track.removed;
+   watch.getSnapshot=()=>watch.snapshot;
+   Object.assign(watch.snapshot,{pileTouchedAt:earlierPile?{GY:removedAt-2100}:{},blindZones:earlierPile?['S4']:[],handZones:earlierPile?[]:['S4']});
+   fixture.refresh();
+   await fixture.emit({type:'removed',removedAt});
+   await advance(1000);
+   expect(fixture.post).not.toHaveBeenCalled();
+   Object.assign(watch.snapshot,{blindZones:['S4'],handZones:[]});
+   await advance(1250);
+   expect(fixture.post).not.toHaveBeenCalled();
+
+   Object.assign(fixture.track,{faceDown:true,cardId:undefined,visible:true,removed:false,revision:1});
+   await fixture.emit({type:'flipped'});
+   await advance(1000);
+   expect(fixture.post.mock.calls.map(([proposal])=>proposal.type)).toEqual(['twin.flip']);
+   expect(fixture.room().state.seats[0].twin).toEqual([expect.objectContaining({...old,faceUp:false})]);
+  }finally{fixture.dispose();vi.useRealTimers();}
+ });
  it('a pile card the camera shows right after a departure settles the move at once, and the stand-in goes (one card, one pile)',async()=>{
   const old={ref:'left-field',zone:'spell-trap',slot:4,cardId:41420027,name:'Solemn Judgment',faceUp:true,position:'attack'};
   const fixture=await typedWatcherFixture(zoneEntries[0],'M4',[old],'moved');
