@@ -3,9 +3,11 @@
 
 Run from any directory: python3 scripts/deployment/verify-domain-routing.py
 Requires Docker daemon access, a cached caddy:2.11.2-alpine image, curl, Python 3.
+Set CADDY_IMAGE only to validate a different locally cached version; no image is pulled.
 All containers/networks are temporary; output and adapted JSON stay in /tmp.
 """
 import json
+import os
 from pathlib import Path
 import shlex
 import subprocess
@@ -18,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[2]
 ARTIFACTS = Path(tempfile.mkdtemp(prefix="dueling-domain-caddy-"))
 NETWORK = "domain-verify-" + uuid.uuid4().hex[:10]
 CONTAINERS = []
-IMAGE = "caddy:2.11.2-alpine"
+IMAGE = os.environ.get("CADDY_IMAGE", "caddy:2.11.2-alpine")
 BASELINE = """{$SITE_DOMAIN} {
     handle /socket.io/* {
         reverse_proxy ws:3001
@@ -39,6 +41,14 @@ ROBOTS = "User-agent: *\nAllow: /"
 def check_security(host, headers):
     if host == "app.localhost":
         assert headers.get("x-robots-tag") == "noindex, nofollow", headers
+    # Tournament bridge: the separately hosted tool has its own privacy headers.
+    if host == "tournament.localhost":
+        for key, expected in {"x-robots-tag": "noindex, nofollow",
+                              "strict-transport-security": "max-age=31536000",
+                              "x-content-type-options": "nosniff",
+                              "referrer-policy": "no-referrer",
+                              "x-frame-options": "DENY"}.items():
+            assert headers.get(key) == expected, (key, headers)
     if host != "marketing.localhost":
         return
     assert headers.get("strict-transport-security") == "max-age=31536000", headers
@@ -72,6 +82,8 @@ def start(name, config, env=None, upstream=False):
             "-v", f"{config}:/etc/caddy/Caddyfile:ro"]
     if upstream:
         args += ["--network-alias", "web", "--network-alias", "ws"]
+        # Tournament bridge: isolate the real host.docker.internal:3400 target in this test network.
+        args += ["--network-alias", "host.docker.internal"]
     else:
         args += ["-p", "127.0.0.1::80", "-p", "127.0.0.1::443",
                  "-v", f"{ARTIFACTS / 'public'}:/srv/site:ro"]
@@ -154,6 +166,16 @@ def validate(config, label, env):
 
 def main():
     docker("info")  # Fail clearly before creating resources if the socket is unavailable.
+    # Tournament bridge: inspect explicit production env wiring without loading secrets.
+    compose = json.loads(docker("compose", "--env-file", "/dev/null", "-f", str(ROOT / "docker-compose.yml"),
+                                "config", "--no-interpolate", "--format", "json"))
+    web_env = dict(entry.split("=", 1) for entry in compose["services"]["web"]["environment"])
+    caddy = compose["services"]["caddy"]
+    caddy_env = dict(entry.split("=", 1) for entry in caddy["environment"])
+    assert web_env["TOURNAMENT_URL"] == "${TOURNAMENT_URL:-}"
+    assert web_env["TOURNAMENT_BRIDGE_SECRET"] == "${TOURNAMENT_BRIDGE_SECRET:-}"
+    assert caddy_env["TOURNAMENT_DOMAIN"] == "${TOURNAMENT_DOMAIN:-tournament-disabled.localhost}"
+    assert "host.docker.internal:host-gateway" in caddy["extra_hosts"]
     docker("network", "create", NETWORK)
     public = ARTIFACTS / "public"
     public.mkdir()
@@ -168,14 +190,25 @@ def main():
     baseline = ARTIFACTS / "Caddyfile.before"
     baseline.write_text(BASELINE)
     stub = ARTIFACTS / "Caddyfile.upstream"
-    stub.write_text(':3000 {\n redir /needs-login /login 302\n respond "web {method} {uri}" 200\n}\n:3001 {\n respond "ws {method} {uri}" 200\n}\n')
+    # Read the tournament request body so the proxy's streaming body limit is actually exercised.
+    stub.write_text(':3000 {\n redir /needs-login /login 302\n respond "web {method} {uri}" 200\n}\n:3001 {\n respond "ws {method} {uri}" 200\n}\n:3400 {\n vars received {http.request.body}\n respond "tournament {method} {uri}" 200\n}\n')
     start(NETWORK + "-upstream", stub, upstream=True)
 
-    split_env = {"SITE_DOMAIN": "app.localhost", "MARKETING_DOMAIN": "marketing.localhost", "LEGACY_DOMAIN": "legacy.localhost"}
+    split_env = {"SITE_DOMAIN": "app.localhost", "MARKETING_DOMAIN": "marketing.localhost", "LEGACY_DOMAIN": "legacy.localhost",
+                 "TOURNAMENT_DOMAIN": "tournament.localhost"}
     validate(ROOT / "Caddyfile", "split", split_env)
     split = start(NETWORK + "-split", ROOT / "Caddyfile", split_env)
     p = ports(split)
     ready(p, "app.localhost")
+    # Tournament bridge: preserve path/query/method on the separate port, cap bodies, and disallow robots.
+    check(p, "tournament.localhost", "/auth/callback?assertion=test", body="tournament GET /auth/callback?assertion=test")
+    check(p, "tournament.localhost", "/api/events?desk=1", method="POST", body="tournament POST /api/events?desk=1")
+    check(p, "tournament.localhost", "/robots.txt", body="User-agent: *\nDisallow: /")
+    check(p, "tournament.localhost", "/auth/callback?assertion=test", scheme="http", status=308,
+          location="https://tournament.localhost/auth/callback?assertion=test")
+    oversized = ARTIFACTS / "oversized-body"
+    oversized.write_bytes(b"x" * (1024 * 1024 + 1))
+    check(p, "tournament.localhost", "/api/events", method="PUT", status=413, extra=["--data-binary", f"@{oversized}"])
     check(p, "app.localhost", body="web GET /")
     _, headers, _ = check(p, "app.localhost", "/robots.txt", body=ROBOTS)
     assert headers.get("content-type") == "text/plain; charset=utf-8"
