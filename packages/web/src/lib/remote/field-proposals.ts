@@ -128,11 +128,21 @@ export function fieldPileTrackEvidence({twins,tracks,lastSeen,owns,cardId}:{twin
   return found.length===1?{track:found[0],zone:found[0].zone==='BANISHED'?'banished':'graveyard',faceUp:!found[0].faceDown}:undefined;
 }
 
+const committedSet=(track:FieldTrack)=>track.faceDown===true&&track.setEvidence?.decision==='committed';
+export function recentCommittedSet(track:FieldTrack,at=performance.now()):boolean {
+  const age=at-track.lastSeen;
+  return track.state==='identified'&&!track.removed&&committedSet(track)&&age>=0&&age<=3000;
+}
+export const fieldSetRebind=(event:FieldEvent)=>event.track.faceDown&&(event.type==='flipped'||event.type==='moved');
+
 /** Queue delays must not attach an old read to replacement pixels. */
-export function fieldEvidenceMatches(event:FieldEvent,current:FieldTrack|undefined,humanChoice=false) {
+export function fieldEvidenceMatches(event:FieldEvent,current:FieldTrack|undefined,humanChoice=false,returningSet=false) {
   const human=humanChoice&&event.type==='prompt';
-  const age=current?performance.now()-current.lastSeen:Infinity;
-  return !!current&&!current.removed&&(human?age>=0&&age<=1500:event.type==='reading'||!!current.visible)&&(current.revision??0)===(event.track.revision??0)&&current.faceDown===event.track.faceDown&&
+  if(!current||current.removed||(current.revision??0)!==(event.track.revision??0)||current.faceDown!==event.track.faceDown)return false;
+  const now=performance.now(),age=now-current.lastSeen;
+  const seen=returningSet?fieldSetRebind(event)&&committedSet(event.track)&&committedSet(current)&&current.zone===event.track.zone:
+    human?age>=0&&age<=1500:event.type==='reading'||!!current.visible||recentCommittedSet(current,now);
+  return seen&&
     (event.type==='reading'?current.state==='candidate':event.type==='prompt'?current.state==='prompt':current.state==='identified'&&current.cardId===event.track.cardId);
 }
 

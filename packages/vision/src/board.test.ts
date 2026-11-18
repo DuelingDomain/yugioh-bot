@@ -1624,15 +1624,31 @@ test('a face-up card turned face-down in its zone flips in place, also after a l
  assert.equal(flip.track.id,id);assert.equal(flip.track.faceDown,true);assert.equal(r.events.some(e=>e.type==='removed'),false);
  r.watcher.dispose();
  // Lifted to turn it over: the spot is clear mat for two full scans (removed), then the back is put down in the zone.
- const l=fieldRig('sure',20,undefined,{width:160,height:90});
- l.watcher.setCalibration(zones.createFieldCalibration([{x:.11,y:.25},{x:.84,y:.84}],{playerSide:'bottom',mirrored:false}));
- l.outlines=[front];l.appearanceAt=()=>art;for(let i=0;i<12;i++)await l.tick(100);
- const ref=l.events.find(e=>e.type==='placed')!.track.id;l.watcher.confirm(ref,'A');l.known=[{id:ref,zone:'M3',cardId:'A',faceDown:false}];l.events.length=0;
- l.outlines=[];l.appearanceAt=()=>mat;for(let i=0;i<12&&!l.events.some(e=>e.type==='removed');i++)await l.tick(333);
- assert.ok(l.events.some(e=>e.type==='removed'&&e.track.id===ref),'the lift is seen');l.events.length=0;l.known=[{id:ref,zone:'HAND',cardId:'A'}];
- l.cropAt=()=>fieldCrop({...front,kind:'face-down'});l.outlines=[{...front,kind:'face-down',confidence:.43}];l.appearanceAt=()=>sleeve;for(let i=0;i<20&&!l.events.some(e=>e.type==='flipped');i++)await l.tick(67);
- const back=l.events.find(e=>e.type==='flipped');assert.ok(back,JSON.stringify(l.watcher.getSnapshot().debug?.reasons));
- assert.equal(back.track.id,ref,'the same ref, not a new Set');assert.equal(back.track.faceDown,true);assert.equal(l.events.some(e=>e.type==='placed'),false);l.watcher.dispose();
+ for(const scenario of ['soon','late','stack']){
+  const l=fieldRig('sure',20,undefined,{width:160,height:90});
+  const grid=zones.createFieldCalibration([{x:.11,y:.25},{x:.84,y:.84}],{playerSide:'bottom',mirrored:false});
+  l.watcher.setCalibration(grid);
+  l.outlines=[front];l.appearanceAt=()=>art;for(let i=0;i<12;i++)await l.tick(100);
+  const ref=l.events.find(e=>e.type==='placed')!.track.id;l.watcher.confirm(ref,'A');l.known=[{id:ref,zone:'M3',cardId:'A',faceDown:false}];l.events.length=0;
+  l.outlines=[];l.appearanceAt=()=>mat;for(let i=0;i<12&&!l.events.some(e=>e.type==='removed');i++)await l.tick(333);
+  const first=l.events.find(e=>e.type==='removed'&&e.track.id===ref);assert.ok(first,'the lift is seen');
+  if(scenario==='late'){
+   for(let i=0;i<32;i++)await l.tick(333);
+   const removals=l.events.filter(e=>e.type==='removed'&&e.track.id===ref);
+   assert.ok(removals.length>1,'missing twin retries the removal');
+   assert.ok(removals.every(e=>e.removedAt===first.removedAt&&e.track.lastSeen===first.track.lastSeen));
+  }
+  l.events.length=0;l.known=[{id:ref,zone:'HAND',cardId:'A'}];
+  if(scenario==='stack')l.watcher.setCalibration(grid); // The old quad still gives scale after calibration clears the learned size.
+  const outline=scenario==='stack'?card(.424,.363,.112,.290):front;
+  l.cropAt=()=>fieldCrop({...front,kind:'face-down'});l.outlines=[{...outline,kind:'face-down',confidence:.43}];l.appearanceAt=()=>sleeve;
+  for(let i=0;i<20;i++)await l.tick(67);
+  const sets=l.events.filter(e=>e.track.faceDown&&(e.type==='flipped'||e.type==='placed'));
+  if(scenario==='soon')assert.deepEqual(sets.map(e=>[e.type,e.track.id]),[['flipped',ref]]);
+  if(scenario==='late'){assert.equal(sets[0]?.type,'placed');assert.notEqual(sets[0].track.id,ref);}
+  if(scenario==='stack')assert.deepEqual(sets,[],'a deck stack never becomes a Set');
+  l.watcher.dispose();
+ }
 });
 
 // Owner cleared the field: S2, S4, M3 and FIELD stayed ~10 s while an arm lay on the mat at the far side.

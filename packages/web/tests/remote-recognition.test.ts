@@ -584,6 +584,14 @@ it('queued evidence cannot apply or confirm an old name over replacement pixels'
  for(const track of [undefined,{...event.track,visible:false},{...event.track,removed:true},{...event.track,revision:1},{...event.track,cardId:'B'}])expect(fieldEvidenceMatches(event,track)).toBe(false);
  expect(fieldEvidenceMatches(event,{...event.track,zone:'M4'})).toBe(true);
  expect(fieldEvidenceMatches({...event,type:'prompt'},{...event.track,state:'prompt'})).toBe(true);
+ const now=vi.spyOn(performance,'now').mockReturnValue(5000);
+ try{
+   const back={...event.track,cardId:undefined,faceDown:true,visible:false,lastSeen:2000,setEvidence:{decision:'committed'}};
+   const placed={...event,track:back};
+   expect(fieldEvidenceMatches(placed,back)).toBe(true);
+   for(const stale of [{lastSeen:1999},{removed:true},{setEvidence:{decision:'waiting'}}])
+     expect(fieldEvidenceMatches(placed,{...back,...stale})).toBe(false);
+ }finally{now.mockRestore();}
 });
 
 it('a replacement during the placement HTTP request rolls back the new twin and never confirms its name',async()=>{

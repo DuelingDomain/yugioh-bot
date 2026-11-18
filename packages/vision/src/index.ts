@@ -25,7 +25,7 @@ export type {RecognitionEvidence} from './types';
 
 export type {RealsetSample,RealsetExport} from './calibration';
 
-export {createFieldWatcher,createHeldCardReader} from './field-watcher';
+export {createFieldWatcher,createHeldCardReader,FIELD_SET_RETURN_MS} from './field-watcher';
 export {fieldStackUnder} from './field-stack-memory';
 export type {HeldCardEvent,HeldUnsureEvent,HeldCardTrack,FieldWatcher,FieldWatcherOptions,FieldEvent,FieldTiming,FieldTrack,FieldSnapshot,FieldDebug,FieldMetrics,FieldBuffer,KnownFieldCard} from './field-watcher';
 export {fieldQuadEnvelope,FIELD_ZONE_PITCH,FIELD_ROW,normalizeZoneSpacing,fieldZoneLayout,DEFAULT_FIELD_ORIENTATION,rotateFieldCalibration,mirrorFieldCalibration,shiftFieldCalibrationRows,swapFieldCalibrationRows,orientFieldFromHands,createFieldCalibration,createTwoCardCalibration,fieldMatPoint,onMat,mapFieldZone,fieldOrientation,fieldZoneLocation,hasExtraMonsterZones,fieldZoneCells,fieldZoneAt,fieldZoneBounds,zoneCellAt,scaleZoneRect,unscaleZoneRect,FIELD_ZONE_LAYOUT,normalizeZones,FIELD_ZONE_IDS,MIN_ZONE_SIZE,fieldQuadPoint,fieldQuadTurn, fieldQuarterTurn,moveFieldQuad,turnFieldQuad,pinchFieldQuad,resizeFieldQuad,flattenFieldCalibration} from './field-zones';
