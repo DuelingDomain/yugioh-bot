@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { RemoteActionProposal, RemoteRoom } from "@yugidraft/shared/remote";
 import { searchCards, type CardInfo } from "./catalog";
 import { cardCode, cardName, cellsFor, type TwinCard, type ZoneKey } from "./model";
@@ -22,16 +22,17 @@ const isMainCell = (key: ZoneKey) => (MAIN as readonly string[]).includes(key);
 const zoneLabel = (key: ZoneKey) => `Monster Zone ${key[1]}`;
 const points = (text: string) => { const n = Number(text); return text.trim() !== "" && Number.isInteger(n) && n >= 0 && n <= MAX ? n : null; };
 
-type View = { kind: "new"; seat: number; key: ZoneKey | null } | { kind: "template" } | { kind: "card"; seat: number; ref: string; };
-/** What the next click on a free Monster Zone puts there. */
-export type TokenTemplate = { name: string; atk: number; def: number; artId?: number; position: Position };
-const GENERIC: TokenTemplate = { name: "Token", atk: 0, def: 0, position: "attack" };
-/** Cards that give a named token to a player. A card on the table with one of these names offers its token first. Nothing else is guessed. */
-const TOKEN_OF: Record<string, { name: string; atk: number; def: number }> = {
-  "nibiru, the primal being": { name: "Primal Being Token", atk: 2000, def: 2000 },
-  "scapegoat": { name: "Sheep Token", atk: 0, def: 0 },
-  "ojama trio": { name: "Ojama Token", atk: 0, def: 1000 },
-  "dandylion": { name: "Fluff Token", atk: 0, def: 0 },
+type View = { kind: "new"; seat: number; key: ZoneKey | null } | { kind: "template"; from?: TokenTemplate } | { kind: "card"; seat: number; ref: string; };
+/** What the next click on a free Monster Zone puts there. `left` is how many are still to place; `ask` means ATK/DEF are not fixed and the player types them. */
+export type TokenTemplate = { name: string; atk: number; def: number; artId?: number; position: Position; left: number; ask?: boolean };
+const GENERIC: TokenTemplate = { name: "Token", atk: 0, def: 0, position: "attack", left: 1 };
+/** Cards that give named tokens to a player. A card on the table with one of these names offers its token first. Nothing else is guessed. */
+const TOKEN_OF: Record<string, Omit<TokenTemplate, "artId">> = {
+  // The real ATK/DEF of this token is the combined original ATK/DEF of the Tributed monsters, so the player types them.
+  "nibiru, the primal being": { name: "Primal Being Token", atk: 0, def: 0, position: "attack", left: 1, ask: true },
+  "scapegoat": { name: "Sheep Token", atk: 0, def: 0, position: "defense", left: 4 },
+  "ojama trio": { name: "Ojama Token", atk: 0, def: 1000, position: "defense", left: 3 },
+  "dandylion": { name: "Fluff Token", atk: 0, def: 0, position: "defense", left: 2 },
 };
 const OFF_FIELD = ["hand", "deck", "extra"];
 
@@ -62,7 +63,7 @@ export function useTokens({ act, room, live, extraZones, layers, info }: {
     });
     return () => { on = false; };
   }, [offeredKey]);
-  const suggestions: TokenTemplate[] = offered.map(item => ({ ...item, position: "attack" as const, ...(art[item.name] ? { artId: art[item.name] } : {}) }));
+  const suggestions: TokenTemplate[] = offered.map(item => ({ ...item, ...(art[item.name] ? { artId: art[item.name] } : {}) }));
   useEffect(() => { if (placing && !canPlace) setPlacing(null); }, [placing, canPlace]);
   useEffect(() => {
     if (!placing) return;
@@ -75,6 +76,7 @@ export function useTokens({ act, room, live, extraZones, layers, info }: {
     return keys.filter(key => !cells[key]?.card);
   }, [room.state.seats, extraZones]);
 
+  const freeMain = (seat: number) => room.state.seats[seat]?.eliminated ? 0 : freeKeys(seat, MAIN).length;
   /** The create dialog. An empty Main Monster Zone passes its cell, the button leaves it open. */
   const create = useCallback((seat: number, key?: ZoneKey) => {
     if (!owns(seat) || key && !isMainCell(key)) return false;
@@ -87,18 +89,24 @@ export function useTokens({ act, room, live, extraZones, layers, info }: {
     if (!placing || !canPlace) return false;
     const target = room.state.seats[seat];
     if (!target || target.eliminated || card || !isMainCell(key)) return false;
-    place(seat, { name: placing.name, atk: placing.atk, def: placing.def, artId: placing.artId, position: placing.position, key });
+    send(seat, { name: placing.name, atk: placing.atk, def: placing.def, artId: placing.artId, position: placing.position, key });
+    // The mode stays on until the whole set is placed, or no zone is left on any field (this zone is taken now).
+    const zonesLeft = room.state.seats.reduce((sum, _, index) => sum + freeMain(index), 0) - 1;
+    setPlacing(placing.left > 1 && zonesLeft > 0 ? { ...placing, left: placing.left - 1 } : null);
     return true;
   };
-  const customize = () => { setView({ kind: "template" }); layers.open("token"); };
+  /** A chip with open stats (Primal Being Token) asks for them first; the others switch the template at once. */
+  const pick = (template: TokenTemplate) => { if (template.ask) customize(template); else setPlacing(template); };
+  const customize = (from?: TokenTemplate) => { setView({ kind: "template", ...(from ? { from } : {}) }); layers.open("token"); };
   const open = useCallback((seat: number, card: TwinCard) => { setView({ kind: "card", seat, ref: card.ref }); layers.open("token"); }, [layers]);
   const close = () => { layers.close("token"); setView(null); };
 
-  const place = (seat: number, draft: { name: string; atk: number; def: number; artId?: number; position: Position; key: ZoneKey }) => {
+  const send = (seat: number, draft: { name: string; atk: number; def: number; artId?: number; position: Position; key: ZoneKey }) => {
     void act({ type: "twin.place", actorSeat: actor(seat), seat, zone: "monster", card: { ref: crypto.randomUUID(), name: draft.name, slot: Number(draft.key[1]), faceUp: true, position: draft.position,
       token: { atk: draft.atk, def: draft.def, ...(draft.artId ? { artId: draft.artId } : {}) } } });
-    setPlacing(null); close();
   };
+  /** The create dialog places one token and ends. */
+  const place = (seat: number, draft: { name: string; atk: number; def: number; artId?: number; position: Position; key: ZoneKey }) => { send(seat, draft); setPlacing(null); close(); };
   const moveTo = (seat: number, card: TwinCard, key: ZoneKey) => {
     void act({ type: "twin.move", actorSeat: actor(seat), seat, zone: "monster", slot: Number(key[1]), cardRef: card.ref });
   };
@@ -122,24 +130,29 @@ export function useTokens({ act, room, live, extraZones, layers, info }: {
   const isCreator = (card: TwinCard) => mySeat >= 0 && card.token?.by === mySeat;
   const dialog = layers.layer === "token" && view ? view.kind === "new"
     ? <TokenDialog free={freeKeys(view.seat, MAIN)} start={view.key} onCreate={draft => place(view.seat, { ...draft, key: draft.key! })} onClose={close} />
-    : view.kind === "template" ? <TokenDialog free={[]} start={null} zoneless onCreate={draft => { setPlacing({ name: draft.name, atk: draft.atk, def: draft.def, artId: draft.artId, position: draft.position }); close(); }} onClose={close} />
+    : view.kind === "template" ? <TokenDialog free={[]} start={null} zoneless initial={view.from} onCreate={draft => { setPlacing({ name: draft.name, atk: draft.atk, def: draft.def, artId: draft.artId ?? view.from?.artId, position: draft.position, left: view.from?.left ?? 1 }); close(); }} onClose={close} />
     : card?.token ? <TokenPopover card={card} editable={owns(view.seat) || (live && isCreator(card))} free={freeKeys(view.seat, MAIN)} art={info(card.token.artId)}
       onTurn={() => turn(view.seat, card)} onMove={key => moveTo(view.seat, card, key)} onRemove={() => remove(view.seat, card)} onClose={close} /> : null : null;
   const node = <>
-    {placing && canPlace ? <TokenBar template={placing} suggestions={suggestions} onPick={setPlacing} onCustom={customize} onCancel={() => setPlacing(null)} /> : null}
+    {placing && canPlace ? <TokenBar template={placing} suggestions={suggestions} onPick={pick} onCustom={() => customize()} onCancel={() => setPlacing(null)} /> : null}
     {dialog}
   </>;
   return { create, open, judge, drop, trigger, node, owns, placing: !!placing && canPlace, placeAt };
 }
 
-/** The strip shown while placing: what goes down, and how to stop. The zones themselves glow on the fields. */
+/** The strip shown while placing: what goes down, how many are left, and how to stop. The zones themselves glow on the fields. */
 function TokenBar({ template, suggestions, onPick, onCustom, onCancel }: {
   template: TokenTemplate; suggestions: TokenTemplate[]; onPick: (template: TokenTemplate) => void; onCustom: () => void; onCancel: () => void;
 }) {
-  const chip = (item: TokenTemplate, label: string) => <button key={label} type="button" className={`${s.btn} ${s.sm} ${template.name === item.name && template.atk === item.atk && template.def === item.def ? s.go : s.q}`}
-    aria-pressed={template.name === item.name && template.atk === item.atk && template.def === item.def} onClick={() => onPick(item)} data-testid="token-chip">{label}</button>;
-  return <div className={t.bar} role="status" data-testid="token-bar">
-    <span className={t.barText}>Click a free Monster Zone for the <b>{template.name}</b>{template.atk || template.def ? ` (${template.atk}/${template.def})` : ""}.</span>
+  const box = useRef<HTMLDivElement>(null);
+  // The mode starts from a click or a key on the Token button; focus moves here so the keyboard and a screen reader land on the choices.
+  useEffect(() => { box.current?.focus({ preventScroll: true }); }, []);
+  const same = (item: TokenTemplate) => template.name === item.name && (item.ask || template.atk === item.atk && template.def === item.def);
+  const chip = (item: TokenTemplate, label: string) => <button key={label} type="button" className={`${s.btn} ${s.sm} ${same(item) ? s.go : s.q}`}
+    aria-pressed={same(item)} onClick={() => onPick(item)} data-testid="token-chip">{label}</button>;
+  const stats = template.atk || template.def ? ` (${template.atk}/${template.def})` : "";
+  return <div ref={box} className={t.bar} role="toolbar" aria-label="Place a token" tabIndex={-1} data-testid="token-bar">
+    <span className={t.barText} role="status" data-testid="token-bar-text">Click a free Monster Zone for the <b>{template.name}</b>{stats}.{template.left > 1 ? ` ${template.left} left.` : ""}</span>
     <span className={t.barChips}>
       {suggestions.map(item => chip(item, item.name))}
       {suggestions.length ? chip(GENERIC, "Generic") : null}
@@ -149,16 +162,18 @@ function TokenBar({ template, suggestions, onPick, onCustom, onCancel }: {
   </div>;
 }
 
-function TokenDialog({ free, start, zoneless, onCreate, onClose }: {
+function TokenDialog({ free, start, zoneless, initial, onCreate, onClose }: {
   free: ZoneKey[]; start: ZoneKey | null;
   /** No zone is chosen here: the token is placed by the next click on a zone. */
   zoneless?: boolean;
+  /** A suggested token whose name and position are filled in. Its ATK/DEF stay empty and must be typed. */
+  initial?: TokenTemplate;
   onCreate: (draft: { name: string; atk: number; def: number; artId?: number; position: Position; key?: ZoneKey }) => void; onClose: () => void;
 }) {
-  const [mode, setMode] = useState<"common" | "generic">("common");
+  const [mode, setMode] = useState<"common" | "generic">(initial ? "generic" : "common");
   const [query, setQuery] = useState(""); const [found, setFound] = useState<CardInfo[] | null>(null); const [chosen, setChosen] = useState<CardInfo | null>(null);
-  const [name, setName] = useState("Token"); const [atk, setAtk] = useState("0"); const [def, setDef] = useState("0");
-  const [position, setPosition] = useState<Position>("attack");
+  const [name, setName] = useState(initial?.name ?? "Token"); const [atk, setAtk] = useState(initial?.ask ? "" : "0"); const [def, setDef] = useState(initial?.ask ? "" : "0");
+  const [position, setPosition] = useState<Position>(initial?.position ?? "attack");
   const [key, setKey] = useState<ZoneKey | "">(start && free.includes(start) ? start : free[0] ?? "");
   useEffect(() => {
     const text = query.trim(); if (text.length < 2) { setFound(null); return; }

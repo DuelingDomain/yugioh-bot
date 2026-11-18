@@ -245,6 +245,7 @@ export function HoloField({ seat, name, twin, info, extraZones, facing, rv, onRv
           picking && monsterZone && card ? s.pickTarget : "", card && card.ref === freshRef && !swapped.has(key) ? s.scanin : "", card && landed.has(card.ref) && !swapped.has(key) ? s.land : "", ghost ? s.ghosted : "", card && revealed.has(key) ? s.reveal : "", zoneCheck || card?.equippedTo || equipped.length ? z.cell : "", stacked_ ? s.matStack : ""].filter(Boolean).join(" ");
         let desc = taken ? `shared with ${facing!.name}: taken by their monster` : trapHolder ? `occupied by ${nameOf(trapHolder)} (Trap Monster)` : "empty";
         if (ghost) desc = ghost.faceUp ? "reading a card" : "a face-down card";
+        else if (tokenSlot) desc = "free, place token here";
         let inner: React.ReactNode = ghost ? <GhostCard faceUp={ghost.faceUp} /> : <span className={s.zl}>{taken ? <>EMZ<small>{facing!.name} has it</small></> : key === "ex" ? <>EXTRA<small>DECK</small></> : zoneLabel(key)}{extraZones && isPendulumCell(key) ? <small>PZ</small> : null}</span>;
         const deckPile=key==='deck'||key==='ex';
         const listed=deckPile?deckListSizes?.[key==='deck'?'deck':'extra']:undefined;
@@ -279,7 +280,7 @@ export function HoloField({ seat, name, twin, info, extraZones, facing, rv, onRv
         if (card?.equippedTo) desc += `. Equipped to ${target ? nameOf(target) : "a monster"}`;
         if (equipped.length) desc += `. Equipped with ${equipped.map(nameOf).join(", ")}`;
         return <div key={key} className={classes} style={offMat?{opacity:.35}:undefined} data-off-mat={offMat?'on':undefined} role="button" tabIndex={rv === key ? 0 : -1} data-z={key} data-zone={key} data-seat={seat} data-ref={card && !pile ? card.ref : undefined} data-up={card?.faceUp ? "1" : "0"} data-def={defense ? "1" : "0"} data-ghost={ghost ? "on" : undefined} data-token-slot={tokenSlot ? "on" : undefined} data-row={emzCell || key === "ban" ? undefined : ZK.indexOf(key as (typeof ZK)[number]) < 7 ? 1 : 2}
-          title={desc} aria-label={`${name}, ${ZN[key]}${extraZones && isPendulumCell(key) ? " (Pendulum zone)" : ""}: ${desc}`} onFocus={() => onRv(key)} onKeyDown={event => move(event, key)} onClick={event => { if (ghost) { onActivate(key,undefined); return; } if (carried) dropCarried(key); else activate(key, card, event.currentTarget); }} onPointerDown={card ? event => begin(event, card) : undefined}>
+          title={desc} aria-label={`${name}, ${ZN[key]}${extraZones && isPendulumCell(key) ? " (Pendulum zone)" : ""}: ${desc}`} onFocus={() => onRv(key)} onKeyDown={event => move(event, key)} onClick={event => { if (ghost) { if (!tokenSlots) onActivate(key,undefined); return; } if (carried) dropCarried(key); else activate(key, card, event.currentTarget); }} onPointerDown={card ? event => begin(event, card) : undefined}>
           {inner}
           {card?.faceUp&&card.nameCandidates?<span className={s.originLabel} data-testid="unsure-name" title="Unsure card name. Tap this card to choose.">Unsure</span>:null}
           {zoneCheck ? <span className={`${z.check} ${down ? z.checkHigh : ""}`} data-testid="zone-check" title={`${zoneCheck} Click the card for details.`}><span aria-hidden="true" className={z.checkIcon}>?</span><span className={z.checkText}>Check zone?</span></span> : null}
