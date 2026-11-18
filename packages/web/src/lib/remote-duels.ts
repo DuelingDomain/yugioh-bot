@@ -30,9 +30,10 @@ const listed = (value: string | undefined, userId: number) => Number.isSafeInteg
 export const remoteVoiceEnabledFor = (userId: number) => remoteDuelsEnabledFor(userId) && listed(process.env.REMOTE_VOICE_USERS, userId);
 export const remoteVoiceDiagnosticsEnabledFor = (userId: number) => remoteVoiceEnabledFor(userId) && listed(process.env.REMOTE_VOICE_DIAGNOSTICS_USERS, userId);
 export const remoteUnsureNamesEnabledFor = (userId:number) => remoteDuelsEnabledFor(userId) && listed(process.env.REMOTE_UNSURE_NAMES_USERS,userId);
+export const remoteHybridReaderEnabledFor = (userId:number) => remoteDuelsEnabledFor(userId) && listed(process.env.REMOTE_HYBRID_READER_USERS,userId);
 export function remoteRoomForViewer<T extends RemoteTable & { mySeat?: number; spectator?: boolean }>(room: T, userId: number) {
   const voiceEnabled = room.mySeat !== undefined && room.mySeat >= 0 && !room.spectator && remoteVoiceEnabledFor(userId);
-  return { ...room, unsureNamesEnabled:room.mySeat!==undefined&&room.mySeat>=0&&!room.spectator&&remoteUnsureNamesEnabledFor(userId), voiceEnabled, voiceDiagnosticsEnabled: voiceEnabled && remoteVoiceDiagnosticsEnabledFor(userId) };
+  return { ...room, unsureNamesEnabled:room.mySeat!==undefined&&room.mySeat>=0&&!room.spectator&&remoteUnsureNamesEnabledFor(userId), hybridReaderEnabled:room.mySeat!==undefined&&room.mySeat>=0&&!room.spectator&&remoteHybridReaderEnabledFor(userId), voiceEnabled, voiceDiagnosticsEnabled: voiceEnabled && remoteVoiceDiagnosticsEnabledFor(userId) };
 }
 /** For pages and files that have no actor yet: the signed-in viewer, against the switch and the rollout list. */
 export async function remoteDuelsForViewer() {

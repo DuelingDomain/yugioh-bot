@@ -126,6 +126,8 @@ export type RemoteTable = {
 export type RemoteRoom = RemoteTable & { state: RemoteState; events: RemoteEvent[]; mySeat: number; isDeveloper?: boolean;
   /** Viewer capabilities added by the web server, never inferred from browser env or room broadcasts. */
   unsureNamesEnabled?: boolean;
+  /** Offers the Hybrid card reader (REMOTE_HYBRID_READER_USERS). Seated players only. */
+  hybridReaderEnabled?: boolean;
   voiceEnabled?: boolean; voiceDiagnosticsEnabled?: boolean;
   /** The server allows test recording of this viewer's own table camera (REMOTE_RECORD_USERS). Players only; the browser never reads an env for it. */ recordingEnabled?: boolean;
   /** This viewer watches: mySeat is -1 and state/events are the spectator projection. */ spectator?: boolean;
