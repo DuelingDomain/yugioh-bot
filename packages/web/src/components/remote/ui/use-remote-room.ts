@@ -1,7 +1,8 @@
 "use client";
 
 import { noteRemoteActionError } from "@/lib/remote/room-mutations";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { isTransientError, noteWriteLost, reconnecting as isReconnecting, subscribeReconnecting, wakeOutage, endOutage } from "@/lib/remote/outage";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
 import { io, type Socket } from "socket.io-client";
@@ -34,6 +35,8 @@ export function useRemoteRoom(slug: string, options: { watchAsAdmin?: boolean } 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   if(room&&(!roomRef.current||room.slug!==roomRef.current.slug||room.lastSeq>=roomRef.current.lastSeq))roomRef.current = room;
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; endOutage(); }; }, []);
   const lastSeq = useRef(0),tableKey=useRef(slug),socketSeq=useRef(0);
   if(tableKey.current!==slug){tableKey.current=slug;lastSeq.current=0;socketSeq.current=0;roomRef.current=room?.slug===slug?room:undefined;}
   const status = room?.status; const mySeat = room?.mySeat;
@@ -74,7 +77,7 @@ export function useRemoteRoom(slug: string, options: { watchAsAdmin?: boolean } 
       } catch { if (!disposed) setRealtime("Realtime unavailable; refreshing every 5 seconds"); }
       finally { renewing = false; }
     }
-    socket.on("connect", () => void join());
+    socket.on("connect", () => { wakeOutage(); void join(); });
     socket.on("connect_error", () => { if (!disposed) setRealtime("Realtime unavailable; refreshing every 5 seconds"); });
     socket.on("disconnect", () => setRealtime("Reconnecting…"));
     socket.on("remote:subscription-expired", () => void join());
@@ -124,7 +127,7 @@ export function useRemoteRoom(slug: string, options: { watchAsAdmin?: boolean } 
       await remoteApi(`/${slug}/${path}`, body);
       if (path === "leave") router.push("/duels"); else await mutate();
       return true;
-    } catch (e) { setError((e as Error).message); void mutate(); return false; } finally { setBusy(false); }
+    } catch (e) { setError(isTransientError(e) ? "Could not reach the table. Try again in a moment." : (e as Error).message); void mutate(); return false; } finally { setBusy(false); }
   }, [slug, router, mutate]);
 
   /** Lobby-only host setting; the server validates permissions and clears Ready marks. */
@@ -141,6 +144,8 @@ export function useRemoteRoom(slug: string, options: { watchAsAdmin?: boolean } 
 
   /** Posts one action; resolves to the updated room, or null when the foundation refused it. */
   const postAction = useCallback(async (payload: RemoteActionProposal, idempotencyKey = crypto.randomUUID()): Promise<RemoteRoom | null> => {
+    // The page is gone: a refusal (not a lost write), so no retry loop goes on for a table nobody looks at.
+    if (!mounted.current) return null;
     const current = roomRef.current; if (tableKey.current!==slug||!current||current.slug!==slug) return null;
     const input = { baseSeq: Math.max(current.lastSeq, lastSeq.current), action: { ...stampedProposal(payload, idempotencyKey, !!current.seats?.find(seat => seat.seat === payload.actorSeat)?.bot), idempotencyKey } as RemoteAction };
     setError("");
@@ -155,18 +160,21 @@ export function useRemoteRoom(slug: string, options: { watchAsAdmin?: boolean } 
       return updated;
     } catch (e) {
       if(tableKey.current!==slug)return null;
+      // A lost connection is not a refusal: no error text. The queue retries with the same key; the shared "Reconnecting…" notice shows.
+      if(isTransientError(e)){noteWriteLost();console.warn('[remote] action not sent, connection lost',e);return null;}
       noteRemoteActionError(e);setError((e as Error).message);
       try{await refresh();}catch{/* Keep the failed action recoverable during a network outage. */}
       return null;
     }
   }, [slug, mutate, refresh]);
 
-  const {action,transaction}=useMemo(()=>createRoomMutationQueue(()=>tableKey.current===slug&&roomRef.current?.slug===slug?roomRef.current:undefined,postAction),[postAction,slug]);
+  const {action,transaction}=useMemo(()=>createRoomMutationQueue(()=>tableKey.current===slug&&roomRef.current?.slug===slug?roomRef.current:undefined,postAction,e=>{noteRemoteActionError(e);setError(e.message);void refresh().catch(()=>undefined);},()=>mounted.current&&tableKey.current===slug),[postAction,refresh,slug]);
+  const reconnecting = useSyncExternalStore(subscribeReconnecting, isReconnecting, () => false);
 
   const sendData = useCallback((message: Parameters<RemoteClientEvents["remote:data"]>[0]) => { socketRef.current?.emit("remote:data", message); }, []);
   const onData = useCallback((handler: (payload: Parameters<RemoteServerEvents["remote:data"]>[0]) => void) => {
     dataHandlers.current.add(handler); return () => { dataHandlers.current.delete(handler); };
   }, []);
 
-  return { slug, room, loadError, busy, error, setError, realtime, operation, setBestOf, action, transaction, mutate, sendData, onData };
+  return { slug, room, loadError, busy, error, setError, reconnecting, realtime, operation, setBestOf, action, transaction, mutate, sendData, onData };
 }
