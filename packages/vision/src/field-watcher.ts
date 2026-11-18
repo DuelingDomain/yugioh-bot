@@ -488,7 +488,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
    * empty-mat look, no box over it, no track and no known card, and that stays still and unlike that look for SET_STEADY_SCANS full scans in a row,
    * is read from its pixels: the sleeve's edges give an outline (kind face-down, cell) that the Set evidence path judges like a weak detector box. */
   const blindScans=new Map<string,number>(),blindShape=new Map<string,DetectedQuad>();
-  const blindSleeves=(evidence:FieldAnalysis,boxes:DetectedQuad[]):DetectedQuad[]=>{
+  const blindSleeves=(evidence:FieldAnalysis,boxes:DetectedQuad[],cardAspect:(c:DetectedQuad)=>boolean):DetectedQuad[]=>{
     const out:DetectedQuad[]=[],known=options.getKnownCards?.()??[];
     for(const cell of fieldCells()){
       const zone=cell.zone;if(!/^S[1-5]$/.test(zone))continue;
@@ -503,6 +503,8 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       if(!found||!back){blindShape.delete(zone);continue;}
       const quad=[back(found.u0,found.v0),back(found.u1,found.v0),back(found.u1,found.v1),back(found.u0,found.v1)],fresh:DetectedQuad={quad,kind:'face-down',confidence:.3,partial:false,cell:true,blind:true},old=blindShape.get(zone);
       // The same sleeve keeps one outline (pixel edges jitter by a pixel or two).
+      // A still deck box or card case is flat and edged too: only about one card in shape counts.
+      if(!cardAspect(fresh)){blindShape.delete(zone);continue;}
       const shape=old&&quadIou(old,fresh)>=.8?old:fresh;blindShape.set(zone,shape);out.push(structuredClone(shape));
     }
     return out;
@@ -990,6 +992,19 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       const faceSamples=cachedTracks.some(t=>t.face?.pendingAt!==undefined||t.face?.transitionAt!==undefined||t.read?.result||t.view.state==='candidate'&&t.newOutline||t.view.state==='identified'&&(t.view.faceDown!==(t.view.card.kind==='face-down')||t.moveAt!==undefined))&&now()-detectionDoneAt<confirmationAge&&
         cachedTracks.every(t=>t.view.removed||t.missed&&!t.view.visible&&!t.read||t.view.state==='candidate'&&!t.view.visible&&!t.read&&t.face?.pendingAt===undefined||freshOutline(t)&&!t.view.card.partial&&!t.view.card.covered&&evidence.motion(t.view.card)<=.025&&
           sameFieldAppearance(t.face?.outlineAppearance??t.read?.appearance??t.appearance,evidence.appearance?.(t.view.card)))&&evidence.motion(mat)<=.004;
+      const cardAspect=(c:DetectedQuad)=>{
+        const quarterTurn=fieldQuarterTurn(calibration,current!.width/current!.height);
+        const width=quarterTurn?current!.height:current!.width,height=quarterTurn?current!.width:current!.height;
+        const fits=(q:{x:number;y:number}[])=>{
+          const edge=(a:number,b:number)=>Math.hypot(q[a].x-q[b].x,q[a].y-q[b].y);
+          const w=(edge(0,1)+edge(2,3))/2,h=(edge(1,2)+edge(3,0))/2,ratio=Math.min(w,h)/Math.max(w,h);
+          return ratio>=59/86*.88&&ratio<=59/86*1.12;
+        };
+        // Calibration describes zone placement, not camera pixel aspect. A
+        // narrow/short calibrated grid must not turn a real sleeve into a phone.
+        return fits(c.quad.map(p=>({x:p.x*current!.width,y:p.y*current!.height})))||
+          fits(c.quad.map(p=>onMat(p,calibration)).map(p=>({x:p.x*width,y:p.y*height})));
+      };
       let detected:DetectedQuad[],region:FractionalBox|undefined,rawOutlines:DetectedQuad[]=[];
       const unsampledBacks=new Set<InternalTrack>();
       // A sure read on a held outline commits now; a due full pass waits one tick.
@@ -1060,7 +1075,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       // when its sleeve colour differs from the mat around it and it is about one card in size.
       const cellArea=zoneArea(),cellSized=(c:DetectedQuad)=>{if(!cellArea)return false;const b=boundsOf(c.quad);return b.w*b.h>=cellArea*.25&&b.w*b.h<=cellArea*1.3;};
       detected=detected.filter(c=>!c.cell||c.confidence>=CARD_DETECTOR.minConfidence||cellSized(c)&&planeVerdict(c).ok&&sleeveOnMat(evidence.appearance?.(c),evidence.halo?.(c)));
-      if(!region&&calibration)detected.push(...blindSleeves(evidence,rawOutlines));
+      if(!region&&calibration)detected.push(...blindSleeves(evidence,rawOutlines,cardAspect));
       // Scan field runs two full passes back to back: two misses remove a card at once.
       if(!region){lastFullDetectionAt=sample.at;forcePass=false;evidence.scene?.mark();if(scanRequested)scanFollowUp=true;else scanFollowUp=false;scanRequested=false;}
       // "Out of view is gone" for piles: a GY, Banished, Deck or Extra cell with
@@ -1091,19 +1106,6 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         c=>calibration?planeVerdict(c):undefined,look=>!!look?.length&&tracks.some(t=>bound(t)&&!t.view.removed&&!t.view.faceDown&&fieldSlot(t.view.zone)&&sameRotatedFieldAppearance(t.identityAppearance,look)));
       if(held.read){lastReadHeld=true;reading=held.read.catch(()=>{metrics.errors++;}).finally(()=>{reading=undefined;wake();});}
       detected=detected.filter(card=>!held.cards.includes(card));
-      const cardAspect=(c:DetectedQuad)=>{
-        const quarterTurn=fieldQuarterTurn(calibration,current!.width/current!.height);
-        const width=quarterTurn?current!.height:current!.width,height=quarterTurn?current!.width:current!.height;
-        const fits=(q:{x:number;y:number}[])=>{
-          const edge=(a:number,b:number)=>Math.hypot(q[a].x-q[b].x,q[a].y-q[b].y);
-          const w=(edge(0,1)+edge(2,3))/2,h=(edge(1,2)+edge(3,0))/2,ratio=Math.min(w,h)/Math.max(w,h);
-          return ratio>=59/86*.88&&ratio<=59/86*1.12;
-        };
-        // Calibration describes zone placement, not camera pixel aspect. A
-        // narrow/short calibrated grid must not turn a real sleeve into a phone.
-        return fits(c.quad.map(p=>({x:p.x*current!.width,y:p.y*current!.height})))||
-          fits(c.quad.map(p=>onMat(p,calibration)).map(p=>({x:p.x*width,y:p.y*height})));
-      };
       const frontOutline=(c:DetectedQuad)=>c.kind==='face-up'&&c.confidence>=.5&&!c.partial&&cardAspect(c);
       const outlines=detected.filter(c=>c.quad.length===4&&c.quad.every(p=>Number.isFinite(p.x)&&Number.isFinite(p.y))).slice(0,60);
       if(detectorRan&&!region){
@@ -1414,7 +1416,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         for(const c of cards){
           if(c.kind!=='face-down'||c.partial||c.covered||!planeVerdict(c).ok||evidence.motion(c)>.025||handNear(evidence,c)||removalHold(c)||!cardAspect(c))continue;
           const zone=mapFieldZone(c,calibration,cards,options.format).zone,look=evidence.appearance?.(c);
-          if(!fieldSlot(zone)||!(c.confidence>=.4?!cellEmpty(evidence,zone)&&sleeveOnMat(look,evidence.halo?.(c)):plainSleeve(look,evidence.halo?.(c),emptyLooks.get(zone)?.look)))continue;
+          if(!fieldSlot(zone)||!(c.confidence>=.4?!cellEmpty(evidence,zone)&&sleeveOnMat(look,evidence.halo?.(c)):plainSleeve(look,evidence.halo?.(c),/^S[1-5]$/.test(zone)?emptyLooks.get(zone)?.look:undefined)))continue;
           const crop=evidence.crop?.(c),observation=crop?classifyFaceState(crop,{detectorFaceDownScore:c.confidence}):{state:'unknown' as const,confidence:0};if(observation.state==='up')continue;
           if(setGuards.ignore&&setMemory.ignored.some(r=>(r.source!=='startup'||setGuards.startup)&&sameSetRegion(r.quad,setMatQuad(c,calibration).quad)))continue;
           if(setGuards.positiveBack&&!measureSetEvidence(crop,c,observation,setMemory,sleeveOnMat(look,evidence.halo?.(c))).evidence.positive)continue;
@@ -1615,7 +1617,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         // Bound cards need fresh face pixels in either direction, even when a
         // plain sleeve has a weak/wrong detector class. New fronts keep .7.
         // A weak back (a white sleeve can score .20) counts too: a plain sleeve at rest for a while, with no hand, blur or moving shadow on it.
-        const weakBack=c.kind==='face-down'&&!!t.rest?.ok&&sample.at-(t.rest.since??sample.at)>=WEAK_BACK_REST_MS&&!c.partial&&cardAspect(c)&&!handNear(evidence,c)&&!removalHold(c)&&plainSleeve(pixels,evidence.halo?.(c),emptyLooks.get(t.view.zone)?.look);
+        const weakBack=c.kind==='face-down'&&!!t.rest?.ok&&sample.at-(t.rest.since??sample.at)>=WEAK_BACK_REST_MS&&!c.partial&&cardAspect(c)&&!handNear(evidence,c)&&!removalHold(c)&&plainSleeve(pixels,evidence.halo?.(c),/^S[1-5]$/.test(t.view.zone)?emptyLooks.get(t.view.zone)?.look:undefined);
         const boundOutline=(c.confidence>=.4||weakBack)&&cardAspect(c)&&!!(t.setRecovery||t.binding?.faceDown||bound(t));
         // Slightly touching detector edges are neighbours, not a hand fan. Keep
         // the existing .1 overlap tolerance for strong new fronts throughout admission.
