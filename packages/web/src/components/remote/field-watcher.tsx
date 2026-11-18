@@ -377,8 +377,6 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     if(piles.has(observed!.zone)||twins.some(c=>c.zone===location.zone&&c.slot===location.slot))return;
     if(twins.some(c=>c.faceUp&&cardCode(c)&&observedFieldZone(room.slug,seat,c.ref)===observed!.zone))return;
     const proposal=fieldPlacementProposals({track:{...observed!,cardId:undefined},seat})[0];if(!proposal||proposal.type!=='twin.place')return;
-    // The read may have named the card while this write waited its turn: skip the unnamed stand-in, so `apply` writes one named placement.
-    const fresh=watch.getTrack(event.track.id);if(!fresh||fresh.state!=='candidate'||fresh.cardId){console.info('[remote field] placeholder skipped',event.track.id,fresh?.state);return;}
     const updated=await act(proposal);if(!updated)return;
     const saved=updated.state.seats[seat].twin.find(c=>c.zone===location.zone&&c.slot===location.slot);if(!saved)return;
     placeholders.current.set(event.track.id,saved.ref);bindings.current.set(event.track.id,saved.ref);
@@ -451,8 +449,8 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       // A slow or cold lookup must not hold the serial queue (and every write behind it): after FACTS_WAIT_MS a NEW card is placed with what the camera saw.
       // The full wait stays where a rule needs the facts first: Extra Deck summon materials (cards under it, a card that just left, an Extra Monster Zone) and a stale occupant to release.
       else if(!cardInfo(code)&&(existing||stackUnder(event.track.id).length||pendingLeft.current.size||vanishes.current.some(v=>Math.abs(v.at-track.firstSeen)<=2*SUMMON_WINDOW_MS)||track.zone.startsWith('EMZ')||twins.some(c=>c.zone==='hand'&&c.departedFrom?.auto&&['monster','extra-monster'].includes(c.departedFrom.zone)&&serverNow()-(c.departedFrom.at??-Infinity)<=SUMMON_RECENT_MS)||staleFieldOccupant(twins,watch.getTracks().map(t=>({...t,id:bindings.current.get(t.id)??t.id})),track.zone,track.id)))await metadata;
-      // A Main Deck card in its own row is placed at once; the facts (already loading since the event) catch up for the zone-rule effect.
-      else if(!cardInfo(code)&&mainDeckOwnRow(entry?.frameClass,track.zone))void metadata.catch(()=>undefined);
+      // A Main Deck card in its own row, with that zone free, is placed at once; the facts (already loading since the event) catch up for the zone-rule effect. A taken zone keeps the wait (the legal row may be another slot).
+      else if(!cardInfo(code)&&mainDeckOwnRow(entry?.frameClass,track.zone)&&!twins.some(c=>c.zone===fieldZoneLocation(track.zone).zone&&c.slot===fieldZoneLocation(track.zone).slot)){slowFacts=true;void metadata.catch(()=>undefined);}
       else if(!cardInfo(code)){let timer:ReturnType<typeof setTimeout>|undefined;await Promise.race([metadata,new Promise<void>(resolve=>{timer=setTimeout(()=>{slowFacts=true;resolve();},FACTS_WAIT_MS);})]);clearTimeout(timer);}
     }
     // The card can move while its details load. Defer like the check above; there is nothing to save yet.
@@ -945,7 +943,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   const {generation}=useRecognitionBackend(),readerKey=useMemo(()=>({source,generation}),[source,generation]);
   const tournament=isTournamentTable(room);
   const watch=useFieldWatcher({tournament:tournament?{saved:()=>readTournamentMode(room.slug,seat)}:undefined,owner:ownsSource,active:hub.cameraOn&&room.status==='active'&&!room.state.ended&&!room.state.seats[seat].eliminated,seatKey:`${room.guildId}:${room.seats.find(s=>s.seat===seat)?.userId??'local'}:${seat}`,duelKey:room.slug,captureSize,deviceKey:cameraKey,deviceLabel:hub.devices.find(d=>d.deviceId===hub.cameraId)?.label||undefined,sourceKey:readerKey,
-    async create(){const resources=await ownFieldResources(()=>(recognitionPriorsFor(current.current.room,seat)));if(!resources)return null;entries.current=new Map(resources.entries.map(e=>[e.cardId,e]));return {...resources,profile:yugioh,placeUnsure:!!current.current.room.unsureNamesEnabled,earlyExitMargin:.02,format:current.current.room.format?.id??current.current.room.state.deckChecks.format.id,getKnownCards:known,onHeldCard:handleHeld,onHeldUnsure:handleHeldUnsure,cpuBusy:()=>resources.cpuBusy()||calibrationBusy.current};},onEvent:handle});
+    async create(){const resources=await ownFieldResources(()=>(recognitionPriorsFor(current.current.room,seat)));if(!resources)return null;entries.current=new Map(resources.entries.map(e=>[e.cardId,e]));return {...resources,profile:yugioh,placeUnsure:!!current.current.room.unsureNamesEnabled,earlyExitMargin:.02,format:current.current.room.format?.id??current.current.room.state.deckChecks.format.id,getKnownCards:known,onHeldCard:handleHeld,onHeldUnsure:handleHeldUnsure,cpuBusy:(urgent?:boolean)=>resources.cpuBusy(urgent)||calibrationBusy.current};},onEvent:handle});
   useEffect(()=>{
     const reject=(event:Event)=>{if(!(event instanceof CustomEvent))return;const value=event.detail;if(value?.slug!==current.current.room.slug||value.seat!==seat||typeof value.ref!=='string')return;const id=[...bindings.current.entries()].find(([,ref])=>ref===value.ref)?.[0]??value.ref;watch.notACard(id,(()=>{const card=current.current.room.state.seats[seat].twin.find(c=>c.ref===value.ref);return card?knownZone(card):undefined;})());setPrompts(list=>list.filter(p=>p.track.id!==id));};
     window.addEventListener(NOT_A_CARD_EVENT,reject);return()=>window.removeEventListener(NOT_A_CARD_EVENT,reject);

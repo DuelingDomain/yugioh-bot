@@ -27,8 +27,6 @@ export interface FieldPacer {
 const WINDOW_MS=10_000,STILL_CARDS_MS=4000,STILL_EMPTY_MS=15_000,RETRY_MS=2000,RETRY_FOR_MS=6000;
 /** CPU bursts rest 1:1; GPU bursts keep the shorter rest for quick placement. */
 const BURST_REST=.5,MOVING_REST=2,MOVING_REST_MS=400;
-/** How far below zero an urgent pass may take the bucket (wall ms); the sustain refill repays it. */
-const URGENT_DEBT_MS=1200;
 export const fieldPacerDevice=():FieldPacerDevice=>{
   const nav=(globalThis as {navigator?:Navigator&{deviceMemory?:number}}).navigator;
   return {cores:nav?.hardwareConcurrency??2,memoryGb:nav?.deviceMemory};
@@ -43,7 +41,8 @@ export function createFieldPacer(device:FieldPacerDevice,start:number,backend:()
   return {
     allow(at,moving=false,sceneMoving=moving,urgent=false){
       refill(at);
-      if(urgent)return tokens>-URGENT_DEBT_MS&&at-lastEnd>=passMs*(backend()==='webgpu'?BURST_REST:1);
+      // The debt is at most one pass, and none while the main thread is short of time (backoff), so normal passes resume soon.
+      if(urgent)return tokens>-(backoff>1?0:passMs)&&at-lastEnd>=passMs*(backend()==='webgpu'?BURST_REST:1);
       const rest=moving?Math.max(MOVING_REST_MS,passMs*MOVING_REST):passMs*(backend()==='webgpu'?BURST_REST:1);
       return (tokens>0||wakePermit&&!sceneMoving)&&at-lastEnd>=rest*backoff&&(!moving||backend()==='webgpu'||at-movingSince>=MOVING_REST_MS);
     },

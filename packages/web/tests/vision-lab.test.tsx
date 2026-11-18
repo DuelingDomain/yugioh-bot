@@ -59,12 +59,12 @@ const cards = [
   { cardId: "12580477", passcode: 12580477, frameClass: "Spell", name: "Raigeki" },
 ];
 const zoneEntries=[
-  {cardId:'41420027',passcode:41420027,frameClass:'Normal',name:'Solemn Judgment'},
-  {cardId:'76375913',passcode:76375913,frameClass:'Normal',name:'Mystic Mine'},
-  {cardId:'23995346',passcode:23995346,frameClass:'Normal',name:'Blue-Eyes Ultimate Dragon'},
-  {cardId:'16178681',passcode:16178681,frameClass:'Normal',name:'Odd-Eyes Pendulum Dragon'},
-  {cardId:'900000101',passcode:900000101,frameClass:'Normal',name:'Extra Deck Pendulum fixture'},
-  {cardId:'900000102',passcode:900000102,frameClass:'Normal',name:'Unknown full type fixture'},
+  {cardId:'41420027',passcode:41420027,frameClass:'Trap',name:'Solemn Judgment'},
+  {cardId:'76375913',passcode:76375913,frameClass:'Spell',name:'Mystic Mine'},
+  {cardId:'23995346',passcode:23995346,frameClass:'Fusion',name:'Blue-Eyes Ultimate Dragon'},
+  {cardId:'16178681',passcode:16178681,frameClass:'Pendulum',name:'Odd-Eyes Pendulum Dragon'},
+  {cardId:'900000101',passcode:900000101,frameClass:'Pendulum',name:'Extra Deck Pendulum fixture'},
+  {cardId:'900000102',passcode:900000102,frameClass:'Spell',name:'Unknown full type fixture'},
 ];
 const catalogFacts=[
   ...cards.map((card,i)=>({id:card.passcode,name:card.name,type:i<2?(i?'Dragon / Normal Monster':'Spellcaster / Normal Monster'):'Spell Card',frameType:i<2?'normal':'spell',effectText:'Fixture card text'})),
@@ -883,13 +883,13 @@ describe('typed watcher zone projection',()=>{
  });
  it('waits for an already-started catalog prefetch before committing the legal row',async()=>{
   const {loadCards}=await import('../src/components/remote/ui/catalog'),ready=deferred<Response>();
-  const entry={cardId:'900000103',passcode:900000103,frameClass:'Normal',name:'Prefetched trap fixture'};
+  const entry={cardId:'900000103',passcode:900000103,frameClass:'Trap',name:'Prefetched trap fixture'};
   fetcher.mockImplementation(async(url,init)=>String(url).endsWith('/api/cards/resolve')?ready.promise:Response.json({entries:cards}));
   const prefetch=loadCards([entry.passcode]),fixture=await typedWatcherFixture(entry,'M4');
   try{await fixture.emit();expect(fixture.post).not.toHaveBeenCalled();await act(async()=>{ready.resolve(Response.json({cards:[{id:entry.passcode,name:entry.name,type:'Trap Card',frameType:'trap',effectText:''}]}));await prefetch;});await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());expect(fixture.room().state.seats[0].twin[0]).toMatchObject({zone:'spell-trap',slot:4});expect(fetcher).toHaveBeenCalledTimes(1);}finally{fixture.dispose();}
  });
  it('uses the latest physical column when a card moves during full-type loading',async()=>{
-  const ready=deferred<Response>(),entry={cardId:'900000104',passcode:900000104,frameClass:'Normal',name:'Moving trap fixture'};
+  const ready=deferred<Response>(),entry={cardId:'900000104',passcode:900000104,frameClass:'Trap',name:'Moving trap fixture'};
   fetcher.mockImplementation(async(url)=>String(url).endsWith('/api/cards/resolve')?ready.promise:Response.json({entries:cards}));
   const fixture=await typedWatcherFixture(entry,'M4');try{await fixture.emit();fixture.track.zone='M5';await act(async()=>{ready.resolve(Response.json({cards:[{id:entry.passcode,name:entry.name,type:'Trap Card',frameType:'trap',effectText:''}]}));await ready.promise;});await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());expect(fixture.room().state.seats[0].twin[0]).toMatchObject({zone:'spell-trap',slot:5});}finally{fixture.dispose();}
  });
@@ -923,6 +923,12 @@ describe('typed watcher zone projection',()=>{
  });
  it('abstains when the full type is unavailable instead of using an index-frame guess',async()=>{
   const fixture=await typedWatcherFixture(zoneEntries[5],'M4');try{await fixture.emit();await screen.findByText(/Card type is unknown/);expect(fixture.post).not.toHaveBeenCalled();expect(fixture.confirm).not.toHaveBeenCalled();}finally{fixture.dispose();}
+ });
+ it('places a Main Deck monster in its own row while its facts are still loading, without abstaining',async()=>{
+  const pending=deferred<Response>(),entry={cardId:'900000105',passcode:900000105,frameClass:'Normal',name:'Slow facts monster fixture'};
+  fetcher.mockImplementation(async(url)=>String(url).endsWith('/api/cards/resolve')?pending.promise:Response.json({entries:cards}));
+  const fixture=await typedWatcherFixture(entry,'M2');
+  try{await fixture.emit();await waitFor(()=>expect(fixture.post).toHaveBeenCalledOnce());expect(fixture.post.mock.calls[0][0]).toMatchObject({type:'twin.place',zone:'monster',card:{slot:2}});expect(screen.queryByText(/Card type is unknown/)).toBeNull();await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());}finally{pending.resolve(Response.json({cards:[]}));fixture.dispose();}
  });
  it('keeps a manual move bound until the physical card changes column',async()=>{
   const {announceManualMove}=await import('../src/lib/remote/manual-moves');
