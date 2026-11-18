@@ -11,6 +11,8 @@ export interface FieldPacer {
   check(at:number,moving?:boolean,sceneMoving?:boolean):'ready'|'rest'|'budget';
   /** Every detector pass records wall time and rest. Priority passes can spend available tokens without adding debt. */
   spend(wallMs:number,at:number,sceneMoving?:boolean,allowDebt?:boolean):void;
+  /** A bounded cell check counts toward duty and uses available tokens without borrowing. */
+  spendPriority(wallMs:number,at:number):void;
   /** The scene changed at `at`: retries after a change come sooner than the slow timer. */
   changed(at:number):void;
   /** Slow timer for a full pass on a still scene. It does not back off: a dark card can fall under the scene check. */
@@ -38,6 +40,7 @@ export function createFieldPacer(device:FieldPacerDevice,start:number,backend:()
   const capacity=()=>Math.max(2500,passMs*6);
   const refill=(at:number)=>{tokens=Math.min(capacity(),tokens+Math.max(0,at-last)*sustain()/backoff);last=Math.max(last,at);};
   const prune=(at:number)=>{while(passes.length&&at-passes[0].end>WINDOW_MS)passes.shift();};
+  const record=(wall:number,end:number)=>{passes.push({end,wall});prune(end);};
   return {
     check(at,moving=false,sceneMoving=moving){
       refill(at);
@@ -48,7 +51,12 @@ export function createFieldPacer(device:FieldPacerDevice,start:number,backend:()
     spend(wallMs,at,sceneMoving=false,allowDebt=true){
       refill(at);if(!sceneMoving)wakePermit=false;
       tokens=allowDebt?tokens-wallMs:Math.max(Math.min(tokens,0),tokens-wallMs);
-      passMs=passMs?passMs*.7+wallMs*.3:wallMs;lastEnd=at;passes.push({end:at,wall:wallMs});prune(at);
+      passMs=passMs?passMs*.7+wallMs*.3:wallMs;lastEnd=at;record(wallMs,at);
+    },
+    spendPriority(wallMs,at){
+      refill(at);
+      tokens=Math.max(Math.min(tokens,0),tokens-wallMs);
+      record(wallMs,at);
     },
     changed(at){
       if(at-changedAt>1000+passMs){

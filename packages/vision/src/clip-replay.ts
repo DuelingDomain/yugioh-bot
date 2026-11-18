@@ -55,7 +55,7 @@ const overlaps = (a: FractionalBox, b: FractionalBox) => a.x < b.x + b.w && b.x 
 /** Plays back the clip's own detector boxes and reads by clip time. Recorded geometry is in camera fractions; the saved frames are cropped,
  *  so every quad and region is rebased with `crop` before it meets the watcher (which runs on the frame-based calibration). */
 export function recordedRecognizer(events: ClipEvent[], now: () => number, crop?: ClipRect): RecordedRecognizer {
-  const detects = events.filter((e): e is RecordedDetect => e.kind === 'detect').sort((a, b) => a.at - b.at);
+  const detects = events.filter((e): e is RecordedDetect => e.kind === 'detect' && !(e.opts as { zoom?: boolean } | undefined)?.zoom).sort((a, b) => a.at - b.at);
   const reads = events.filter((e): e is RecordedRead => e.kind === 'read').sort((a, b) => a.at - b.at);
   const regionOf = (d: RecordedDetect) => (d.opts as { region?: FractionalBox } | undefined)?.region;
   const fulls = detects.filter(d => !regionOf(d)), partials = detects.filter(d => !!regionOf(d));

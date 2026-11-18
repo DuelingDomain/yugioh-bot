@@ -23,6 +23,13 @@ const overlap=(a:Point[],b:Point[])=>{const p=boundsOf(a),q=boundsOf(b);return M
 export async function detectScene(frame:RGBAImage,profile:GameProfile,detector:ModelSession,Tensor:TensorCtor,opts:DetectOptions={},refiner?:SceneRefiner,pixels?:ScenePixelSource):Promise<DetectedQuad[]> {
     if(frame.width<3 || frame.height<3 || frame.width*frame.height>16_000_000 || frame.data.length!==frame.width*frame.height*4) throw new Error('Invalid frame');
     validateOptions({region:opts.region});
+    shadowPasses=0;
+    if(opts.zoom){
+      const {width,height}=frame;
+      const cards=await detect(detector,Tensor,frame,CARD_DETECTOR.cropLongSide,CARD_DETECTOR.minScore,true);
+      return cards.filter(c=>c.kind==='face-down'&&c.conf>=.4&&c.pts.every(([x,y])=>x>2&&y>2&&x<width-2&&y<height-2))
+        .map(c=>({quad:c.pts.map(([x,y])=>({x:x/width,y:y/height})),kind:c.kind,confidence:c.conf,partial:false}));
+    }
     const keep=(opts.keep??[]).filter(q=>q.length===4&&q.every(p=>Number.isFinite(p.x)&&Number.isFinite(p.y)));
     const piles=(opts.piles??[]).filter(q=>q.length===4&&q.every(p=>Number.isFinite(p.x)&&Number.isFinite(p.y)));
     const cells=(opts.cells??[]).filter(q=>q.length===4&&q.every(p=>Number.isFinite(p.x)&&Number.isFinite(p.y)));
@@ -49,7 +56,6 @@ export async function detectScene(frame:RGBAImage,profile:GameProfile,detector:M
         const search={...raw,quad:[{x:(card.cx-radius)/width,y:(card.cy-radius)/height},{x:(card.cx+radius)/width,y:(card.cy-radius)/height},{x:(card.cx+radius)/width,y:(card.cy+radius)/height},{x:(card.cx-radius)/width,y:(card.cy+radius)/height}]};
         const quad=qualifies(search)?(refiner?.refine(card,source,pixels?(c)=>pixels.refine(c):undefined)??(pixels?pixels.refine(card):refinedCorners(card,source))):card.pts.map(([x,y])=>({x,y}));return {quad:quad.map(p=>({x:p.x/width,y:p.y/height})),kind:card.kind,confidence:card.conf,partial:quad.some(p=>p.x<0 || p.y<0 || p.x>width || p.y>height)||!!region&&card.pts.some(([px,py])=>px<=x+2||py<=y+2||px>=x+w-2||py>=y+h-2)} as DetectedQuad;}).filter(c=>c.quad.length===4);
     };
-    shadowPasses=0;
     const quads=await pass(frame);
     const known=(c:DetectedQuad)=>keep.some(q=>overlap(c.quad,q)>=.6),inPile=(c:DetectedQuad)=>piles.some(q=>overlap(c.quad,q)>=.6),inCell=(c:DetectedQuad)=>c.kind==='face-down'&&cells.some(q=>overlap(c.quad,q)>=.6);
     // Hysteresis: a card already on the field keeps a weaker outline (a shadow lowers the score).

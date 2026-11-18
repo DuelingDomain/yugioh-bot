@@ -205,7 +205,7 @@ scope.onmessage = (event: MessageEvent<Request>) => {
         if(message.type==='detect') {
           const detectorSession=await ensureDetector();
           const start=performance.now();
-          const source='close' in message.frame?new ScenePixels(message.frame):undefined;
+          const source=!message.opts?.zoom&&'close' in message.frame?new ScenePixels(message.frame):undefined;
           const image=source?source.sample(undefined,configuration.profile.detector.longSide):pixels(message.frame),pixelsMs=performance.now()-start;
           const result=await detectScene(image,configuration.profile,detectorSession,Tensor,message.opts,sceneRefiner,source);
           const detectMs=performance.now()-start-pixelsMs,last=lastDetectTimings;

@@ -8,7 +8,7 @@ export type SetGuards = typeof DEFAULT_SET_GUARDS;
 export type SetEvidence = {
   detector:number; pixel:FaceStateResult['state']; pixelConfidence:number;
   /** RMS RGB variation in the inner crop, on the 0..255 scale. */ sd:number|null;
-  backDistance:number|null; positive:boolean; basis:'pixels'|'uniform'|'known-back'|'none'|'player'|'legacy';
+  backDistance:number|null; positive:boolean; basis:'pixels'|'uniform'|'known-back'|'zoom'|'none'|'player'|'legacy';
   decision:'waiting'|'committed'|'prompted'|'ignored'|'not-a-card';
 };
 export type SetDecision = {id:string;at:number;zone:string;quad:DetectedQuad['quad'];guards:SetGuards;evidence:SetEvidence};

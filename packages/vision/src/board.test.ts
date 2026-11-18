@@ -117,21 +117,21 @@ const fieldCrop=(c:DetectedQuad)=>{
  return {width,height,data};
 };
 const sureResult = (tier: RecognitionResult['tier'] = 'sure') => ({candidates:[{cardId:'A',score:.95},{cardId:'B',score:.5}],tier,quality:{detected:true,cornersFound:true,framesUsed:1,selectedFrameIndices:[0],sharpness:10,fallback:false},timingsMs:{total:20},backend:'wasm'}) as RecognitionResult;
-function fieldRig(tier: RecognitionResult['tier'] = 'sure',maxTracks=20,gallery?:ReturnType<typeof createFieldIdentityGallery>,size={width:frame.width,height:frame.height},setOptions:Pick<field.FieldWatcherOptions,'setGuards'|'setCardMemory'|'onSetDecision'|'nameVoting'|'backgroundReread'>={}) {
+function fieldRig(tier: RecognitionResult['tier'] = 'sure',maxTracks=20,gallery?:ReturnType<typeof createFieldIdentityGallery>,size={width:frame.width,height:frame.height},setOptions:Pick<field.FieldWatcherOptions,'setGuards'|'setCardMemory'|'onSetDecision'|'nameVoting'|'backgroundReread'|'zoomSets'>={}) {
   let appearanceExplicit=false;
-  let detectorCost=0,readGate:Promise<void>|undefined;
+  let zoom:((frame:ImageData)=>DetectedQuad[])|undefined,detectorCost=0,readGate:Promise<void>|undefined;
   let scene:import('./field-motion').FieldAnalysis['scene'];
   let shadowPasses=0;
   let cropCalls=0,backend:'wasm'|'webgpu'|undefined;const detectOptions:DetectOptions[]=[];
   let at=0, outlines:DetectedQuad[]=[card(.3,.3)], motion=0, detail=20, appearance:number[]=Array.from({length:12},(_,i)=>i%2?.6:.2), halo:number[]|undefined=Array(192).fill(.2), hidden=false, busy=false, reads=0, detects=0, identity='A', decklist=['A'], known:field.KnownFieldCard[]=[],embedding:number[]|undefined,embeddingSpace:'art-box'|'whole-card'='art-box',identityAt:((card:DetectedQuad)=>string)|undefined,motionAt:((card:DetectedQuad)=>number)|undefined,motionRegion:{x:number;y:number;w:number;h:number}|undefined,cropAware=false,appearanceAt:((card:DetectedQuad)=>number[])|undefined,cropAt:((card:DetectedQuad)=>ReturnType<typeof fieldCrop>)|undefined,touchedAt:((card:DetectedQuad)=>number)|undefined,occludedAt:((card:DetectedQuad)=>boolean)|undefined,skinNearAt:((card:DetectedQuad)=>number)|undefined,qualityAt:((card:DetectedQuad)=>Record<string,boolean>)|undefined,shadow:{share:number;changed:number;moved?:Uint8Array;gx?:number;gy?:number}|undefined,frameSharpness:number|undefined,keeps:unknown[]=[];
   let tierAt:((card:DetectedQuad)=>RecognitionResult['tier'])|undefined;
   const events:field.FieldEvent[]=[], inputs:{frame:ImageData;opts:any}[]=[];
-  const reader={get detectorBackend(){return backend;},get detectorTimingsMs(){return {shadowPasses};},detectCards:async(_frame:unknown,opts?:DetectOptions)=>{detectOptions.push(opts??{});detects++;keeps=opts?.keep??[];at+=detectorCost;const r=cropAware?opts?.region:undefined;return structuredClone(r?outlines.filter(c=>c.quad.every(p=>p.x>=r.x&&p.x<=r.x+r.w&&p.y>=r.y&&p.y<=r.y+r.h)):outlines);},recognize:async(frames:ImageData[],opts:any)=>{reads++;inputs.push({frame:frames[0],opts});if(readGate)await readGate;const base=sureResult(tierAt?.(opts.card)??tier);return {...base,quality:{...base.quality,...qualityAt?.(opts.card)},candidates:[{cardId:identityAt?.(opts.card)??identity,score:.95}],...(embedding?{identityEmbedding:{values:embedding.slice(),space:embeddingSpace}}:{})};}};
+  const reader={get detectorBackend(){return backend;},get detectorTimingsMs(){return {shadowPasses};},detectCards:async(_frame:unknown,opts?:DetectOptions)=>{detectOptions.push(opts??{});detects++;if(opts?.zoom){at+=detectorCost;return zoom?.(_frame as ImageData)??[];}keeps=opts?.keep??[];at+=detectorCost;const r=cropAware?opts?.region:undefined;return structuredClone(r?outlines.filter(c=>c.quad.every(p=>p.x>=r.x&&p.x<=r.x+r.w&&p.y>=r.y&&p.y<=r.y+r.h)):outlines);},recognize:async(frames:ImageData[],opts:any)=>{reads++;inputs.push({frame:frames[0],opts});if(readGate)await readGate;const base=sureResult(tierAt?.(opts.card)??tier);return {...base,quality:{...base.quality,...qualityAt?.(opts.card)},candidates:[{cardId:identityAt?.(opts.card)??identity,score:.95}],...(embedding?{identityEmbedding:{values:embedding.slice(),space:embeddingSpace}}:{})};}};
   const watcher=field.createFieldWatcher({...setOptions,gallery,recognizer:reader,profile:yugioh,maxTracks,buffer:{sample:async()=>({frame:{...size,data:new Uint8ClampedArray(size.width*size.height*4).fill(detail)} as ImageData,at})},
     getPriors:()=>({decklist}),getKnownCards:()=>known,hidden:()=>hidden,cpuBusy:()=>busy,now:()=>at,
     analyze:()=>({scene,shadow,frameSharpness,crop:c=>{cropCalls++;return cropAt?.(c)??fieldCrop(c);},motion:c=>motionAt?.(c)??motion,motionRegion,sharpness:()=>detail,touched:c=>touchedAt?.(c)??0,occluded:c=>occludedAt?.(c)??false,skinNear:c=>skinNearAt?.(c)??0,appearance:c=>appearanceAt?.(c)??(outlines.length||appearanceExplicit?appearance:Array(12).fill(.2)),halo:()=>halo??[]}),clone:async f=>f});
   watcher.subscribe(event=>{if(event.type!=='reading')events.push(event);});
-  return {watcher,events,inputs,detectOptions,set readGate(value:Promise<void>|undefined){readGate=value;},set shadowPasses(v:number){shadowPasses=v;},set scene(v:typeof scene){scene=v;},set backend(v:typeof backend){backend=v;},set tierAt(v:((card:DetectedQuad)=>RecognitionResult['tier'])|undefined){tierAt=v;},set shadow(v:{share:number;changed:number;moved?:Uint8Array;gx?:number;gy?:number}|undefined){shadow=v;},set frameSharpness(v:number|undefined){frameSharpness=v;},get crops(){return cropCalls;},get keeps(){return keeps;},set detectorCost(v:number){detectorCost=v;},set identityAt(v:((card:DetectedQuad)=>string)|undefined){identityAt=v;},set motionAt(v:((card:DetectedQuad)=>number)|undefined){motionAt=v;},set motionRegion(v:{x:number;y:number;w:number;h:number}|undefined){motionRegion=v;},set cropAware(v:boolean){cropAware=v;},set cropAt(v:((card:DetectedQuad)=>ReturnType<typeof fieldCrop>)|undefined){cropAt=v;},set appearanceAt(v:((card:DetectedQuad)=>number[])|undefined){appearanceAt=v;},set touchedAt(v:((card:DetectedQuad)=>number)|undefined){touchedAt=v;},set occludedAt(v:((card:DetectedQuad)=>boolean)|undefined){occludedAt=v;},set skinNearAt(v:((card:DetectedQuad)=>number)|undefined){skinNearAt=v;},set qualityAt(v:((card:DetectedQuad)=>Record<string,boolean>)|undefined){qualityAt=v;},get reads(){return reads;},get detects(){return detects;},get at(){return at;},set embedding(v:number[]){embedding=v;},set embeddingSpace(v:'art-box'|'whole-card'){embeddingSpace=v;},
+  return {watcher,events,inputs,detectOptions,set zoom(v:typeof zoom){zoom=v;},set readGate(value:Promise<void>|undefined){readGate=value;},set shadowPasses(v:number){shadowPasses=v;},set scene(v:typeof scene){scene=v;},set backend(v:typeof backend){backend=v;},set tierAt(v:((card:DetectedQuad)=>RecognitionResult['tier'])|undefined){tierAt=v;},set shadow(v:{share:number;changed:number;moved?:Uint8Array;gx?:number;gy?:number}|undefined){shadow=v;},set frameSharpness(v:number|undefined){frameSharpness=v;},get crops(){return cropCalls;},get keeps(){return keeps;},set detectorCost(v:number){detectorCost=v;},set identityAt(v:((card:DetectedQuad)=>string)|undefined){identityAt=v;},set motionAt(v:((card:DetectedQuad)=>number)|undefined){motionAt=v;},set motionRegion(v:{x:number;y:number;w:number;h:number}|undefined){motionRegion=v;},set cropAware(v:boolean){cropAware=v;},set cropAt(v:((card:DetectedQuad)=>ReturnType<typeof fieldCrop>)|undefined){cropAt=v;},set appearanceAt(v:((card:DetectedQuad)=>number[])|undefined){appearanceAt=v;},set touchedAt(v:((card:DetectedQuad)=>number)|undefined){touchedAt=v;},set occludedAt(v:((card:DetectedQuad)=>boolean)|undefined){occludedAt=v;},set skinNearAt(v:((card:DetectedQuad)=>number)|undefined){skinNearAt=v;},set qualityAt(v:((card:DetectedQuad)=>Record<string,boolean>)|undefined){qualityAt=v;},get reads(){return reads;},get detects(){return detects;},get at(){return at;},set embedding(v:number[]){embedding=v;},set embeddingSpace(v:'art-box'|'whole-card'){embeddingSpace=v;},
     async tick(ms=333){at+=ms;await watcher.tick();},set identity(v:string){identity=v;},set decklist(v:string[]){decklist=v;},set known(v:field.KnownFieldCard[]){known=v;},set outlines(v:DetectedQuad[]){outlines=v;},set motion(v:number){motion=v;},set detail(v:number){detail=v;},set appearance(v:number[]){appearance=v;appearanceExplicit=true;},set halo(v:number[]|undefined){halo=v;},set hidden(v:boolean){hidden=v;},set busy(v:boolean){busy=v;}};
 }
 test('conflicting front pixels use the reader and dismissal cannot bypass positive Set evidence',async context=>{
@@ -520,6 +520,28 @@ test('a flat plain sleeve the detector never boxes is placed as a Set from its p
     if(colour){assert.equal(placed.length,1,`the flat sleeve (${colour}) is placed`);assert.equal(placed[0].track.zone,'S4');assert.equal(placed[0].track.faceDown,true);}else assert.equal(placed.length,0,'bare mat is never a Set');
     r.watcher.dispose();
   }
+  const zoomed=fieldRig('sure',20,undefined,{width:1600,height:900},{zoomSets:true});
+  zoomed.outlines=[];zoomed.watcher.setCalibration(zones.createFieldCalibration([{x:0,y:0},{x:1,y:1}]));
+  zoomed.appearanceAt=()=>Array(288).fill(.25);zoomed.cropAt=()=>barePadded;
+  for(let i=0;i<8;i++){zoomed.watcher.scanNow();await zoomed.tick(300);}
+  await zoomed.tick(300); // Finish the explicit scan before testing priority sampling.
+  zoomed.appearanceAt=c=>Array(288).fill(inCell(c)?.65:.25);
+  zoomed.cropAt=c=>c.kind==='face-down'?own:barePadded;
+  zoomed.zoom=frame=>{
+    assert.ok(frame.width>200&&frame.width<400,'the crop comes from the native frame');
+    return [{...card(.30,.36,.40,.50),kind:'face-down',confidence:.41}];
+  };
+  await zoomed.tick(100);
+  assert.equal(zoomed.detectOptions.filter(o=>o.zoom).length,0,'the first resting sample cannot spend a crop');
+  zoomed.detectorCost=34;
+  await zoomed.tick(100);
+  assert.equal(zoomed.detectOptions.filter(o=>o.zoom).length,1);
+  assert.equal(zoomed.watcher.getSnapshot().metrics.zoomMs,34);
+  assert.deepEqual(zoomed.events.filter(e=>e.type==='placed').map(e=>[e.track.zone,e.track.faceDown]),[['S4',true]]);
+  await zoomed.tick(100);
+  assert.equal(zoomed.detectOptions.filter(o=>o.zoom).length,1,'the settled Set does not spend another crop');
+  zoomed.watcher.dispose();
+
   // A light step (+25/255 on the mat and its ring) is not a sleeve: the baseline follows it, so a Set lifted after the step is removed and bare mat is never placed.
   const lit=fieldRig('sure',20,undefined,{width:160,height:90}),step=25/255,run=async(n:number)=>{for(let i=0;i<n;i++){lit.watcher.scanNow();await lit.tick(300);}};
   lit.outlines=[];lit.watcher.setCalibration(zones.createFieldCalibration([{x:0,y:0},{x:1,y:1}]));
