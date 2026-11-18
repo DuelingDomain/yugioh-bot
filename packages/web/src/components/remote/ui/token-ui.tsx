@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyEvent, type ReactNode } from "react";
 import type { RemoteActionProposal, RemoteRoom } from "@yugidraft/shared/remote";
 import { searchCards, type CardInfo } from "./catalog";
+import { serverNow } from "./api";
 import { cardCode, cardName, cellsFor, type TwinCard, type ZoneKey } from "./model";
 import { BigArt, PopupFrame } from "./popup";
 import type { Verdict } from "./placement";
@@ -24,7 +25,7 @@ const points = (text: string) => { const n = Number(text); return text.trim() !=
 
 type View = { kind: "new"; seat: number; key: ZoneKey | null } | { kind: "template"; from?: TokenTemplate } | { kind: "card"; seat: number; ref: string; };
 /** What the next click on a free Monster Zone puts there. `left` is how many are still to place; `ask` means ATK/DEF are not fixed and the player types them. */
-export type TokenTemplate = { name: string; atk: number; def: number; artId?: number; position: Position; left: number; ask?: boolean; /** ATK/DEF were suggested from the Tributed monsters and may be edited. */ prefilled?: boolean };
+export type TokenTemplate = { name: string; atk: number; def: number; artId?: number; position: Position; left: number; ask?: boolean; /** ATK/DEF were suggested from the Tributed monsters and may be edited. */ prefilled?: boolean; /** Face-up Tributed monsters whose ATK/DEF are not known, so the suggestion leaves them out. */ unknown?: number };
 const GENERIC: TokenTemplate = { name: "Token", atk: 0, def: 0, position: "attack", left: 1 };
 /** Cards that give named tokens to a player. A card on the table with one of these names offers its token first. Nothing else is guessed. */
 const TOKEN_OF: Record<string, Omit<TokenTemplate, "artId">> = {
@@ -48,6 +49,12 @@ export function useTokens({ act, room, live, extraZones, layers, info }: {
 }) {
   const [view, setView] = useState<View | null>(null);
   const [placing, setPlacing] = useState<TokenTemplate | null>(null);
+  /** Zones ("seat:key") with a token request that the server has not answered yet. They leave the glow and count as taken. */
+  const [pending, setPendingState] = useState<string[]>([]);
+  const pendingRef = useRef<string[]>([]);
+  const setPending = (next: string[]) => { pendingRef.current = next; setPendingState(next); };
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const wasPlacing = useRef(false);
   const { solo, mySeat } = room;
   const owns = useCallback((seat: number) => live && (solo || seat === mySeat), [live, solo, mySeat]);
   /** Any seated player (not a spectator) may put a token on any field. */
@@ -68,18 +75,26 @@ export function useTokens({ act, room, live, extraZones, layers, info }: {
   }, [offeredKey]);
   const suggestions: TokenTemplate[] = offered.map(item => ({ ...item, ...(art[item.name] ? { artId: art[item.name] } : {}) }));
   useEffect(() => { if (placing && !canPlace) setPlacing(null); }, [placing, canPlace]);
+  // When the mode ends, focus goes back to the Token button, unless a dialog took it.
+  useEffect(() => {
+    const on = !!placing;
+    if (wasPlacing.current && !on && !layers.layer) triggerRef.current?.focus({ preventScroll: true });
+    wasPlacing.current = on;
+  }, [placing, layers.layer]);
   useEffect(() => {
     if (!placing) return;
     const stop = (event: KeyboardEvent) => { if (event.key === "Escape" && !layers.layer) { event.preventDefault(); event.stopPropagation(); setPlacing(null); } };
     window.addEventListener("keydown", stop, true);
     return () => window.removeEventListener("keydown", stop, true);
   }, [placing, layers.layer]);
-  const freeKeys = useCallback((seat: number, keys: readonly ZoneKey[]) => {
-    const cells = cellsFor(room.state.seats[seat]?.twin ?? [], extraZones);
+  const freeIn = useCallback((state: RemoteRoom["state"], seat: number, keys: readonly ZoneKey[]) => {
+    const cells = cellsFor(state.seats[seat]?.twin ?? [], extraZones);
     return keys.filter(key => !cells[key]?.card);
-  }, [room.state.seats, extraZones]);
+  }, [extraZones]);
+  const freeKeys = useCallback((seat: number, keys: readonly ZoneKey[]) => freeIn(room.state, seat, keys), [room.state, freeIn]);
 
-  const freeMain = (seat: number) => room.state.seats[seat]?.eliminated ? 0 : freeKeys(seat, MAIN).length;
+  /** The Main Monster Zones that glow on a seat: free ones that no unanswered request is already filling. */
+  const openSlots = (seat: number): ZoneKey[] => freeKeys(seat, MAIN).filter(key => !pending.includes(`${seat}:${key}`));
   /** The create dialog. An empty Main Monster Zone passes its cell, the button leaves it open. */
   const create = useCallback((seat: number, key?: ZoneKey) => {
     if (!owns(seat) || key && !isMainCell(key)) return false;
@@ -92,10 +107,19 @@ export function useTokens({ act, room, live, extraZones, layers, info }: {
     if (!placing || !canPlace) return false;
     const target = room.state.seats[seat];
     if (!target || target.eliminated || card || !isMainCell(key)) return false;
-    send(seat, { name: placing.name, atk: placing.atk, def: placing.def, artId: placing.artId, position: placing.position, key });
-    // The mode stays on until the whole set is placed, or no zone is left on any field (this zone is taken now).
-    const zonesLeft = room.state.seats.reduce((sum, _, index) => sum + freeMain(index), 0) - 1;
-    setPlacing(placing.left > 1 && zonesLeft > 0 ? { ...placing, left: placing.left - 1 } : null);
+    const id = `${seat}:${key}`;
+    // A zone with a request in flight, or more requests than tokens left, takes the click and does nothing.
+    if (pendingRef.current.includes(id) || pendingRef.current.length >= placing.left) return true;
+    const sent = placing;
+    setPending([...pendingRef.current, id]);
+    // The count drops only when the server accepted the token. A refused request (taken zone) leaves it as it was.
+    void send(seat, { name: sent.name, atk: sent.atk, def: sent.def, artId: sent.artId, position: sent.position, key }).then(updated => {
+      setPending(pendingRef.current.filter(item => item !== id));
+      if (!updated) return;
+      // The mode ends when the whole set is placed, or when no zone is left on any field (zones still being filled count as taken).
+      const zonesLeft = updated.state.seats.reduce((sum, item, index) => sum + (item.eliminated ? 0 : freeIn(updated.state, index, MAIN).length), 0) - pendingRef.current.length;
+      setPlacing(now => !now ? null : now.name !== sent.name || now.atk !== sent.atk || now.def !== sent.def ? now : now.left > 1 && zonesLeft > 0 ? { ...now, left: now.left - 1 } : null);
+    });
     return true;
   };
   /** A chip with open stats (Primal Being Token) asks for them first; the others switch the template at once. */
@@ -106,25 +130,29 @@ export function useTokens({ act, room, live, extraZones, layers, info }: {
    * and with nothing known the fields stay empty. The player can edit the suggestion.
    */
   const suggestStats = (template: TokenTemplate): TokenTemplate => {
-    const cards = room.state.seats.flatMap(item => item.twin).filter(card => !card.token);
+    const cards = room.state.seats.flatMap(item => item.twin);
     const nibiru = (card: TwinCard) => cardName(card, info(cardCode(card))).toLowerCase().startsWith("nibiru");
-    const now = Date.now();
+    const now = serverNow();
     const onField = cards.filter(card => card.faceUp && ON_FIELD.includes(card.zone) && !nibiru(card));
     const left = cards.filter(card => card.zone === "graveyard" && card.departedFrom && ON_FIELD.includes(card.departedFrom.zone) && card.departedFrom.at !== undefined && now - card.departedFrom.at <= TRIBUTE_WINDOW_MS && !nibiru(card));
-    const known = (onField.length ? onField : left).map(card => info(cardCode(card))).filter((card): card is CardInfo => !!card && card.atk !== undefined && card.atk !== null && card.atk >= 0);
-    if (!known.length) return template;
-    return { ...template, atk: known.reduce((sum, card) => sum + (card.atk ?? 0), 0), def: known.reduce((sum, card) => sum + Math.max(0, card.def ?? 0), 0), prefilled: true };
+    const chosen = onField.length ? onField : left;
+    // A token is Tributed too: it counts with its own ATK/DEF. A card counts with its original ATK/DEF from the catalog.
+    const stats = chosen.map(card => { if (card.token) return { atk: card.token.atk, def: card.token.def }; const found = info(cardCode(card)); return found && found.atk !== undefined && found.atk !== null && found.atk >= 0 ? { atk: found.atk, def: Math.max(0, found.def ?? 0) } : null; });
+    const known = stats.filter((item): item is { atk: number; def: number } => !!item);
+    const unknown = stats.length - known.length;
+    if (!known.length) return unknown ? { ...template, unknown } : template;
+    return { ...template, atk: known.reduce((sum, item) => sum + item.atk, 0), def: known.reduce((sum, item) => sum + item.def, 0), prefilled: true, ...(unknown ? { unknown } : {}) };
   };
   const customize = (from?: TokenTemplate) => { setView({ kind: "template", ...(from ? { from } : {}) }); layers.open("token"); };
   const open = useCallback((seat: number, card: TwinCard) => { setView({ kind: "card", seat, ref: card.ref }); layers.open("token"); }, [layers]);
   const close = () => { layers.close("token"); setView(null); };
 
   const send = (seat: number, draft: { name: string; atk: number; def: number; artId?: number; position: Position; key: ZoneKey }) => {
-    void act({ type: "twin.place", actorSeat: actor(seat), seat, zone: "monster", card: { ref: crypto.randomUUID(), name: draft.name, slot: Number(draft.key[1]), faceUp: true, position: draft.position,
+    return act({ type: "twin.place", actorSeat: actor(seat), seat, zone: "monster", card: { ref: crypto.randomUUID(), name: draft.name, slot: Number(draft.key[1]), faceUp: true, position: draft.position,
       token: { atk: draft.atk, def: draft.def, ...(draft.artId ? { artId: draft.artId } : {}) } } });
   };
   /** The create dialog places one token and ends. */
-  const place = (seat: number, draft: { name: string; atk: number; def: number; artId?: number; position: Position; key: ZoneKey }) => { send(seat, draft); setPlacing(null); close(); };
+  const place = (seat: number, draft: { name: string; atk: number; def: number; artId?: number; position: Position; key: ZoneKey }) => { void send(seat, draft); setPlacing(null); close(); };
   const moveTo = (seat: number, card: TwinCard, key: ZoneKey) => {
     void act({ type: "twin.move", actorSeat: actor(seat), seat, zone: "monster", slot: Number(key[1]), cardRef: card.ref });
   };
@@ -142,7 +170,7 @@ export function useTokens({ act, room, live, extraZones, layers, info }: {
   const drop = (seat: number, card: TwinCard, key: ZoneKey | "hand") => { if (key !== "hand" && judge(seat, card, key).kind === "ok") moveTo(seat, card, key); };
 
   const trigger = (seat: number): ReactNode => canPlace && seat === (solo ? 0 : mySeat)
-    ? <button type="button" className={`${s.btn} ${s.sm} ${placing ? s.go : ""}`} aria-pressed={!!placing} onClick={toggle} data-testid={`token-open-${seat}`}
+    ? <button ref={triggerRef} type="button" className={`${s.btn} ${s.sm} ${placing ? s.go : ""}`} aria-pressed={!!placing} onClick={toggle} data-testid={`token-open-${seat}`}
       title="Put a token on any free Monster Zone, yours or an opponent's. The camera does not read it.">Token</button> : null;
 
   const card = view?.kind === "card" ? room.state.seats[view.seat]?.twin.find(item => item.ref === view.ref) : undefined;
@@ -156,7 +184,7 @@ export function useTokens({ act, room, live, extraZones, layers, info }: {
     {placing && canPlace ? <TokenBar template={placing} suggestions={suggestions} onPick={pick} onCustom={() => customize()} onCancel={() => setPlacing(null)} /> : null}
     {dialog}
   </>;
-  return { create, open, judge, drop, trigger, node, owns, placing: !!placing && canPlace, placeAt };
+  return { create, open, judge, drop, trigger, node, owns, placing: !!placing && canPlace, placeAt, openSlots };
 }
 
 /** The strip shown while placing: what goes down, how many are left, and how to stop. The zones themselves glow on the fields. */
@@ -170,7 +198,15 @@ function TokenBar({ template, suggestions, onPick, onCustom, onCancel }: {
   const chip = (item: TokenTemplate, label: string) => <button key={label} type="button" className={`${s.btn} ${s.sm} ${same(item) ? s.go : s.q}`}
     aria-pressed={same(item)} onClick={() => onPick(item)} data-testid="token-chip">{label}</button>;
   const stats = template.atk || template.def ? ` (${template.atk}/${template.def})` : "";
-  return <div ref={box} className={t.bar} role="toolbar" aria-label="Place a token" tabIndex={-1} data-testid="token-bar">
+  // Tab from the last button goes to the first glowing zone (the zones use a roving tabindex, so the natural order would skip them).
+  const leave = (event: ReactKeyEvent<HTMLDivElement>) => {
+    if (event.key !== "Tab" || event.shiftKey) return;
+    const buttons = box.current?.querySelectorAll("button");
+    if (!buttons?.length || event.target !== buttons[buttons.length - 1]) return;
+    const zone = document.querySelector<HTMLElement>("[data-token-slot]");
+    if (zone) { event.preventDefault(); zone.focus(); }
+  };
+  return <div ref={box} className={t.bar} role="toolbar" aria-label="Place a token" tabIndex={-1} data-testid="token-bar" onKeyDown={leave}>
     <span className={t.barText} role="status" data-testid="token-bar-text">Click a free Monster Zone for the <b>{template.name}</b>{stats}.{template.left > 1 ? ` ${template.left} left.` : ""}</span>
     <span className={t.barChips}>
       {suggestions.map(item => chip(item, item.name))}
@@ -226,7 +262,7 @@ function TokenDialog({ free, start, zoneless, initial, onCreate, onClose }: {
         <label className={t.field}>Name<input className={t.num} style={{ width: 150 }} type="text" maxLength={200} value={name} data-autofocus data-testid="token-name" {...typing} onChange={event => setName(event.target.value)} /></label>
         <label className={t.field}>ATK<input className={t.num} inputMode="numeric" value={atk} aria-invalid={points(atk) === null} data-testid="token-atk" {...typing} onChange={event => setAtk(event.target.value)} /></label>
         <label className={t.field}>DEF<input className={t.num} inputMode="numeric" value={def} aria-invalid={points(def) === null} data-testid="token-def" {...typing} onChange={event => setDef(event.target.value)} /></label>
-        {initial?.prefilled ? <p className={t.note} data-testid="token-suggested">Suggested from the Tributed monsters (original ATK/DEF). Change it if it is wrong.</p> : null}
+        {initial?.prefilled ? <p className={t.note} data-testid="token-suggested">Suggested from the Tributed monsters (original ATK/DEF).{initial.unknown ? ` ${initial.unknown} ${initial.unknown === 1 ? "monster is" : "monsters are"} unknown and not counted.` : ""} Change it if it is wrong.</p> : initial?.unknown ? <p className={t.note} data-testid="token-suggested">{initial.unknown} {initial.unknown === 1 ? "monster is" : "monsters are"} unknown. Type the ATK and DEF.</p> : null}
       </div>}
       <div className={t.row}>
         <div className={t.seg} role="group" aria-label="Position">

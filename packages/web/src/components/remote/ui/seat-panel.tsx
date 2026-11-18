@@ -47,7 +47,7 @@ export type SeatPanelProps = {
   onPile?: (zone: "graveyard" | "banished" | "deck" | "extra", opener: HTMLElement | null) => void;
   /** My own Deck pile on the virtual field was clicked. */ onDeck?: (opener: HTMLElement) => void;
   drag?: FieldDrag;
-  /** A token is being placed: free Main Monster Zones glow and take the click. */ tokenSlots?: boolean;
+  /** A token is being placed: free Main Monster Zones glow and take the click. */ tokenSlots?: readonly ZoneKey[];
   /** Cards with a same-identity twin on this field (ref to count). */
   twinCounts?: ReadonlyMap<string, number>; deckListSizes?:{deck:number;extra:number}; deckRegistered?:boolean;
   onPlate: () => void; onLp: (delta: number) => void; canLp: boolean;

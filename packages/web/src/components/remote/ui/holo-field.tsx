@@ -106,8 +106,8 @@ export function HoloField({ seat, name, twin, info, extraZones, facing, rv, onRv
   /** My own Deck pile was clicked: opens the deck menu. */
   onDeck?: (opener: HTMLElement) => void;
   drag?: FieldDrag;
-  /** A token is being placed: free Main Monster Zones glow. */
-  tokenSlots?: boolean;
+  /** A token is being placed: these free Main Monster Zones glow and take the click. */
+  tokenSlots?: readonly ZoneKey[];
 }) {
   const cells = cellsFor(twin, !!extraZones);
   // A still outline the watcher has not read yet: shown at once as a ghost card, replaced by the real card when it arrives.
@@ -240,7 +240,7 @@ export function HoloField({ seat, name, twin, info, extraZones, facing, rv, onRv
         const dropClass = dragging?.over === key && dragging.verdict ? VERDICT_CLASS[dragging.verdict] : carriedHere && dnd ? VERDICT_CLASS[dnd.judge(carried!, key).kind] : "";
         const under = card && !pile ? card.materials?.length ?? 0 : 0, stacked_ = under > 0;
         const stacked=pile&&(cell.count>=2||((key==='deck'||key==='ex')&&((deckListSizes?.[key==='deck'?'deck':'extra']??0)>=2||deckRegistered)));
-        const tokenSlot = !!tokenSlots && /^m[1-5]$/.test(key) && !card && !ghost;
+        const tokenSlot = !!tokenSlots && tokenSlots.includes(key) && !card && !ghost;
         const classes = [s.zc, stacked?s.pileStack:'', dropClass, tokenSlot ? s.tokSlot : "", card && dnd?.can(card) && !isPile(key) ? s.drg : "", card && (dragging?.ref === card.ref || carry === card.ref) ? s.dragSrc : "", emzCell ? s.ez : "", taken ? s.taken : "", card && !down ? s.clk : "", defense ? s.def : "", card && card.ref === selectedRef ? s.sel : "", card && card.ref === targetRef ? s.tgt : "",
           picking && monsterZone && card ? s.pickTarget : "", card && card.ref === freshRef && !swapped.has(key) ? s.scanin : "", card && landed.has(card.ref) && !swapped.has(key) ? s.land : "", ghost ? s.ghosted : "", card && revealed.has(key) ? s.reveal : "", zoneCheck || card?.equippedTo || equipped.length ? z.cell : "", stacked_ ? s.matStack : ""].filter(Boolean).join(" ");
         let desc = taken ? `shared with ${facing!.name}: taken by their monster` : trapHolder ? `occupied by ${nameOf(trapHolder)} (Trap Monster)` : "empty";
