@@ -522,6 +522,28 @@ test('a flat plain sleeve the detector never boxes is placed as a Set from its p
   assert.equal(lit.events.filter(e=>e.type==='removed').length,1,'the lifted Set is removed under the new light');
   lit.watcher.dispose();
 });
+test('a flat sleeve stack on the Deck cell the detector never boxes becomes a pile from its pixels, bare mat and a lifted stack do not',async()=>{
+  const sleeve=[110,150,130],mat=[60,60,70],flat=(rgb:number[],inner?:[number,number,number,number])=>{
+    const width=96,height=140,data=new Uint8ClampedArray(width*height*4);
+    for(let py=0;py<height;py++)for(let px=0;px<width;px++){const x=px/width,y=py/height,on=!inner||x>=inner[0]&&x<=inner[1]&&y>=inner[2]&&y<=inner[3];data.set([...(on?rgb:mat),255],(py*width+px)*4);}
+    return {width,height,data};
+  };
+  const padded=flat(sleeve,[.23,.77,.19,.81]),barePadded=flat(mat),own=flat(sleeve),cell=zones.fieldZoneCells().find(c=>c.zone==='DECK')!,inCell=(c:DetectedQuad)=>Math.abs(zones.fieldCenter(c).x-(cell.x+cell.w/2))<cell.w/2&&Math.abs(zones.fieldCenter(c).y-(cell.y+cell.h/2))<cell.h/2;
+  for(const withSleeve of [true,false]){
+    const r=fieldRig('sure',20,undefined,{width:160,height:90}),run=async(n:number)=>{for(let i=0;i<n;i++){r.watcher.scanNow();await r.tick(300);}},deck=()=>r.watcher.getSnapshot().piles?.some(p=>p.zone==='DECK');
+    r.outlines=[];r.watcher.setCalibration(zones.createFieldCalibration([{x:0,y:0},{x:1,y:1}]));
+    r.appearanceAt=()=>Array(288).fill(.25);r.cropAt=c=>c.blind?own:barePadded;await run(8);
+    if(withSleeve){r.appearanceAt=c=>Array(288).fill(inCell(c)?.65:.25);r.cropAt=c=>c.blind?own:inCell(c)?padded:barePadded;}
+    await run(30);
+    if(withSleeve){
+      assert.ok(deck(),'the sleeve stack is a Deck pile');assert.equal(r.watcher.getSnapshot().missingPiles?.includes('DECK'),false);
+      await run(60);assert.ok(deck(),'the pile stays while the stack rests, without any detector outline');
+      r.appearanceAt=()=>Array(288).fill(.25);r.cropAt=c=>c.blind?own:barePadded;await run(30);
+      assert.equal(deck(),false,'a lifted stack clears the pile');
+    }else assert.equal(deck(),false,'bare mat is never a pile');
+    r.watcher.dispose();
+  }
+});
 test('disappearance needs sustained clear absence and emits once, preserving id on occlusion',async()=>{
   const r=fieldRig();for(let i=0;i<6;i++)await r.tick();const id=r.watcher.getSnapshot().tracks[0].id;
   r.outlines=[];r.motion=.2;for(let i=0;i<10;i++)await r.tick();assert.equal(r.events.filter(e=>e.type==='removed').length,0);
