@@ -47,6 +47,7 @@ export type SeatPanelProps = {
   onPile?: (zone: "graveyard" | "banished" | "deck" | "extra", opener: HTMLElement | null) => void;
   /** My own Deck pile on the virtual field was clicked. */ onDeck?: (opener: HTMLElement) => void;
   drag?: FieldDrag;
+  /** A token is being placed: free Main Monster Zones glow and take the click. */ tokenSlots?: boolean;
   /** Cards with a same-identity twin on this field (ref to count). */
   twinCounts?: ReadonlyMap<string, number>; deckListSizes?:{deck:number;extra:number}; deckRegistered?:boolean;
   onPlate: () => void; onLp: (delta: number) => void; canLp: boolean;
@@ -174,7 +175,7 @@ export function SeatPanel(p: SeatPanelProps) {
             <button type="button" ref={p.plateRef} className={`${s.fplate} ${p.pickPlate ? s.pick : ""}`} tabIndex={p.pickPlate ? 0 : -1} data-plate={p.seat} onClick={p.onPlate}
               aria-label={p.pickPlate ? `Attack ${p.name} directly` : `${p.name}, ${p.lp} life points`}><span className={s.pip} />{p.name} <span className={s.num}>{p.lp}</span></button>
             <HoloField seat={p.seat} name={p.name} twin={p.twin} info={p.info} extraZones={p.extraZones} facing={p.facing} rv={p.rv} onRv={p.onRv} picking={p.picking} selectedRef={p.selectedRef} targetRef={p.targetRef}
-              freshRef={p.freshRef} warnRefs={p.warnRefs} onActivate={p.onActivate} onAttack={p.onAttack} onInspect={p.onInspect} onPile={p.onPile} onDeck={p.onDeck} drag={p.drag} rotated={!p.you} twinCounts={p.twinCounts} deckListSizes={p.deckListSizes} deckRegistered={p.deckRegistered} boardSeats={p.boardSeats} />
+              freshRef={p.freshRef} warnRefs={p.warnRefs} onActivate={p.onActivate} onAttack={p.onAttack} onInspect={p.onInspect} onPile={p.onPile} onDeck={p.onDeck} drag={p.drag} tokenSlots={p.tokenSlots} rotated={!p.you} twinCounts={p.twinCounts} deckListSizes={p.deckListSizes} deckRegistered={p.deckRegistered} boardSeats={p.boardSeats} />
           </div>
           <div className={s.projector} />
         </div>

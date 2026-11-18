@@ -25,3 +25,8 @@
 .pick{display:flex;flex-direction:column;gap:4px;max-height:140px;overflow:auto}
 .chosen{font-size:12px;color:#f0d98a}
 .note{margin:0;font-size:12px;color:#ffb3a8}
+
+/* The strip shown while a token is being placed. It sits above the board's bottom edge and never covers the zones it asks you to click. */
+.bar{position:fixed;left:50%;bottom:12px;transform:translateX(-50%);z-index:45;display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;justify-content:center;max-width:calc(100vw - 32px);padding:6px 10px;border-radius:8px;border:1px solid var(--line2,#4b3f7a);background:rgb(10 6 20/.94);box-shadow:0 6px 24px rgb(0 0 0/.5),0 0 0 1px rgb(232 185 79/.25);color:#efe8ff;font:600 12px/1.3 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif}
+.barText b{color:#f0d98a;font-weight:700}
+.barChips{display:flex;flex-wrap:wrap;gap:6px;align-items:center;justify-content:center}

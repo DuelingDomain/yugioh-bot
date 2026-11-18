@@ -472,7 +472,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
   /** A bot, manual or Scan mode seat has no camera to read: its board twin is the only view of its cards, so it stays on. */
   // Another player in Tap to identify: the camera names no zones, so attacks need the board. Not my own seat: my camera stays where it is.
   const tapSeats = useSyncExternalStore(hub.subscribeFieldBacks, () => room.seats.filter(item => item.seat !== room.mySeat && hub.tapMode(item.seat)).map(item => item.seat).join(","), () => "");
-  const needsBoard = (seat: number) => !!room.seats.find(item => item.seat === seat)?.bot || hub.manual(seat) || hub.health(seat).label === "Scan mode" || tapSeats.split(",").includes(String(seat));
+  const needsBoard = (seat: number) => tokens.placing || !!room.seats.find(item => item.seat === seat)?.bot || hub.manual(seat) || hub.health(seat).label === "Scan mode" || tapSeats.split(",").includes(String(seat));
   const flagFor = (seat: number, id: number) => hasDeck(room, seat) ? !deckIdsOf(room, seat).includes(id) : null;
   const reticle = (seat: number, next: FeedReticle | null, id: string) => setReticles(all => ({ ...all, [seat]: [...(all[seat] ?? []).filter(item => item.id !== id), ...(next ? [next] : [])] }));
   /** The read in progress. No popup is open for it, so Esc, another layer and the time limit stop it here. */
@@ -1540,7 +1540,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
             selectedRef={picking?.seat === seat ? picking.ref : selected?.seat === seat ? selected.ref : undefined} targetRef={attack?.targetSeat === seat ? attack.targetCardRef : undefined} freshRef={fresh}
             warnRefs={warnRefs(seat)} twinCounts={twinCounts(seat)} pickPlate={plate} detectionMode={isTournamentTable(room) && seat !== mySeat ? stateMode(room.state, seat) ?? "unknown" : undefined} viewScope={String(seatCount)} webcamOnly={webcamOnly && !needsBoard(seat)} onDock={onSeatDock} onToggleView={needsBoard(seat) ? undefined : () => setWebcamOnly(!webcamOnly)}
             onZoneCard={onZoneCard} onCamPick={onCamPick} hoverTip={hoverTip} onCardMenu={onCardMenu}
-            onActivate={(key, card) => { if (picking && card && seat !== picking.seat && (card.zone === "monster" || card.zone === "extra-monster")) void declare(seat, card.ref); else if (!picking && (solo || seat === mySeat) && !isPile(key)) openZonePicker(seat,key); else if (card) openSubject(card); }}
+            tokenSlots={tokens.placing && !state.seats[seat]?.eliminated} onActivate={(key, card) => { if (tokens.placeAt(seat, key, card)) return; if (picking && card && seat !== picking.seat && (card.zone === "monster" || card.zone === "extra-monster")) void declare(seat, card.ref); else if (!picking && (solo || seat === mySeat) && !isPile(key)) openZonePicker(seat,key); else if (card) openSubject(card); }}
             onAttack={(_key, card) => startAttack(seat, card)} onInspect={card => openSubject(card)} onPile={(zone, opener) => openPile(seat, zone, opener)} onDeck={(solo || seat === mySeat) && surrenderable(seat) ? el => { setDeckAt({ seat, rect: el.getBoundingClientRect() }); layers.toggle("deck", el); } : undefined} live={live} drag={fieldDrag(seat)} onPlate={() => { if (plate) void declare(seat); }}
             onLp={delta => void changeLp(seat, delta)} canLp={live} deckWarning={deckFlag(room, seat)?.message} onDeckFlag={el => { setFlagSeat(seat); layers.toggle("flag", el); }}
             hand={handOf(seat)}
