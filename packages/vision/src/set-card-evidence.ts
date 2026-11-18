@@ -51,9 +51,9 @@ export function measureSetEvidence(crop:RGBAImage|undefined,detector:Pick<Detect
   const uniform=sd!==null&&sd<=SET_UNIFORM_SD&&sleeveBoundary&&observation.state!=='up';
   // A weak outline plus a marginal texture verdict also describes small screens. One signal must be strong;
   // an accepted sleeve or a near-uniform back with a mat boundary retains its independent path.
-  // A still back that kept the same pixel verdict over several clean scans needs only the lower gate: coloured light and
-  // re-encoded frames lower one reading, a steady one is not an object.
-  const pixelConfidence=detector.confidence>=.7||steadyDown?.8:.9;
+  // A still back that kept the same pixel verdict over several clean scans needs only the lower gate, but only with an independent
+  // signal (a sleeve clearly unlike the mat around it): steadiness alone also describes a phone or dark art on the mat.
+  const pixelConfidence=detector.confidence>=.7||steadyDown&&sleeveBoundary?.8:.9;
   // Texture and a remembered sleeve cannot overrule a detector front: face art can supply both.
   // A nearly uniform sleeve with an independent mat boundary retains its path despite a wrong detector class.
   const positive=(detector.kind==='face-down'||uniform)&&(matching||uniform||!!pixels&&pixels.state==='down'&&pixels.confidence>=pixelConfidence&&sd!==null&&sd<=SET_MAX_SD);

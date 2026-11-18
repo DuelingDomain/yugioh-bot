@@ -483,6 +483,15 @@ test('new face-down cards Set without identity inference; turning up retains the
     assert.equal(side.reads,0);side.watcher.dispose();
   }
 });
+test('a flickering still back is placed on its reused outline, never after 1.2 s or on bare mat',async()=>{
+  const back={...card(.3,.3,.1,.259),kind:'face-down' as const,confidence:.45},rig=()=>fieldRig('sure',20,undefined,{width:160,height:90}),placed=(r:ReturnType<typeof fieldRig>)=>r.events.filter(e=>e.type==='placed').length;
+  const flick=rig();flick.appearance=Array(12).fill(.8);flick.outlines=[back];await flick.tick(200);await flick.tick(200);assert.equal(placed(flick),0);
+  flick.outlines=[];flick.watcher.scanNow();await flick.tick(200);assert.equal(placed(flick),1,'a missed scan reuses the still back');
+  for(let i=0;i<6;i++)await flick.tick(200);assert.equal(flick.events.filter(e=>e.type==='removed').length,0,'the placed Set keeps its look through misses');
+  const late=rig();late.appearance=Array(12).fill(.8);late.outlines=[back];await late.tick(200);await late.tick(200);late.outlines=[];late.watcher.scanNow();await late.tick(1500);assert.equal(placed(late),0,'no placement more than 1.2 s after the last detector box');
+  const lifted=rig();lifted.appearance=Array(12).fill(.3);lifted.outlines=[back];await lifted.tick(200);await lifted.tick(200);lifted.appearance=Array(12).fill(.2);lifted.outlines=[];lifted.watcher.scanNow();await lifted.tick(200);assert.equal(placed(lifted),0,'a lifted card leaves mat that looks like the sleeve');
+  for(const r of [flick,late,lifted])r.watcher.dispose();
+});
 test('disappearance needs sustained clear absence and emits once, preserving id on occlusion',async()=>{
   const r=fieldRig();for(let i=0;i<6;i++)await r.tick();const id=r.watcher.getSnapshot().tracks[0].id;
   r.outlines=[];r.motion=.2;for(let i=0;i<10;i++)await r.tick();assert.equal(r.events.filter(e=>e.type==='removed').length,0);
