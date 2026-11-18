@@ -399,6 +399,8 @@
 @container seat (max-aspect-ratio:1.55) and (max-height:640px) and (min-width:520px) and (max-width:799px) {
   .seat:not([data-view="field"]):not([data-wc]) .feedcol:has(.camsel){position:relative}
   .seat:not([data-view="field"]):not([data-wc]) .feedcol:has(.camsel)>.toolrow{position:absolute;right:0;bottom:2px;width:auto}
+  /* The floating Token / Give buttons take the right end of the camera row: the centred controls leave that room. */
+  .seat:not([data-view="field"]):not([data-wc]) .feedcol:has(.camsel):has(.toolrow>*)>.camsel{padding-right:150px}
   .seat:not([data-view="field"]):not([data-wc]) :is(.sbody,.fside){gap:4px}
   .seat:not([data-view="field"]):not([data-wc]) .feedcol{gap:4px}
   .seat:not([data-view="field"]):not([data-wc]) .fwrap{--fh:clamp(112px,calc(100cqh - 440px),calc((100cqw - 240px)/2.2))}
@@ -478,12 +480,18 @@
 .hbtn:hover,.hbtn[aria-expanded=true]{border-color:var(--gold);color:var(--gold-ink)}
 /* The dock row is a fixed height. The Voice method select shares the "Heard" row instead of adding a third row that pushed the heard text out of view. */
 @media (min-width:901px){
-  .vox{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-content:center;align-items:center;gap:4px 8px}
+  .vox{display:grid;grid-template-columns:minmax(min(180px,100%),1fr) auto auto;align-content:center;align-items:center;gap:4px 8px}
   .vox>*{grid-column:1/-1}
   .vox>.tr{grid-column:1;grid-row:1}
-  .vox>.voiceTools{grid-column:2;grid-row:1;flex-wrap:nowrap;padding:0}
+  .vox>.voiceTools{grid-column:2;grid-row:1;flex-wrap:nowrap;padding:3px;margin:-3px;min-width:0;overflow-x:auto;scrollbar-width:thin}
   .vox>.trybtn{grid-column:3;grid-row:1}
-  .vox.has>.voiceTools{display:none}
+  /* A pending command fills the cell: its title names the command, so Heard and the tools give the row up. */
+  .vox.has>.voiceTools,.vox.has>.tr,.vox.has>.trybtn{display:none}
+  /* The label form is the only thing in the row while it is open. */
+  .vox:has(.voiceTools form)>.tr,.vox:has(.voiceTools form)>.trybtn{display:none}
+  .vox>.voiceTools:has(form){grid-column:1/-1}
+  .voiceTools:has(form)>:not(form){display:none}
+  .voiceTools form{flex-wrap:nowrap;white-space:nowrap}
   .samples{min-height:28px}
 }
 @media (max-height:850px){
@@ -494,6 +502,11 @@
   .samples.open{display:flex}
   .trybtn{display:inline-flex}
   .tr{min-height:26px;padding:3px 10px}.prop{padding:3px 6px 3px 10px}.prop .btn{height:28px}.prop .ps{display:none}
+}
+/* The open command list takes the Heard row's place: both rows do not fit the short dock. */
+@media (max-height:850px) and (min-width:901px){
+  .vox.sopen>.samples{grid-column:1/3;grid-row:1}
+  .vox.sopen>.tr,.vox.sopen>.voiceTools{display:none}
 }
 
 /* ============ drawers ============ */
@@ -822,6 +835,8 @@
   .mic{grid-area:mic;min-width:0}
   .undo{grid-area:undo;min-width:0;height:48px}
   .micb{width:44px;height:44px}
+  /* The mic column is 132 px wide at 360: the label gives way (ellipsis) before the cell overflows. */
+  .dock .mic{gap:8px}.mic .mrow{gap:6px}.mic .mlab{min-width:0;overflow:hidden;text-overflow:ellipsis;font-size:13px;letter-spacing:.06em}.mic .meter{flex:none}
   .ubtn .usub,.ubtn kbd{display:none}.ubtn .ul{font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.ubtn{padding:0 9px;gap:7px}.ubtn .ic{width:20px;height:20px}.undo{gap:6px}.hbtn{width:34px;flex:none}
   .logd,.insp{width:min(94vw,392px)}
   .peek{top:calc(var(--hdr) + 6px);left:10px;right:10px;max-width:none}
@@ -1309,7 +1324,7 @@
 
 .voiceTools { display:flex; flex-wrap:wrap; align-items:center; gap:8px; font-size:12px; padding:6px 0; }
 .voiceTools label, .voiceTools form { display:flex; flex-wrap:wrap; align-items:center; gap:6px; }
-.voiceTools select, .voiceTools input { color:var(--ink); background:var(--bg, #171820); border:1px solid var(--line, #565866); border-radius:5px; max-width:100%; padding:5px; }
+.voiceTools input { color:var(--ink); background:var(--bg, #171820); border:1px solid var(--line, #565866); border-radius:5px; max-width:100%; padding:5px; }
 .voiceLogBadge { color:#f3c970; border:1px solid currentColor; padding:3px 5px; border-radius:4px; font-weight:700; }
 
 /* Tap backup: the same panel, buttons and tokens as the rest of the table. */
