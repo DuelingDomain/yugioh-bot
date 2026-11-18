@@ -4260,7 +4260,12 @@ it('gives a card to an opponent as a proxy: the owner keeps it, the camera never
   const kaiju = { ref: 'kaiju', cardId: 14558127, name: 'Gameciel', slot: 2, faceUp: false, position: 'defense' };
 
   // Seat 0 gives a face-down card from the hand to seat 1's free zone. Seat 1 sees a proxy without the identity; the owner keeps it.
+  const handBefore = state().seats[0].handCount, otherHand = state().seats[1].handCount;
   send(a, 0, { type: 'twin.place', seat: 1, zone: 'monster', give: true, card: kaiju });
+  // The card leaves the giver's hand; the receiver's hand does not change.
+  expect(handBefore).toBeGreaterThan(0);
+  expect(state().seats[0].handCount).toBe(handBefore! - 1);
+  expect(state().seats[1].handCount).toBe(otherHand);
   expect(proxy()).toMatchObject({ zone: 'monster', slot: 2, position: 'defense', faceUp: false, ownerSeat: 0, ownerIdentity: { cardId: 14558127 } });
   expect(proxy()!.cardId).toBeUndefined();
   expect(service.get(slug, 'g', b).state.seats[1].twin.find(card => card.ref === 'kaiju')).not.toHaveProperty('ownerIdentity');

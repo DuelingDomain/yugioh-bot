@@ -71,8 +71,9 @@ export function applyLiveDeckChecks(input: RemoteState, action: RemoteAction, co
     const currentRule = !context.replay || (context.twinPlacementGuard ?? 0) >= 2;
     const newCopy = (!context.replay || (context.twinPlacementGuard ?? 0) >= 3) ? true : currentRule ? action.anotherCopy === true || !!proof && proof.at <= at && at - proof.at <= 5000
       : context.twinPlacementGuard !== undefined && (action.source === "auto" ? !!proof && proof.at <= at && at - proof.at <= 5000 : action.anotherCopy === true);
-    const twin=next.seats[action.seat].twin.find(c=>c.ref===action.card.ref)!;
-    observe(action.seat, { ...twin, cardRef: twin.ref, newCopy });
+    // A given card is checked against the giver's decklist, not the receiver's: it is the giver's own card.
+    const twin=action.give ? { ...action.card, zone: action.zone } : next.seats[action.seat].twin.find(c=>c.ref===action.card.ref)!;
+    observe(action.give ? action.actorSeat : action.seat, { ...twin, cardRef: twin.ref, newCopy });
   }
   if (action.type === 'hand.add') for (const instance of checks.instances.filter(i=>i.seat===action.actorSeat)) {
     const twin=next.seats[action.actorSeat].twin.find(t=>instance.refs.includes(t.ref));

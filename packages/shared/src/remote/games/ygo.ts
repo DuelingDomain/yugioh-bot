@@ -1,5 +1,5 @@
 import { cloneRemoteCurrent } from "../position.js";
-import { applyRemoteHand, moveRemoteCardToHand, reduceRemoteHandAction } from "../hand.js";
+import { applyRemoteGive, applyRemoteHand, moveRemoteCardToHand, reduceRemoteHandAction } from "../hand.js";
 import { rememberRemoteAction, undoRemoteAction } from "../undo.js";
 import { ensureRemoteMatch, finishRemoteGame, initialRemoteMatch, reduceRemoteMatch, remoteOpeningPending, syncRemoteSideStart } from "../match.js";
 import { remoteActionSchema, remoteAssert, remoteSummonKinds, type RemoteAction, type TwinCard } from "../actions.js";
@@ -298,16 +298,20 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
         remoteAssert(!next.seats.some(o => o.twin.some(c => c.ref === card.ref && !(o === giver && c.zone === "hand"))) && to.twin.length < 100, "Duplicate card ref or field is full", 409);
         giver.twin = giver.twin.filter(c => c.ref !== card.ref);
         freeSlot(to, action.zone, card.slot);
-        const given: TwinCard = { ...card, zone: action.zone, ownerSeat: action.actorSeat };
-        for (const key of ["departedFrom", "trapZone", "equippedTo", "materialOf", "materials", "pendulumUp"] as const) delete given[key];
+        // Only the card's own fields cross: nothing a client adds (publicIdentity, bestMatch, a hold) is kept.
+        const given: TwinCard = { ref: card.ref, slot: card.slot, faceUp: card.faceUp, position: card.position, zone: action.zone, ownerSeat: action.actorSeat };
+        for (const key of ["cardId", "passcode", "name", "race"] as const) if (card[key] !== undefined) (given as Record<string, unknown>)[key] = card[key];
         // A face-down card keeps its identity for its owner only, as with any control change.
         if (!remotePublicCard(given)) {
           const kept: NonNullable<TwinCard["ownerIdentity"]> = {};
           for (const key of ["cardId", "passcode", "name", "race"] as const) if (given[key] !== undefined) (kept as Record<string, unknown>)[key] = given[key];
           if (Object.keys(kept).length) given.ownerIdentity = kept;
-          for (const key of ["cardId", "passcode", "name", "race", "bestMatch", "publicIdentity"] as const) delete given[key];
+          for (const key of ["cardId", "passcode", "name", "race"] as const) delete given[key];
         }
         to.twin.push(given);
+        // The card leaves the giver's hand and is checked against the giver's decklist. Effects and the receiver's hand are not touched.
+        next = applyLiveDeckChecks(next, action, context);
+        applyRemoteGive(next, action.actorSeat, card.cardId ?? card.passcode, context);
         tokenAction = true; break;
       }
       const s = action.card.token ? tokenField(action.seat) : ownField(action.seat); validZone(action.zone);
@@ -346,13 +350,14 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
       // A token belongs to the field it sits on and to the seat that placed it there.
       const tokenHere = action.seat !== action.actorSeat ? next.seats[action.seat]?.twin.find(c => c.ref === action.cardRef) : undefined;
       // A card that another seat controls stays editable by its owner too (a given proxy).
-      const ownerEdit = !!tokenHere && !tokenHere.token && tokenHere.ownerSeat === action.actorSeat && (!context?.replay || context.givenCards === 1);
+      const ownerEdit = !!tokenHere && !tokenHere.token && tokenHere.ownerSeat === action.actorSeat && tokenHere.zone !== "material" && (!context?.replay || context.givenCards === 1);
       const s = tokenHere?.token && tokenHere.token.by === action.actorSeat ? tokenField(action.seat) : ownerEdit ? seat(action.seat) : ownField(action.seat);
       const card = s.twin.find(c => c.ref === action.cardRef);
       remoteAssert(card, "Unknown twin card", 409);
       // The camera never moves a card that another seat controls: its paper card is not in that zone.
       if (card.ownerSeat !== undefined && "source" in action && action.source === "auto" && (!context?.replay || context.givenCards === 1)) return state;
-      if (ownerEdit && action.type === "twin.flip" && action.faceUp) restoreOwnerIdentity(card);
+      // A face-up flip by anyone shows the card the owner kept hidden.
+      if (action.type === "twin.flip" && action.faceUp && card.ownerIdentity && (!context?.replay || context.givenCards === 1)) restoreOwnerIdentity(card);
       remoteAssert(card.token || action.type !== "twin.flip" || !action.tokenStats, "Only a token has ATK/DEF to set", 409);
       if (card.token) {
         // The camera never touches a token: nothing physical backs it.
