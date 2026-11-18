@@ -42,7 +42,7 @@ export function createRoomMutationQueue(read:()=>RemoteRoom|undefined,post:RoomM
   };
   return {transaction,action:(proposal:RemoteActionProposal,idempotencyKey?:string)=>{
     // Each click makes its own key, so a second click while the first still waits would apply twice after the reconnect. Refuse it with a calm message instead.
-    if(writeWaiting()){giveUp?.(new Error('Reconnecting, your last action is still being sent'));return Promise.resolve(null);}
+    if(writeWaiting()){giveUp?.(new Error('Reconnecting… try again in a moment.'));return Promise.resolve(null);}
     const room=current(),rollback=room?beginManualCorrection(room,proposal):()=>{};
     // One key for the whole call, so every retry through an outage is the same write.
     const key=idempotencyKey??crypto.randomUUID();

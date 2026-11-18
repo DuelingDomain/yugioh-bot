@@ -45,7 +45,7 @@ it('two clicks while reconnecting apply once, and a manual action gives up after
   await vi.advanceTimersByTimeAsync(0);
   expect(reconnecting()).toBe(true);
   expect(await queue.action(lp)).toBeNull(); // the second click is refused, not queued
-  expect(told).toEqual(['Reconnecting, your last action is still being sent']);
+  expect(told).toEqual(['Reconnecting… try again in a moment.']);
   await vi.advanceTimersByTimeAsync(600);
   expect((await first)?.lastSeq).toBe(3);
   expect(keys).toHaveLength(2); expect(new Set(keys).size).toBe(1);
