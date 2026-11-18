@@ -49,3 +49,20 @@ test('GPU still-board scans stay within 1.5 seconds with cards or an empty board
  }
  backend='wasm';assert.equal(p.stillEvery(40000,true),4000);assert.equal(p.stillEvery(40000,false),15000);
 });
+test('an urgent pass for a new resting card skips backoff and the moving rest, and normal passes resume soon after',()=>{
+ const p=createFieldPacer({cores:8},0,()=> 'wasm');
+ for(let i=0;i<60;i++)p.late(1000);
+ p.changed(1000);p.spend(300,1000,true);
+ assert.equal(p.allow(1400,true,true),false);assert.equal(p.allow(1400,false,true),false);
+ assert.equal(p.allow(1300,true,true,true),true);
+ // Backoff ~4: the duty over a long run stays near the sustain rate (0.2 / 4 = 0.05, plus the initial bucket).
+ let busy=0,at=1300;
+ for(;at<120_000;at+=10)if(p.allow(at,true,true,true)){at+=300;p.spend(300,at,true);busy+=300;}
+ assert.ok(busy/at<=.08,`urgent duty at backoff ${busy/at}`);
+ // No backoff: an urgent burst may borrow one pass, and a normal pass is allowed again within 3 s.
+ const q=createFieldPacer({cores:8},0,()=> 'wasm');
+ q.spend(300,300,true);let t=300;
+ for(let i=0;i<40&&t<10_000;i++,t+=10)if(q.allow(t,false,true,true)){t+=300;q.spend(300,t,true);}
+ const burstEnd=t;while(!q.allow(t))t+=10;
+ assert.ok(t-burstEnd<=3000,`normal pass waits ${t-burstEnd} ms after an urgent burst`);
+});

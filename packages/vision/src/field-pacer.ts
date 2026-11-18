@@ -7,8 +7,8 @@
  */
 export interface FieldPacerDevice { cores:number; memoryGb?:number }
 export interface FieldPacer {
-  /** A pass may start now. `moving`: a hand or card still moves and nothing waits for an outline; a pass now sees little, so it waits longer and saves the bucket for when the card lands. */
-  allow(at:number,moving?:boolean,sceneMoving?:boolean):boolean;
+  /** A pass may start now. `moving`: a hand or card still moves and nothing waits for an outline; a pass now sees little, so it waits longer and saves the bucket for when the card lands. `urgent`: a new card just came to rest and waits for its first read (short, set by the watcher): no moving rest and no backoff, and the bucket may go into a limited debt that the sustain rate repays, so the duty over a longer window stays the same. */
+  allow(at:number,moving?:boolean,sceneMoving?:boolean,urgent?:boolean):boolean;
   /** A detector pass of this wall time ended at `at`. */
   spend(wallMs:number,at:number,sceneMoving?:boolean):void;
   /** The scene changed at `at`: retries after a change come sooner than the slow timer. */
@@ -39,8 +39,10 @@ export function createFieldPacer(device:FieldPacerDevice,start:number,backend:()
   const refill=(at:number)=>{tokens=Math.min(capacity(),tokens+Math.max(0,at-last)*sustain()/backoff);last=Math.max(last,at);};
   const prune=(at:number)=>{while(passes.length&&at-passes[0].end>WINDOW_MS)passes.shift();};
   return {
-    allow(at,moving=false,sceneMoving=moving){
+    allow(at,moving=false,sceneMoving=moving,urgent=false){
       refill(at);
+      // The debt is at most one pass, and none while the main thread is short of time (backoff), so normal passes resume soon.
+      if(urgent)return tokens>-(backoff>1?0:passMs)&&at-lastEnd>=passMs*(backend()==='webgpu'?BURST_REST:1);
       const rest=moving?Math.max(MOVING_REST_MS,passMs*MOVING_REST):passMs*(backend()==='webgpu'?BURST_REST:1);
       return (tokens>0||wakePermit&&!sceneMoving)&&at-lastEnd>=rest*backoff&&(!moving||backend()==='webgpu'||at-movingSince>=MOVING_REST_MS);
     },

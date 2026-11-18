@@ -128,13 +128,24 @@ export function fieldPileTrackEvidence({twins,tracks,lastSeen,owns,cardId}:{twin
   return found.length===1?{track:found[0],zone:found[0].zone==='BANISHED'?'banished':'graveyard',faceUp:!found[0].faceDown}:undefined;
 }
 
-/** Queue delays must not attach an old read to replacement pixels. */
-export function fieldEvidenceMatches(event:FieldEvent,current:FieldTrack|undefined,humanChoice=false) {
+/** An identified track that was seen this recently still has evidence when a slow tick set `visible` false. */
+const VISIBLE_GRACE_MS=1000;
+/** The first reason queued evidence no longer fits the live track (undefined: it fits). For the "identification deferred" log. */
+export function fieldEvidenceMismatch(event:FieldEvent,current:FieldTrack|undefined,humanChoice=false):string|undefined {
   const human=humanChoice&&event.type==='prompt';
-  const age=current?performance.now()-current.lastSeen:Infinity;
-  return !!current&&!current.removed&&(human?age>=0&&age<=1500:event.type==='reading'||!!current.visible)&&(current.revision??0)===(event.track.revision??0)&&current.faceDown===event.track.faceDown&&
-    (event.type==='reading'?current.state==='candidate':event.type==='prompt'?current.state==='prompt':current.state==='identified'&&current.cardId===event.track.cardId);
+  if(!current)return 'no track';
+  if(current.removed)return 'removed';
+  const age=performance.now()-current.lastSeen;
+  // A slow tick can leave `visible` false for a moment on a card that rests there: an identified track seen within ~1 s still counts, but only for a card covered by another card in the same zone (`under`): a card that moves, has a hand on it or was swapped never counts.
+  const seen=event.type==='reading'||!!current.visible||!human&&current.state==='identified'&&age>=0&&age<=VISIBLE_GRACE_MS&&current.zone===event.track.zone&&!!current.under;
+  if(human?!(age>=0&&age<=1500):!seen)return human?`not seen for ${Math.round(age)} ms`:`not visible (last seen ${Math.round(age)} ms ago)`;
+  if((current.revision??0)!==(event.track.revision??0))return `revision ${current.revision??0} is not ${event.track.revision??0}`;
+  if(current.faceDown!==event.track.faceDown)return 'face changed';
+  if(event.type==='reading'?current.state!=='candidate':event.type==='prompt'?current.state!=='prompt':current.state!=='identified'||current.cardId!==event.track.cardId)return `state ${current.state}${current.cardId!==event.track.cardId?` name ${current.cardId??'none'} is not ${event.track.cardId??'none'}`:''}`;
+  return undefined;
 }
+/** Queue delays must not attach an old read to replacement pixels. */
+export const fieldEvidenceMatches=(event:FieldEvent,current:FieldTrack|undefined,humanChoice=false)=>fieldEvidenceMismatch(event,current,humanChoice)===undefined;
 
 export class StaleFieldPlacementError extends Error {
   constructor(readonly placement:Extract<RemoteActionProposal,{type:'twin.place'}>){super('The card changed during save. Remove the stale placement to continue.');}
