@@ -43,6 +43,8 @@ import {distinctFieldQuads,fieldSetReturn,xyzAttachTargets} from '@/lib/remote/f
 const toZone=(zone:string,slot?:number):FieldZone|undefined=>zone==='monster'?`M${slot??1}` as FieldZone:zone==='spell-trap'?`S${slot??1}` as FieldZone:zone==='extra-monster'?`EMZ${slot??1}` as FieldZone:({field:'FIELD',graveyard:'GY',banished:'BANISHED',deck:'DECK',extra:'EXTRA'} as Record<string,FieldZone>)[zone];
 /** A removed field card goes to the hand this long after the watcher's removal (it may still flip back or be a material). */
 const DEPARTURE_WAIT_MS=800;
+/** A Spell/Trap card that left its spot while the camera may be reading a plain sleeve there (a flip in place) waits up to this long in all. */
+const FLIP_HOLD_MAX_MS=3000,FLIP_POLL_MS=250;
 const publicField=(zone:string)=>['monster','extra-monster','spell-trap','field','pendulum'].includes(zone);
 /** A card the camera sent from the field to the hand, a pile or the Extra Deck still owns its field origin. */
 const leftField=(c:TwinCard,at:number,spot:{zone:string;slot?:number})=>!!c.departedFrom&&publicField(c.departedFrom.zone)&&(c.zone==='hand'||!!c.departedFrom.auto&&['graveyard','banished','extra'].includes(c.zone)&&
@@ -716,7 +718,19 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       if(card.faceUp&&['monster','extra-monster'].includes(card.zone))pendingLeft.current.set(event.track.id,{ref:card.ref,at:event.track.lastSeen});
       // The watcher already needed two empty full scans; a short wait lets a flip or a summon claim the card first.
       leaveStarted.current.set(event.track.id,performance.now());pendingDepartures.current.set(event.track.id,{event,origin});
-      departureTimers.current.set(event.track.id,setTimeout(()=>{departureTimers.current.delete(event.track.id);if(live()&&watch.isRemoved(event.track.id))handle(event,origin);else{pendingLeft.current.delete(event.track.id);pendingDepartures.current.delete(event.track.id);}},DEPARTURE_WAIT_MS));
+      // A Spell/Trap card turned Set in place leaves no box for a moment: wait while the watcher reads a sleeve in that zone (see FLIP_HOLD_MAX_MS).
+      const started=performance.now(),flipPending=()=>{
+        if(!/^S[1-5]$/.test(event.track.zone))return false;
+        const snap=watch.getSnapshot?.();
+        return !!snap&&(!!snap.blindZones?.includes(event.track.zone)||snap.tracks.some(t=>t.id!==event.track.id&&!t.removed&&t.zone===event.track.zone&&t.firstSeen>=event.track.lastSeen-1000));
+      };
+      const arm=(wait:number)=>departureTimers.current.set(event.track.id,setTimeout(()=>{
+        departureTimers.current.delete(event.track.id);
+        if(!live()||!watch.isRemoved(event.track.id)){pendingLeft.current.delete(event.track.id);pendingDepartures.current.delete(event.track.id);return;}
+        if(performance.now()-started+FLIP_POLL_MS<=FLIP_HOLD_MAX_MS&&flipPending()){arm(FLIP_POLL_MS);return;}
+        handle(event,origin);
+      },wait));
+      arm(DEPARTURE_WAIT_MS);
       return;
     }
     console.info('[remote field] evidence',event.type,event.track.id,event.track.zone,event.track.revision,event.result?.tier,JSON.stringify(event.result?.quality),event.reason);
