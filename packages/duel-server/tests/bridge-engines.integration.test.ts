@@ -527,13 +527,23 @@ describe("multi-source deep search", () => {
       const failed = await start();
       expect(await finish(api, user, failed.jobId)).toMatchObject({ state: "failed", error: "Review service unavailable, try later." });
       expect(workers.rateBridge).toHaveBeenCalledTimes(12);
+      // The regenerated graph has reciprocal pairs for the same engines.
+      // Offer one pair per target on success so the six-engine stop is tested
+      // independently of the twelve-pair outage budget.
+      const targets = new Set<string>();
+      const candidates = service.engineRows(engines, "advanced").filter(row => {
+        if (!engines.includes(row.source) || engines.includes(row.target) || targets.has(row.target)) return false;
+        targets.add(row.target); return true;
+      });
+      expect(candidates.length).toBeGreaterThan(6);
+      workers.bridgeCandidates.mockImplementation(async scan => scan.op === "outgoing" ? candidates.filter(row => row.source === scan.source) : []);
       workers.rateBridge.mockClear(); workers.rateBridge.mockImplementation(async row => approve(row));
       const retry = await start();
       const result = await finish(api, user, retry.jobId);
       expect(result.state).toBe("done");
       const reviewedTargets = new Set(workers.rateBridge.mock.calls.map(([row]) => engines.includes(row.source) ? row.target : row.source));
       expect(reviewedTargets.size).toBe(6);
-      expect(workers.rateBridge.mock.calls.length).toBeLessThan(12);
+      expect(workers.rateBridge).toHaveBeenCalledTimes(6);
       expect(result.next.length).toBeLessThanOrEqual(6);
       expect(result.next.every(next => next.links.every(link => link.bridge.judge === "accepted"))).toBe(true);
       const reviews = workers.rateBridge.mock.calls.length;

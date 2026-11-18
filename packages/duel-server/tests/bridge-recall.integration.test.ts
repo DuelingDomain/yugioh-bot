@@ -75,6 +75,9 @@ describe("checked physical Niche recall and incoming single-engine discovery", (
       }
       for (const [from, to] of [["Kashtira", "Scareclaw"], ["Dragon Ruler", "Primite"], ["Kashtira", "Genex"],
         ["Kashtira", "The Weather"], ["Odion", "The Weather"]]) review(pair(from!, to!), ["invalid", "invalid"]);
+      // The fresh artifact also offers this shared Trap mechanic. Seed its
+      // rejected review, keeping this fixture's complete-cache/no-call premise.
+      review(service.engineRows(["Odion"], "advanced").find(row => row.source === "Odion" && row.target === "Traptrix" && row.kind === "synergy")!, ["invalid", "invalid"]);
       review(pair("Odion", "Gravekeeper's"), ["valid", "invalid"]);
       // Even two synthetic cached approvals cannot promote a hub-derived path.
       review(pair("Kashtira", "Gusto"));
@@ -145,8 +148,8 @@ describe("checked physical Niche recall and incoming single-engine discovery", (
       await api.jobs.close();
       const status = await api.jobs.status({ userId: user.userId, guildId: "g" }, started.jobId);
       expect(status.state).toBe("done");
-      expect(status.next.map(row => row.engine)).toEqual(expect.arrayContaining(["Fire King", "Diabell", "Azamina", "Dragon Ruler"]));
-      expect(status.next).toHaveLength(4);
+      expect(status.next.map(row => row.engine).sort()).toEqual(["Azamina", "Diabell", "Dragon Ruler", "Fire King", "Infernoid"]);
+      expect(status.next).toHaveLength(5);
       expect(status.next.find(row => row.engine === "Azamina")!.links[0]).toMatchObject({ from: "Azamina", to: "Snake-Eye" });
       expect(status.results.every(row => (row as ArchetypeBridge).source === "Snake-Eye")).toBe(true);
       expect(status.results.some(row => (row as ArchetypeBridge).source === "Azamina")).toBe(false);
