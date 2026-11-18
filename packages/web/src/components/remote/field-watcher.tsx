@@ -12,7 +12,7 @@ import type {RoomMutation,RoomTransaction} from '@/lib/remote/room-mutations';
 import {NOT_A_CARD_EVENT} from '@/lib/remote/set-card-diagnostics';
 import {useFieldWatcher} from '@/lib/remote/use-field-watcher';
 import {e2eFieldHook} from '@/lib/remote/e2e-field-hook';
-import {fieldPositionMatches,applyFieldFaceFlip,fieldFaceProposal,fieldStrongBack,fieldTwinPosition,fieldDepartureProposal,fieldDepartureStillMissing,fieldPileEvidence,fieldLeaveLabel,FIELD_LEAVE_DESTINATIONS,heldFieldReadPending,fieldPlacementProposals,fieldEvidenceMatches,simultaneousFieldCopies,applyVerifiedFieldMutation,StaleFieldPlacementError,observedFieldZone,staleFieldOccupant,retryFieldMutation} from '@/lib/remote/field-proposals';
+import {fieldPositionMatches,applyFieldFaceFlip,fieldFaceProposal,fieldStrongBack,fieldTwinPosition,fieldDepartureProposal,fieldDepartureStillMissing,fieldPileEvidence,fieldPileTrackEvidence,fieldLeaveLabel,FIELD_LEAVE_DESTINATIONS,heldFieldReadPending,fieldPlacementProposals,fieldEvidenceMatches,simultaneousFieldCopies,applyVerifiedFieldMutation,StaleFieldPlacementError,observedFieldZone,staleFieldOccupant,retryFieldMutation} from '@/lib/remote/field-proposals';
 import {createFieldFaceCheck,type FieldFaceFix} from '@/lib/remote/field-face';
 import {fieldTrackMessage} from '@/lib/remote/field-track-cache';
 import {onManualMove,requestManualZone} from '@/lib/remote/manual-moves';
@@ -67,6 +67,8 @@ function readPhysicalZones(key:string):Map<string,FieldZone> {
   return new Map();
 }
 type Entry={cardId:string;passcode:number;name:string};
+/** Camera proof that a departed card lies on a pile: an unread stand-in the board holds, or a pile track the board has no card for yet. */
+type PileSeen=NonNullable<ReturnType<typeof fieldPileEvidence>>|NonNullable<ReturnType<typeof fieldPileTrackEvidence>>;
 type Departure={ref:string;name:string;zone:string;/** Face-down: only a banished card (Banish face-down). */down?:boolean};
 const destinations=FIELD_LEAVE_DESTINATIONS;
 /**
@@ -790,7 +792,8 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
         // Camera first: a pile card the camera placed around now (unread, or face-down on the banished pile) is this card, when no other
         // departed card could be it. No pile yet: the card goes to the hand now (a pile seen later moves it).
         const wasPublic=publicField(card.zone),twinsNow=current.current.room.state.seats[seat].twin;
-        const seen=wasPublic&&pendingDepartures.current.size+lateDefaults.current.size<=1?fieldPileEvidence({twins:twinsNow,tracks:watch.getTracks(),lastSeen:event.track.lastSeen,owns:t=>bindings.current.get(t.id)??t.id}):undefined;
+        const pileProof={twins:twinsNow,tracks:watch.getTracks(),lastSeen:event.track.lastSeen,owns:(t:FieldTrack)=>bindings.current.get(t.id)??t.id};
+        const seen:PileSeen|undefined=wasPublic&&pendingDepartures.current.size+lateDefaults.current.size<=1?fieldPileEvidence(pileProof)??fieldPileTrackEvidence(pileProof):undefined;
         forget();
         const proposal=fieldDepartureProposal(card,seat,seen?{zone:seen.zone,faceUp:seen.faceUp}:undefined,cardInfo(cardCode(card)));if(!proposal)return;
         const name=proposal.name??(card.faceUp?entries.current.get(event.track.cardId??'')?.name:undefined)??'Card';
@@ -1144,7 +1147,9 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   useEffect(()=>{const gone=rowPrompts.filter(p=>!room.state.seats[seat].twin.some(c=>c.ref===p.ref&&c.zone==='spell-trap'));if(gone.length)setRowPrompts(list=>list.filter(p=>!gone.includes(p)));},[room.state,rowPrompts,seat]);
   const rowCard=rowPrompts[0]&&room.state.seats[seat].twin.find(c=>c.ref===rowPrompts[0].ref),rowZone=rowCard?`S${rowCard.slot??'?'}`:'a Spell/Trap Zone',rowTarget=rowCard?nearestFreeMonsterZone(room.state.seats[seat].twin as never,`S${rowCard.slot??1}` as FieldZone,rowCard.ref):undefined;
   /** The pile card the camera showed is the departed card: its pile track follows the card, the stand-in is removed, one Undo reverts both. */
-  async function adoptPileCard(act:RoomMutation,seen:NonNullable<ReturnType<typeof fieldPileEvidence>>,cardRef:string,movedId:string) {
+  async function adoptPileCard(act:RoomMutation,seen:PileSeen,cardRef:string,movedId:string) {
+    // A pile track with no stand-in yet: it follows the card from here on (Undo dismisses it with the card); nothing to remove.
+    if('track' in seen){bindings.current.set(seen.track.id,cardRef);watch.confirm(seen.track.id,undefined,cardRef,false);return;}
     const pileTrack=watch.getTracks().find(t=>(bindings.current.get(t.id)??t.id)===seen.twin.ref);
     if(pileTrack){bindings.current.set(pileTrack.id,cardRef);watch.confirm(pileTrack.id,undefined,cardRef,false);}
     readerRemovals.current.add(seen.twin.ref);
@@ -1154,11 +1159,11 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     return {state:dropped,undoTarget:dropped.state.undo.actionId};
   }
   /** The camera showed a pile card for a card the board holds in the hand: one move to that pile (even when it only turns), one chained Undo. */
-  function settleLate(ref:string,seen:NonNullable<ReturnType<typeof fieldPileEvidence>>) {
+  function settleLate(ref:string,seen:PileSeen) {
     lateBusy.current=true;lateDefaults.current.delete(ref);setLeaveChoice(null);
     return queue(async act=>{
       const now=current.current.room.state.seats[seat].twin,card=now.find(c=>c.ref===ref);
-      if(!live()||!card||!['hand','extra'].includes(card.zone)||!now.some(c=>c.ref===seen.twin.ref)||undoKept.current.has(ref))return;
+      if(!live()||!card||!['hand','extra'].includes(card.zone)||'twin' in seen&&!now.some(c=>c.ref===seen.twin.ref)||undoKept.current.has(ref))return;
       // Always one move: the camera confirmed the pile, so the card drops its field origin and no later second copy can take it.
       const moved=await act({type:'twin.move',source:'auto',confirmed:true,actorSeat:seat,seat,cardRef:ref,zone:seen.zone,faceUp:seen.zone==='banished'?seen.faceUp:true,...(card.faceUp&&card.name?{name:card.name}:{})});
       if(!moved)return;
@@ -1180,7 +1185,8 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     for(const [id,{event,origin}] of pendingDepartures.current){
       if(now-(leaveStarted.current.get(id)??now)>10_000){pendingDepartures.current.delete(id);continue;}
       if(settlingDepartures.current.has(id)||!watch.isRemoved(id))continue;
-      if(pendingDepartures.current.size+lateDefaults.current.size>1||!fieldPileEvidence({twins,tracks,lastSeen:event.track.lastSeen,owns}))continue;
+      const proof={twins,tracks,lastSeen:event.track.lastSeen,owns};
+      if(pendingDepartures.current.size+lateDefaults.current.size>1||!(fieldPileEvidence(proof)??fieldPileTrackEvidence(proof)))continue;
       const timer=departureTimers.current.get(id);if(timer)clearTimeout(timer);departureTimers.current.delete(id);settlingDepartures.current.add(id);
       handle(event,origin);
     }
@@ -1189,11 +1195,12 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       if(now-info.at<=LATE_PILE_MS&&twins.some(c=>c.ref===ref&&['hand','extra'].includes(c.zone)))return true;
       lateDefaults.current.delete(ref);return false;
     });
-    const seen=late.length&&!lateBusy.current&&!pendingDepartures.current.size?fieldPileEvidence({twins,tracks,lastSeen:Math.min(...late.map(([,i])=>i.lastSeen)),owns}):undefined;
+    const lateProof={twins,tracks,lastSeen:Math.min(...late.map(([,i])=>i.lastSeen)),owns};
+    const seen:PileSeen|undefined=late.length&&!lateBusy.current&&!pendingDepartures.current.size?fieldPileEvidence(lateProof)??(late.length===1?fieldPileTrackEvidence(lateProof):undefined):undefined;
     if(!late.length)choiceClosed.current.clear();
     if(!seen){if(leaveChoice&&!late.length)setLeaveChoice(null);return;}
     if(late.length===1)void settleLate(late[0][0],seen);
-    else if(leaveChoice?.twinRef!==seen.twin.ref&&!choiceClosed.current.has(seen.twin.ref))setLeaveChoice({twinRef:seen.twin.ref,zone:seen.zone,faceUp:seen.faceUp,options:late.map(([ref])=>({ref,name:twins.find(c=>c.ref===ref)?.name??'Card'}))});
+    else if('twin' in seen&&leaveChoice?.twinRef!==seen.twin.ref&&!choiceClosed.current.has(seen.twin.ref))setLeaveChoice({twinRef:seen.twin.ref,zone:seen.zone,faceUp:seen.faceUp,options:late.map(([ref])=>({ref,name:twins.find(c=>c.ref===ref)?.name??'Card'}))});
   },[room.state,seat,watch.snapshot]);
   function redirect(zone:string,down=false) {
     void queueHuman('redirect',async act=>{
