@@ -75,6 +75,8 @@ export function useTokens({ act, room, live, extraZones, layers, info }: {
   }, [offeredKey]);
   const suggestions: TokenTemplate[] = offered.map(item => ({ ...item, ...(art[item.name] ? { artId: art[item.name] } : {}) }));
   useEffect(() => { if (placing && !canPlace) setPlacing(null); }, [placing, canPlace]);
+  // Placing mode over: no zone stays marked as waiting for an answer.
+  useEffect(() => { if (!placing) setPending([]); }, [placing]);
   // When the mode ends, focus goes back to the Token button, unless a dialog took it.
   useEffect(() => {
     const on = !!placing;
@@ -119,7 +121,7 @@ export function useTokens({ act, room, live, extraZones, layers, info }: {
       // The mode ends when the whole set is placed, or when no zone is left on any field (zones still being filled count as taken).
       const zonesLeft = updated.state.seats.reduce((sum, item, index) => sum + (item.eliminated ? 0 : freeIn(updated.state, index, MAIN).length), 0) - pendingRef.current.length;
       setPlacing(now => !now ? null : now.name !== sent.name || now.atk !== sent.atk || now.def !== sent.def ? now : now.left > 1 && zonesLeft > 0 ? { ...now, left: now.left - 1 } : null);
-    });
+    }).catch(() => setPending(pendingRef.current.filter(item => item !== id)));
     return true;
   };
   /** A chip with open stats (Primal Being Token) asks for them first; the others switch the template at once. */
