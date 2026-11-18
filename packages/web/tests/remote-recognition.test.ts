@@ -1122,6 +1122,11 @@ it('camera evidence for a departed card: an unread GY top or a face-down banishe
   act({type:'twin.move',source:'auto',cardRef:'sp',zone:'graveyard',faceUp:true},2000);
   act({type:'twin.place',source:'auto',zone:'banished',card:{...spell,ref:'read'}},12_000);
   expect(game.seats[0].twin.map(c=>[c.ref,c.zone])).toEqual([['sp','banished']]);
+  // A replay of the same events gives the same state at guard 9; older guards keep the old result (a second copy).
+  const before=ygoModule.reduce(ygoModule.reduce(ygoModule.initialState({seatCount:2}),remoteActionSchema.parse({actorSeat:0,seat:0,at:1000,idempotencyKey:'r-1',type:'twin.place',zone:'spell-trap',card:{...spell,ref:'sp',slot:2}})),remoteActionSchema.parse({actorSeat:0,seat:0,at:2000,idempotencyKey:'r-2',type:'twin.move',source:'auto',cardRef:'sp',zone:'graveyard',faceUp:true}));
+  const read=remoteActionSchema.parse({actorSeat:0,seat:0,at:12_000,idempotencyKey:'r-3',type:'twin.place',source:'auto',zone:'banished',card:{...spell,ref:'read'}});
+  expect(ygoModule.reduce(before,read,{replay:true,twinPlacementGuard:9}).seats[0].twin.map(c=>[c.ref,c.zone])).toEqual([['sp','banished']]);
+  expect(ygoModule.reduce(before,read,{replay:true,twinPlacementGuard:8}).seats[0].twin).toHaveLength(2);
   expect(fieldDefaultDestination({faceUp:true,zone:'spell-trap'},{type:'Spell Card',race:'Normal'})).toEqual({zone:'graveyard'});
   expect(fieldDefaultDestination({faceUp:true,zone:'spell-trap'},{type:'Spell Card',race:'Continuous'})).toEqual({zone:'hand'});
   expect(fieldDefaultDestination({faceUp:true,zone:'monster'},{type:'Effect Monster'})).toEqual({zone:'hand'});
