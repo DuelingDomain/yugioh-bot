@@ -40,7 +40,7 @@ export function describeEvent(event: RemoteEvent, name: (seat: number) => string
     case "pile.order": return { kind: "CD", text: `${a.zone === "graveyard" ? "Graveyard" : "Banished"} order changed`, undoable: true };
     case "twin.flip": if (a.tokenStats) return { kind: "CD", text: `${who} set a token on ${name(a.seat)}'s field to ATK ${a.tokenStats.atk} / DEF ${a.tokenStats.def}`, undoable: true };
       return { kind: "CD", text: a.faceUp && a.position && a.source !== "auto" ? `A card on ${name(a.seat)}'s field changed to ${a.position} position${by(a)}` : `A card on ${name(a.seat)}'s field turned ${a.faceUp ? "face up" : "face down"}${by(a)}`, undoable: true };
-    case "twin.remove": if (a.seat !== a.actorSeat) return { kind: "CD", text: `${who} removed ${refName(a.seat, a.cardRef) ?? "a token"} from ${name(a.seat)}'s field`, undoable: true };
+    case "twin.remove": if (a.seat !== a.actorSeat) return { kind: "CD", text: `${who} removed ${refName(a.seat, a.cardRef) ?? "a card"} from ${name(a.seat)}'s field`, undoable: true };
       return { kind: "CD", text: `A card was removed from ${name(a.seat)}'s field`, undoable: true };
     case "twin.equip": return { kind: "CD", text: a.target ? `An Equip Card on ${name(a.seat)}'s field is linked to ${name(a.target.seat)}'s monster` : `An Equip link on ${name(a.seat)}'s field was cleared`, undoable: true };
     case "twin.control": return { kind: "CD", text: `${refName(a.seat, a.cardRef) ?? "A card"} changed control: ${name(a.seat)} to ${name(a.toSeat)}`, undoable: true };
