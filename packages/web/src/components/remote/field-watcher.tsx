@@ -12,7 +12,7 @@ import type {RoomMutation,RoomTransaction} from '@/lib/remote/room-mutations';
 import {NOT_A_CARD_EVENT} from '@/lib/remote/set-card-diagnostics';
 import {useFieldWatcher} from '@/lib/remote/use-field-watcher';
 import {e2eFieldHook} from '@/lib/remote/e2e-field-hook';
-import {fieldPositionMatches,applyFieldFaceFlip,fieldFaceProposal,fieldStrongBack,fieldTwinPosition,fieldDepartureProposal,fieldDepartureStillMissing,fieldPileEvidence,fieldLeaveLabel,FIELD_LEAVE_DESTINATIONS,heldFieldReadPending,fieldPlacementProposals,fieldEvidenceMatches,simultaneousFieldCopies,applyVerifiedFieldMutation,StaleFieldPlacementError,observedFieldZone,staleFieldOccupant,retryFieldMutation} from '@/lib/remote/field-proposals';
+import {fieldPositionMatches,applyFieldFaceFlip,fieldFaceProposal,fieldSetMove,fieldStrongBack,fieldTwinPosition,fieldDepartureProposal,fieldDepartureStillMissing,fieldPileEvidence,fieldLeaveLabel,FIELD_LEAVE_DESTINATIONS,heldFieldReadPending,fieldPlacementProposals,fieldEvidenceMatches,simultaneousFieldCopies,applyVerifiedFieldMutation,StaleFieldPlacementError,observedFieldZone,staleFieldOccupant,retryFieldMutation} from '@/lib/remote/field-proposals';
 import {createFieldFaceCheck,type FieldFaceFix} from '@/lib/remote/field-face';
 import {fieldTrackMessage} from '@/lib/remote/field-track-cache';
 import {onManualMove,requestManualZone} from '@/lib/remote/manual-moves';
@@ -509,7 +509,8 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       if(existing&&!originReturn&&existing.faceUp===track.faceDown){
         // No write now: the player holds this face, the card is in its quiet time, or an Xyz Monster has no clear back. The face check comes back to it.
         if(!chosen&&(face.current.held(existing.ref)||!face.current.allows(existing.ref,performance.now()))||track.faceDown&&existing.materials?.length&&!fieldStrongBack(track))return;
-        updated=await mutate({type:'twin.flip',source:'auto',actorSeat:seat,seat,cardRef:existing.ref,faceUp:!track.faceDown,position:fieldTwinPosition(track),...(atomicReveal?{cardId:catalogCardId(entry!),name:entry!.name,bestMatch:track.bestMatch}:{})});if(!updated)return;
+        const setMove=fieldSetMove(existing,track,seat,physicalAtSave.zone!==knownZone(existing));
+        updated=await mutate(setMove ?? {type:'twin.flip',source:'auto',actorSeat:seat,seat,cardRef:existing.ref,faceUp:!track.faceDown,position:fieldTwinPosition(track),...(atomicReveal?{cardId:catalogCardId(entry!),name:entry!.name,bestMatch:track.bestMatch}:{})});if(!updated)return;
         face.current.flipped(existing.ref,performance.now());
       }
       // The resolver has just required a distinct, same-frame witness for every
@@ -867,6 +868,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
           return;
         }
         stackKept.current.delete(card.ref);
+        if(card.faceUp && fieldSetMove(card,{...observed,zone:projected.zone},seat,observed.zone!==knownZone(card))){await apply(event,act);return;}
         if(card.zone!==location.zone||card.slot!==location.slot||!fieldPositionMatches(location.zone,card.position,fieldTwinPosition({...observed,zone:projected.zone}))){
           const updated=await act({type:'twin.move',source:'auto',actorSeat:seat,seat,cardRef:card.ref,...location,position:fieldTwinPosition({...observed,zone:projected.zone})});
           if(!updated)return;
@@ -1279,7 +1281,16 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       identity:t=>{const entry=t.cardId?entries.current.get(t.cardId):undefined,code=entry&&catalogCardId(entry);return code?{cardId:code,name:entry!.name}:undefined;}});
   };
   const flipFace=async(act:RoomMutation,{track,card,proposal}:FieldFaceFix)=>{
-    const updated=await applyFieldFaceFlip(track,()=>watch.getTrack(track.id),act,proposal,!!card.faceUp&&!!card.materials?.length);if(!updated)return updated;
+    let action: Parameters<typeof applyFieldFaceFlip>[3] = proposal;
+    if(track.faceDown && track.zone!==knownZone(card)){
+      const twins=current.current.room.state.seats[seat].twin;
+      const projected=projectObserved(track,twins,card,cardInfo(cardCode(card)));
+      if(!projected.zone)return;
+      const setMove=fieldSetMove(card,{...track,zone:projected.zone},seat,true);
+      if (!setMove || keepsManual(card.ref,fieldZoneLocation(track.zone),track.position) || twins.some(c=>c.ref!==card.ref&&c.zone===setMove.zone&&c.slot===setMove.slot))return;
+      action=setMove;
+    }
+    const updated=await applyFieldFaceFlip(track,()=>watch.getTrack(track.id),act,action,!!card.faceUp&&!!card.materials?.length);if(!updated)return updated;
     if(card.faceUp===track.faceDown)face.current.flipped(card.ref,performance.now());
     if(!track.faceDown)watch.confirm(track.id,track.cardId,card.ref,false);
     rememberPhysical(card.ref,track.zone);
@@ -1321,10 +1332,10 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
           try{const updated=await flipFace(act,fix);if(updated){changes++;lastUndo=updated.state.undo?.actionId??lastUndo;}}catch(error){console.info('[remote field] face write failed',fix.card.ref,error instanceof Error?error.message:error);}
         }
         for(const zone of backs){
-          const card=current.current.room.state.seats[seat].twin.find(c=>(c.faceUp||c.publicIdentity&&!c.setBy)&&publicField(c.zone)&&knownZone(c)===zone&&![...placeholders.current.values()].includes(c.ref));if(!card)continue;
+          const card=current.current.room.state.seats[seat].twin.find(c=>c.faceUp&&publicField(c.zone)&&knownZone(c)===zone&&![...placeholders.current.values()].includes(c.ref));if(!card)continue;
           const proposal=fieldFaceProposal(card,{faceDown:true,position:'attack'},seat);if(!proposal)continue;
           const wasUp=card.faceUp;
-          if(!await write(`flip:${card.ref}:true`,proposal))continue;
+          if(!await write(`flip:${card.ref}:true`,{...proposal,identityUncertain:true}))continue;
           if(wasUp)face.current.flipped(card.ref,performance.now());
           if(snap.tracks.some(t=>!t.removed&&!t.faceDown&&refOf(t)===card.ref))holdFace(card.ref);
         }
@@ -1335,17 +1346,21 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       for(const t of settled){
         const twins=current.current.room.state.seats[seat].twin,card=twins.find(c=>c.ref===refOf(t));
         if(!card||!publicField(card.zone)||!t.cardId&&!t.faceDown||keepsManual(card.ref,fieldZoneLocation(t.zone),t.position))continue;
-        // A face difference goes through the face check: one flip action, one Undo, not a position change first.
-        // While the player holds that difference the card can still move, and it keeps its position.
-        const faceDiffers=card.faceUp===t.faceDown;if(faceDiffers&&!face.current.held(card.ref))continue;
+        // The face check writes a camera Set and its destination together.
+        const faceDiffers=card.faceUp===t.faceDown;if(faceDiffers&&(t.faceDown||!face.current.held(card.ref)))continue;
         const code=cardCode(card);if(code)await loadCards([code]);
         const projected=projectObserved(t,twins,card,cardInfo(code));if(!projected.zone)continue;
         // A hard-rule fix (Field Spell → FIELD) the player undid is not redone here either.
         if(ruleFixes.current.has(`${card.ref}:${toZone(card.zone,card.slot)}:${projected.zone}`))continue;
         const location=fieldZoneLocation(projected.zone),position=faceDiffers?card.position:fieldTwinPosition({...t,zone:projected.zone});
-        if(card.zone===location.zone&&card.slot===location.slot&&card.position===position)continue;
-        const key=`move:${card.ref}>${location.zone}${location.slot??''}${position}`;if(!tryFix(key))continue;
-        await write(key,{type:'twin.move',source:'auto',actorSeat:seat,seat,cardRef:card.ref,...location,position});
+        const event={type:'moved',track:t,source:'auto'} as const;
+        const stillThere=()=>{const observed=watch.getTrack(t.id);return observed?.zone===t.zone&&fieldEvidenceMatches(event,observed);};
+        if(!stillThere())continue;
+        if(card.zone!==location.zone||card.slot!==location.slot||card.position!==position){
+          const key=`move:${card.ref}>${location.zone}${location.slot??''}${position}`;
+          if(!tryFix(key)||!await write(key,{type:'twin.move',source:'auto',actorSeat:seat,seat,cardRef:card.ref,...location,position}))continue;
+        }
+        if(!faceDiffers&&stillThere())rememberPhysical(card.ref,t.zone);
       }
       // 2. A field copy the camera placed while the same card in the GY/banished shows it left: one card.
       for(const t of settled){

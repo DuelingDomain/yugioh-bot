@@ -40,19 +40,24 @@ export function fieldFaceWitness(track:FieldTrack,at:number):boolean {
 }
 /** A flip down of an Xyz Monster sends its materials to the GY and a flip up does not bring them back: it needs a clear back. */
 export const fieldStrongBack=(track:Partial<Pick<FieldTrack,'card'|'pixelsDown'>>)=>(track.card?.confidence??0)>=.4&&!!track.pixelsDown;
-/**
- * One action turns the card over in place: never a removal, never the hand. A face-down flip keeps the name for the owner (the
- * server hides it from the opponent). A face-up flip needs the fresh read of the card. On a card already face-down, a back the
- * camera sees clears an old "Revealed" (never the public identity of a card Set by an effect). Undefined when there is nothing to do.
- */
-export function fieldFaceProposal(card:Pick<TwinCard,'ref'|'zone'|'faceUp'|'materials'|'publicIdentity'|'setBy'>,track:Pick<FieldTrack,'faceDown'|'position'|'bestMatch'>&Partial<Pick<FieldTrack,'card'|'pixelsDown'>>,seat:number,identity?:{cardId:number;name?:string}):Extract<RemoteActionProposal,{type:'twin.flip'}>|undefined {
+/** A face-up flip needs a fresh read. Matching faces need no write. */
+export function fieldFaceProposal(card:Pick<TwinCard,'ref'|'zone'|'faceUp'|'materials'>,track:Pick<FieldTrack,'faceDown'|'position'|'bestMatch'>&Partial<Pick<FieldTrack,'card'|'pixelsDown'>>,seat:number,identity?:{cardId:number;name?:string}):Extract<RemoteActionProposal,{type:'twin.flip'}>|undefined {
   const base={type:'twin.flip' as const,source:'auto' as const,actorSeat:seat,seat,cardRef:card.ref};
   if(track.faceDown){
-    if(card.faceUp?card.materials?.length&&!fieldStrongBack(track):!card.publicIdentity||card.setBy)return;
+    if(!card.faceUp||card.materials?.length&&!fieldStrongBack(track))return;
     return {...base,faceUp:false,position:['monster','extra-monster'].includes(card.zone)?'defense':'attack'};
   }
   if(card.faceUp)return;
   return identity?{...base,faceUp:true,position:track.position,cardId:identity.cardId,name:identity.name,...(track.bestMatch?{bestMatch:true}:{})}:undefined;
+}
+type FieldSetMove = Extract<RemoteActionProposal, {type:'twin.move'}> & {faceUp:false};
+/** Report a change of zone and face together so the reducer can distinguish it from an in-place flip. */
+export function fieldSetMove(card: Pick<TwinCard, 'ref'|'zone'|'slot'>, track: Pick<FieldTrack, 'zone'|'faceDown'|'position'>, seat: number, physicalZoneChanged = false): FieldSetMove | undefined {
+  const location = fieldZoneLocation(track.zone);
+  const sameSlot = card.zone === location.zone && card.slot === location.slot;
+  if (!track.faceDown || sameSlot && !physicalZoneChanged) return;
+  return {type:'twin.move',source:'auto',actorSeat:seat,seat,cardRef:card.ref,...location,position:fieldTwinPosition(track),faceUp:false,
+    ...(sameSlot && physicalZoneChanged ? {physicalZoneChanged:true} : {})};
 }
 /** A new placement records the sighting atomically, so one Undo removes both. */
 export function fieldPlacementProposals({track,seat,cardId,name,existing=false,fromRef,copyProof,summon,nameCandidates}:{track:FieldTrack;seat:number;cardId?:number;name?:string;existing?:boolean;nameCandidates?:TwinCard['nameCandidates']|null;fromRef?:string;copyProof?:{simultaneousQuads:number;at:number};summon?:{kind:RemoteSummonKind;materialRefs:string[]}}):RemoteActionProposal[] {
@@ -138,12 +143,12 @@ export async function applyVerifiedFieldMutation(event:FieldEvent,current:()=>Fi
 }
 
 /** The face check's write: the track must be the same before and after it. A reveal whose card changed during the save is undone, like any stale reveal, and so is a flip down that sent materials to the GY. */
-export async function applyFieldFaceFlip(track:FieldTrack,current:()=>FieldTrack|undefined,act:RoomMutation,proposal:Extract<RemoteActionProposal,{type:'twin.flip'}>,hadMaterials=false) {
-  const same=()=>{const now=current();return !!now&&!now.removed&&now.state===track.state&&(now.revision??0)===(track.revision??0)&&now.faceDown===track.faceDown&&now.cardId===track.cardId;};
+export async function applyFieldFaceFlip(track:FieldTrack,current:()=>FieldTrack|undefined,act:RoomMutation,proposal:Extract<RemoteActionProposal,{type:'twin.flip'}>|FieldSetMove,hadMaterials=false) {
+  const same=()=>{const now=current();return !!now&&!now.removed&&now.state===track.state&&now.zone===track.zone&&(now.revision??0)===(track.revision??0)&&now.faceDown===track.faceDown&&now.cardId===track.cardId;};
   if(!same())return null;
   const actionId=crypto.randomUUID(),updated=await act(proposal,actionId);
   if(!updated||same())return updated;
-  if(proposal.faceUp&&proposal.cardId!==undefined||!proposal.faceUp&&hadMaterials){
+  if(proposal.type==='twin.flip'&&proposal.faceUp&&proposal.cardId!==undefined||!proposal.faceUp&&hadMaterials){
     let undone=false;try{if(updated.state.undo?.actionId===actionId)undone=!!await act({type:'undo',actorSeat:proposal.actorSeat,targetActionId:actionId});}catch{/* The caller reports it. */}
     if(!undone)throw new Error(proposal.faceUp?'The card changed during reveal. Undo the reveal before continuing.':'The card changed during the flip. Undo the flip before continuing.');
   }
