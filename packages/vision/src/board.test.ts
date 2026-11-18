@@ -490,7 +490,8 @@ test('a flickering still back is placed on its reused outline, never after 1.2 s
   for(let i=0;i<6;i++)await flick.tick(200);assert.equal(flick.events.filter(e=>e.type==='removed').length,0,'the placed Set keeps its look through misses');
   const late=rig();late.appearance=Array(12).fill(.8);late.outlines=[back];await late.tick(200);await late.tick(200);late.outlines=[];late.watcher.scanNow();await late.tick(1500);assert.equal(placed(late),0,'no placement more than 1.2 s after the last detector box');
   const lifted=rig();lifted.appearance=Array(12).fill(.3);lifted.outlines=[back];await lifted.tick(200);await lifted.tick(200);lifted.appearance=Array(12).fill(.2);lifted.outlines=[];lifted.watcher.scanNow();await lifted.tick(200);assert.equal(placed(lifted),0,'a lifted card leaves mat that looks like the sleeve');
-  for(const r of [flick,late,lifted])r.watcher.dispose();
+  const printed=rig();printed.appearance=Array(12).fill(.3);printed.outlines=[back];await printed.tick(200);await printed.tick(200);printed.appearance=Array(12).fill(.38);printed.outlines=[];printed.watcher.scanNow();await printed.tick(200);assert.equal(placed(printed),0,'a lighter printed zone box is not the sleeve, even though its flat look matches with a shift');
+  for(const r of [flick,late,lifted,printed])r.watcher.dispose();
 });
 test('disappearance needs sustained clear absence and emits once, preserving id on occlusion',async()=>{
   const r=fieldRig();for(let i=0;i<6;i++)await r.tick();const id=r.watcher.getSnapshot().tracks[0].id;

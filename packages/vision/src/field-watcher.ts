@@ -218,13 +218,15 @@ const REST_CELL_LIMIT=1.2,REST_CELL_HARD=1.35,REST_SIZE_LIMIT=1.2,REST_SIZE_HARD
 const HAND_CONTACT_MAX=.02,HAND_RELEASE_SETTLE_MS=200,HAND_CONTACT_PROMPT_MS=10_000;
 /** A Deck/Extra pile stays while its spot still looks like it or a hand is over it; it goes after this long without either. */
 const PILE_GONE_MS=5000;
-const sleeveOnMat=(inside?:number[],halo?:number[])=>{
-  if(!inside?.length||inside.length%3||!halo?.length||halo.length%3)return false;
-  const a=medianColour(inside),b=medianColour(halo);return (Math.abs(a[0]-b[0])+Math.abs(a[1]-b[1])+Math.abs(a[2]-b[2]))/3>=PILE_SLEEVE_GAP;
+/** Mean channel gap between the median colours of two flat pixel lists, no exposure shift allowed (Infinity when either is unusable). */
+const medianGap=(a?:number[],b?:number[])=>{
+  if(!a?.length||a.length%3||!b?.length||b.length%3)return Infinity;
+  const x=medianColour(a),y=medianColour(b);return (Math.abs(x[0]-y[0])+Math.abs(x[1]-y[1])+Math.abs(x[2]-y[2]))/3;
 };
+const sleeveOnMat=(inside?:number[],halo?:number[])=>{const gap=medianGap(inside,halo);return gap!==Infinity&&gap>=PILE_SLEEVE_GAP;};
 /** A box under .4 is a back only as a plain sleeve: one colour over most of it (glare on art, an arm or a dark object do not qualify when
  * they are not flat), clearly unlike the mat around it, and light: a score that low comes from white sleeves, while a flat dark object looks like a dark sleeve. */
-const SET_STEADY_SCANS=3,SET_BRIDGE_MS=1200,WEAK_BACK_REST_MS=800,WEAK_SLEEVE_GAP=.15,WEAK_SLEEVE_FLAT=.85,WEAK_SLEEVE_NEAR=.12,WEAK_SLEEVE_LIGHT=.5;
+const SET_STEADY_SCANS=3,SET_BRIDGE_MS=1200,SET_BRIDGE_LOOK=.05,WEAK_BACK_REST_MS=800,WEAK_SLEEVE_GAP=.15,WEAK_SLEEVE_FLAT=.85,WEAK_SLEEVE_NEAR=.12,WEAK_SLEEVE_LIGHT=.5;
 const plainSleeve=(inside:number[]|undefined,halo:number[]|undefined)=>{
   if(!inside?.length||inside.length%3||!halo?.length||halo.length%3)return false;
   const a=medianColour(inside),b=medianColour(halo);
@@ -1446,8 +1448,10 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
             t.setPositiveAt!==undefined&&sample.at-t.setPositiveAt<=SET_BRIDGE_MS&&sample.at-(t.setRealAt??-Infinity)<=SET_BRIDGE_MS&&
             !handNear(evidence,last)&&evidence.motion(last)<=.025&&!removalHold(last)&&!last.partial&&!last.covered&&
             sleeveOnMat(evidence.appearance?.(last),evidence.halo?.(last))&&!clearFieldBackground(evidence.appearance?.(last),evidence.halo?.(last))&&
-            sameFieldAppearance(t.setBackLook,evidence.appearance?.(last))){
-            c=structuredClone(last);t.setBridged=true;note(t,'detector missed: still back kept');
+            sameFieldAppearance(t.setBackLook,evidence.appearance?.(last))&&
+            // A dark printed zone box also passes the checks above: its raw colour must stay the back's (no shift) and not be the zone's learned empty look.
+            medianGap(t.setBackLook,evidence.appearance?.(last))<=SET_BRIDGE_LOOK&&!(emptyLooks.get(t.view.zone)?.look.length&&medianGap(emptyLooks.get(t.view.zone)!.look,evidence.appearance?.(last))<PILE_SLEEVE_GAP)){
+            setWait.delete(t);c=structuredClone(last);t.setBridged=true;note(t,'detector missed: still back kept');
           }
         }
         if(!c) {
@@ -1711,8 +1715,6 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
           if(!faceClean){t.anchor=c;t.stableSince=NaN;t.observations=0;}
           note(t,'Set needs positive back evidence');continue;
         }
-        // Positive evidence ends the "no positive back" wait: it must be unbroken, not summed over scans a reused outline bridges.
-        setWait.delete(t);
         if(admittingSet&&t.promptOnly==='card-presence'&&t.view.setEvidence?.positive){t.view.state='candidate';t.promptOnly=undefined;t.prompted=false;}
         if(face.state==='unknown'){
           if(observation.state!=='unknown')faceState.pendingAt??=sample.at;else faceState.pendingAt=undefined;
