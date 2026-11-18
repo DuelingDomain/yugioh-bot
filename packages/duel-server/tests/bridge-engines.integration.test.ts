@@ -13,6 +13,11 @@ import { BridgeFastQueries } from "../src/bridge-fast-queries.js";
 import type { BridgeScan } from "../src/deck-suggestion-workers.js";
 import { seedIdentity } from "./helpers/identity.js";
 
+vi.mock("node:fs", async original => {
+  const { withPinnedBridgeObservations } = await import("./helpers/pinned-bridge-observations.js");
+  return withPinnedBridgeObservations(await original<typeof import("node:fs")>());
+});
+
 let db: Database.Database;
 beforeAll(() => { db = new Database(":memory:"); migrate(db); importCardEffectArtifact(db); importBridgeArtifact(db); });
 afterAll(() => db.close());
@@ -282,7 +287,7 @@ describe("stored multi-engine bridge API", () => {
     expect(queries.resolve({ ...unknownPoints, genesysRemaining: 5 }, "g").query).toMatchObject({ genesysRemaining: 5, deckCards: [0xffffffff] });
   });
 
-  it("computes coverage bonuses, idf and reverse-link bonuses from accepted display pairs", async () => {
+  it("computes coverage, idf, co-play and reverse-link bonuses from accepted display pairs", async () => {
     const user = seedIdentity(db, { name: "Engine scoring" }), service = createBridgeService(db);
     const context = service.rankingContext();
     const first = service.bridgeBetween("Azamina", "White Forest")!, second = service.bridgeBetween("Diabell", "White Forest")!;
@@ -295,6 +300,7 @@ describe("stored multi-engine bridge API", () => {
     const round = (n: number) => Math.round(n * 1000) / 1000;
     const prior = (sources: string[], target: string) => 1 + Math.max(0, ...sources.map(source => coPlayBoost(coPlayPair(source, target, "tcg"))));
     try {
+      expect(prior(["Azamina", "Diabell"], "White Forest")).toBeGreaterThan(1);
       const combined = (await call(["Azamina", "Diabell"])).next.find(row => row.engine === "White Forest")!;
       expect(combined).toMatchObject({ covered: 2, of: 2, twoWay: [] });
       expect([first, second].some(row => row.reasons[0]!.cards.some(id => context.hubs.has(id)))).toBe(false);
