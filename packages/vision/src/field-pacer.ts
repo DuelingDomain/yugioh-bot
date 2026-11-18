@@ -7,8 +7,8 @@
  */
 export interface FieldPacerDevice { cores:number; memoryGb?:number }
 export interface FieldPacer {
-  /** A pass may start now. `moving`: a hand or card still moves and nothing waits for an outline; a pass now sees little, so it waits longer and saves the bucket for when the card lands. */
-  allow(at:number,moving?:boolean,sceneMoving?:boolean):boolean;
+  /** A pass may start now. `moving`: a hand or card still moves and nothing waits for an outline; a pass now sees little, so it waits longer and saves the bucket for when the card lands. `urgent`: a new card just came to rest and waits for its first read (short, set by the watcher): no moving rest and no backoff, and the bucket may go into a limited debt that the sustain rate repays, so the duty over a longer window stays the same. */
+  allow(at:number,moving?:boolean,sceneMoving?:boolean,urgent?:boolean):boolean;
   /** A detector pass of this wall time ended at `at`. */
   spend(wallMs:number,at:number,sceneMoving?:boolean):void;
   /** The scene changed at `at`: retries after a change come sooner than the slow timer. */
@@ -27,6 +27,8 @@ export interface FieldPacer {
 const WINDOW_MS=10_000,STILL_CARDS_MS=4000,STILL_EMPTY_MS=15_000,RETRY_MS=2000,RETRY_FOR_MS=6000;
 /** CPU bursts rest 1:1; GPU bursts keep the shorter rest for quick placement. */
 const BURST_REST=.5,MOVING_REST=2,MOVING_REST_MS=400;
+/** How far below zero an urgent pass may take the bucket (wall ms); the sustain refill repays it. */
+const URGENT_DEBT_MS=1200;
 export const fieldPacerDevice=():FieldPacerDevice=>{
   const nav=(globalThis as {navigator?:Navigator&{deviceMemory?:number}}).navigator;
   return {cores:nav?.hardwareConcurrency??2,memoryGb:nav?.deviceMemory};
@@ -39,8 +41,9 @@ export function createFieldPacer(device:FieldPacerDevice,start:number,backend:()
   const refill=(at:number)=>{tokens=Math.min(capacity(),tokens+Math.max(0,at-last)*sustain()/backoff);last=Math.max(last,at);};
   const prune=(at:number)=>{while(passes.length&&at-passes[0].end>WINDOW_MS)passes.shift();};
   return {
-    allow(at,moving=false,sceneMoving=moving){
+    allow(at,moving=false,sceneMoving=moving,urgent=false){
       refill(at);
+      if(urgent)return tokens>-URGENT_DEBT_MS&&at-lastEnd>=passMs*(backend()==='webgpu'?BURST_REST:1);
       const rest=moving?Math.max(MOVING_REST_MS,passMs*MOVING_REST):passMs*(backend()==='webgpu'?BURST_REST:1);
       return (tokens>0||wakePermit&&!sceneMoving)&&at-lastEnd>=rest*backoff&&(!moving||backend()==='webgpu'||at-movingSince>=MOVING_REST_MS);
     },

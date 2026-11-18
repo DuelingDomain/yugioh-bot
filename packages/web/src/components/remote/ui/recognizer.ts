@@ -221,6 +221,8 @@ async function sampleFrames(track: MediaStreamTrack, signal: AbortSignal): Promi
 
 let chain: Promise<unknown> = Promise.resolve();
 let pendingJobs = 0;
+/** Outline (detector) jobs among `pendingJobs`: a new resting card waits only for these, never for a queued read. */
+let pendingDetectJobs = 0;
 /** The reader handles one job at a time (reads and outlines share it). Later jobs wait their turn. */
 function enqueue<T>(job: () => Promise<T>): Promise<T> {
   pendingJobs++;
@@ -418,13 +420,14 @@ export async function ownFieldResources(getPriors: () => Priors) {
       get detectorTimingsMs() { return reader.detectorTimingsMs; },
       get separateDetector() { return reader.separateDetector; },
       prepare:(opts?:import("@yugidraft/vision").PrepareOptions)=>enqueue(()=>reader.prepare({priors:priorsFor(found,getPriors()),...opts})).then(info=>{if(info?.backend)reportBackend(info.backend);return info;}),
-      detectCards: (frame: ImageBitmap | ImageData, opts?:import("@yugidraft/vision").DetectOptions) => enqueueScene(reader, () => reader.detectCards(frame as ImageBitmap,opts)),
+      detectCards: (frame: ImageBitmap | ImageData, opts?:import("@yugidraft/vision").DetectOptions) => { pendingDetectJobs++; return enqueueScene(reader, () => reader.detectCards(frame as ImageBitmap,opts)).finally(() => { pendingDetectJobs--; }); },
       recognize: (frames: ImageBitmap[] | ImageData[], opts?: import("@yugidraft/vision").RecognizeOptions) => enqueue(() => reader.recognize(frames as ImageBitmap[], opts)).then(result => { if (result.backend && result.timingsMs) reportBackend(result.backend, result.timingsMs.total); reportReaderRead(result.reader); return result; }) as Promise<import("@yugidraft/vision").RecognitionResult>,
     },
-    buffer: { sample: async (options?:{maxAgeMs?:number}) => {
+    buffer: { sample: async (options?:{maxAgeMs?:number;urgent?:boolean}) => {
       // While the sent video is CPU limited, wait between samples so real passes come at most every slow x 100 ms.
       // Each bitmap belongs to the watcher once returned: always sample a fresh one after the wait.
-      const slow = visionPaceFactor();
+      // An urgent sample (a new card just came to rest, short window set by the watcher) skips that wait.
+      const slow = options?.urgent ? 1 : visionPaceFactor();
       if (slow > 1 && lastOwnSampleAt !== undefined) {
         const remaining = slow * OWN_SAMPLE_GAP_MS - (Date.now() - lastOwnSampleAt);
         if (remaining > 0) await new Promise(resolve => setTimeout(resolve, remaining));
@@ -435,7 +438,7 @@ export async function ownFieldResources(getPriors: () => Priors) {
       return sample;
     } },
     getPriors: () => priorsFor(found, getPriors()),
-    cpuBusy: () => pendingJobs > 0,
+    cpuBusy: (urgent?: boolean) => (urgent ? pendingDetectJobs : pendingJobs) > 0,
     entries: found.entries,
   };
 }

@@ -49,3 +49,13 @@ test('GPU still-board scans stay within 1.5 seconds with cards or an empty board
  }
  backend='wasm';assert.equal(p.stillEvery(40000,true),4000);assert.equal(p.stillEvery(40000,false),15000);
 });
+test('an urgent pass for a new resting card skips backoff and the moving rest, and the debt is repaid',()=>{
+ const p=createFieldPacer({cores:8},0,()=> 'wasm');
+ for(let i=0;i<60;i++)p.late(1000);
+ p.changed(1000);p.spend(300,1000,true);
+ assert.equal(p.allow(1400,true,true),false);assert.equal(p.allow(1400,false,true),false);
+ assert.equal(p.allow(1300,true,true,true),true);
+ let busy=0,at=1300;
+ for(;at<120_000;at+=10)if(p.allow(at,true,true,true)){at+=300;p.spend(300,at,true);busy+=300;}
+ assert.ok(busy/at<=.25,`urgent duty ${busy/at}`);
+});
