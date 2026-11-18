@@ -1039,7 +1039,7 @@ describe('typed watcher zone projection',()=>{
    else{expect(dismiss).not.toHaveBeenCalled();expect(fixture.room().state.seats[0].twin).toEqual(placement?[]:[expect.objectContaining({ref:old.ref,zone:'hand'})]);}
   }finally{ready.resolve();fixture.dispose();}
  },10_000);
- it.each(['earlier GY touch','hand over the slot','no full scan during CPU guard','a back candidate','pixels only'] as const)('holds a slow in-place Set after removal with %s',async scenario=>{
+ it.each(['earlier GY touch','hand over the slot','no full scan during CPU guard','a back candidate','pixels only','zoom pending'] as const)('keeps an in-place Set off the Hand with %s',async scenario=>{
   const old={ref:'slow-set',zone:'spell-trap',slot:4,cardId:41420027,name:'Solemn Judgment',faceUp:true,position:'attack'};
   const fixture=await typedWatcherFixture(zoneEntries[0],'S4',[old],'moved');
   vi.useFakeTimers();
@@ -1051,15 +1051,15 @@ describe('typed watcher zone projection',()=>{
    watch.isRemoved=()=>fixture.track.removed;
    watch.getSnapshot=()=>watch.snapshot;
    Object.assign(watch.snapshot,{pileTouchedAt:earlierPile?{GY:removedAt-2100}:{},blindZones:[],handZones:scenario==='hand over the slot'?['S4']:[],
-    ...(cpu?{status:'budget',lastFullAt:removedAt-2400}:{})});
+    ...(cpu?{status:'budget',lastFullAt:removedAt-2400}:{}),...(scenario==='zoom pending'?{zoomPendingZones:['S4']}:{})});
    fixture.refresh();
    await fixture.emit({type:'removed',removedAt});
-   await advance(cpu?4000:1000);
+   await advance(1000);
    expect(fixture.post).not.toHaveBeenCalled();
    const candidate=scenario==='a back candidate';
    Object.assign(watch.snapshot,{blindZones:candidate?[]:['S4'],blindSleeveAt:candidate?{}:{S4:performance.now()},handZones:[],lastFullAt:performance.now()});
    if(candidate)watch.snapshot.tracks.push({...fixture.track,id:'pending-back',removed:false,state:'candidate',firstSeen:removedAt,card:{...fixture.track.card,kind:'face-down'}});
-   await advance(candidate||scenario==='pixels only'?7500:1250);
+   await advance(750);
    expect(fixture.post).not.toHaveBeenCalled();
 
    Object.assign(fixture.track,{faceDown:true,cardId:undefined,visible:true,removed:false,revision:1});
@@ -1076,6 +1076,29 @@ describe('typed watcher zone projection',()=>{
     expect(watch.scanNow).toHaveBeenCalledExactlyOnceWith({gentle:true});
     expect(fixture.post.mock.calls[1]?.[0]).toMatchObject({type:'twin.move',cardRef:old.ref,zone:'hand'});
    }
+  }finally{fixture.dispose();vi.useRealTimers();}
+ });
+ it.each(['full pass','hand','zoom','candidate','sleeve'] as const)('expires a same-slot departure hold at 2 s when waiting for %s',async evidence=>{
+  const old={ref:'departed',zone:'spell-trap',slot:4,cardId:41420027,name:'Solemn Judgment',faceUp:true,position:'attack'};
+  const fixture=await typedWatcherFixture(zoneEntries[0],'S4',[old],'moved');
+  vi.useFakeTimers();
+  try{
+   const advance=(ms:number)=>act(async()=>{await vi.advanceTimersByTimeAsync(ms);});
+   await advance(5000);
+   const removedAt=performance.now(),watch=state.fieldWatch.watch;
+   Object.assign(fixture.track,{lastSeen:removedAt-400,removed:true,visible:false});
+   watch.isRemoved=()=>true;
+   watch.getSnapshot=()=>watch.snapshot;
+   Object.assign(watch.snapshot,{lastFullAt:evidence==='full pass'?removedAt-100:removedAt+100,
+    handZones:evidence==='hand'?['S4']:[],zoomPendingZones:evidence==='zoom'?['S4']:[],
+    blindSleeveAt:evidence==='sleeve'?{S4:removedAt+100}:{}});
+   if(evidence==='candidate')fixture.addTrack({id:'pending-back',removed:false,state:'candidate',firstSeen:removedAt,card:{...fixture.track.card,kind:'face-down'}});
+   fixture.refresh();
+   await fixture.emit({type:'removed',removedAt});
+   await advance(1999);
+   expect(fixture.post).not.toHaveBeenCalled();
+   await advance(1);
+   expect(fixture.post).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({type:'twin.move',cardRef:old.ref,zone:'hand'}),expect.anything());
   }finally{fixture.dispose();vi.useRealTimers();}
  });
  it.each(['a back in another slot','motion beside a tracked pile','contact with a tracked pile','a back during the empty pile wait','an unsettled back','blind cell without a sleeve'] as const)('handles a departure with %s',async scenario=>{
@@ -1112,7 +1135,9 @@ describe('typed watcher zone projection',()=>{
     await advance(500);
     expect(fixture.post).not.toHaveBeenCalled();
     if(unsettled){
-     await advance(8000);
+     await advance(1499);
+     expect(fixture.post).not.toHaveBeenCalled();
+     await advance(1);
      expect(fixture.post).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({type:'twin.move',cardRef:old.ref,zone:'hand'}),expect.anything());
      return;
     }

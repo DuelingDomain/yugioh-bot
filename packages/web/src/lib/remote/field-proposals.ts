@@ -1,7 +1,7 @@
 import {remoteActionError,type RoomMutation} from './room-mutations';
 import {OutageGaveUpError,retryThroughOutage,SKIPPED} from './outage';
 import {REMOTE_TWIN_MOVE_WINDOW_MS,type RemoteActionProposal,type RemoteEvent,type RemoteSummonKind,type TwinCard} from '@yugidraft/shared/remote';
-import { FIELD_SET_RETURN_MS,fieldZoneLocation, type FieldEvent, type FieldTrack } from '@yugidraft/vision';
+import { FIELD_SET_RETURN_MS,fieldZoneLocation, type FieldEvent, type FieldSnapshot, type FieldTrack } from '@yugidraft/vision';
 // A manual read may finish before the watcher's first identity read. Preserve
 // its physical row even when card legality projects it into another virtual row.
 const observedZones=new Map<string,FieldTrack['zone']>();
@@ -183,8 +183,26 @@ export async function applyFieldFaceFlip(track:FieldTrack,current:()=>FieldTrack
 const MAIN_FIELD_SLOT=/^[MS][1-5]$/;
 type RemovedFieldTrack=FieldTrack&{removedAt:number};
 export const FIELD_SET_SLIDE_MS=3000;
+export const FIELD_FLIP_SETTLE_MS=2000;
 export const fieldBackCandidate=(track:FieldTrack)=>!track.removed&&track.state!=='dismissed'&&
   (track.faceDown||track.state==='candidate'&&track.card.kind==='face-down')&&!track.card.partial&&!track.card.covered;
+
+/** Time left for a zoom check or a pending back to settle in the vacated slot. */
+export function fieldFlipDepartureWait(event:FieldEvent,snap:FieldSnapshot|undefined,removedAt:number,now:number):number {
+  const {id,zone,lastSeen}=event.track;
+  const left=removedAt+FIELD_FLIP_SETTLE_MS-now;
+  if(left<=0||!snap||!MAIN_FIELD_SLOT.test(zone))return 0;
+  const fullAt=snap.lastFullAt;
+  const replacements=snap.tracks.filter(t=>t.id!==id&&!t.removed&&t.zone===zone);
+  const freshBack=replacements.some(t=>fieldBackCandidate(t)&&t.firstSeen>=lastSeen-1000||
+    t.card.kind==='face-down'&&t.state==='identified'&&!t.card.partial&&!t.card.covered&&t.lastSeen>=Math.max(removedAt,fullAt??-Infinity));
+  if(freshBack||(snap.blindSleeveAt?.[zone]??-Infinity)>=removedAt||snap.zoomPendingZones?.includes(zone))return left;
+  const hand=snap.handZones?.includes(zone);
+  if(snap.blindZones?.includes(zone)&&!hand)return 0;
+  if(event.removedAt!==undefined&&(fullAt===undefined||fullAt<=event.removedAt))return left;
+  if(fullAt!==undefined&&replacements.some(t=>t.firstSeen>=lastSeen-1000&&t.visible&&!t.faceDown&&t.card.kind==='face-up'&&t.lastSeen>=fullAt))return 0;
+  return hand?left:0;
+}
 
 /** A Set can follow one new back in its row while the departure is still pending. */
 export function fieldSetSlide({track,twins,tracks,owns,zoneOf,now,pileTouched,seenOffField}:{
