@@ -1109,6 +1109,19 @@ it('camera evidence for a departed card: an unread GY top or a face-down banishe
   expect(fieldPileTrackEvidence({...base,twins:[],tracks:[resting('t-1','GY'),resting('t-2','BANISHED')]})).toBeUndefined();
   expect(fieldPileTrackEvidence({...base,twins:[],tracks:[{...resting('t-1','GY'),restSince:undefined}]})).toBeUndefined();
   expect(fieldPileTrackEvidence({...base,twins:[],tracks:[resting('t-1','GY',-20000)]})).toBeUndefined();
+  // A pile track the reader already named as another card is that card's, not the leaving one's.
+  expect(fieldPileTrackEvidence({...base,cardId:'7',twins:[],tracks:[{...resting('t-1','GY'),cardId:'8'}]})).toBeUndefined();
+  expect(fieldPileTrackEvidence({...base,cardId:'7',twins:[],tracks:[{...resting('t-1','GY'),cardId:'7'}]})).toMatchObject({zone:'graveyard'});
+  // A Spell the default rule put in the GY that is banished instead: the later named Banished read is the same card, not a second copy.
+  const {ygoModule}=await import('../../shared/src/remote/games/ygo');
+  const {remoteActionSchema}=await import('../../shared/src/remote/actions');
+  let game=ygoModule.initialState({seatCount:2}),serial=0;
+  const act=(input:Record<string,unknown>,at:number)=>game=ygoModule.reduce(game,remoteActionSchema.parse({actorSeat:0,seat:0,at,idempotencyKey:`late-${++serial}`,...input}));
+  const spell={cardId:100,name:'Terraforming',faceUp:true};
+  act({type:'twin.place',zone:'spell-trap',card:{...spell,ref:'sp',slot:2}},1000);
+  act({type:'twin.move',source:'auto',cardRef:'sp',zone:'graveyard',faceUp:true},2000);
+  act({type:'twin.place',source:'auto',zone:'banished',card:{...spell,ref:'read'}},12_000);
+  expect(game.seats[0].twin.map(c=>[c.ref,c.zone])).toEqual([['sp','banished']]);
   expect(fieldDefaultDestination({faceUp:true,zone:'spell-trap'},{type:'Spell Card',race:'Normal'})).toEqual({zone:'graveyard'});
   expect(fieldDefaultDestination({faceUp:true,zone:'spell-trap'},{type:'Spell Card',race:'Continuous'})).toEqual({zone:'hand'});
   expect(fieldDefaultDestination({faceUp:true,zone:'monster'},{type:'Effect Monster'})).toEqual({zone:'hand'});

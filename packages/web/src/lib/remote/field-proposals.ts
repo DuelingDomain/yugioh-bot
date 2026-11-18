@@ -115,8 +115,8 @@ export function fieldPileEvidence({twins,tracks,lastSeen,owns}:{twins:readonly T
  * board has no stand-in for it yet): one resting pile track that first showed up around the removal, with no board card of its own.
  * Not with an unnamed stand-in of the same kind around (fieldPileEvidence decides that case) or two such tracks: then the camera cannot say.
  */
-export function fieldPileTrackEvidence({twins,tracks,lastSeen,owns}:{twins:readonly TwinCard[];tracks:readonly FieldTrack[];lastSeen:number;owns:(track:FieldTrack)=>string}):{track:FieldTrack;zone:'graveyard'|'banished';faceUp:boolean}|undefined {
-  const recent=tracks.filter(t=>/^(GY|BANISHED)$/.test(t.zone)&&!t.removed&&t.state!=='dismissed'&&t.firstSeen>=lastSeen-1000&&(t.zone==='BANISHED'||!t.faceDown));
+export function fieldPileTrackEvidence({twins,tracks,lastSeen,owns,cardId}:{twins:readonly TwinCard[];tracks:readonly FieldTrack[];lastSeen:number;owns:(track:FieldTrack)=>string;/** The leaving card's camera id: a pile track the reader already named as another card is that card's. */cardId?:string}):{track:FieldTrack;zone:'graveyard'|'banished';faceUp:boolean}|undefined {
+  const recent=tracks.filter(t=>/^(GY|BANISHED)$/.test(t.zone)&&!t.removed&&t.state!=='dismissed'&&t.firstSeen>=lastSeen-1000&&(t.zone==='BANISHED'||!t.faceDown)&&(!t.cardId||t.cardId===cardId));
   const standIn=(t:FieldTrack)=>twins.some(c=>c.ref===owns(t)&&['graveyard','banished'].includes(c.zone)&&!c.cardId&&!c.passcode&&!c.name);
   if(recent.some(standIn))return;
   // A resting box only: a hand hovering over the pile is not a card that arrived.
