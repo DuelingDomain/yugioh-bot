@@ -471,7 +471,10 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
   const cellOf=(zone:string)=>{const cell=fieldCells().find(c=>c.zone===zone);return cell?cellQuad(cell):undefined;};
   const cellEmpty=(evidence:FieldAnalysis,zone:string)=>{
     const base=emptyLooks.get(zone),box=cellOf(zone);if(!base?.look.length||!box)return false;
-    return !handNear(evidence,box)&&evidence.motion(box)<=.025&&sameFieldAppearance(base.look,evidence.appearance?.(box));
+    const look=evidence.appearance?.(box);
+    // The shift-tolerant match reads any flat colour as flat mat, so a plain sleeve on a Spell/Trap cell would count as empty: its tone must be the mat's too.
+    if(/^S[1-5]$/.test(zone)){const gap=medianGap(centreLook(base.look),centreLook(look));if(gap!==Infinity&&gap>=PILE_SLEEVE_GAP)return false;}
+    return !handNear(evidence,box)&&evidence.motion(box)<=.025&&sameFieldAppearance(base.look,look);
   };
   /** Detector-blind Set: a flat plain sleeve scores nothing in the detector (no box at any score, any crop). A Spell/Trap cell that has a learned
    * empty-mat look, no box over it, no track and no known card, and that stays still and unlike that look for SET_STEADY_SCANS full scans in a row,
