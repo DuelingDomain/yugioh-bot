@@ -71,8 +71,8 @@ export type RemoteReductionContext = {
   /** Persisted by the service: old events replay with the original placement semantics. */
   twinPlacementGuard?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
   pileArrivalGuard?: 1 | 2;
-  /** Public knowledge survives an in-place Set; hidden destinations clear it. */
-  fieldFaceState?: 1;
+  /** Version 2 keeps public knowledge from in-place camera flips as well as manual Sets. */
+  fieldFaceState?: 1 | 2;
   /** Public added-to-hand semantics, absent on historic events. */
   handKnowledge?: 1;
   /** Refund a canceled unidentified face-up camera placement; historic events keep their count. */
@@ -86,7 +86,7 @@ export type RemoteReductionContext = {
 };
 /** Persist current reducer semantics for live actions and account-deletion concessions. */
 export const REMOTE_REDUCTION_VERSIONS = {
-  undoVersion: 1, matchFlowVersion: 2, twinPlacementGuard: 9, fieldFaceState: 1,
+  undoVersion: 1, matchFlowVersion: 2, twinPlacementGuard: 9, fieldFaceState: 2,
   pileArrivalGuard: 2, handKnowledge: 1, handReview: 1, handCountCorrections: 1, quitGameOnly: 1, foreignTokens: 1, givenCards: 1,
 } as const satisfies RemoteReductionContext;
 

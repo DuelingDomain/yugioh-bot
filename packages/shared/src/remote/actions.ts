@@ -91,6 +91,8 @@ export const remoteActionSchema = z.discriminatedUnion("type", [
   z.strictObject({ ...meta, type: z.literal("pile.order"), seat: remoteSeatSchema, zone: z.enum(["graveyard", "banished"]), cardRefs: z.array(id).min(1).max(120)
     .refine(refs => new Set(refs).size === refs.length, "Duplicate pile card") }),
   z.strictObject({ ...meta, type: z.literal("twin.move"), seat: remoteSeatSchema, zone, cardRef: id, slot: slot.optional(), position: z.enum(["attack", "defense"]).optional(), faceUp: z.boolean().optional(), source: z.literal("auto").optional(), name: z.string().trim().min(1).max(200).optional(),
+    /** The camera saw a different mat cell even though the move projects into the same virtual slot. */
+    physicalZoneChanged: z.literal(true).optional(),
     /** A face-up Pendulum Monster in the Extra Deck is public information (only that card; every other Extra card stays hidden). */
     pendulum: z.boolean().optional(),
     /** The camera or the player chose this destination (not a rule default): the card keeps no field origin. */
@@ -113,8 +115,11 @@ export const remoteActionSchema = z.discriminatedUnion("type", [
   z.strictObject({ ...meta, type: z.literal("twin.flip"), seat: remoteSeatSchema, cardRef: id, faceUp: z.boolean(),
     cardId:cardId.optional(),name:sighting.name,bestMatch:z.boolean().optional(),position:z.enum(['attack','defense']).optional(),source:z.literal('auto').optional(),
     /** A token's new ATK/DEF, set by its controller or creator. Only a face-up token takes it. */
-    tokenStats:z.strictObject({atk:z.number().int().min(0).max(999999),def:z.number().int().min(0).max(999999)}).optional() })
-    .refine(a=>a.faceUp||a.cardId===undefined&&a.name===undefined&&a.bestMatch===undefined,'Only a reveal can carry identity'),
+    tokenStats:z.strictObject({atk:z.number().int().min(0).max(999999),def:z.number().int().min(0).max(999999)}).optional(),
+    /** A camera back does not establish that the previously public identity still applies. */
+    identityUncertain: z.literal(true).optional() })
+    .refine(a=>a.faceUp||a.cardId===undefined&&a.name===undefined&&a.bestMatch===undefined,'Only a reveal can carry identity')
+    .refine(a=>!a.identityUncertain||a.source==='auto'&&!a.faceUp,'Uncertain identity requires a camera Set'),
   z.strictObject({ ...meta, type: z.literal("twin.remove"), seat: remoteSeatSchema, cardRef: id, source: z.literal("auto").optional() }),
   z.strictObject({ ...meta, type: z.literal("log.note"), text: z.string().trim().min(1).max(500) }),
   z.strictObject({ ...meta, type: z.literal("undo"), targetActionId: id }),
@@ -146,6 +151,8 @@ export type TwinCard = z.infer<typeof twinCardSchema> & {
   materialOf?: string;
   /** Server-authored knowledge; independent of the physical face-up/down state. */
   publicIdentity?: boolean;
+  /** Server-authored: a face-down field card whose identity was already public on the field, including to spectators. */
+  knownFaceDown?: true;
 };
 export class RemoteDuelError extends Error {
   constructor(message: string, public readonly status = 400, public readonly code = "REMOTE_INVALID") { super(message); this.name = "RemoteDuelError"; }

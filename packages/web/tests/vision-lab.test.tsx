@@ -754,6 +754,19 @@ it.each([false,true])('flips a projected Trap in place even when the physical mo
   expect(fixture.post.mock.calls.some(([proposal])=>proposal.type==='twin.move'||proposal.type==='twin.place')).toBe(false);
  }finally{fixture.dispose();}
 });
+it('hides a known Set moved to a different mat cell that projects to the same slot',async()=>{
+ const entry=cards[0];
+ const known={ref:'known-set',zone:'monster',slot:2,cardId:entry.passcode,faceUp:false,position:'defense',publicIdentity:true,knownFaceDown:true};
+ const fixture=await typedWatcherFixture(entry,'EMZ1',[known],'moved');
+ try{
+  Object.assign(fixture.track,{faceDown:true,cardId:undefined,revision:1});
+  await fixture.emit();
+  await waitFor(()=>expect(fixture.post).toHaveBeenCalledOnce());
+  expect(fixture.post).toHaveBeenCalledWith(expect.objectContaining({type:'twin.move',cardRef:known.ref,zone:'monster',slot:2,faceUp:false,physicalZoneChanged:true}),expect.anything());
+  expect(fixture.room().state.seats[0].twin[0]).not.toHaveProperty('publicIdentity');
+  expect(fixture.room().state.seats[0].twin[0]).not.toHaveProperty('knownFaceDown');
+ }finally{fixture.dispose();}
+});
 it.each([
  ['graveyard',undefined],['hand',undefined],['deck',undefined],['extra',undefined],['banished',undefined],
  ['spell-trap',3],['spell-trap',undefined],
