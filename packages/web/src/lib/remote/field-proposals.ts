@@ -1,4 +1,5 @@
 import {remoteActionError,type RoomMutation} from './room-mutations';
+import {OutageGaveUpError,retryThroughOutage,SKIPPED} from './outage';
 import type { RemoteActionProposal, RemoteEvent, RemoteSummonKind, TwinCard } from '@yugidraft/shared/remote';
 import { fieldZoneLocation, type FieldEvent, type FieldTrack } from '@yugidraft/vision';
 // A manual read may finish before the watcher's first identity read. Preserve
@@ -222,8 +223,12 @@ export function staleFieldOccupant(twins:readonly TwinCard[],tracks:readonly Fie
     !tracks.some(track=>track.id===card.ref&&!track.removed&&(track.visible||track.lastSeen>=at)));
 }
 
-/** Retry the same operation after the room controller refreshes its sequence. */
-export async function retryFieldMutation(act:RoomMutation,proposal:RemoteActionProposal,id:string,valid:()=>boolean,failed:(error:unknown)=>void) {
+/**
+ * Retry the same operation after the room controller refreshes its sequence.
+ * A lost connection (a server restart) is not a refusal: the write waits and tries again with the SAME key and valid() checked before
+ * each try (see retryThroughOutage), with no error text; `quiet` background work gives up at once and is tried again by its own cycle.
+ */
+export async function retryFieldMutation(act:RoomMutation,proposal:RemoteActionProposal,id:string,valid:()=>boolean,failed:(error:unknown)=>void,options:{quiet?:boolean}={}) {
   // A stale sequence refreshes the room between attempts; a busy table can need
   // more than one refresh. The same idempotency key keeps the write single.
   const attempts=3;let reason='';
@@ -231,7 +236,17 @@ export async function retryFieldMutation(act:RoomMutation,proposal:RemoteActionP
     if(!valid())return null;
     const before=remoteActionError()?.at;
     let updated:Awaited<ReturnType<RoomMutation>>=null;
-    try{updated=await act(proposal,id);}catch(error){failed(error);reason=error instanceof Error?error.message:String(error);if(attempt===attempts-1)throw error;}
+    try{
+      const sent=await retryThroughOutage(()=>act(proposal,id),{valid,patient:!options.quiet});
+      if(sent===SKIPPED)return null;
+      updated=sent;
+    }catch(error){
+      if(error instanceof OutageGaveUpError){
+        if(options.quiet)throw error;
+        throw new Error(`Could not save the field update (${proposal.type}: no connection). Use Retry field update.`);
+      }
+      failed(error);reason=error instanceof Error?error.message:String(error);if(attempt===attempts-1)throw error;
+    }
     if(updated)return updated;
     const server=remoteActionError();if(server&&server.at!==before)reason=server.message;
     failed(new Error(`Could not save ${proposal.type}${reason?`: ${reason}`:''}. Retrying the field update.`));
