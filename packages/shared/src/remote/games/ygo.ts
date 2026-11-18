@@ -1,5 +1,5 @@
 import { cloneRemoteCurrent } from "../position.js";
-import { applyRemoteGive, applyRemoteHand, moveRemoteCardToHand, reduceRemoteHandAction } from "../hand.js";
+import { applyRemoteGive, applyRemoteHand, moveRemoteCardToHand, reduceRemoteHandAction, restoreOwnerIdentity, sendGivenCardsHome } from "../hand.js";
 import { rememberRemoteAction, undoRemoteAction } from "../undo.js";
 import { ensureRemoteMatch, finishRemoteGame, initialRemoteMatch, reduceRemoteMatch, remoteOpeningPending, syncRemoteSideStart } from "../match.js";
 import { remoteActionSchema, remoteAssert, remoteSummonKinds, type RemoteAction, type TwinCard } from "../actions.js";
@@ -56,11 +56,6 @@ function returnToOwner(seats: readonly RemoteSeatState[], holder: RemoteSeatStat
     // The owner is out and has no pile any more: the card just leaves the board, never into the holder's Graveyard.
     const i = holder.twin.indexOf(card); if (i >= 0) holder.twin.splice(i, 1);
   }
-}
-/** A face-down card keeps its identity for its owner while another player controls it (the controller never sees it). */
-function restoreOwnerIdentity(card: TwinCard) {
-  const kept = card.ownerIdentity; delete card.ownerIdentity;
-  if (kept && !card.cardId && !card.passcode && !card.name) Object.assign(card, kept);
 }
 /** Send a card to the Graveyard (end of the pile). A controlled card goes to its owner's Graveyard. */
 function sendToGrave(seats: readonly RemoteSeatState[], holder: RemoteSeatState, card: TwinCard, dropIfOwnerOut = false) {
@@ -544,15 +539,7 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
   for(const origin of next.effectTracking?.origins ?? []) if(origin.pool)
     origin.candidates=availableEffectCandidates(next,origin.pool,origin.seat,origin.minimumCopies,origin.searchSource);
   for (const s of next.seats) if (s.eliminated) {
-    // A card its living owner gave away goes home to the owner's Graveyard with its identity; tokens and the rest of the field vanish.
-    if (givenCardsOn) for (const card of s.twin) {
-      const owner = card.ownerSeat !== undefined && card.ownerSeat !== s.seat && !card.token ? next.seats[card.ownerSeat] : undefined;
-      if (!owner || owner.eliminated || owner.twin.some(c => c.ref === card.ref)) continue;
-      delete card.ownerSeat; restoreOwnerIdentity(card);
-      for (const key of ["slot", "trapZone", "equippedTo", "departedFrom", "materialOf", "materials", "position", "publicIdentity", "pendulumUp"] as const) delete card[key];
-      card.zone = "graveyard"; card.faceUp = true;
-      owner.twin.push(card);
-    }
+    if (givenCardsOn) sendGivenCardsHome(next, s);
     s.twin = [];
   }
   if (next.attack && (next.seats[next.attack.attackerSeat].eliminated || next.seats[next.attack.targetSeat].eliminated)) next.attack = null;
