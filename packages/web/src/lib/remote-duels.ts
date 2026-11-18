@@ -123,7 +123,11 @@ export async function remoteMutation(request: Request, context: RemoteRouteConte
     // Retry durable SFU cleanup here; failures do not roll back an accepted game action.
     const { cleanupPhones } = await import("./remote/phone-server");
     await cleanupPhones(slug).catch(() => log("warn", "Phone participant cleanup pending", { slug }));
-    const publishAt=performance.now();await notifyRemoteChange(slug, actor.guildId);
+    // The action is committed and the reply carries the room. A board action does not wait for the ws round trip (up to 2 s when ws is slow):
+    // the caller's serial queue sends the next write only after this reply, so waiting here delayed every write behind it. Other viewers get the broadcast as before.
+    const publishAt=performance.now();
+    if(operation==="actions")void notifyRemoteChange(slug, actor.guildId).catch(error=>log("warn","Remote broadcast failed",{error:error instanceof Error?error.message:String(error)}));
+    else await notifyRemoteChange(slug, actor.guildId);
     timings.push(`remote-publish;dur=${(performance.now()-publishAt).toFixed(2)}`,`remote-route;dur=${(performance.now()-started).toFixed(2)}`);
     const response=remoteJson(remoteRoomForViewer(result, actor.userId));response.headers.set('server-timing',timings.join(', '));return response;
   } catch (error) { return remoteError(error); }
