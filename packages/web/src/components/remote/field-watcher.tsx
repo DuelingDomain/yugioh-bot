@@ -52,7 +52,19 @@ const pileActivity=(snap:FieldSnapshot|undefined)=>({
   GY:Math.max(snap?.pileContactAt?.GY??-Infinity,snap?.pileTouchedAt?.GY??-Infinity),
   BANISHED:Math.max(snap?.pileContactAt?.BANISHED??-Infinity,snap?.pileTouchedAt?.BANISHED??-Infinity),
 });
-const pileNear=(snap:FieldSnapshot|undefined,since:number)=>Object.values(pileActivity(snap)).some(at=>at>=since-PILE_NEAR_MS);
+const pileNear=(activity:ReturnType<typeof pileActivity>,since:number)=>Object.values(activity).some(at=>at>=since-PILE_NEAR_MS);
+/** Motion beside an occupied pile can be the sliding hand. An empty cell has only the wider motion probe. */
+const slidePileActivity=(snap:FieldSnapshot|undefined)=>{
+  const activity=pileActivity(snap);
+  if(!snap?.pileContactAt)return activity;
+  for(const zone of ['GY','BANISHED'] as const){
+    const touched=snap.pileTouchedAt?.[zone]??-Infinity;
+    if(!snap.missingPiles?.includes(zone)&&snap.pileClearSince?.[zone]===undefined&&
+      snap.tracks.some(t=>t.zone===zone&&!t.removed&&t.firstSeen<=touched))
+      activity[zone]=snap.pileContactAt[zone]??-Infinity;
+  }
+  return activity;
+};
 /** A card that may have flipped in place in a main field slot waits up to this long for evidence. */
 const FLIP_HOLD_MAX_MS=8000,FLIP_POLL_MS=250;
 const publicField=(zone:string)=>['monster','extra-monster','spell-trap','field','pendulum'].includes(zone);
@@ -224,7 +236,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     pileTouched:pileActivity(watch.getSnapshot?.()),seenOffField});
   const slideFor=(track:FieldTrack,snap=watch.getSnapshot?.())=>fieldSetSlide({track,twins:current.current.room.state.seats[seat].twin,tracks:snap?.tracks??watch.getTracks(),
     owns:t=>bindings.current.get(t.id)??t.id,zoneOf:card=>publicField(card.zone)?knownZone(card):undefined,now:performance.now(),
-    pileTouched:pileActivity(snap),seenOffField});
+    pileTouched:slidePileActivity(snap),seenOffField});
   const slideLinked=(id:string,snap=watch.getSnapshot?.())=>snap?.tracks.some(t=>slideFor(t,snap)?.from.id===id);
   const cancelDeparture=(id:string)=>{
     clearTimeout(departureTimers.current.get(id));departureTimers.current.delete(id);
@@ -828,7 +840,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       const firstMiss=event.track.removedFrameAt??removedAt;
       // Wait for a full pass sampled after the removal, then follow its hand or sleeve evidence.
       const flipHoldLimit=(snap:FieldSnapshot|undefined)=>{
-        if(!snap||!mainSlotPattern.test(zone)||pileNear(snap,removedAt))return 0;
+        if(!snap||!mainSlotPattern.test(zone)||pileNear(pileActivity(snap),removedAt))return 0;
         const fullAt=snap.lastFullAt;
         const replacements=snap.tracks.filter(t=>t.id!==id&&!t.removed&&t.zone===zone);
         const freshBack=replacements.some(t=>fieldBackCandidate(t)&&t.firstSeen>=event.track.lastSeen-1000||
@@ -848,10 +860,10 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
         if(slideLinked(id,snap)){arm(FLIP_POLL_MS);return;}
         const otherSleeve=Object.entries(snap?.blindSleeveAt??{}).some(([cell,at])=>cell!==zone&&cell[0]===zone[0]&&mainSlotPattern.test(cell)&&at>=firstMiss);
         const waitingForSlide=card.faceUp===false&&now-firstMiss<FIELD_SET_SLIDE_MS&&event.removedAt!==undefined&&snap&&
-          mainSlotPattern.test(zone)&&!pileNear(snap,firstMiss)&&(!snap.blindZones?.includes(zone)||otherSleeve);
+          mainSlotPattern.test(zone)&&!pileNear(slidePileActivity(snap),firstMiss)&&(!snap.blindZones?.includes(zone)||otherSleeve);
         if(waitingForSlide||now-removedAt<flipHoldLimit(snap)){arm(FLIP_POLL_MS);return;}
         // Give a pile read one short wait, while still checking for a Set in another slot.
-        if(pileNear(snap,removedAt))pileWaitUntil??=now+PILE_HOLD_MS;
+        if(pileNear(pileActivity(snap),removedAt))pileWaitUntil??=now+PILE_HOLD_MS;
         if(pileWaitUntil!==undefined&&now<pileWaitUntil){arm(Math.min(FLIP_POLL_MS,pileWaitUntil-now));return;}
         fire();
       },wait));

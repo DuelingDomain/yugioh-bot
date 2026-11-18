@@ -1078,7 +1078,7 @@ describe('typed watcher zone projection',()=>{
    }
   }finally{fixture.dispose();vi.useRealTimers();}
  });
- it.each(['a back in another slot','a back during the pile wait','an unsettled back','blind cell without a sleeve'] as const)('handles a departure with %s',async scenario=>{
+ it.each(['a back in another slot','motion beside a tracked pile','contact with a tracked pile','a back during the empty pile wait','an unsettled back','blind cell without a sleeve'] as const)('handles a departure with %s',async scenario=>{
   const old={ref:'real-removal',zone:'spell-trap',slot:4,cardId:41420027,name:'Solemn Judgment',faceUp:false,publicIdentity:true,position:'attack'};
   const fixture=await typedWatcherFixture(zoneEntries[0],'S4',[old],'moved');
   vi.useFakeTimers();
@@ -1090,8 +1090,12 @@ describe('typed watcher zone projection',()=>{
    Object.assign(fixture.track,{lastSeen:removedAt-1500,removedAt,removed:true,visible:false,faceDown:true});
    watch.isRemoved=()=>fixture.track.removed;
    watch.getSnapshot=()=>watch.snapshot;
-   const cross=scenario==='a back in another slot',pile=scenario==='a back during the pile wait',unsettled=scenario==='an unsettled back';
-   Object.assign(watch.snapshot,{lastFullAt:removedAt-100,blindZones:['S4'],...(pile?{pileTouchedAt:{GY:removedAt-1400},pileContactAt:{}}:{})});
+   const nearPile=scenario==='motion beside a tracked pile',contact=scenario==='contact with a tracked pile';
+   const cross=scenario==='a back in another slot'||nearPile,pile=scenario==='a back during the empty pile wait'||contact,unsettled=scenario==='an unsettled back';
+   if(nearPile||contact)fixture.addTrack({id:'tracked-gy',zone:'GY',state:nearPile?'dismissed':'identified',removed:false,faceDown:false,visible:contact,firstSeen:removedAt-5000,
+    card:{...fixture.track.card,kind:'face-up'}});
+   Object.assign(watch.snapshot,{lastFullAt:removedAt-100,blindZones:['S4'],
+    ...(pile||nearPile?{pileTouchedAt:{GY:removedAt-1400},pileContactAt:contact?{GY:removedAt-1400}:{}}:{})});
    const addBack=()=>fixture.addTrack({id:'cross-slot-back',zone:'S2',state:'candidate',removed:false,faceDown:true,cardId:undefined,firstSeen:now,
      card:{...fixture.track.card,kind:'face-down'}});
    fixture.refresh();
