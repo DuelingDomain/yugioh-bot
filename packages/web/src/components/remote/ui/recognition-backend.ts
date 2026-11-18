@@ -1,11 +1,18 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
+import type { CardReader, ReaderDiagnostics } from "@yugidraft/vision";
 
 /** Auto and GPU both let the engine try WebGPU first (it falls back to WASM on its own); CPU skips WebGPU. */
 export type RecognitionMode = "auto" | "gpu" | "cpu";
 export type EngineBackend = "webgpu" | "wasm";
 export type RecognitionBackendState = {
+  /** The reader in use. Always "current" until the server allows Hybrid for this viewer. */
+  reader: CardReader;
+  /** The server offers Hybrid to this viewer (REMOTE_HYBRID_READER_USERS). Without it the switch is hidden and a saved choice or ?visionReader=hybrid is ignored. */
+  readerAllowed: boolean;
+  readerNote: string;
+  read: ReaderDiagnostics | null;
   mode: RecognitionMode;
   /** Where the card reader runs now; null until the reader has started. */
   backend: EngineBackend | null;
@@ -24,8 +31,14 @@ export const RECOGNITION_MODES: readonly { value: RecognitionMode; label: string
 ];
 
 const KEY = "dd-remote-recognition-mode";
-const DEFAULT: RecognitionBackendState = { mode: "auto", backend: null, ms: null, note: "", generation: 0 };
+const READER_KEY = "dd-remote-card-reader";
+export const CARD_READERS: readonly {value:CardReader;label:string}[] = [{value:"current",label:"Current"},{value:"hybrid",label:"Hybrid"}];
+const DEFAULT: RecognitionBackendState = { reader:"current",readerAllowed:false,readerNote:"",read:null,mode: "auto", backend: null, ms: null, note: "", generation: 0 };
 let state: RecognitionBackendState | null = null;
+/** What the person asked for (saved choice or query). It only takes effect while `hybridAllowed`. */
+let chosenReader: CardReader = "current";
+let hybridAllowed = false;
+const effectiveReader = (): CardReader => hybridAllowed && chosenReader === "hybrid" ? "hybrid" : "current";
 let forcedCpu = false;
 const listeners = new Set<() => void>();
 const resetters = new Set<() => void>();
@@ -33,8 +46,12 @@ const resetters = new Set<() => void>();
 function load(): RecognitionBackendState {
   if (state) return state;
   let mode: RecognitionMode = "auto";
+  let reader: CardReader = "current";
   try { const stored = localStorage.getItem(KEY); if (stored === "auto" || stored === "gpu" || stored === "cpu") mode = stored; } catch { /* Private mode: memory only. */ }
-  return state = { ...DEFAULT, mode };
+  try {const stored=localStorage.getItem(READER_KEY);if(stored==="hybrid")reader=stored;}catch{}
+  try {const forced=new URL(location.href).searchParams.get("visionReader");if(forced==="current"||forced==="hybrid")reader=forced;}catch{}
+  chosenReader = reader;
+  return state = { ...DEFAULT, mode, reader: effectiveReader(), readerAllowed: hybridAllowed };
 }
 function update(patch: Partial<RecognitionBackendState>) {
   const now = load(), next = { ...now, ...patch };
@@ -46,11 +63,31 @@ function update(patch: Partial<RecognitionBackendState>) {
 export function engineBackend(): "auto" | "wasm" {
   return forcedCpu || load().mode === "cpu" ? "wasm" : "auto";
 }
+export const cardReader=():CardReader=>load().reader;
+export function setCardReader(reader:CardReader) {
+  if(!hybridAllowed||load().reader===reader)return;
+  chosenReader=reader;
+  try {localStorage.setItem(READER_KEY,reader);}catch{}
+  update({reader,readerNote:"",read:null,backend:null,ms:null,note:"",generation:load().generation+1});
+  for(const reset of resetters)reset();
+}
+/** The table page tells the store what the server decided for this viewer. Turning it off puts the reader back on Current without clearing the saved choice. */
+export function setHybridReaderAllowed(allowed:boolean) {
+  const now=load();
+  if(hybridAllowed===allowed)return;
+  hybridAllowed=allowed;
+  const reader=effectiveReader();
+  if(reader===now.reader){update({readerAllowed:allowed});return;}
+  update({readerAllowed:allowed,reader,readerNote:"",read:null,backend:null,ms:null,note:"",generation:now.generation+1});
+  for(const reset of resetters)reset();
+}
+export function reportReaderNote(readerNote:string) {update({readerNote});}
+export function reportReaderRead(read:ReaderDiagnostics|undefined) {if(read)update({read});}
 export function setRecognitionMode(mode: RecognitionMode) {
   if (load().mode === mode) return;
   try { localStorage.setItem(KEY, mode); } catch { /* Memory-only fallback. */ }
   forcedCpu = false;
-  update({ mode, backend: null, ms: null, note: "", generation: load().generation + 1 });
+  update({ mode, backend: null, ms: null, note: "", readerNote:"",read:null,generation: load().generation + 1 });
   for (const reset of resetters) reset();
 }
 /** Changes each time the reader restarts (new mode, GPU lost, GPU retry). */

@@ -6,6 +6,7 @@
 // class, so the Node index build and the browser engine share this exact code path.
 import type { EmbeddingModelSpec } from './types';
 import { l2normalize, preprocess, type RGBAImage } from './pixels';
+import { toContractTensor } from './duelsight/preprocess';
 
 export interface TensorLike {
   data: ArrayLike<number>;
@@ -64,8 +65,11 @@ export async function embedImages(
   for (let start = 0; start < images.length; start += chunk) {
     const part = images.slice(start, start + chunk);
     const t0 = performance.now();
-    const batch = part.length===1 ? preprocess(part[0],spec) : new Float32Array(part.length * plane);
-    if(part.length>1)part.forEach((im, i) => batch.set(preprocess(im, spec), i * plane));
+    const tensorFor = spec.preprocessing === 'full128'
+      ? (im:RGBAImage)=>toContractTensor(im.data,im.width,im.height,{size:s,poolVersion:2})
+      : (im:RGBAImage)=>preprocess(im,spec);
+    const batch = part.length===1 ? tensorFor(part[0]) : new Float32Array(part.length * plane);
+    if(part.length>1)part.forEach((im, i) => batch.set(tensorFor(im), i * plane));
     const t1 = performance.now();
     const out = await session.run({ [spec.inputName]: new Tensor('float32', batch, [part.length, 3, s, s]) });
     const t2 = performance.now();
