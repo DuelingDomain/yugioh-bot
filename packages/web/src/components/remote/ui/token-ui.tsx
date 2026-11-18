@@ -66,10 +66,10 @@ export function useTokens({ act, room, live, extraZones, layers, info }: {
   useEffect(() => { if (placing && !canPlace) setPlacing(null); }, [placing, canPlace]);
   useEffect(() => {
     if (!placing) return;
-    const stop = (event: KeyboardEvent) => { if (event.key === "Escape" && !document.querySelector("[data-layer]")) { event.preventDefault(); event.stopPropagation(); setPlacing(null); } };
+    const stop = (event: KeyboardEvent) => { if (event.key === "Escape" && !layers.layer) { event.preventDefault(); event.stopPropagation(); setPlacing(null); } };
     window.addEventListener("keydown", stop, true);
     return () => window.removeEventListener("keydown", stop, true);
-  }, [placing]);
+  }, [placing, layers.layer]);
   const freeKeys = useCallback((seat: number, keys: readonly ZoneKey[]) => {
     const cells = cellsFor(room.state.seats[seat]?.twin ?? [], extraZones);
     return keys.filter(key => !cells[key]?.card);
