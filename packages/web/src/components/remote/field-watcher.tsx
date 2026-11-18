@@ -44,6 +44,8 @@ import {distinctFieldQuads,fieldSetReturn,xyzAttachTargets} from '@/lib/remote/f
 const toZone=(zone:string,slot?:number):FieldZone|undefined=>zone==='monster'?`M${slot??1}` as FieldZone:zone==='spell-trap'?`S${slot??1}` as FieldZone:zone==='extra-monster'?`EMZ${slot??1}` as FieldZone:({field:'FIELD',graveyard:'GY',banished:'BANISHED',deck:'DECK',extra:'EXTRA'} as Record<string,FieldZone>)[zone];
 /** A removed field card goes to the hand this long after the watcher's removal (it may still flip back or be a material). */
 const DEPARTURE_WAIT_MS=800;
+/** A face-up camera placement waits at most this long for the card's facts (type, level). The name is known already; the zone-rule effect fixes a hard-rule row once the facts arrive. */
+const FACTS_WAIT_MS=1000;
 const publicField=(zone:string)=>['monster','extra-monster','spell-trap','field','pendulum'].includes(zone);
 /** A card the camera sent from the field to the hand, a pile or the Extra Deck still owns its field origin. */
 const leftField=(c:TwinCard,at:number,spot:{zone:string;slot?:number})=>!!c.departedFrom&&publicField(c.departedFrom.zone)&&(c.zone==='hand'||!!c.departedFrom.auto&&['graveyard','banished','extra'].includes(c.zone)&&
@@ -437,7 +439,9 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     const code=entry?catalogCardId(entry):undefined;
     if(code&&!track.faceDown){
       const metadata=loadCards([code]);
-      if(existing&&!existing.faceUp&&knownZone(existing)===track.zone)void metadata.catch(()=>undefined);else await metadata;
+      if(existing&&!existing.faceUp&&knownZone(existing)===track.zone)void metadata.catch(()=>undefined);
+      // A slow or cold lookup must not hold the serial queue (and every write behind it): after FACTS_WAIT_MS the card is placed with what the camera saw.
+      else if(!cardInfo(code)){let timer:ReturnType<typeof setTimeout>|undefined;await Promise.race([metadata,new Promise<void>(resolve=>{timer=setTimeout(resolve,FACTS_WAIT_MS);})]);clearTimeout(timer);}
     }
     // The card can move while its details load. Defer like the check above; there is nothing to save yet.
     const latest=watch.getTrack(event.track.id);if(!live()||!matchesEvidence(latest)){defer(latest);return;}
@@ -521,7 +525,8 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       if(summonable(departure.zone)&&stale.faceUp&&['monster','extra-monster'].includes(stale.zone))vanishes.current=[...vanishes.current.filter(v=>v.ref!==stale.ref),{ref:stale.ref,at:absentAt}].slice(-10);
       twins=current.current.room.state.seats[seat].twin.filter(c=>c.ref!==placeholders.current.get(event.track.id));
     }
-    const projected=projectObserved(track,twins,existing,entry?cardInfo(catalogCardId(entry)):undefined);
+    // No facts yet (the lookup is slow): keep the zone the camera saw. The zone-rule effect moves a Field Spell, a Trap in a Monster Zone etc. when the facts arrive.
+    const projected=!track.faceDown&&code&&!cardInfo(code)&&!existing?{zone:track.zone,label:''} as ReturnType<typeof projectFieldZone>:projectObserved(track,twins,existing,entry?cardInfo(catalogCardId(entry)):undefined);
     if(!projected.zone){abstain(event,projected.reason??'Choose a legal zone manually.');return;}
     if(tokenClash(event,projected.zone,twins,entry?.name,entry?cardInfo(catalogCardId(entry)):undefined))return;
     const physicalAtSave={zone:track.zone,position:track.position};
@@ -1277,6 +1282,15 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   // Monster Zones. Every other card stays where the camera saw it; an unusual zone
   // is only marked "Check zone?" on the board. Manual moves are left alone.
   const ruleFixes=useRef(new Set<string>()),[factsTick,setFactsTick]=useState(0);
+  // The seat's registered deck loads its card facts as soon as the watcher starts, so the first placement does not wait on a cold lookup.
+  // With no deck list one common card still wakes the route.
+  const warmed=useRef('');
+  useEffect(()=>{
+    const key=`${room.slug}:${seat}`;if(warmed.current===key)return;warmed.current=key;
+    const ids=[...new Set([...deckIdsOf(room,seat),...room.state.seats[seat].twin.map(c=>cardCode(c)??0)])].filter(id=>id>0);
+    void loadCards(ids.length?ids:[46986414]).then(()=>setFactsTick(n=>n+1));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[room.slug,seat]);
   useEffect(()=>{
     if(!live())return;
     const twins=room.state.seats[seat].twin,format=room.format?.id??room.state.deckChecks.format.id;
