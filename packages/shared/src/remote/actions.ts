@@ -93,6 +93,8 @@ export const remoteActionSchema = z.discriminatedUnion("type", [
   z.strictObject({ ...meta, type: z.literal("twin.move"), seat: remoteSeatSchema, zone, cardRef: id, slot: slot.optional(), position: z.enum(["attack", "defense"]).optional(), faceUp: z.boolean().optional(), source: z.literal("auto").optional(), name: z.string().trim().min(1).max(200).optional(),
     /** Fresh public ref for a camera-confirmed face-down return from the hand. */
     setRef: id.optional(),
+    /** The card moved between physical cells, even if its virtual location was already corrected. */
+    physicalZoneChanged: z.literal(true).optional(),
     /** A face-up Pendulum Monster in the Extra Deck is public information (only that card; every other Extra card stays hidden). */
     pendulum: z.boolean().optional(),
     /** The camera or the player chose this destination (not a rule default): the card keeps no field origin. */

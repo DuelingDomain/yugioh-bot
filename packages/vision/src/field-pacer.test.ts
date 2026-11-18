@@ -12,6 +12,9 @@ test('CPU pacing rests one pass between bursts and sustains twenty percent',()=>
  slow.spend(2400,2400);slow.spend(2400,7200);
  assert.equal(slow.check(9600),'budget');
  slow.spend(2400,12_000,false,false);
+ assert.equal(slow.duty(12_000),72);
+ assert.equal(slow.gap(12_000),4800);
+ assert.equal(slow.check(14_399),'rest');
  assert.equal(slow.check(14_400),'ready','a priority pass leaves no additional debt');
 });
 test('CPU worker layout cuts detector threads while preserving the read budget',async()=>{

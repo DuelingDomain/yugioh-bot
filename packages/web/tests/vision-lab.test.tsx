@@ -1050,7 +1050,7 @@ describe('typed watcher zone projection',()=>{
    Object.assign(fixture.track,{lastSeen:removedAt-2400,removed:true,visible:false});
    watch.isRemoved=()=>fixture.track.removed;
    watch.getSnapshot=()=>watch.snapshot;
-   Object.assign(watch.snapshot,{pileTouchedAt:earlierPile?{GY:removedAt-2100}:{},blindZones:earlierPile?['S4']:[],handZones:scenario==='hand over the slot'?['S4']:[],
+   Object.assign(watch.snapshot,{pileTouchedAt:earlierPile?{GY:removedAt-2100}:{},blindZones:[],handZones:scenario==='hand over the slot'?['S4']:[],
     ...(cpu?{status:'budget',lastFullAt:removedAt-2400}:{})});
    fixture.refresh();
    await fixture.emit({type:'removed',removedAt});
@@ -1078,30 +1078,49 @@ describe('typed watcher zone projection',()=>{
    }
   }finally{fixture.dispose();vi.useRealTimers();}
  });
- it.each(['a back in another slot','a back during the pile wait','blind cell without a sleeve'] as const)('does not extend departure for %s',async scenario=>{
-  const old={ref:'real-removal',zone:'spell-trap',slot:4,faceUp:false,position:'attack'};
+ it.each(['a back in another slot','a back during the pile wait','blind cell without a sleeve'] as const)('handles a departure with %s',async scenario=>{
+  const old={ref:'real-removal',zone:'spell-trap',slot:4,cardId:41420027,name:'Solemn Judgment',faceUp:false,publicIdentity:true,position:'attack'};
   const fixture=await typedWatcherFixture(zoneEntries[0],'S4',[old],'moved');
   vi.useFakeTimers();
   try{
-   const removedAt=performance.now(),watch=state.fieldWatch.watch;
-   Object.assign(fixture.track,{lastSeen:removedAt-1500,removed:true,visible:false,faceDown:true});
+   let now=performance.now();
+   vi.spyOn(performance,'now').mockImplementation(()=>now);
+   const advance=(ms:number)=>act(async()=>{now+=ms;await vi.advanceTimersByTimeAsync(ms);});
+   const removedAt=now,watch=state.fieldWatch.watch;
+   Object.assign(fixture.track,{lastSeen:removedAt-1500,removedAt,removed:true,visible:false,faceDown:true});
    watch.isRemoved=()=>fixture.track.removed;
    watch.getSnapshot=()=>watch.snapshot;
    const cross=scenario==='a back in another slot',pile=scenario==='a back during the pile wait';
-   Object.assign(watch.snapshot,{lastFullAt:removedAt+(cross?-100:100),blindZones:['S4'],...(pile?{pileTouchedAt:{GY:removedAt}}:{})});
-   const addBack=()=>fixture.addTrack({id:'cross-slot-back',zone:'S2',state:'candidate',removed:false,firstSeen:removedAt+100,
+   Object.assign(watch.snapshot,{lastFullAt:removedAt-100,blindZones:['S4'],...(pile?{pileTouchedAt:{GY:removedAt}}:{})});
+   const addBack=()=>fixture.addTrack({id:'cross-slot-back',zone:'S2',state:'candidate',removed:false,faceDown:true,cardId:undefined,firstSeen:cross?now:removedAt+100,
      card:{...fixture.track.card,kind:'face-down'}});
-   if(cross)addBack();
    fixture.refresh();
    await fixture.emit({type:'removed',removedAt});
    if(pile){
-    await act(async()=>vi.advanceTimersByTimeAsync(900));
+    await advance(900);
     expect(fixture.post).not.toHaveBeenCalled();
     addBack();
    }
-   await act(async()=>vi.advanceTimersByTimeAsync(pile?300:1000));
+   if(cross){
+    Object.assign(watch.snapshot,{blindZones:[],handZones:['S2'],pileTouchedAt:{GY:removedAt+100},pileContactAt:{}});
+    await advance(2700);
+    const back=addBack();
+    await advance(500);
+    expect(fixture.post).not.toHaveBeenCalled();
+    Object.assign(back,{state:'identified',visible:true,lastSeen:now});
+    await fixture.emit({type:'placed',track:{...back}});
+    await advance(8000);
+    expect(fixture.post).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({type:'twin.move',cardRef:old.ref,zone:'spell-trap',slot:2,faceUp:false}),expect.anything());
+    expect(fixture.room().state.seats[0].twin).toEqual([expect.objectContaining({ref:old.ref,slot:2,name:old.name,faceUp:false})]);
+    const {projectRemoteState}=await import('@yugidraft/shared/remote');
+    const publicCard=projectRemoteState(fixture.room().state,new Set([1])).seats[0].twin[0];
+    expect(publicCard).not.toHaveProperty('name');
+    expect(publicCard).not.toHaveProperty('cardId');
+    return;
+   }
+   await advance(pile?1300:800);
    expect(fixture.post).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({type:'twin.move',cardRef:old.ref,zone:'hand'}),expect.anything());
-  }finally{fixture.dispose();vi.useRealTimers();}
+  }finally{fixture.dispose();vi.mocked(performance.now).mockRestore();vi.useRealTimers();}
  });
  it.each(['recent','stale removal','held read','pile read','manual departure'] as const)('checks a committed Hand-to-Set return against its removal and later sightings: %s',async scenario=>{
   const old={ref:'rebound-set',zone:'hand',cardId:41420027,name:'Solemn Judgment',faceUp:true,position:'attack',publicIdentity:true,

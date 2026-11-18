@@ -1180,14 +1180,21 @@ it('a Set back where a known card just left is that card, never a duplicate; a p
   }finally{g.r.dispose();}
 });
 
-it('a Set card slid to another zone is one move of the same unnamed card; a named card or a second Set is not',async()=>{
-  const {fieldSetReturn}=await import('../src/lib/remote/field-proposals');
+it('a Set card slid to another zone keeps its ref unless the transfer is ambiguous or another destination was seen',async()=>{
+  const {fieldSetReturn,fieldSetSlide}=await import('../src/lib/remote/field-proposals');
   const g=await setBackRig(true,false);
   try{
     const before=g.game().seats[0];
     const {now,at}={now:g.r.state.at,at:103_000};
     const evidence={track:g.back,tracks:g.tracks(),owns:g.owns,events:[],seat:0,now,at};
-    expect(fieldSetReturn({...evidence,twins:before.twin})).toMatchObject({kind:'move',card:{ref:g.first.track.id}});
+    const slide={...evidence,twins:before.twin.map(c=>({...c,faceUp:true,name:'Terraforming',cardId:100})),
+      zoneOf:()=> 'M3' as const,seenOffField:()=>false};
+    expect(fieldSetSlide(slide)).toMatchObject({card:{ref:g.first.track.id,name:'Terraforming'}});
+    const samePass=slide.tracks.map(t=>t.id===g.first.track.id?{...t,removedAt:g.back.firstSeen+200,removedFrameAt:g.back.firstSeen}:t);
+    expect(fieldSetSlide({...slide,tracks:samePass})?.card.ref).toBe(g.first.track.id);
+    expect(fieldSetSlide({...slide,pileTouched:{GY:g.removal.removedAt!}})).toBeUndefined();
+    expect(fieldSetSlide({...slide,seenOffField:()=>true})).toBeUndefined();
+    expect(fieldSetSlide({...slide,tracks:[...slide.tracks,{...g.back,id:'other',zone:'M5'}]})).toBeUndefined();
     g.act({type:'twin.move',source:'auto',cardRef:g.first.track.id,zone:'hand'},100_000);
     const input={...evidence,twins:g.game().seats[0].twin};
     const found=fieldSetReturn(input);

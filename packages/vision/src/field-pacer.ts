@@ -9,7 +9,7 @@ export interface FieldPacerDevice { cores:number; memoryGb?:number }
 export interface FieldPacer {
   /** A pass may start unless it is resting or out of detector time. Moving hands wait longer to save time for when the card lands. */
   check(at:number,moving?:boolean,sceneMoving?:boolean):'ready'|'rest'|'budget';
-  /** A detector pass ended at `at`. A priority pass can spend available tokens without adding debt. */
+  /** Every detector pass records wall time and rest. Priority passes can spend available tokens without adding debt. */
   spend(wallMs:number,at:number,sceneMoving?:boolean,allowDebt?:boolean):void;
   /** The scene changed at `at`: retries after a change come sooner than the slow timer. */
   changed(at:number):void;

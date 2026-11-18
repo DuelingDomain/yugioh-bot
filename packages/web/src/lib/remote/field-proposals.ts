@@ -182,6 +182,39 @@ export async function applyFieldFaceFlip(track:FieldTrack,current:()=>FieldTrack
 
 const MAIN_FIELD_SLOT=/^[MS][1-5]$/;
 type RemovedFieldTrack=FieldTrack&{removedAt:number};
+export const FIELD_SET_SLIDE_MS=3000;
+export const fieldBackCandidate=(track:FieldTrack)=>!track.removed&&track.state!=='dismissed'&&
+  (track.faceDown||track.state==='candidate'&&track.card.kind==='face-down')&&!track.card.partial&&!track.card.covered;
+
+/** The last field ref can follow one new back while the departure is still pending. */
+export function fieldSetSlide({track,twins,tracks,owns,zoneOf,now,pileTouched,seenOffField}:{
+  track:FieldTrack;twins:readonly TwinCard[];tracks:readonly FieldTrack[];owns:(track:FieldTrack)=>string;
+  zoneOf:(card:TwinCard)=>FieldTrack['zone']|undefined;now:number;pileTouched?:Partial<Record<'GY'|'BANISHED',number>>;
+  seenOffField:(card:TwinCard,removedAt:number)=>boolean;
+}):{card:TwinCard;from:RemovedFieldTrack}|undefined {
+  if(!fieldBackCandidate(track)||!MAIN_FIELD_SLOT.test(track.zone))return;
+  const {zone:destination,slot}=fieldZoneLocation(track.zone);
+  if(twins.some(c=>c.ref===owns(track)))return;
+  const occupant=twins.find(c=>c.zone===destination&&c.slot===slot);
+  const sources=twins.flatMap(card=>{
+    const zone=zoneOf(card);
+    if(occupant&&occupant!==card||card.token||card.ownerSeat!==undefined||card.materials?.length||!zone||zone===track.zone||!MAIN_FIELD_SLOT.test(zone))return [];
+    const owned=tracks.filter(t=>owns(t)===card.ref);
+    if(owned.some(t=>!t.removed))return [];
+    const from=owned.find((t):t is RemovedFieldTrack=>t.removed&&t.zone===zone&&t.removedAt!==undefined);
+    if(!from)return [];
+    const since=from.removedFrameAt??from.removedAt;
+    if(track.firstSeen<since||track.firstSeen-from.removedAt>FIELD_SET_SLIDE_MS||
+      now-from.removedAt>FIELD_SET_RETURN_MS||seenOffField(card,since))return [];
+    if(Object.values(pileTouched??{}).some(at=>at>=since)||
+      tracks.some(t=>/^(GY|BANISHED)$/.test(t.zone)&&t.firstSeen>=since))return [];
+    if(tracks.some(t=>t.id!==track.id&&MAIN_FIELD_SLOT.test(t.zone)&&t.zone!==from.zone&&fieldBackCandidate(t)&&
+      t.firstSeen>=since&&t.firstSeen-from.removedAt<=FIELD_SET_SLIDE_MS&&!twins.some(c=>c.ref===owns(t))))return [];
+    return [{card,from}];
+  });
+  if(sources.length===1)return sources[0];
+}
+
 /** A Set can reclaim a missing card only while the physical removal is recent. */
 export function fieldSetReturn({track,twins,tracks,owns,events,seat,at,now,pileTouched,seenOffField}:{track:Pick<FieldTrack,'id'|'zone'|'faceDown'|'firstSeen'|'lastSeen'|'setEvidence'>;twins:readonly TwinCard[];tracks:readonly FieldTrack[];owns:(track:FieldTrack)=>string;events:readonly Pick<RemoteEvent,'at'|'action'>[];seat:number;/** Server clock. */at:number;/** Watcher clock. */now:number;pileTouched?:Partial<Record<'GY'|'BANISHED',number>>;seenOffField?:(card:TwinCard,removedAt:number)=>boolean}):{kind:'flip'|'return'|'move';card:TwinCard}|undefined {
   if(!track.faceDown||!MAIN_FIELD_SLOT.test(track.zone))return;
@@ -217,13 +250,13 @@ export function fieldSetReturn({track,twins,tracks,owns,events,seat,at,now,pileT
     const from=origin(returned);
     return from&&inPlace(from)&&!sized(returned,returned.departedFrom!.at!)?{kind:'return',card:returned}:undefined;
   }
-  // A single new Set and a single unnamed Set leaving another cell of the row can be a slide.
+  // Legacy recovery for an unnamed Set the camera already sent to the hand.
   const arrivals=tracks.filter(t=>t.faceDown&&!t.removed&&t.visible&&MAIN_FIELD_SLOT.test(t.zone)&&fieldZoneLocation(t.zone).zone===cell.zone&&!twins.some(c=>c.ref===owns(t)));
   if(arrivals.length!==1||arrivals[0].id!==track.id)return;
   const sources=departed.filter(c=>{
     if(c.faceUp||c.cardId||c.passcode||c.name)return false;
     const hand=handOrigin(c);
-    if(hand&&twins.some(other=>other.zone===hand.zone&&(other.slot??0)===(hand.slot??0)))return false;
+    if(!hand||twins.some(other=>other.zone===hand.zone&&(other.slot??0)===(hand.slot??0)))return false;
     const from=origin(c);
     return from&&from.zone!==track.zone&&Math.abs(track.firstSeen-from.removedAt)<=REMOTE_TWIN_MOVE_WINDOW_MS&&
       !sized(c,at-(now-from.removedAt));

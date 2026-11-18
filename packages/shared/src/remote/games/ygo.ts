@@ -391,7 +391,7 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
       // The camera seeing a card turned face-down makes it a plain Set for the opponent. Earlier face-down flips carry no source, so replays stay the same.
       const cameraSet = action.type === "twin.flip" && !action.faceUp && action.source === "auto";
       const settingInPlace = action.type === "twin.flip" ? !action.faceUp : action.type === "twin.move" &&
-        action.faceUp === false && action.zone === card.zone && (action.slot ?? card.slot) === card.slot;
+        action.faceUp === false && action.zone === card.zone && (action.slot ?? card.slot) === card.slot && !action.physicalZoneChanged;
       if (fieldFaceState && settingInPlace && !cameraSet && remoteFieldZone(card.zone) && remotePublicCard(card) && (card.cardId || card.passcode)) card.publicIdentity = true;
       if (action.type === "twin.move") {
         validZone(action.zone);
@@ -412,7 +412,8 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
         // GY and banished keep their order in the twin list (oldest first), so a card that enters goes to the end.
         if (enteringPile(card.zone, action.zone)) { s.twin = s.twin.filter(c => c !== card); s.twin.push(card); }
         card.zone = action.zone;
-        if(action.setRef || (fieldFaceState?["hand","deck","extra"]:["deck","extra"]).includes(card.zone)) delete card.publicIdentity;
+        if(action.setRef || action.physicalZoneChanged && (action.faceUp ?? card.faceUp) === false ||
+          (fieldFaceState?["hand","deck","extra"]:["deck","extra"]).includes(card.zone)) delete card.publicIdentity;
         if(action.setRef)delete card.setBy;
         if (action.position !== undefined) card.position = action.position;
         const faceUpBefore = card.faceUp !== false;
