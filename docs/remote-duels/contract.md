@@ -273,7 +273,7 @@ Socket.IO uses the existing ws process and `NEXT_PUBLIC_WS_URL` (or same origin 
 
 The MVP follows the existing single-WS-process room pattern. It does not add a Redis adapter; multiple WS instances require the deployment's shared room/pubsub adapter before scaling out.
 
-The signed-in camera setting also offers the opt-in [hybrid card reader](hybrid-reader.md); Current remains the default.
+The signed-in camera setting also offers the opt-in [hybrid card reader](hybrid-reader.md) to users listed in `REMOTE_HYBRID_READER_USERS` only; Current remains the default and the only reader for everyone else.
 
 ## Recognition data messages
 

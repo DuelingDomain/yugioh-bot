@@ -1,8 +1,14 @@
 # Hybrid card reader
 
-Remote Duels has two device-local readers: **Current** (the default) and **Hybrid**. The switch is inside the signed-in camera settings in the lobby and at a running table. It restarts the reader and watcher through the existing processor-switch lifecycle; the table, camera and saved board stay open. Nothing opts an existing user into Hybrid.
+Remote Duels has two device-local readers: **Current** (the default) and **Hybrid**. Hybrid is limited to named users: it has known problems (phantom Set cards, held-card placement), so on production only listed users may use it. The switch is inside the signed-in camera settings in the lobby and at a running table. It restarts the reader and watcher through the existing processor-switch lifecycle; the table, camera and saved board stay open. Nothing opts an existing user into Hybrid.
 
-Choose **Card reader → Hybrid**, or append `?visionReader=hybrid` to the actual table URL (`&visionReader=hybrid` when it already has a query). On localhost this is `http://localhost:3000/duels/remote/<slug>?visionReader=hybrid`; the same parameter works on the production app origin. `visionReader=current` forces the default for that page. The UI choice is saved as `dd-remote-card-reader` in localStorage, alongside the existing `dd-remote-recognition-mode` setting. The query overrides storage at page initialization; remove it before testing saved choices after a reload. The processor selector still controls the unchanged detector and the current compatibility reader.
+## Who gets Hybrid
+
+`REMOTE_HYBRID_READER_USERS` is a **web server runtime** list of comma-separated database `users.id` values, with the same rules as `REMOTE_UNSURE_NAMES_USERS`. Empty/unset is OFF for everyone. `*` grants nobody. IDs must match exactly (`0101` and `101x` do not grant 101). Remote Duels access and a seated, non-spectator viewer are also required. Example: `REMOTE_HYBRID_READER_USERS=2` gives only user 2 the switch. There is no public build variable and no development default: **local runs must set the variable too** (for example `REMOTE_HYBRID_READER_USERS=<your users.id>` in the web env), even under `next dev`.
+
+`docker-compose.yml` forwards `${REMOTE_HYBRID_READER_USERS:-}` to `web` with an empty default. `remoteRoomForViewer` in `lib/remote-duels.ts` reads the list on the server and adds one boolean, `hybridReaderEnabled`, to the room the viewer gets (private socket snapshots keep it). The table page passes that boolean to the recognition store (`setHybridReaderAllowed`); the page never reads an env. For a viewer without it: the Card reader switch is not shown, a saved `dd-remote-card-reader` choice and `?visionReader=hybrid` are ignored (Current is used; the saved choice is not deleted), and no hybrid file is requested. The gate is client-side for the reader choice. The files under `/dev/vision-assets/hybrid/*` sit behind the same sign-in and Remote Duels rollout check as every other vision asset, not behind this list. To stop Hybrid for everyone: empty the variable and recreate `web`.
+
+Choose **Card reader → Hybrid**, or append `?visionReader=hybrid` to the actual table URL (`&visionReader=hybrid` when it already has a query). On localhost this is `http://localhost:3000/duels/remote/<slug>?visionReader=hybrid`; the same parameter works on the production app origin. `visionReader=current` forces the default for that page. Both ways work only for a listed user. The UI choice is saved as `dd-remote-card-reader` in localStorage, alongside the existing `dd-remote-recognition-mode` setting. The query overrides storage at page initialization; remove it before testing saved choices after a reload. The processor selector still controls the unchanged detector and the current compatibility reader.
 
 ## Name read and product rules
 
@@ -60,7 +66,7 @@ chown -R 1000:1000 data/vision/hybrid
 chmod -R a+rX data/vision/hybrid
 ```
 
-A new image carries `/app/vision-code/worker.js` and matching `ort/`; the authenticated `/dev/vision-assets/hybrid/*` route reads the volume. No Compose env/build-argument change, new public route, API provider, database migration, or default-reader change is needed. A browser choosing Hybrid before the data copy gets the visible Current fallback. Reload/switch after data installation. No deployment or remote copy was performed for this change.
+A new image carries `/app/vision-code/worker.js` and matching `ort/`; the authenticated `/dev/vision-assets/hybrid/*` route reads the volume. The only env change is the `REMOTE_HYBRID_READER_USERS` pass-through above; no build-argument change, new public route, API provider, database migration, or default-reader change is needed. A browser choosing Hybrid before the data copy gets the visible Current fallback. Reload/switch after data installation. No deployment or remote copy was performed for this change.
 
 ## Sources, licenses and SHA-256
 
