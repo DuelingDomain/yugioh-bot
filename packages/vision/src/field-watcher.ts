@@ -514,6 +514,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         fresh:DetectedQuad=pile?{quad,kind:'face-down',confidence:.3,partial:false,pile:true,blind:true}:{quad,kind:'face-down',confidence:.3,partial:false,cell:true,blind:true};
       // The same sleeve keeps one outline (pixel edges jitter by a pixel or two).
       // A still deck box or card case is flat and edged too: only about one card in shape counts.
+      // Visual only: a plain deck box (about .74 ratio) can still pass this card-aspect check.
       if(!cardAspect(fresh)){hold();continue;}
       blindMisses.delete(zone);
       const shape=old&&quadIou(old,fresh)>=.8?old:fresh;blindShape.set(zone,shape);out.push(structuredClone(shape));
@@ -914,7 +915,8 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       // elsewhere never sees them): the spot still shows the pile, or a hand or arm is over it. Only a long absence
       // of both (or Scan field) takes a pile off the board.
       for(const [zone,pile] of piles){
-        if(sameFieldAppearance(pile.look,evidence.appearance?.(pile.card))||handNear(evidence,pile.card)||evidence.motion(pile.card)>.025||removalHold(pile.card))pile.keptAt=sample.at;
+        // A pile made from pixels alone is not kept by a look that merely absorbs a light shift once its cell reads as the empty mat.
+        if(sameFieldAppearance(pile.look,evidence.appearance?.(pile.card))&&!(pile.card.blind&&cellEmpty(evidence,zone))||handNear(evidence,pile.card)||evidence.motion(pile.card)>.025||removalHold(pile.card))pile.keptAt=sample.at;
         else if(sample.at-pile.keptAt>PILE_GONE_MS)piles.delete(zone);
       }
       const difference=evidence.motionRegion,localizedDifference=!!difference&&difference.w*difference.h>=.001&&difference.w*difference.h<=.35;
@@ -1368,7 +1370,8 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
           if(e?.look.length&&tracks.some(t=>!t.view.removed&&t.view.zone===zone&&t.view.state==='identified'&&matched.has(t)&&!!t.rest?.ok)&&sameFieldAppearance(e.look,look)&&medianGap(centreLook(e.look),centreLook(look))<PILE_SLEEVE_GAP){emptyLooks.delete(zone);continue;}
           const occupied=boxes.some(c=>overlapFraction(boundsOf(c.quad),b)>=.2)||tracks.some(t=>!t.view.removed&&(t.view.zone===zone||overlapFraction(boundsOf(t.view.card.quad),b)>=.2))||
             known.some(k=>k.zone===zone)||deckZone(zone as FieldZone)&&piles.has(zone as 'DECK'|'EXTRA');
-          if(occupied||!look?.length||blurHold||evidence.motion(box)>.01||removalHold(box)||handNear(evidence,box)){if(e){e.pending=undefined;e.passes=0;}continue;}
+          // A Deck/Extra baseline is learned only while the cell looks like the mat ring around it: a stack the detector never boxed must not become the "empty mat" (it would then read as an empty cell the moment it leaves).
+          if(occupied||!look?.length||blurHold||evidence.motion(box)>.01||removalHold(box)||handNear(evidence,box)||deckZone(zone as FieldZone)&&sleeveOnMat(look,evidence.halo?.(box))){if(e){e.pending=undefined;e.passes=0;}continue;}
           // A learned Spell/Trap, Deck or Extra baseline stays while the cell shows something far from it: a flat sleeve the detector cannot see must not become the new "empty mat".
           // It lets go once the cell has stayed unlike the mat for more full scans than a sleeve needs to be outlined without being found: then it was a light change, not a sleeve.
           if(e?.look.length&&/^(S[1-5]|DECK|EXTRA)$/.test(zone)&&unlikeMat(e,look,evidence.halo?.(box))&&(blindShape.has(zone)||(blindScans.get(zone)??0)<SET_STEADY_SCANS+2)){e.pending=undefined;e.passes=0;continue;}
