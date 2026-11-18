@@ -5,6 +5,23 @@ import {searchCandidates} from './search-candidates.js';
 import { remoteFieldZone } from './twin-placement.js';
 import type { RemoteKnownHandCard, RemoteState } from './types.js';
 
+/** A face-down card keeps its identity for its owner while another player controls it (the controller never sees it). */
+export function restoreOwnerIdentity(card: TwinCard): void {
+  const kept = card.ownerIdentity; delete card.ownerIdentity;
+  if (kept && !card.cardId && !card.passcode && !card.name) Object.assign(card, kept);
+}
+/** A player is out: the cards their living owners gave them go home to the owner's Graveyard with their identity. The caller then clears the field. */
+export function sendGivenCardsHome(state: RemoteState, out: RemoteState["seats"][number]): void {
+  for (const card of out.twin) {
+    const owner = card.ownerSeat !== undefined && card.ownerSeat !== out.seat && !card.token ? state.seats[card.ownerSeat] : undefined;
+    if (!owner || owner.eliminated || owner.twin.some(c => c.ref === card.ref)) continue;
+    delete card.ownerSeat; restoreOwnerIdentity(card);
+    for (const key of ["slot", "trapZone", "equippedTo", "departedFrom", "materialOf", "materials", "position", "publicIdentity", "pendulumUp"] as const) delete card[key];
+    card.zone = "graveyard"; card.faceUp = true;
+    owner.twin.push(card);
+  }
+}
+
 /** Shared physical exit for hand.add and pile.lift. */
 export function moveRemoteCardToHand(card: TwinCard): void {
   delete card.slot; delete card.departedFrom; delete card.publicIdentity;

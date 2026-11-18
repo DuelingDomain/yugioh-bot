@@ -4301,6 +4301,13 @@ it('gives a card to an opponent as a proxy: the owner keeps it, the camera never
   expect(holderOut.seats[0].twin.find(card => card.ref === 'kaiju')).toMatchObject({ zone: 'graveyard', faceUp: true, cardId: 14558127 });
   expect(holderOut.seats[0].twin.find(card => card.ref === 'kaiju')).not.toHaveProperty('ownerSeat');
   expect(holderOut.seats[0].twin.find(card => card.ref === 'kaiju')).not.toHaveProperty('ownerIdentity');
+  // Tournament: an accepted LP declaration eliminates through the match flow and sends the proxy home too.
+  let lpOut = ygoModule.initialState({ seatCount: 4, bestOf: 1, tournament: true });
+  for (const [actorSeat, input] of [[0, { type: 'twin.place', seat: 2, zone: 'monster', give: true, card: kaiju }], [0, { type: 'lp.change', seat: 2, delta: -8000, reason: 'damage' }]] as [number, Record<string, unknown>][])
+    lpOut = ygoModule.reduce(lpOut, remoteActionSchema.parse({ actorSeat, idempotencyKey: 'lp-out-' + (++n), at: n, ...input }));
+  lpOut = ygoModule.reduce(lpOut, remoteActionSchema.parse({ type: 'match.confirm', actorSeat: 2, declarationId: lpOut.match.pendingResult!.id, accept: true, idempotencyKey: 'lp-out-' + (++n), at: n }));
+  expect(lpOut.seats[2]).toMatchObject({ eliminated: true, twin: [] });
+  expect(lpOut.seats[0].twin.find(card => card.ref === 'kaiju')).toMatchObject({ zone: 'graveyard', faceUp: true, cardId: 14558127 });
   // Owner out: the proxy stays like a token. The holder removes it, and a send to a pile only removes it (never the holder's Graveyard). A foreign token whose maker is out stays too.
   const ownerOut = game([[0, { type: 'twin.place', seat: 1, zone: 'monster', give: true, card: kaiju }], [0, { type: 'twin.place', seat: 1, zone: 'monster', give: true, card: { ...kaiju, ref: 'kaiju-b', slot: 3 } }],
     [0, { type: 'twin.place', seat: 1, zone: 'monster', card: sheep('sheep', 4) }], [0, { type: 'player.concede' }]]);

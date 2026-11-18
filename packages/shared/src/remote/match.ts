@@ -2,7 +2,7 @@ import { cloneRemoteCurrent } from "./position.js";
 import type { DuelDeck } from "../duels/index.js";
 import { remoteAssert, type RemoteAction } from "./actions.js";
 import { initialDeckChecks, type RemoteReductionContext } from "./deck-checks.js";
-import { initializeRemoteHandCounts } from "./hand.js";
+import { initializeRemoteHandCounts, sendGivenCardsHome } from "./hand.js";
 import { REMOTE_FIRST_CHOICE_MS, REMOTE_OPENING_ROUND_MS, REMOTE_SIDE_DECK_MS, REMOTE_SIDE_MS, REMOTE_SIDE_START_MS, remoteBestOfSchema, remoteMatchActionSchema,
   type RemoteGameResult, type RemoteMatch, type RemoteOpening, type RemoteSiding } from "./match-contract.js";
 import type { GameModule, RemoteState } from "./types.js";
@@ -200,7 +200,9 @@ export function reduceRemoteMatch(state: RemoteState, input: RemoteAction, initi
       if (!action.accept) return next;
       const loser = next.seats[pending.lpSeat];
       remoteAssert(!loser.eliminated && loser.resources.lp === 0, "LP declaration is no longer valid", 409);
-      loser.eliminated = true; loser.twin = [];
+      loser.eliminated = true;
+      if (!context?.replay || context.givenCards === 1) sendGivenCardsHome(next, loser);
+      loser.twin = [];
       if (next.attack && [next.attack.attackerSeat, next.attack.targetSeat].includes(loser.seat)) next.attack = null;
       const living = next.seats.filter(s => !s.eliminated);
       if (living.length <= 1) finishRemoteGame(next, living[0]?.seat ?? null, "lp", at);
