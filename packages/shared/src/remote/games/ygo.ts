@@ -359,10 +359,7 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
         const slot = action.slot ?? (card.zone === action.zone ? card.slot : undefined);
         freeSlot(s, action.zone, slot, card.ref);
         if (fieldFaceVersion === 2 && (card.zone !== action.zone || card.slot !== slot || action.physicalZoneChanged)) {
-          // Only a camera-tracked move of an already face-down card between field cells keeps its identity.
-          const trackedSet = action.source === "auto" && !action.confirmed && !action.zoneRule && !card.faceUp &&
-            remoteFieldZone(card.zone) && remoteFieldZone(action.zone);
-          if (((action.faceUp ?? card.faceUp) === false && !trackedSet) || (card.knownFaceDown && !remoteFieldZone(action.zone))) delete card.publicIdentity;
+          if ((action.faceUp ?? card.faceUp) === false || (card.knownFaceDown && !remoteFieldZone(action.zone))) delete card.publicIdentity;
         }
         // Guard 6: a card the camera sends from the field to a pile or the Extra Deck keeps its field origin too, so a card put back
         // (or taken as a summon material) is the same copy, not a duplicate.

@@ -263,9 +263,10 @@ export function HoloField({ seat, name, twin, info, extraZones, facing, rv, onRv
           const hasIdentity = !!(cardCode(card) || (card.publicIdentity && card.name));
           const publicSetBy = hasIdentity && card.publicIdentity && card.setBy;
           const origin=publicSetBy ? `Set from Deck by ${publicSetBy.name}: ${cardName(card,cardInfo)}` : card.setBy ? `Set by ${card.setBy.name}` : "";
-          desc = `Face-down${card.bestMatch && cardCode(card)?" · Best match":""}${card.publicIdentity && hasIdentity && !card.setBy ? " · Revealed" : ""}${origin ? " · "+origin : ""}${hasIdentity && !publicSetBy ? " · "+cardName(card,cardInfo) : ""}`;
+          const publicLabel = card.knownFaceDown ? "Set (known)" : card.publicIdentity && !origin ? "Revealed" : "";
+          desc = `Face-down${card.bestMatch && cardCode(card)?" · Best match":""}${publicLabel && hasIdentity ? " · "+publicLabel : ""}${origin ? " · "+origin : ""}${hasIdentity && !publicSetBy ? " · "+cardName(card,cardInfo) : ""}`;
           inner = <>{cardCode(card) ? <div className={s.knownDown}><CardFace card={card} info={cardInfo} /></div> : <div className={`${s.cd} ${s.back}`} />}
-            <span className={`${s.originLabel} ${!origin&&card.publicIdentity?s.revealedChip:""}`} data-testid={!origin&&card.publicIdentity?"revealed-chip":undefined}>{origin || (card.publicIdentity?"Revealed":"Face-down")}</span></>;
+            <span className={`${s.originLabel} ${publicLabel?s.revealedChip:""}`} data-testid={publicLabel?"revealed-chip":undefined}>{publicLabel || origin || "Face-down"}</span></>;
         }
         else if (card) {
           const stats = statsOf(card, cardInfo);
