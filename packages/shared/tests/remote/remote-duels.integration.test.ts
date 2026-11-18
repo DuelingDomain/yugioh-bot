@@ -4188,7 +4188,7 @@ it('lets a seated player put a token on another field: the creator and that fiel
   s.service.join(s.room.slug, 'g', s.users[1], 'Opponent', 1, 2001);
   s.service.ready(s.room.slug, 'g', s.users[1], true, 2002); s.start();
   const [a, b, outsider] = s.users; let n = 0;
-  const send = (user: string, actorSeat: number, input: Record<string, unknown>) => s.service.act(s.room.slug, 'g', user, { baseSeq: s.service.get(s.room.slug, 'g', a).lastSeq,
+  const send = (user: number, actorSeat: number, input: Record<string, unknown>) => s.service.act(s.room.slug, 'g', user, { baseSeq: s.service.get(s.room.slug, 'g', a).lastSeq,
     action: remoteActionSchema.parse({ actorSeat, idempotencyKey: 'foreign-' + (++n), ...input }) }, 2200 + n);
   const theirs = () => s.service.get(s.room.slug, 'g', b).state.seats[1].twin.find(c => c.ref === 'primal');
   const token = { ref: 'primal', name: 'Primal Being Token', slot: 3, faceUp: true, position: 'attack', token: { atk: 2000, def: 2000 } };
