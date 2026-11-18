@@ -1,6 +1,7 @@
 import { applyPatch, type RemoteActionProposal, type RemoteRoom, type RoomPatch } from '@yugidraft/shared/remote';
 import { adoptManualCorrection, beginManualCorrection, cameraCorrectionBlocked } from './manual-corrections';
 import { rememberRecentRead } from './recent-reads';
+import { OutageGaveUpError, retryThroughOutage, SKIPPED } from './outage';
 export type RoomMutation = (proposal:RemoteActionProposal,idempotencyKey?:string)=>Promise<RemoteRoom|null>;
 /** The server's last refusal text for a table action, for notices and the Debug view. */
 let lastActionError:{message:string;at:number}|undefined;
@@ -14,15 +15,20 @@ export const remoteActionError=()=>lastActionError;
 export const remoteChangeNeedsFetch=(heldSeq:number,announcedSeq:number)=>announcedSeq>heldSeq;
 export type RoomTransaction = <T>(work:(room:RemoteRoom,act:RoomMutation)=>Promise<T>)=>Promise<T>;
 /** Manual reads, prompts and watcher changes share one queue and returned state. */
-export function createRoomMutationQueue(read:()=>RemoteRoom|undefined,post:RoomMutation) {
+export function createRoomMutationQueue(read:()=>RemoteRoom|undefined,post:RoomMutation,giveUp?:(error:Error)=>void) {
   let chain:Promise<unknown>=Promise.resolve(),writes:Promise<unknown>=Promise.resolve(),latest:RemoteRoom|undefined;
   const current=()=>{const rendered=read();if(rendered&&(!latest||rendered.lastSeq>=latest.lastSeq))latest=rendered;return latest;};
   // A transaction can start more than one write before awaiting either. Choose
   // baseSeq in post only after the preceding response has updated the room ref.
-  const write=(proposal:RemoteActionProposal,idempotencyKey?:string,prepared?:()=>void)=>{
+  // `patient`: a player's own action. A lost connection retries it with the SAME key (the server returns the saved result for a key it has
+  // seen, so a lost reply never applies it twice) until the outage window ends. Field writes retry in retryFieldMutation, which also checks valid().
+  const write=(proposal:RemoteActionProposal,idempotencyKey?:string,prepared?:()=>void,patient=false)=>{
     const room=current(),rollback=prepared??(room?beginManualCorrection(room,proposal):()=>{});
     const result=writes.then(async()=>{const now=current();if(now&&cameraCorrectionBlocked(now,proposal))return null;
-      try{const updated=await post(proposal,idempotencyKey);if(updated){adoptManualCorrection(updated,proposal);rememberRecentRead(updated,proposal);if(!latest||updated.lastSeq>=latest.lastSeq)latest=updated;}else rollback();return updated;}
+      try{let updated:RemoteRoom|null=null;
+        if(patient){try{const kept=await retryThroughOutage(()=>post(proposal,idempotencyKey));updated=kept===SKIPPED?null:kept;}catch(error){if(!(error instanceof OutageGaveUpError))throw error;giveUp?.(new Error('Could not reach the table. Check the connection and try again.'));}}
+        else updated=await post(proposal,idempotencyKey);
+        if(updated){adoptManualCorrection(updated,proposal);rememberRecentRead(updated,proposal);if(!latest||updated.lastSeq>=latest.lastSeq)latest=updated;}else rollback();return updated;}
       catch(error){rollback();throw error;}
     });
     writes=result.catch(()=>undefined);return result;
@@ -34,7 +40,9 @@ export function createRoomMutationQueue(read:()=>RemoteRoom|undefined,post:RoomM
   };
   return {transaction,action:(proposal:RemoteActionProposal,idempotencyKey?:string)=>{
     const room=current(),rollback=room?beginManualCorrection(room,proposal):()=>{};
-    return transaction(()=>write(proposal,idempotencyKey,rollback));
+    // One key for the whole call, so every retry through an outage is the same write.
+    const key=idempotencyKey??crypto.randomUUID();
+    return transaction(()=>write(proposal,key,rollback,true));
   }};
 }
 

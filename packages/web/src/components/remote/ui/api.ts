@@ -1,4 +1,5 @@
 import {markFieldAction} from '@/lib/remote/field-timing';
+import {isGatewayStatus,isTransientError,noteOutage,noteReachable} from '@/lib/remote/outage';
 /** Server clock minus browser clock, from the HTTP Date header (whole seconds, so it leans to the later second). */
 let clockSkew = 0;
 /** Best guess of the server time now. Used for the undo window, which the server measures with its own clock. */
@@ -15,13 +16,17 @@ export async function remoteApi<T>(path: string, body?: unknown): Promise<T> {
     }) });
     const actionId=(body as {action?:{idempotencyKey?:string}}|undefined)?.action?.idempotencyKey;
     if(actionId)markFieldAction(actionId,'httpResponse',{serverTiming:response.headers.get('server-timing')});
+    // A restarting server answers 502/503/504 with a gateway page, not JSON: treat it like a lost connection.
+    if(isGatewayStatus(response.status))throw Object.assign(new Error(`Server not reachable (${response.status})`),{status:response.status,transient:true});
     const date = Date.parse(response.headers.get("date") ?? "");
     if (Number.isFinite(date)) clockSkew = date + 999 - Date.now();
+    noteReachable();
     const data = await response.json();
     if (!response.ok) throw Object.assign(new Error(data.error ?? "Could not update the table"), { status: response.status, code: data.code as string | undefined });
     return data;
   } catch(error) {
-    if(signal.aborted)throw new Error('Table request timed out after 10 seconds. Try again.');
+    if(signal.aborted){noteOutage(error);throw Object.assign(new Error('Table request timed out after 10 seconds. Try again.'),{transient:true});}
+    if(isTransientError(error))noteOutage(error);
     throw error;
   }
 }

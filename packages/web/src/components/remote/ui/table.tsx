@@ -216,6 +216,8 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
   }, [ctl, ctl.error, toast, overlayUp]);
   useEffect(() => { setOverlayError(null); }, [match.phase, match.games.length]);
   useEffect(() => { if (hub.error) toast(hub.error, 4200); }, [hub.error, toast]);
+  // One calm notice while the server is out of reach (a restart): writes retry by themselves, so nothing else is shown.
+  const toastItems = useMemo(() => ctl.reconnecting ? [...toasts, { id: -1, text: "Reconnecting…" }] : toasts, [toasts, ctl.reconnecting]);
   // A webcam player whose lobby preview worked gets the table camera without another click.
   const handoff = useRef(false);
   useEffect(() => {
@@ -1642,7 +1644,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     {tokens.node}
     {control.node}
     {/* A drawer or pile covers the stack, so a toast leaves it and stays readable. */}
-    <Toasts items={toasts} dock={layers.layer && layers.layer !== "card" && layers.layer !== "tray" ? null : seatDocks[mySeat] ?? null} top={layers.layer === "pile"} />
+    <Toasts items={toastItems} dock={layers.layer && layers.layer !== "card" && layers.layer !== "tray" ? null : seatDocks[mySeat] ?? null} top={layers.layer === "pile"} />
     <HandActivation events={room.events} name={name} />
     <RemoteFx state={state} webcamOnly={webcamOnly} seq={room.lastSeq} last={room.events.find(event => event.seq === room.lastSeq)?.action} />
   </div></FeedCardsProvider>;
