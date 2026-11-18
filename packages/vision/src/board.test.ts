@@ -510,6 +510,17 @@ test('a flat plain sleeve the detector never boxes is placed as a Set from its p
     if(withSleeve){assert.equal(placed.length,1,'the flat sleeve is placed');assert.equal(placed[0].track.zone,'S4');assert.equal(placed[0].track.faceDown,true);}else assert.equal(placed.length,0,'bare mat is never a Set');
     r.watcher.dispose();
   }
+  // A light step (+25/255 on the mat and its ring) is not a sleeve: the baseline follows it, so a Set lifted after the step is removed and bare mat is never placed.
+  const lit=fieldRig('sure',20,undefined,{width:160,height:90}),step=25/255,run=async(n:number)=>{for(let i=0;i<n;i++){lit.watcher.scanNow();await lit.tick(300);}};
+  lit.outlines=[];lit.watcher.setCalibration(zones.createFieldCalibration([{x:0,y:0},{x:1,y:1}]));
+  lit.appearanceAt=()=>Array(288).fill(.25);lit.cropAt=c=>c.blind?own:barePadded;await run(8);
+  lit.appearanceAt=()=>Array(288).fill(.25+step);lit.halo=Array(192).fill(.2+step);lit.cropAt=c=>c.blind?own:padded;await run(30);
+  assert.equal(lit.events.filter(e=>e.type==='placed').length,0,'a light step on bare mat is never a Set, even where a printed zone box looks like a sleeve edge');
+  lit.appearanceAt=c=>Array(288).fill(inCell(c)?.65+step:.25+step);lit.cropAt=c=>c.blind?own:inCell(c)?padded:barePadded;await run(30);
+  assert.equal(lit.events.filter(e=>e.type==='placed').length,1,'the sleeve is placed after the step');
+  lit.appearanceAt=()=>Array(288).fill(.25+step);lit.cropAt=c=>c.blind?own:barePadded;await run(30);
+  assert.equal(lit.events.filter(e=>e.type==='removed').length,1,'the lifted Set is removed under the new light');
+  lit.watcher.dispose();
 });
 test('disappearance needs sustained clear absence and emits once, preserving id on occlusion',async()=>{
   const r=fieldRig();for(let i=0;i<6;i++)await r.tick();const id=r.watcher.getSnapshot().tracks[0].id;

@@ -467,13 +467,21 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
   };
   // Empty-mat baseline: the look of each zone cell while nothing was there (no outline, track, known card or hand in
   // three full scans in a row). A cell that looks like its baseline is empty, whatever the detector or a stale track says.
-  const emptyLooks=new Map<string,{look:number[];pending?:number[];passes:number;appearance?:FieldAnalysis['appearance']}>();
+  const emptyLooks=new Map<string,{look:number[];halo?:number[];pending?:number[];passes:number;appearance?:FieldAnalysis['appearance']}>();
   const cellOf=(zone:string)=>{const cell=fieldCells().find(c=>c.zone===zone);return cell?cellQuad(cell):undefined;};
+  /** The cell centre is far from its learned mat tone (a sleeve, not a light change): the centre's shift since the baseline minus the shift of the mat ring
+   * around the cell, per channel, so a lamp or daylight step cancels out. False when either look is unusable. */
+  const unlikeMat=(base:{look:number[];halo?:number[]}|undefined,look?:number[],halo?:number[])=>{
+    const a=centreLook(base?.look),b=centreLook(look);if(!a||!b)return false;
+    const x=medianColour(a),y=medianColour(b),h=base?.halo&&halo?.length&&halo.length%3===0?medianColour(halo):undefined;
+    const gap=[0,1,2].reduce((sum,c)=>sum+Math.abs(y[c]-x[c]-(h?h[c]-base!.halo![c]:0)),0)/3;
+    return gap>=PILE_SLEEVE_GAP;
+  };
   const cellEmpty=(evidence:FieldAnalysis,zone:string)=>{
     const base=emptyLooks.get(zone),box=cellOf(zone);if(!base?.look.length||!box)return false;
     const look=evidence.appearance?.(box);
     // The shift-tolerant match reads any flat colour as flat mat, so a plain sleeve on a Spell/Trap cell would count as empty: its tone must be the mat's too.
-    if(/^S[1-5]$/.test(zone)){const gap=medianGap(centreLook(base.look),centreLook(look));if(gap!==Infinity&&gap>=PILE_SLEEVE_GAP)return false;}
+    if(/^S[1-5]$/.test(zone)&&unlikeMat(base,look,evidence.halo?.(box)))return false;
     return !handNear(evidence,box)&&evidence.motion(box)<=.025&&sameFieldAppearance(base.look,look);
   };
   /** Detector-blind Set: a flat plain sleeve scores nothing in the detector (no box at any score, any crop). A Spell/Trap cell that has a learned
@@ -484,9 +492,9 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
     const out:DetectedQuad[]=[],known=options.getKnownCards?.()??[];
     for(const cell of fieldCells()){
       const zone=cell.zone;if(!/^S[1-5]$/.test(zone))continue;
-      const base=emptyLooks.get(zone)?.look,box=cellQuad(cell),b=boundsOf(box.quad),look=evidence.appearance?.(box);
+      const entry=emptyLooks.get(zone),base=entry?.look,box=cellQuad(cell),b=boundsOf(box.quad),look=evidence.appearance?.(box);
       const clear=!!base?.length&&!!look?.length&&!boxes.some(c=>overlapFraction(boundsOf(c.quad),b)>=.2)&&tracks.every(t=>t.view.removed||t.view.zone!==zone||!!t.view.card.cell)&&!known.some(k=>k.zone===zone)&&
-        !handNear(evidence,box)&&evidence.motion(box)<=.025&&!removalHold(box)&&medianGap(centreLook(base),centreLook(look))>=PILE_SLEEVE_GAP;
+        !handNear(evidence,box)&&evidence.motion(box)<=.025&&!removalHold(box)&&unlikeMat(entry,look,evidence.halo?.(box));
       if(!clear){blindScans.delete(zone);blindShape.delete(zone);continue;}
       const scans=(blindScans.get(zone)??0)+1;blindScans.set(zone,scans);if(scans<SET_STEADY_SCANS)continue;
       const map=quadMap(box.quad as Quad);if(!map)continue;
@@ -1345,10 +1353,11 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
             known.some(k=>k.zone===zone)||deckZone(zone as FieldZone)&&piles.has(zone as 'DECK'|'EXTRA');
           if(occupied||!look?.length||blurHold||evidence.motion(box)>.01||removalHold(box)||handNear(evidence,box)){if(e){e.pending=undefined;e.passes=0;}continue;}
           // A learned Spell/Trap baseline stays while the cell shows something far from it: a flat sleeve the detector cannot see must not become the new "empty mat".
-          if(e?.look.length&&/^S[1-5]$/.test(zone)&&medianGap(centreLook(e.look),centreLook(look))>=PILE_SLEEVE_GAP){e.pending=undefined;e.passes=0;continue;}
+          // It lets go once the cell has stayed unlike the mat for more full scans than a sleeve needs to be outlined without being found: then it was a light change, not a sleeve.
+          if(e?.look.length&&/^S[1-5]$/.test(zone)&&unlikeMat(e,look,evidence.halo?.(box))&&(blindShape.has(zone)||(blindScans.get(zone)??0)<SET_STEADY_SCANS+2)){e.pending=undefined;e.passes=0;continue;}
           const next:NonNullable<ReturnType<typeof emptyLooks.get>>=e??{look:[],passes:0};
           if(next.pending&&sameFieldAppearance(next.pending,look))next.passes++;else{next.pending=look;next.passes=1;}
-          if(next.passes>=3){next.look=look;if(sameFieldAppearance(evidence.settledAppearance?.(box),look))next.appearance=evidence.appearance;}
+          if(next.passes>=3){next.look=look;const ring=evidence.halo?.(box);next.halo=ring?.length&&ring.length%3===0?medianColour(ring):undefined;if(sameFieldAppearance(evidence.settledAppearance?.(box),look))next.appearance=evidence.appearance;}
           emptyLooks.set(zone,next);
         }
       }
@@ -1382,7 +1391,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         empty:t=>{const base=emptyLooks.get(t.zone),before=base?.appearance?.(t.card),after=evidence.appearance?.(t.card);
           return !removalBlurred&&!blurHold&&!handOver(evidence,t.card)&&evidence.motion(t.card)<=.025&&
             // The shift-tolerant match calls a flat sleeve on flat mat "the same": a Spell/Trap spot still far from its learned mat tone is not empty.
-            !(/^S[1-5]$/.test(t.zone)&&base?.look.length&&after?.length&&medianGap(centreLook(base.look),centreLook(after))>=PILE_SLEEVE_GAP)&&
+            !(/^S[1-5]$/.test(t.zone)&&base?.look.length&&unlikeMat(base,after,evidence.halo?.(t.card)))&&
             (before?.length?sameFieldAppearance(before,after):cellEmpty(evidence,t.zone));},
       });
       const stackMonsters=(t:InternalTrack,c:DetectedQuad)=>{
