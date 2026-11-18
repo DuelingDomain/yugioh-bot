@@ -1,3 +1,4 @@
+import {unsureNameCandidates} from './unsure-names';
 import { sharpness } from './quality';
 import { glareMask } from './preclean';
 import {classifyFaceState,createFaceStateHysteresis,type FaceStateOptions,type FaceStateResult} from './face-state';
@@ -114,6 +115,7 @@ export function createHeldCardReader(options:Pick<FieldWatcherOptions,'recognize
 
 export interface FieldTrack {
   /** Local diagnostics for the Set admission decision; no hidden identity. */ setEvidence?:SetEvidence;
+  /** Public tentative identity choices; presence/geometry have already passed. */ nameCandidates?:{cardId:string;score:number}[];
   id:string; revision?:number; card:DetectedQuad; zone:FieldZone; position:'attack'|'defense'; faceDown:boolean; cardId?:string;
   state:'candidate'|'identified'|'prompt'|'dismissed'; bestMatch?:boolean; firstSeen:number; lastSeen:number; removed:boolean; visible?:boolean;
   /** Id of the track whose card lies on top of this one (hidden, kept on the field). */ under?:string; /** Since when this outline rests still on the mat plane with no hand on it (watcher clock). Absent while it moves or has no box. */ restSince?:number; /** The latest clean crop of this box shows a back in its pixels. */ pixelsDown?:boolean;
@@ -135,13 +137,15 @@ export interface FieldWatcherOptions {
   getPriors?:()=>RecognitionPriors|undefined; getKnownCards?:()=>KnownFieldCard[]; calibration?:FieldCalibration; format?:FieldFormat;
   setGuards?:Partial<SetGuards>; setCardMemory?:SetCardMemory; onSetMemoryChange?:()=>void; onSetDecision?:(decision:SetDecision)=>void;
   /** Default on: one three-frame mean after a fast, unusable first read of a new resting front. */ nameVoting?:boolean;
+  /** Default on: unanswered fronts retry with backoff and a shared 10% read duty limit. */ backgroundReread?:boolean;
+  /** Experimental; off unless the owner web runtime allowlist grants it. */ placeUnsure?:boolean;
   gallery?:FieldIdentityGallery; earlyExitMargin?:number; stableMs?:number; removalMs?:number; cpuBudget?:number; maxTracks?:number;
   now?:()=>number; hidden?:()=>boolean; cpuBusy?:()=>boolean;
   /** Dependency injection for replay/tests; production defaults sample browser pixels. */
   analyze?:((frame:FieldFrame,/** Sample time on the watcher clock. */at?:number)=>FieldAnalysis)&{reset?:()=>void}; clone?:(frame:FieldFrame)=>Promise<FieldFrame>;
 }
 interface NameSample {frame:FieldFrame;score:number;at:number}
-interface PendingRead { voting?:NameSample[]; /** Crop sharpness when the read started. */ sharp?:number; crop?:RGBAImage; at:number; /** Low reads from a moving outline may get one settled retry. */ moving?:boolean; appearance?:number[]; result?:RecognitionResult; error?:boolean; card?:DetectedQuad; art?:number[] }
+interface PendingRead { background?:boolean; voting?:NameSample[]; /** Crop sharpness when the read started. */ sharp?:number; crop?:RGBAImage; at:number; /** Low reads from a moving outline may get one settled retry. */ moving?:boolean; appearance?:number[]; result?:RecognitionResult; error?:boolean; card?:DetectedQuad; art?:number[] }
 interface IdentityCheck { state:FieldTrack['state']; cardId?:string; result?:RecognitionResult; reason?:FieldEvent['reason']; strongSamples:number; /** Fresh reads taken while the embedding stayed in the unsure band (.68-.84). */ rereads?:number }
 /** One sample's verdict on whether an outline lies on the mat plane (size, shape, cells). `hard`: certainly not on the mat (held well above it). */
 export interface PlaneVerdict { ok:boolean; hard:boolean; text:string; size?:number }
@@ -150,7 +154,7 @@ interface PendingPose {card:DetectedQuad;origin:DetectedQuad;appearance:number[]
 type HandContactWait = {state:'held'} | {state:'still-held'|'released';card:DetectedQuad;since:number;samples:number};
 // Private evidence follows the physical track through ref adoption and is never serialized.
 interface FaceEvidence { revealUntil?:number; sample?:{look:number[];card:DetectedQuad;observation:FaceStateResult;reference?:FaceStateOptions['reference']}; setCardId?:string; gate:ReturnType<typeof createFaceStateHysteresis>; setGate?:ReturnType<typeof createFaceStateHysteresis>; reference?:FaceStateOptions['reference']; front?:RGBAImage; pendingAt?:number; transitionAt?:number; outlineAppearance?:number[] }
-interface InternalTrack { /** Best crop sharpness since this outline last settled (see sharpOk), the last checked one, and whether this settle already fed the baseline. */ sharpPeak?:number; lastSharp?:number; sharpLearned?:boolean; /** Since when this resting card has shown the reading cue without a name (watcher clock); see IDENTIFY_DEADLINE_MS. */ identifyingSince?:number; /** Set for one deadline prompt: the gallery was already asked, so emit must not turn the track into a quiet dismissal. */ askAnyway?:boolean; /** Look of the last confident, still outline of this card with no hand over it (never a kept outline's: those may show an empty cell). */ realLook?:number[]; /** "Resting on the mat" test for a new card (see planeVerdict): consecutive samples on the plane, still, with no hand contact. */ rest?:RestState; /** Last outline of this card that lay on the mat plane (a real card's spot when a later outline is a hand or a lifted card). */ restQuad?:DetectedQuad; /** Scan field: a plausible detector box matched this track in one of the two scan passes. */ scanHit?:boolean; /** A still face-down outline whose pixels stay undecided (a plain white sleeve), since when. */ backWaitAt?:number; /** Still skin-coloured pixels on a still, confident outline (since when / past HAND_WAIT_MS): print or locked-camera colour, not a hand. */ stillSkinAt?:number; stillSkin?:boolean; under?:string; /** Orientation of the last outline that showed this card's own look. */ lookUpright?:boolean; softDismiss?:boolean; faceWaitAt?:number; frontScans?:number; dismissedMissAt?:number; rearms?:number; userDismissed?:boolean; handWaitAt?:number; unsureReads?:number; fullMisses?:number; fullMissAt?:number; early?:{card:DetectedQuad;art?:number[]}; confirming?:boolean; rereadEarly?:boolean; prevArt?:number[]; curArt?:number[]; reason?:string; selfSetAt?:number; upSince?:number; setRecovery?:boolean; timing?:FieldTiming; timingOpen?:boolean; placeholder?:boolean; placeholderId?:string; previewEligible?:boolean; clearCandidate?:boolean; clearCandidateAt?:number; face?:FaceEvidence; pose?:PendingPose; view:FieldTrack; anchor:DetectedQuad; announced?:DetectedQuad; announcedZone?:FieldZone; announcedPosition?:FieldTrack['position']; reappeared?:boolean; identityAppearance?:number[]; identityEmbedding?:RecognitionResult['identityEmbedding']; latestEmbedding?:RecognitionResult['identityEmbedding']; lastResult?:RecognitionResult; identityCheck?:IdentityCheck; resolvedAt?:number; prompted?:boolean; newOutline?:boolean; binding?:KnownFieldCard; promptOnly?:FieldEvent['reason']; missed:boolean; halo?:number[]; appearance?:number[]; stableSince:number; observations:number; moveAt?:number; restoredAt?:number; missingSamples:number; missingAt?:number; clearWindowAt?:number; best?:{frame:FieldFrame;card:DetectedQuad;score:number;crop?:RGBAImage}; kind:DetectedQuad['kind']; position:FieldTrack['position']; needsRead:boolean; read?:PendingRead }
+interface InternalTrack { awaitingName?:{previous?:string;next:string}; nameRetry?:{attempts:number;nextAt:number}; /** Best crop sharpness since this outline last settled (see sharpOk), the last checked one, and whether this settle already fed the baseline. */ sharpPeak?:number; lastSharp?:number; sharpLearned?:boolean; /** Since when this resting card has shown the reading cue without a name (watcher clock); see IDENTIFY_DEADLINE_MS. */ identifyingSince?:number; /** Set for one deadline prompt: the gallery was already asked, so emit must not turn the track into a quiet dismissal. */ askAnyway?:boolean; /** Look of the last confident, still outline of this card with no hand over it (never a kept outline's: those may show an empty cell). */ realLook?:number[]; /** "Resting on the mat" test for a new card (see planeVerdict): consecutive samples on the plane, still, with no hand contact. */ rest?:RestState; /** Last outline of this card that lay on the mat plane (a real card's spot when a later outline is a hand or a lifted card). */ restQuad?:DetectedQuad; /** Scan field: a plausible detector box matched this track in one of the two scan passes. */ scanHit?:boolean; /** A still face-down outline whose pixels stay undecided (a plain white sleeve), since when. */ backWaitAt?:number; /** Still skin-coloured pixels on a still, confident outline (since when / past HAND_WAIT_MS): print or locked-camera colour, not a hand. */ stillSkinAt?:number; stillSkin?:boolean; under?:string; /** Orientation of the last outline that showed this card's own look. */ lookUpright?:boolean; softDismiss?:boolean; faceWaitAt?:number; frontScans?:number; dismissedMissAt?:number; rearms?:number; userDismissed?:boolean; handWaitAt?:number; unsureReads?:number; fullMisses?:number; fullMissAt?:number; early?:{card:DetectedQuad;art?:number[]}; confirming?:boolean; rereadEarly?:boolean; prevArt?:number[]; curArt?:number[]; reason?:string; selfSetAt?:number; upSince?:number; setRecovery?:boolean; timing?:FieldTiming; timingOpen?:boolean; placeholder?:boolean; placeholderId?:string; previewEligible?:boolean; clearCandidate?:boolean; clearCandidateAt?:number; face?:FaceEvidence; pose?:PendingPose; view:FieldTrack; anchor:DetectedQuad; announced?:DetectedQuad; announcedZone?:FieldZone; announcedPosition?:FieldTrack['position']; reappeared?:boolean; identityAppearance?:number[]; identityEmbedding?:RecognitionResult['identityEmbedding']; latestEmbedding?:RecognitionResult['identityEmbedding']; lastResult?:RecognitionResult; identityCheck?:IdentityCheck; resolvedAt?:number; prompted?:boolean; newOutline?:boolean; binding?:KnownFieldCard; promptOnly?:FieldEvent['reason']; missed:boolean; halo?:number[]; appearance?:number[]; stableSince:number; observations:number; moveAt?:number; restoredAt?:number; missingSamples:number; missingAt?:number; clearWindowAt?:number; best?:{frame:FieldFrame;card:DetectedQuad;score:number;crop?:RGBAImage}; kind:DetectedQuad['kind']; position:FieldTrack['position']; needsRead:boolean; read?:PendingRead }
 // Periodic full scans backstop scene-change pacing. Busy/hidden ticks skip inference.
 // The art window of a card quad (portrait corner order): reads and their
 // stillness use it, so a hand at the card's edge does not delay or cancel a read.
@@ -198,6 +202,7 @@ const backOutline=(card:DetectedQuad)=>card.kind==='face-down'&&(card.confidence
  * No limit separates them: this one keeps a .02 gap above the wrong read and turns the weakest correct ones into a question. */
 // Spend another window only on a fast first read; a slow device keeps the ordinary one-frame path.
 const NAME_VOTE_FIRST_READ_MS=500,NAME_VOTE_WINDOW_MS=420,NAME_VOTE_SAMPLE_MS=100;
+const NAME_RETRY_MIN_MS=1000,NAME_RETRY_MAX_MS=30_000;
 export const SIDEWAYS_NAME_MIN=.77;
 export const weakSidewaysRead=(r:RecognitionResult|undefined,position:FieldTrack['position'])=>!!r&&position==='defense'&&r.tier!=='low match'&&!r.quality.faceDown&&(r.candidates[0]?.score??0)<SIDEWAYS_NAME_MIN;
 const closedRead=(r:RecognitionResult)=>r.tier==='sure'&&['deck','dynamic','likely'].includes(r.quality.searchSource??'');
@@ -237,6 +242,7 @@ const MIN_VISIBLE=.5;
 const visibleShare=(quad:DetectedQuad['quad']):number=>{const b=boundsOf(quad),area=b.w*b.h;if(!(area>0))return 1;const w=Math.max(0,Math.min(1,b.x+b.w)-Math.max(0,b.x)),h=Math.max(0,Math.min(1,b.y+b.h)-Math.max(0,b.y));return w*h/area;};
 /** Owner-only caller, native frame buffer. One detector/read at a time; no AI or uploads. */
 export function createFieldWatcher(options:FieldWatcherOptions) {
+  let backgroundReadAfter=-Infinity;
   const now=options.now??(()=>performance.now()),analyze=options.analyze??createFieldAnalyzer(),clone=options.clone??cloneFieldFrame;
   const hidden=options.hidden??(()=>typeof document!=='undefined'&&document.hidden);
   const stableMs=Math.max(300,Math.min(600,options.stableMs??300)),removalMs=Math.max(150,options.removalMs??200);
@@ -336,6 +342,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
   // camera, so it maps larger; tilted toward the camera, its edges stop being parallel. Sizes are compared with the
   // cards that already rest on this mat (learned), or with one cell before any card rested.
   let restSize:number|undefined;
+  const restSizes=new Map<string,number>();
   const planeVerdict=(c:DetectedQuad):PlaneVerdict=>{
     if(!calibration)return {ok:true,hard:false,text:'on mat (no calibration)'};
     const g=matRestGeometry(c,calibration,options.format);
@@ -379,7 +386,13 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
     t.rest={samples,since,ok,planeOk:plane.ok,hard:plane.hard,text:ok?'on mat':samples?`${text} ${samples}/${REST_SAMPLES}`:text};
     if(plane.ok)t.restQuad=structuredClone(c);
     // Learn the size of cards resting on this mat from settled cards only.
-    if(ok&&calibration&&t.view.state==='identified'&&plane.size!==undefined&&plane.size<=REST_CELL_LIMIT&&plane.size>=.3)restSize=restSize===undefined?plane.size:restSize*.9+plane.size*.1;
+    if(ok&&calibration&&t.view.state==='identified'&&!c.kept&&!c.cell&&!c.partial&&!c.covered&&c.confidence>=.7&&plane.size!==undefined&&plane.size<=REST_CELL_LIMIT&&plane.size>=.3){
+      // One vote per identified card: a small outline seen often must not shrink the whole mat's reference.
+      restSizes.set(t.view.id,plane.size);
+      if(restSizes.size>32)restSizes.delete(restSizes.keys().next().value!);
+      const sizes=[...restSizes.values()].sort((a,b)=>a-b),middle=Math.floor(sizes.length/2);
+      restSize=sizes.length%2?sizes[middle]:(sizes[middle-1]+sizes[middle])/2;
+    }
   };
   /** A new card commits (Reading…, placed, Set, prompt) only once it rests on the mat. */
   const restOk=(t:InternalTrack)=>!!t.rest?.ok;
@@ -552,13 +565,15 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
   /** A dismissed track that still shows a front reads again (bounded; Scan field resets the bound). */
   const rearm=(t:InternalTrack,why:string)=>{
     t.view.state='candidate';t.view.removed=false;t.view.cardId=undefined;t.view.bestMatch=undefined;t.view.revision=(t.view.revision??0)+1;
-    t.prompted=false;t.promptOnly=undefined;t.identityCheck=undefined;t.resolvedAt=undefined;t.read=undefined;t.needsRead=true;t.best=undefined;
+    t.nameRetry=undefined;t.view.nameCandidates=undefined;t.prompted=false;t.promptOnly=undefined;t.identityCheck=undefined;t.resolvedAt=undefined;t.read=undefined;t.needsRead=true;t.best=undefined;
     t.unsureReads=0;t.rereadEarly=false;t.lastResult=undefined;t.handWaitAt=undefined;t.faceWaitAt=undefined;t.frontScans=0;t.dismissedMissAt=undefined;t.userDismissed=false;t.softDismiss=false;resetFace(t);resetAbsence(t);note(t,`re-armed: ${why}`);
   };
   const beatsLock=(lock:{score:number},result?:RecognitionResult)=>!!result&&result.tier==='sure'&&(result.candidates[0]?.score??0)>=lock.score+LOCK_MARGIN;
   const emit=(type:FieldEvent['type'],t:InternalTrack,extra:Partial<FieldEvent>={})=>{
     note(t,`${type}${extra.reason?` (${extra.reason})`:''}`);
     if(type==='placed')startupTracks.delete(t);
+    if(type==='placed'&&options.backgroundReread!==false&&extra.result&&extra.result.tier!=='sure'&&t.view.bestMatch&&!t.view.faceDown&&fieldSlot(t.view.zone)&&!t.binding&&!t.userDismissed)
+      t.nameRetry??={attempts:0,nextAt:now()+NAME_RETRY_MIN_MS};
     if(type==='placed'&&startupBoxes)startupBoxes=startupBoxes.filter(q=>!sameSetRegion(q,setMatQuad(t.view.card,calibration).quad));
     if(type==='placed'&&t.view.cardId&&!t.view.faceDown&&extra.result?.tier==='sure'&&!extra.result.quality.fallback&&!extra.result.quality.covered&&!extra.result.quality.partial&&extra.result.candidates[0]?.cardId===t.view.cardId&&!t.view.bestMatch){
       const lock=lockFor(t.view.id);if(!lock||lock.cardId!==t.view.cardId)locks.set(t.view.id,{cardId:t.view.cardId,score:extra.result.candidates[0].score,at:now(),embedding:extra.result.identityEmbedding,look:t.identityAppearance?.slice()});
@@ -572,6 +587,8 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       if(!reveal&&t.prompted){t.view.state='dismissed';return;}
       const answer=t.askAnyway?{kind:'new' as const}:gallery.resolve(extra.result?.identityEmbedding);t.askAnyway=undefined;
       if(!reveal&&answer.kind!=='new'){t.prompted=true;t.userDismissed=answer.kind==='match'&&!answer.cardId;t.view.state='dismissed';return;}
+      if(options.backgroundReread!==false&&extra.reason==='uncertain'&&!t.binding&&!t.promptOnly&&!t.identityCheck&&!t.view.faceDown&&fieldSlot(t.view.zone)&&!t.userDismissed)
+        t.nameRetry??={attempts:0,nextAt:now()+NAME_RETRY_MIN_MS};
       t.prompted=true;t.identityEmbedding=extra.result?.identityEmbedding;t.latestEmbedding=t.identityEmbedding;
     }
     if(type==='placed'&&!t.view.faceDown&&t.view.cardId&&t.face?.front)t.face.reference={crop:t.face.front,embedding:t.identityEmbedding};if(!t.timing)beginTiming(t,t.view.firstSeen);stage(t,'commit');
@@ -601,7 +618,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
     // At most six native originals, shared among all tracks rather than one clone per card.
     while(retained.size>6){const frame=retained.values().next().value!;for(const t of tracks)if(t.best?.frame===frame)t.best=undefined;closeFieldFrame(frame);retained.delete(frame);}
   }
-  function invalidateRead(t:InternalTrack) {if(t.read){count(t,'readsDropped');t.read=undefined;t.needsRead=t.view.state!=='dismissed';}}
+  function invalidateRead(t:InternalTrack) {if(t.read){count(t,'readsDropped');t.read=undefined;t.needsRead=!t.nameRetry&&t.view.state!=='dismissed';}}
   // Pixel evidence remains available while the inference worker is occupied.
   // Missing outlines alone never remove a card: the whole footprint and its
   // original halo must agree with clear mat, including at the camera edge.
@@ -646,7 +663,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
     // embed of card plus fingers is rarely sure and costs a second read.
     if(t.view.state==='candidate'&&card.kind==='face-up'&&frame===latestEvidenceFrame&&handBlocks(t,latestEvidence?.touched?.(card))){hold(t,'hand');return;}
     t.handWaitAt=undefined;
-    const pending:PendingRead={sharp:t.lastSharp,at,moving:frame===latestEvidenceFrame&&!restOk(t)&&(latestEvidence?.motion(card)??0)>.025,appearance:t.appearance?.slice(),crop,card:structuredClone(card),art:latestEvidence?.appearance?.(artBox(card))};
+    const pending:PendingRead={background:!!t.nameRetry,sharp:t.lastSharp,at,moving:frame===latestEvidenceFrame&&!restOk(t)&&(latestEvidence?.motion(card)??0)>.025,appearance:t.appearance?.slice(),crop,card:structuredClone(card),art:latestEvidence?.appearance?.(artBox(card))};
     t.read=pending;t.needsRead=false;softCamera=false;
     const cloneAt=now(),input=await clone(frame);if(t.timing)t.timing.durationsMs.readClone=now()-cloneAt;count(t,'reads');
     if(generation!==epoch||disposed||t.read!==pending||!tracks.includes(t)){closeFieldFrame(input);return;}
@@ -665,8 +682,9 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
   function interruptWindow(preserveVisibility=false,preserveAbsenceWindow=false) {previousAt=-Infinity;if(!preserveVisibility)forcePass=true;for(const t of tracks){sourceMisses.delete(t);interruptContact(t);resetFace(t);if(t.face)t.face.revealUntil=undefined;t.pose=undefined;if(!preserveVisibility)t.view.visible=false;invalidateRead(t);t.stableSince=NaN;t.observations=0;if(!preserveAbsenceWindow)resetAbsence(t);t.best=undefined;}pruneFrames();}
   const preparation=()=>({priors:options.getPriors?.(),sessionGallery:gallery.entries().flatMap(entry=>entry.cardId&&entry.embedding.values.length===options.profile.embedding.dim?[{cardId:entry.cardId,embedding:entry.embedding}]:[]).slice(-512)});
   async function read(t:InternalTrack,input:FieldFrame,card:DetectedQuad,pending:PendingRead,generation:number) {
+    const start=now();
     try {
-      const start=now();stage(t,'embedStart');
+      stage(t,'embedStart');
       if(generation!==epoch||disposed||t.read!==pending)return;
       // Refresh fallback references too: owner corrections must replace the
       // startup gallery even when a shortlist match misses the early-exit gate.
@@ -675,7 +693,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       const priors=options.getPriors?.();
       const readOptions={k:5,maxFrames:1 as const,includeIdentityEmbedding:true,includeDiagnosticCrop:true,includeRaw:true,preferUpright:true,priors,gallery:gallery.entries(),deckFirst:true,earlyExitMargin:options.earlyExitMargin??.02};
       let result=await options.recognizer.recognize([input] as ImageBitmap[]|ImageData[],{...readOptions,card});
-      if(options.nameVoting!==false && now()-start<=NAME_VOTE_FIRST_READ_MS && result.tier!=='sure' && (result.tier==='low match'||weakSidewaysRead(result,t.view.position)) && t.view.state==='candidate' && !t.binding && !t.identityCheck && !t.confirming && restOk(t) && !pending.moving && !result.quality.faceDown && !result.quality.fallback && !result.quality.partial && !result.quality.covered) {
+      if(options.nameVoting!==false && now()-start<=NAME_VOTE_FIRST_READ_MS && result.tier!=='sure' && (result.tier==='low match'||weakSidewaysRead(result,t.view.position)) && (t.view.state==='candidate'||pending.background) && !t.binding && !t.identityCheck && !t.confirming && restOk(t) && !pending.moving && !result.quality.faceDown && !result.quality.fallback && !result.quality.partial && !result.quality.covered) {
         const samples:NameSample[]=[];pending.voting=samples;
         try {
           // The ordinary watcher supplies fresh, clean resting frames. Never sample around its hand/plane gates.
@@ -690,7 +708,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       }
       if(generation===epoch&&!disposed&&t.read===pending){metrics.recognitionMs=now()-start;pending.result=result;stage(t,'searchDone');if(t.timing){Object.assign(t.timing.durationsMs,result.timingsMs);t.timing.durationsMs.readMs=now()-start;t.timing.notes={source:result.quality.searchSource??'catalog',tier:result.tier};}wakeAfterRead=true;}
     }catch(cause){if(generation===epoch&&!disposed&&t.read===pending){console.error('[remote field] recognition failed',t.view.id,cause);metrics.errors++;pending.error=true;}}
-    finally{closeFieldFrame(input);}
+    finally{if(pending.background)backgroundReadAfter=now()+9*(now()-start);closeFieldFrame(input);}
   }
   /** Event-driven save: a finished read is consumed at once, not at the next timed tick. */
   function wake(){if(!active||disposed)return;if(inFlight){wakeQueued=true;return;}clearTimeout(timer);schedule();}
@@ -1350,7 +1368,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
           if(!fieldSlot(zone)||cellEmpty(evidence,zone)||!(c.confidence>=.4?sleeveOnMat(look,evidence.halo?.(c)):plainSleeve(look,evidence.halo?.(c))))continue;
           const crop=evidence.crop?.(c),observation=crop?classifyFaceState(crop,{detectorFaceDownScore:c.confidence}):{state:'unknown' as const,confidence:0};if(observation.state==='up')continue;
           if(setGuards.ignore&&setMemory.ignored.some(r=>(r.source!=='startup'||setGuards.startup)&&sameSetRegion(r.quad,setMatQuad(c,calibration).quad)))continue;
-          if(setGuards.positiveBack&&!measureSetEvidence(crop,c.confidence,observation,setMemory,sleeveOnMat(look,evidence.halo?.(c))).evidence.positive)continue;
+          if(setGuards.positiveBack&&!measureSetEvidence(crop,c,observation,setMemory,sleeveOnMat(look,evidence.halo?.(c))).evidence.positive)continue;
           if(!tracks.some(t=>!t.view.removed&&t.view.zone===zone&&!t.view.faceDown&&bound(t)&&matchesLook(t,look)))backsNow.add(zone);
         }
         for(const zone of backsNow)scanBacks.set(zone,(scanBacks.get(zone)??0)+1);
@@ -1517,7 +1535,8 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         const pixels=appearance(c);
         if(t.identityAppearance?.length&&matchesLook(t,pixels))t.lookUpright=upright(c);
         const publicIdentity=bound(t)&&!t.view.faceDown?options.getKnownCards?.().find(k=>k.id===t.view.id&&!k.faceDown)?.cardId:undefined;
-        if(publicIdentity&&publicIdentity!==t.view.cardId){if(t.face)t.face.setCardId=undefined;gallery.remember(t.identityEmbedding,publicIdentity);t.view.cardId=publicIdentity;t.view.bestMatch=undefined;}
+        if(t.awaitingName&&publicIdentity===t.awaitingName.next)t.awaitingName=undefined;
+        if(publicIdentity&&publicIdentity!==t.view.cardId&&publicIdentity!==t.awaitingName?.previous){t.nameRetry=undefined;t.view.nameCandidates=undefined;t.read=undefined;t.needsRead=false;if(t.face)t.face.setCardId=undefined;gallery.remember(t.identityEmbedding,publicIdentity);t.view.cardId=publicIdentity;t.view.bestMatch=undefined;}
 
         // Pending face changes always sample fresh card pixels; settled faces can reuse their evidence.
         const faceState=t.face??={gate:trackFaceGate(),setCardId:t.binding?.faceDown?t.binding.cardId:undefined};
@@ -1545,16 +1564,21 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
           evidence.motion(c)<=.004&&quadIou(cachedFace.card,c)>=.98&&sameFieldAppearance(cachedFace.look,pixels);
         const crop=faceClean&&!reuseFace?evidence.crop?.(c):undefined;
         let observation=reuseFace?cachedFace!.observation:crop?classifyFaceState(crop,{reference:faceState.reference,detectorFaceDownScore:c.kind==='face-down'?c.confidence:undefined}):{state:'unknown' as const,confidence:0};
+        if(setGuards.positiveBack&&fieldSlot(t.view.zone)&&c.kind==='face-up'&&observation.state==='down'&&
+          !measureSetEvidence(crop,c,observation,setMemory,sleeveOnMat(pixels,evidence.halo?.(c))).evidence.positive){
+          // Conflicting face evidence waits for the ordinary front reader, never a Set timeout.
+          observation={state:'unknown',confidence:0};
+        }
         if(crop)faceState.sample={look:pixels?.slice()??[],card:structuredClone(c),observation,reference:faceState.reference};
         if(observation.state==='down')t.view.pixelsDown=true;else delete t.view.pixelsDown;
         const knownFace=bound(t)&&c.kind===t.kind&&t.view.faceDown===(c.kind==='face-down')&&matchesLook(t,pixels)&&
           (c.confidence>=.4||weakBack)&&!c.partial&&!c.covered&&!blocks(t,c)&&!isCovered(c,faceCards)&&evidence.motion(c)<=.025;
         // Existing identity/face evidence wins before new-Set admission. A noisy crop of the same front
         // must not clear its name and ask whether an already represented card exists.
-        const admittingSet=!knownFace&&fieldSlot(t.view.zone)&&(c.kind==='face-down'||observation.state==='down')&&(t.view.state==='candidate'||t.promptOnly==='card-presence'||t.view.state==='identified'&&!t.view.faceDown);
+        const admittingSet=!knownFace&&fieldSlot(t.view.zone)&&(c.kind==='face-down'||observation.state==='down')&&(t.view.state!=='identified'||!t.view.faceDown);
         const ignored=setGuards.ignore?setMemory.ignored.find(r=>(r.source!=='startup'||setGuards.startup)&&sameSetRegion(r.quad,setMatQuad(c,calibration).quad)):undefined;
         if(admittingSet||ignored){
-          const measured=measureSetEvidence(crop,c.confidence,observation,setMemory,sleeveOnMat(pixels,evidence.halo?.(c)));
+          const measured=measureSetEvidence(crop,c,observation,setMemory,sleeveOnMat(pixels,evidence.halo?.(c)));
           t.view.setEvidence={...measured.evidence,decision:t.view.setEvidence?.decision??'waiting'};setLooks.set(t,measured.look);
           if(faceClean&&restOk(t)&&t.view.setEvidence.decision==='waiting'&&!setObserved.has(t)){setObserved.add(t);setDecision(t,'waiting');}
           if(ignored){
@@ -1587,11 +1611,11 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
           (faceState.setGate??=trackSetFaceGate()).update(observation,sample.at);
           t.best=undefined;invalidateRead(t);t.view.visible=t.promptOnly==='card-presence'&&ready;
           if(ready&&contact.state==='still-held'&&contact.samples>=2&&sample.at-contact.since>=HAND_CONTACT_PROMPT_MS&&setGuards.prompt&&!t.prompted){
-            const measured=t.view.setEvidence??measureSetEvidence(crop,c.confidence,observation,setMemory).evidence;
+            const measured=t.view.setEvidence??measureSetEvidence(crop,c,observation,setMemory).evidence;
             if(!measured.positive&&unchangedStartup(t,c,evidence)){t.view.setEvidence=measured;rejectObject(t,'ignored');continue;}
             handPrompts.add(t);t.view.faceDown=true;t.view.cardId=undefined;t.view.state='prompt';t.view.visible=true;
             t.needsRead=false;t.promptOnly='card-presence';t.askAnyway=true;
-            t.view.setEvidence??=measureSetEvidence(crop,c.confidence,observation,setMemory).evidence;
+            t.view.setEvidence??=measureSetEvidence(crop,c,observation,setMemory).evidence;
             setDecision(t,'prompted');emit('prompt',t,{reason:'card-presence'});
           }
           note(t,gripWait.has(t)?'placement waits for release of opposite edge grip':`placement waits for hand release (contact ${Math.round((evidence.touched?.(c)??0)*100)}%)`);continue;
@@ -1607,7 +1631,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         if(crop&&observation.state==='unknown'&&c.kind==='face-up'&&c.confidence>=.8&&t.view.faceDown&&(bound(t)||t.binding?.faceDown)){
           t.upSince??=sample.at;if(sample.at-t.upSince>=500)observation={...observation,state:'up',confidence:c.confidence};
         }else t.upSince=undefined;
-        if(t.prompted&&observation.state==='down'&&!t.view.faceDown&&t.view.state==='prompt'){t.view.state='dismissed';t.view.revision=(t.view.revision??0)+1;t.read=undefined;t.needsRead=false;}
+        if(t.prompted&&observation.state==='down'&&!t.view.faceDown&&t.view.state==='prompt'){t.nameRetry=undefined;t.view.nameCandidates=undefined;t.view.state='dismissed';t.view.revision=(t.view.revision??0)+1;t.read=undefined;t.needsRead=false;}
         // The Reading card shows as soon as the card rests face-up on the mat; only the read itself waits for a sharp crop.
         // Publish geometry before identity inference; never invent an identity
         // or a public front while face-state evidence is still ambiguous.
@@ -1680,7 +1704,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         c.kind=face.state==='down'?'face-down':'face-up';
         const faceChanged=t.view.faceDown!==(face.state==='down');
         const revealRead=faceChanged&&face.state==='up'&&t.read&&sameFieldAppearance(t.read.appearance,pixels)?t.read:undefined;
-        if(faceChanged){t.prompted=false;t.rereadEarly=false;if(!revealRead)invalidateRead(t);t.view.revision=(t.view.revision??0)+1;t.best=undefined;t.pose=undefined;t.identityCheck=undefined;}
+        if(faceChanged){t.nameRetry=undefined;t.view.nameCandidates=undefined;t.prompted=false;t.rereadEarly=false;if(!revealRead)invalidateRead(t);t.view.revision=(t.view.revision??0)+1;t.best=undefined;t.pose=undefined;t.identityCheck=undefined;}
         if(face.state==='down'&&t.view.state==='candidate'&&stackMonsters(t,c).length>=2){
           if(restOk(t)&&faceClean&&!t.prompted){t.view.faceDown=false;t.view.visible=true;t.view.state='prompt';t.needsRead=false;
             note(t,'unread top over known monsters: ask, never Set a material');emit('prompt',t,{reason:'uncertain'});}
@@ -1689,7 +1713,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         if(face.state==='down'){
           if(t.promptOnly==='suppressed'){t.view.state='dismissed';t.prompted=true;t.needsRead=false;t.best=undefined;continue;}
           // A new back is a Set only once it rests on the mat (never a card held up, an arm or a box across two cells).
-          if(t.view.state==='candidate'&&!restOk(t)){t.view.visible=false;note(t,`Set waits: ${t.rest?.text??'not resting yet'}`);continue;}
+          if(t.view.state!=='identified'&&!restOk(t)){t.view.visible=false;note(t,`Set waits: ${t.rest?.text??'not resting yet'}`);continue;}
           if(!t.view.faceDown&&t.view.cardId)faceState.setCardId=t.view.cardId;
           t.view.cardId=undefined;t.read=undefined;t.needsRead=false;t.identityCheck=undefined;
           // A card that left this zone moments ago, and now a back in the same zone: the same card turned
@@ -1730,7 +1754,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         const changedLook=(t.view.state==='prompt'||t.view.state==='dismissed'||(t.view.state==='identified'&&Boolean(t.view.cardId||!t.view.faceDown)&&c.kind==='face-up'))&&t.identityAppearance?.length&&pixels&&!sameFieldAppearance(t.identityAppearance,pixels);
         if(t.prompted&&changedKind){t.view.state='dismissed';t.view.revision=(t.view.revision??0)+1;t.read=undefined;t.needsRead=false;t.best=undefined;}
         const changed=!t.prompted&&!bound(t)&&(changedKind||changedLook)&&evidence.motion(c)<=.025&&!c.covered&&!c.partial;
-        if(changed){t.moveAt=undefined;t.identityCheck??={state:t.view.state,cardId:t.view.cardId,result:t.lastResult,reason:t.promptOnly,strongSamples:0};invalidateRead(t);t.view.revision=(t.view.revision??0)+1;t.view.cardId=undefined;t.view.state='candidate';t.view.visible=false;t.needsRead=true;t.promptOnly='changed';t.stableSince=sample.at;t.observations=0;t.best=undefined;}
+        if(changed){t.nameRetry=undefined;t.moveAt=undefined;t.identityCheck??={state:t.view.state,cardId:t.view.cardId,result:t.lastResult,reason:t.promptOnly,strongSamples:0};invalidateRead(t);t.view.revision=(t.view.revision??0)+1;t.view.cardId=undefined;t.view.state='candidate';t.view.visible=false;t.needsRead=true;t.promptOnly='changed';t.stableSince=sample.at;t.observations=0;t.best=undefined;}
         // A card under this one (its stale outline) is not a fanned spread.
         if(t.view.state==='candidate'&&!t.promptOnly&&faceCards.some(other=>other!==c&&quadIou(c,other)>0&&!tracks.some(o=>o!==t&&(o.under||lookBlocked(o,c))&&quadIou(o.view.card,other)>.9)))t.promptOnly='spread';
         const sizes=tracks.filter(other=>other!==t&&other.view.state==='identified'&&!other.view.removed).map(other=>{const b=boundsOf(other.view.card.quad);return b.w*b.h;}).sort((a,b)=>a-b),size=boundsOf(c.quad);
@@ -1767,6 +1791,14 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         // One sample per card per settle, never in a blurred frame or while the card moves.
         if(clean&&!blurHold&&still&&!t.sharpLearned&&c.kind==='face-up'&&observation.state==='up'&&!handNear(evidence,c)){t.sharpLearned=true;learnCropSharpness(score);}
         if((!t.best||score>t.best.score)&&!(t.view.state==='candidate'&&c.kind==='face-up'&&handBlocks(t,evidence.touched?.(c))))t.best={frame:current,card:structuredClone(c),score,crop};
+        const retry=t.nameRetry;
+        if(retry&&(t.view.state==='prompt'||t.view.state==='identified'&&!!t.view.bestMatch)&&!t.view.removed&&!t.read&&!reading&&sample.at>=retry.nextAt&&now()>=backgroundReadAfter&&
+          restOk(t)&&still&&!blurHold&&faceClean&&observation.state==='up'&&scoreOk&&!handNear(evidence,c)&&!handContact(evidence,c)&&
+          !t.binding&&!t.promptOnly&&!t.identityCheck&&!t.userDismissed&&!tracks.some(other=>other!==t&&other.needsRead&&other.view.state==='candidate')){
+          retry.attempts++;retry.nextAt=now()+Math.min(NAME_RETRY_MAX_MS,NAME_RETRY_MIN_MS*2**Math.min(retry.attempts,5));
+          t.needsRead=true;t.lastSharp=score;t.appearance=pixels;
+          await startRead(t,current,c,crop??evidence.crop?.(c),sample.at,generation);t.best=undefined;
+        }
         const movingKnown=t.view.state==='identified'&&!t.needsRead&&t.view.faceDown===(c.kind==='face-down');
         if(movingKnown?(t.observations<2||sample.at-t.stableSince<100):!scoreOk){if(!movingKnown)hold(t,'sharp');continue;}
         const wasFaceDown=t.view.faceDown;
@@ -1779,10 +1811,23 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         }
         t.halo=evidence.halo?.(c);t.appearance=pixels;
         // A read of a new card is used only while the card rests on the mat: a card held above it goes to the held path.
-        if(t.view.state==='candidate'&&t.read&&(t.read.result||t.read.error)&&!restOk(t)){note(t,`read waits: ${t.rest?.text??'not resting yet'}`);continue;}
+        if((t.view.state==='candidate'||t.read?.background)&&t.read&&(t.read.result||t.read.error)&&!restOk(t)){note(t,`read waits: ${t.rest?.text??'not resting yet'}`);continue;}
         if(t.read&&(t.read.result||t.read.error)&&sample.at>t.read.at) {
-          const pending=t.read,weakSideways=t.view.state==='candidate'&&weakSidewaysRead(pending.result,position),result=weakSideways?{...pending.result!,tier:'low match' as const}:pending.result;t.read=undefined;
+          const pending=t.read,weakSideways=(t.view.state==='candidate'||!!t.read.background)&&weakSidewaysRead(pending.result,position),result=weakSideways?{...pending.result!,tier:'low match' as const}:pending.result;t.read=undefined;
           if(weakSideways)note(t,`sideways read below ${SIDEWAYS_NAME_MIN}: ask, do not name`);
+          if(pending.background){
+            if(!restOk(t)||!still||blurHold||handNear(evidence,c)||handContact(evidence,c)){t.needsRead=false;t.best=undefined;continue;}
+            // A background attempt may settle a question only with a sure, unflagged name.
+            const sure=result?.tier==='sure'&&result.candidates[0]&&!result.quality.fallback&&!result.quality.covered&&!result.quality.partial&&!result.quality.faceDown&&result.candidates[0].cardId!==options.profile.cardBack.cardId;
+            if(!sure){t.needsRead=false;t.best=undefined;continue;}
+            if(t.view.state==='identified'){
+              t.nameRetry=undefined;t.prompted=false;t.view.nameCandidates=undefined;t.view.bestMatch=undefined;
+              t.awaitingName={previous:t.view.cardId,next:result!.candidates[0].cardId};
+              t.view.cardId=result!.candidates[0].cardId;t.identityAppearance=pixels;t.identityEmbedding=result?.identityEmbedding;t.latestEmbedding=t.identityEmbedding;t.lastResult=result;
+              emit('placed',t,{result});continue;
+            }
+            t.nameRetry=undefined;t.prompted=false;
+          }
           metrics.latencyMs=now()-t.view.firstSeen;
           // An early read can include a hand at the card edge. If it is not sure and
           // the card itself has changed since (the hand left), read once more
@@ -1798,7 +1843,9 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
             note(t,'unread stack top: ask for identity');emit('prompt',t,{result,reason:'uncertain'});continue;
           }
           const safe=result&&result.tier!=='low match'&&result.candidates[0]&&!result.quality.fallback&&!result.quality.covered&&!result.quality.partial&&!result.quality.faceDown&&result.candidates[0].cardId!==options.profile.cardBack.cardId;
-          let winner=safe?result!.candidates[0].cardId:undefined;
+          const tentative=options.placeUnsure&&t.view.state==='candidate'&&!t.binding&&!t.promptOnly&&!t.identityCheck&&!pending.background&&restOk(t)&&still&&!blurHold&&!handNear(evidence,c)&&!handContact(evidence,c)&&fieldSlot(t.view.zone)&&result?.tier==='low match'?unsureNameCandidates(result,options.profile.cardBack.cardId):undefined;
+          if(tentative){t.view.nameCandidates=tentative;t.nameRetry={attempts:0,nextAt:now()+NAME_RETRY_MIN_MS};}
+          let winner=safe?result!.candidates[0].cardId:tentative?.[0].cardId;
           const lockedRef=t.view.faceDown&&!t.binding?undefined:lockFor(t.binding?.id??t.view.id),locked=lockHolds(lockedRef,result,pixels)?lockedRef:undefined;
           if(result&&!result.quality.fallback&&!result.quality.covered&&!result.quality.partial&&!result.quality.faceDown&&pending.crop)faceState.front=pending.crop;
           // A failed reveal must neither restore private identity nor publish an unnamed front.
@@ -1857,6 +1904,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
           }
           // A locked card is never re-guessed: a lower or equal read keeps its name.
           if(locked&&winner!==locked.cardId&&!beatsLock(locked,result)){winner=locked.cardId;note(t,'identity locked');}
+          if(tentative&&winner!==tentative[0].cardId){t.view.nameCandidates=undefined;t.nameRetry=undefined;}
           const deck=options.getPriors?.()?.decklist;
           const inDeck=!!winner&&!!deck?.some(id=>String(id)===winner)&&!result?.quality.notInDecklist;
           const pile=['GY','BANISHED','DECK','EXTRA'].includes(t.view.zone);
@@ -2058,14 +2106,14 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
     subscribeState(listener:()=>void){updates.add(listener);return()=>{updates.delete(listener);};},
     getSnapshot():FieldSnapshot{return {...(softCamera?{softCamera:true}:{}),held:heldReader.snapshot(),...(lastMotionAt!==undefined?{lastMotionAt}:{}),...(untracked?{untracked}:{}),...(gridShift?{gridShift:{...gridShift}}:{}),blur:{sharpness:sharpNow,ratio:removalSharpBase>0?sharpNow/removalSharpBase:1,hold:removalBlurred||blurHold,limit:sharpLimit()},shadow:{share:shadowShare,hold:shadowHold},missingTwins:[...missingTwins],missingPiles:[...pilePresence].flatMap(([zone,p])=>p.present?[]:[zone]),pileTouchedAt:Object.fromEntries([...pileTouches].filter(([zone])=>publicPile(zone))),pileClearSince:Object.fromEntries(pileClear),lastFullAt:Number.isFinite(lastFullDetectionAt)?lastFullDetectionAt:undefined,...(Number.isFinite(lastScanAt)?{lastScanAt,lastScanBacks:[...lastScanBacks],lastScanOffFrame:[...lastScanOffFrame]}:{}),status,tracks:tracks.map(t=>copy(t.view)),piles:[...piles].flatMap(([zone,pile])=>pile.down&&now()-pile.keptAt<=PILE_GONE_MS?[{zone,card:structuredClone(pile.card)}]:[]),metrics:{...metrics},error,
       debug:{at:debugAt,path:debugTick,full:debug?.full??false,region:debug?.region,detections:debug?.detections??[],...(debug?.pileScores?{pileScores:debug.pileScores}:{}),reasons:Object.fromEntries(tracks.map(t=>[t.view.id,`${t.rest?.text?`${t.rest.text} · `:''}${t.read?'reading identity · ':''}${t.promptOnly?`prompt only (${t.promptOnly}) · `:''}${t.reason??''}${t.view.setEvidence?` · Set ${JSON.stringify(t.view.setEvidence)}`:''}${t.lastResult?.prior?` · prior: ${t.lastResult.prior}`:''}`]))}};},
-    setCalibration(value?:FieldCalibration){exposedTops.clear();calibration=value;gridOffPasses=0;gridShift=undefined;untracked=0;heldReader.reset();if(status!=='starting')epoch++;interruptWindow();piles.clear();emptyLooks.clear();pileClear.clear();restSize=undefined;for(const t of tracks){t.prompted=false;t.view.revision=(t.view.revision??0)+1;t.view.zone=mapFieldZone(t.view.card,calibration,[],options.format).zone;t.announcedZone=undefined;}notify();},
-    confirm(id:string,cardId?:string,ref?:string,human=true){const lock=locks.get(id);if(ref&&lock&&!locks.has(ref))locks.set(ref,lock);const t=tracks.find(t=>t.view.id===id);if(human&&cardId)for(const key of [id,ref])if(key)locks.set(key,{cardId,score:Infinity,at:now(),embedding:t?.latestEmbedding??t?.identityEmbedding,look:t?.identityAppearance?.slice()});if(t){if(human&&t.promptOnly==='card-presence'){rememberSetBack(setMemory,setLooks.get(t)??[]);options.onSetMemoryChange?.();}t.prompted=false;t.setRecovery=false;t.pose=undefined;t.read=undefined;const other=tracks.find(other=>other!==t&&other.view.id===ref);if(other&&(other.view.removed||!other.view.visible))tracks.splice(tracks.indexOf(other),1);if(ref&&!tracks.some(other=>other!==t&&other.view.id===ref))t.view.id=ref;t.view.visible=!t.missed;for(let i=suppressed.length-1;i>=0;i--)if(sameFieldAppearance(suppressed[i].appearance,t.appearance)||quadIou(suppressed[i].card,t.view.card)>.5)suppressed.splice(i,1);if(human&&!t.view.faceDown&&t.face&&cardId!==t.face.setCardId)t.face.setCardId=undefined;if(!t.view.faceDown&&cardId)gallery.remember(t.latestEmbedding,cardId);t.view.cardId=t.view.faceDown?undefined:cardId;if(!t.view.faceDown&&cardId&&t.face?.front)t.face.reference={crop:t.face.front,embedding:t.latestEmbedding};t.realLook=undefined;t.identityAppearance=t.appearance?.slice();t.identityEmbedding=t.latestEmbedding;t.identityCheck=undefined;t.resolvedAt=now();t.promptOnly=undefined;t.binding=undefined;t.view.state='identified';t.needsRead=false;t.announced=t.view.card;t.announcedZone=t.view.zone;t.announcedPosition=t.view.position;t.moveAt=undefined;t.best=undefined;pruneFrames();notify();}},
+    setCalibration(value?:FieldCalibration){exposedTops.clear();calibration=value;gridOffPasses=0;gridShift=undefined;untracked=0;heldReader.reset();if(status!=='starting')epoch++;interruptWindow();piles.clear();emptyLooks.clear();pileClear.clear();restSize=undefined;restSizes.clear();for(const t of tracks){t.prompted=false;t.view.revision=(t.view.revision??0)+1;t.view.zone=mapFieldZone(t.view.card,calibration,[],options.format).zone;t.announcedZone=undefined;}notify();},
+    confirm(id:string,cardId?:string,ref?:string,human=true){const lock=locks.get(id);if(ref&&lock&&!locks.has(ref))locks.set(ref,lock);const t=tracks.find(t=>t.view.id===id);if(human&&cardId)for(const key of [id,ref])if(key)locks.set(key,{cardId,score:Infinity,at:now(),embedding:t?.latestEmbedding??t?.identityEmbedding,look:t?.identityAppearance?.slice()});if(t){if(human){t.nameRetry=undefined;t.view.nameCandidates=undefined;}if(human&&t.promptOnly==='card-presence'){rememberSetBack(setMemory,setLooks.get(t)??[]);options.onSetMemoryChange?.();}t.awaitingName=undefined;t.prompted=false;t.setRecovery=false;t.pose=undefined;t.read=undefined;const other=tracks.find(other=>other!==t&&other.view.id===ref);if(other&&(other.view.removed||!other.view.visible))tracks.splice(tracks.indexOf(other),1);if(ref&&!tracks.some(other=>other!==t&&other.view.id===ref))t.view.id=ref;t.view.visible=!t.missed;for(let i=suppressed.length-1;i>=0;i--)if(sameFieldAppearance(suppressed[i].appearance,t.appearance)||quadIou(suppressed[i].card,t.view.card)>.5)suppressed.splice(i,1);if(human&&!t.view.faceDown&&t.face&&cardId!==t.face.setCardId)t.face.setCardId=undefined;if(!t.view.faceDown&&cardId&&!t.view.nameCandidates)gallery.remember(t.latestEmbedding,cardId);t.view.cardId=t.view.faceDown?undefined:cardId;if(!t.view.faceDown&&cardId&&t.face?.front)t.face.reference={crop:t.face.front,embedding:t.latestEmbedding};t.realLook=undefined;t.identityAppearance=t.appearance?.slice();t.identityEmbedding=t.latestEmbedding;t.identityCheck=undefined;t.resolvedAt=now();t.promptOnly=undefined;t.binding=undefined;t.view.state='identified';t.needsRead=false;t.announced=t.view.card;t.announcedZone=t.view.zone;t.announcedPosition=t.view.position;t.moveAt=undefined;t.best=undefined;pruneFrames();notify();}},
     setGuards(value:Partial<SetGuards>){const next={...DEFAULT_SET_GUARDS,...value};if(next.positiveBack===setGuards.positiveBack&&next.prompt===setGuards.prompt&&next.ignore===setGuards.ignore&&next.startup===setGuards.startup&&next.handRelease===setGuards.handRelease)return;setGuards=next;for(const t of tracks)if((t.view.state==='dismissed'||t.promptOnly==='card-presence')&&t.view.setEvidence){rearm(t,'Set safeguards changed');}notify();},
     acceptSet(id:string){const t=tracks.find(t=>t.view.id===id);if(!t||t.promptOnly!=='card-presence'||t.view.removed||!t.view.visible)return false;
       const heldChoice=handPrompts.has(t)&&!t.missed&&now()-t.view.lastSeen<=500&&planeVerdict(t.view.card).ok&&(latestEvidence?.motion(t.view.card)??1)<=.025;
       if(handPrompts.has(t)?!heldChoice:!restOk(t))return false;setDecision(t,'committed','player');return true;},
     notACard(id:string){let t=tracks.find(t=>t.view.id===id);if(!t){const known=options.getKnownCards?.().find(k=>k.id===id),card=known?.card??(known?cellOf(known.zone):undefined);if(!known||!card||known.zone==='HAND')return;t={view:{id,card,zone:known.zone,faceDown:true,position:'attack',state:'dismissed',firstSeen:now(),lastSeen:now(),removed:false},anchor:card,missed:false,stableSince:now(),observations:0,missingSamples:0,kind:'face-down',position:'attack',needsRead:false};tracks.push(t);}t.view.setEvidence??={detector:t.view.card.confidence,pixel:'unknown',pixelConfidence:0,sd:null,backDistance:null,positive:false,basis:'none',decision:'waiting'};rejectObject(t,'not-a-card');t.view.revision=(t.view.revision??0)+1;notify();},
-    dismiss(id:string){const t=tracks.find(t=>t.view.id===id);if(t){t.userDismissed=true;t.softDismiss=false;t.pose=undefined;t.read=undefined;if(t.view.state!=='identified')gallery.remember(t.latestEmbedding);t.prompted=true;if(t.view.removed)t.restoredAt=now();t.resolvedAt=now();t.identityCheck=undefined;t.identityEmbedding=t.latestEmbedding;if(t.view.state!=='identified')t.view.state='dismissed';t.needsRead=false;t.best=undefined;pruneFrames();notify();}},
+    dismiss(id:string){const t=tracks.find(t=>t.view.id===id);if(t){t.nameRetry=undefined;t.userDismissed=true;t.softDismiss=false;t.pose=undefined;t.read=undefined;if(t.view.state!=='identified')gallery.remember(t.latestEmbedding);t.prompted=true;if(t.view.removed)t.restoredAt=now();t.resolvedAt=now();t.identityCheck=undefined;t.identityEmbedding=t.latestEmbedding;if(t.view.state!=='identified')t.view.state='dismissed';t.needsRead=false;t.best=undefined;pruneFrames();notify();}},
     /** "Scan field": the next sample runs a full-frame detector pass at once. `gentle` (automatic scans) keeps every player dismissal quiet. */
     // Every dismissed card in view reads again, including player dismissals. The shared
     // gallery persists its cleared unnamed entries through its change callback.

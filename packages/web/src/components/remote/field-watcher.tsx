@@ -439,6 +439,13 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       return;
     }
     existing=freshBinding.existing??pileExit(track,entry,twins);
+    // Settle only the name of an admitted unsure card. Its location and materials keep their own actions.
+    if(existing?.nameCandidates&&!track.nameCandidates&&event.result?.tier==='sure'&&entry&&!chosen&&publicField(existing.zone)&&existing.faceUp){
+      const code=catalogCardId(entry);if(!code)return;
+      const updated=await mutate({type:'card.identified',actorSeat:seat,seat,cardRef:existing.ref,cardId:code,name:entry.name,source:'auto',nameCandidates:null,bestMatch:false,zone:existing.zone,...(existing.slot?{slot:existing.slot}:{})});
+      if(updated){bindings.current.set(event.track.id,existing.ref);watch.confirm(event.track.id,track.cardId,existing.ref,false);setPrompts(list=>list.filter(p=>p.track.id!==event.track.id));setNotice(`${entry.name} identified · auto`);setUndoId(updated.state.undo?.actionId??'');}
+      return;
+    }
     // A revive: the same card lies in the GY/banished pile and a hand was just over that pile. Let the pile settle
     // (at most ~1 s) and check its cell again before this becomes a new copy. No prompt.
     if(!existing&&!track.faceDown&&entry&&!piles.has(track.zone)&&attempt<3){
@@ -510,7 +517,9 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       // use its lower bound so the server never sees a future camera sample.
       const copyCount=code?twins.filter(c=>{if(!publicField(c.zone)||!sameObservedCard(c,{cardId:code,name:entry?.name}))return false;const other=watch.getTrack(c.ref)??tracks.current.find(t=>(bindings.current.get(t.id)??t.id)===c.ref);return !!other&&simultaneousFieldCopies(track,other,true);}).length:0;
       const copyProof=!existing&&copyCount?{simultaneousQuads:copyCount+1,at:Math.floor(serverNow()-999-Math.max(0,performance.now()-track.lastSeen))}:undefined;
-      for(const proposal of atomicReveal?[]:fieldPlacementProposals({track,seat,cardId:entry?catalogCardId(entry):undefined,name:entry?.name,existing:!!existing&&!originReturn,fromRef:originReturn?existing!.ref:undefined,copyProof,summon})){
+      const choices=track.nameCandidates?.map(candidate=>{const named=entries.current.get(candidate.cardId);if(!named)throw new Error('Candidate names are still loading. Retry the field update.');const code=catalogCardId(named);if(!code)throw new Error('Candidate identity is unavailable. Retry the field update.');return {cardId:code,name:named.name,score:candidate.score};});
+      const nameCandidates=choices??(existing?.nameCandidates?null:undefined);
+      for(const proposal of atomicReveal?[]:fieldPlacementProposals({track,seat,nameCandidates,cardId:entry?catalogCardId(entry):undefined,name:entry?.name,existing:!!existing&&!originReturn,fromRef:originReturn?existing!.ref:undefined,copyProof,summon})){
         // The camera row was not legal for this card type: the log line says so ("Trap → S3"). No prompt.
         updated=await mutate(proposal.type==='twin.place'&&projected.moved?{...proposal,zoneRule:projected.moved}:proposal);if(!updated){if(matchesEvidence(watch.getTrack(event.track.id)))offer({...event,type:'prompt',reason:'recognition-error'});return;}
         if(proposal.type==='twin.place'){
@@ -874,7 +883,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   const {generation}=useRecognitionBackend(),readerKey=useMemo(()=>({source,generation}),[source,generation]);
   const tournament=isTournamentTable(room);
   const watch=useFieldWatcher({tournament:tournament?{saved:()=>readTournamentMode(room.slug,seat)}:undefined,owner:ownsSource,active:hub.cameraOn&&room.status==='active'&&!room.state.ended&&!room.state.seats[seat].eliminated,seatKey:`${room.guildId}:${room.seats.find(s=>s.seat===seat)?.userId??'local'}:${seat}`,duelKey:room.slug,captureSize,deviceKey:cameraKey,deviceLabel:hub.devices.find(d=>d.deviceId===hub.cameraId)?.label||undefined,sourceKey:readerKey,
-    async create(){const resources=await ownFieldResources(()=>(recognitionPriorsFor(current.current.room,seat)));if(!resources)return null;entries.current=new Map(resources.entries.map(e=>[e.cardId,e]));return {...resources,profile:yugioh,earlyExitMargin:.02,format:current.current.room.format?.id??current.current.room.state.deckChecks.format.id,getKnownCards:known,onHeldCard:handleHeld,onHeldUnsure:handleHeldUnsure,cpuBusy:()=>resources.cpuBusy()||calibrationBusy.current};},onEvent:handle});
+    async create(){const resources=await ownFieldResources(()=>(recognitionPriorsFor(current.current.room,seat)));if(!resources)return null;entries.current=new Map(resources.entries.map(e=>[e.cardId,e]));return {...resources,profile:yugioh,placeUnsure:!!current.current.room.unsureNamesEnabled,earlyExitMargin:.02,format:current.current.room.format?.id??current.current.room.state.deckChecks.format.id,getKnownCards:known,onHeldCard:handleHeld,onHeldUnsure:handleHeldUnsure,cpuBusy:()=>resources.cpuBusy()||calibrationBusy.current};},onEvent:handle});
   useEffect(()=>{
     const reject=(event:Event)=>{if(!(event instanceof CustomEvent))return;const value=event.detail;if(value?.slug!==current.current.room.slug||value.seat!==seat||typeof value.ref!=='string')return;const id=[...bindings.current.entries()].find(([,ref])=>ref===value.ref)?.[0]??value.ref;watch.notACard(id,(()=>{const card=current.current.room.state.seats[seat].twin.find(c=>c.ref===value.ref);return card?knownZone(card):undefined;})());setPrompts(list=>list.filter(p=>p.track.id!==id));};
     window.addEventListener(NOT_A_CARD_EVENT,reject);return()=>window.removeEventListener(NOT_A_CARD_EVENT,reject);

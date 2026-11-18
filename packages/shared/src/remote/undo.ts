@@ -100,7 +100,7 @@ export function rememberRemoteAction(before: RemoteState, next: RemoteState, act
   const history = copyRemoteHistory(before.undoHistory ?? []);
   // A camera correction of a card it just placed (the first read named it early)
   // joins that placement: one Undo still removes the card in one step.
-  if (action.type === "card.identified" && action.source === "auto") {
+  if (action.type === "card.identified" && action.source === "auto" && !before.seats[action.seat].twin.find(c=>c.ref===action.cardRef)?.nameCandidates) {
     const ref = `${action.seat}:${action.cardRef}`, newest = [...history].sort((a,b)=>b.order-a.order)[0];
     if (newest && !newest.undone && newest.actorSeat === action.actorSeat && newest.action.type === "twin.place" && newest.action.source === "auto" &&
       `${newest.action.seat}:${newest.action.card.ref}` === ref && cards.every(c => newest.cards.includes(c)) && before.undo?.actionId === newest.actionId) {

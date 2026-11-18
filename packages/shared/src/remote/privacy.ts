@@ -22,7 +22,7 @@ function projectPosition<T extends RemotePosition>(state:T, seats:ReadonlySet<nu
   // What a controlled face-down card was belongs to its owner only.
   for(const seat of next.seats) for(const card of seat.twin) if(card.ownerIdentity && !seats.has(card.ownerSeat??-1)) delete card.ownerIdentity;
   for(const seat of next.seats) if(!seats.has(seat.seat)) for(const card of seat.twin) if(hidden(card.zone,card.faceUp) && !remotePublicCard(card)) {
-    delete card.cardId; delete card.passcode; delete card.name; delete card.race; delete card.bestMatch;
+    delete card.cardId; delete card.passcode; delete card.name; delete card.race; delete card.bestMatch; delete card.nameCandidates;
   }
   if(next.effectTracking) {
     next.effectTracking.contexts=Object.fromEntries(Object.entries(next.effectTracking.contexts).filter(([seat])=>seats.has(Number(seat))));
@@ -66,7 +66,7 @@ function projectEvent(event:RemoteEvent,seats:ReadonlySet<number>):RemoteEvent {
     if(effects?.privateHandIdentity) next.action={type:'log.note',actorSeat:actor,text:a.type==='deck.count'?'Updated a private Deck count':'Updated a private hand card',idempotencyKey:event.id};
     if(a.type==="side.swap") { next.action={type:"log.note",actorSeat:actor,text:"Updated a private side deck",idempotencyKey:event.id}; delete next.messages; }
     if(a.type==="effect.choose" && !effects?.publicEffectChoice) { next.action={type:"log.note",actorSeat:actor,text:"Updated a private card choice",idempotencyKey:event.id}; delete next.messages; }
-    if(a.type==="twin.place" && hidden(a.zone,a.card.faceUp)) { delete a.card.cardId; delete a.card.passcode; delete a.card.name; delete a.card.race; delete next.messages; }
+    if(a.type==="twin.place" && hidden(a.zone,a.card.faceUp)) { delete a.card.cardId; delete a.card.passcode; delete a.card.name; delete a.card.race; delete a.card.nameCandidates; delete next.messages; }
     if(a.type==="card.identified" || a.type==="cards.identified") {
       const sightings=a.type==="card.identified" ? [a] : a.cards;
       const privateSight=effects?.privateRecognition ?? sightings.some(s=>s.zone==="hand" || s.zone==="deck" || s.zone==="extra");
@@ -119,7 +119,7 @@ function spectatorPosition<T extends RemotePosition>(state:T,refs:SpectatorRefs)
     seat.twin=seat.twin.filter(card=>card.zone!=="hand" && card.zone!=="deck");
     for(const card of seat.twin) delete card.ownerIdentity;
     for(const card of seat.twin) if(!PUBLIC_ZONE(card)) {
-      delete card.cardId; delete card.passcode; delete card.name; delete card.race; delete card.bestMatch; delete card.publicIdentity; delete card.setBy;
+      delete card.cardId; delete card.passcode; delete card.name; delete card.race; delete card.bestMatch; delete card.nameCandidates; delete card.publicIdentity; delete card.setBy;
     }
   }
   const shown=next.identified, on=shown?.cardRef ? next.seats[shown.seat]?.twin.find(card=>card.ref===shown.cardRef) : undefined;
