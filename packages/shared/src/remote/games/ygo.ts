@@ -408,6 +408,7 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
         freeSlot(s, action.zone, slot, card.ref);
         const origin = card.departedFrom;
         const knownSetReturn = fieldFaceVersion === 2 && action.setRef && origin?.wasKnownFaceUp &&
+          origin.at !== undefined && action.at !== undefined && action.at - origin.at <= 3000 &&
           action.zone === origin.zone && slot === origin.slot && !action.physicalZoneChanged && cardKnown(card);
         if (fieldFaceVersion === 2 && (card.zone !== action.zone || card.slot !== slot || action.physicalZoneChanged)) {
           if ((action.faceUp ?? card.faceUp) === false || (card.knownFaceDown && !remoteFieldZone(action.zone))) delete card.publicIdentity;

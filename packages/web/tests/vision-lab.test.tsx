@@ -1061,7 +1061,29 @@ describe('typed watcher zone projection',()=>{
    else{expect(dismiss).not.toHaveBeenCalled();expect(fixture.room().state.seats[0].twin).toEqual(placement?[]:[expect.objectContaining({ref:old.ref,zone:'hand'})]);}
   }finally{ready.resolve();fixture.dispose();}
  },10_000);
- it.each(['earlier GY touch','hand over the slot','a clear pass before the back appears','no full scan during CPU guard','a back candidate','pixels only'] as const)('holds a slow in-place Set after removal with %s',async scenario=>{
+ it.each(['the next full pass','the removal scan','the pixel-only removal check'] as const)('sends a face-up M1 card to hand in under one second when %s shows empty mat',async scan=>{
+  const entry=cards[0],old={ref:'lifted-monster',zone:'monster',slot:1,cardId:entry.passcode,name:entry.name,faceUp:true,position:'attack'};
+  const fixture=await typedWatcherFixture(entry,'M1',[old],'moved');
+  vi.useFakeTimers({toFake:['setTimeout','clearTimeout','performance']});
+  try{
+   const removedAt=performance.now(),removedFrameAt=removedAt-50,watch=state.fieldWatch.watch;
+   Object.assign(fixture.track,{removed:true,visible:false,removedFrameAt});
+   watch.isRemoved=()=>fixture.track.removed;
+   watch.getSnapshot=()=>watch.snapshot;
+   const pixelOnly=scan==='the pixel-only removal check';
+   Object.assign(watch.snapshot,{blindZones:[],handZones:[],lastFullAt:pixelOnly?removedFrameAt-400:removedFrameAt});
+   fixture.refresh();
+   await fixture.emit({type:'removed',removedAt,...(pixelOnly?{reason:'empty'}:{})});
+   if(scan==='the next full pass'){
+    await act(async()=>{await vi.advanceTimersByTimeAsync(200);});
+    watch.snapshot.lastFullAt=performance.now();
+   }
+   await act(async()=>{await vi.advanceTimersByTimeAsync(removedAt+999-performance.now());});
+   expect(fixture.post).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({type:'twin.move',cardRef:old.ref,zone:'hand'}),expect.anything());
+   expect(fixture.room().state.seats[0].twin).toEqual([expect.objectContaining({ref:old.ref,zone:'hand'})]);
+  }finally{fixture.dispose();vi.useRealTimers();}
+ });
+ it.each(['earlier GY touch','hand over the slot','an unread candidate before the back appears','a blind cell before the back appears','no full scan during CPU guard','a back candidate','pixels only'] as const)('holds a slow in-place Set after removal with %s',async scenario=>{
   const old={ref:'slow-set',zone:'spell-trap',slot:4,cardId:41420027,name:'Solemn Judgment',faceUp:true,position:'attack'};
   const fixture=await typedWatcherFixture(zoneEntries[0],'S4',[old],'moved');
   vi.useFakeTimers();
@@ -1069,17 +1091,18 @@ describe('typed watcher zone projection',()=>{
    const advance=(ms:number)=>act(async()=>{await vi.advanceTimersByTimeAsync(ms);});
    await advance(5000);
    const removedAt=performance.now(),earlierPile=scenario==='earlier GY touch',cpu=scenario==='no full scan during CPU guard',watch=state.fieldWatch.watch;
-   const clearPass=scenario==='a clear pass before the back appears';
+   const unread=scenario==='an unread candidate before the back appears',blind=scenario==='a blind cell before the back appears';
    Object.assign(fixture.track,{lastSeen:removedAt-2400,removed:true,visible:false});
    watch.isRemoved=()=>fixture.track.removed;
    watch.getSnapshot=()=>watch.snapshot;
-   Object.assign(watch.snapshot,{pileTouchedAt:earlierPile?{GY:removedAt-2100}:{},blindZones:[],handZones:scenario==='hand over the slot'||clearPass?['S4']:[],
+   Object.assign(watch.snapshot,{pileTouchedAt:earlierPile?{GY:removedAt-2100}:{},blindZones:[],handZones:scenario==='hand over the slot'||unread?['S4']:[],
     ...(cpu?{status:'budget',lastFullAt:removedAt-2400}:{})});
    fixture.refresh();
    await fixture.emit({type:'removed',removedAt});
-   if(clearPass){
+   if(unread||blind){
     await advance(700);
-    Object.assign(watch.snapshot,{handZones:[],lastFullAt:performance.now()});
+    if(unread)watch.snapshot.tracks.push({...fixture.track,id:'unread-outline',removed:false,state:'candidate',cardId:undefined});
+    Object.assign(watch.snapshot,{blindZones:blind?['S4']:[],handZones:[],lastFullAt:performance.now()});
    }
    await advance(cpu?4000:1000);
    expect(fixture.post).not.toHaveBeenCalled();

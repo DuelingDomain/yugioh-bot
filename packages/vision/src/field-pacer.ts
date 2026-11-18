@@ -7,8 +7,6 @@
  */
 export interface FieldPacerDevice { cores:number; memoryGb?:number }
 export interface FieldPacer {
-  /** Boolean form of check for callers that only need admission. */
-  allow(at:number,moving?:boolean,sceneMoving?:boolean,urgent?:boolean):boolean;
   /** Moving hands wait longer. Urgent first reads use the burst rest and may borrow one pass while backoff is off. */
   check(at:number,moving?:boolean,sceneMoving?:boolean,urgent?:boolean):'ready'|'rest'|'budget';
   /** Record wall time and rest. Priority passes and urgent passes during backoff spend available tokens only. */
@@ -45,12 +43,11 @@ export function createFieldPacer(device:FieldPacerDevice,start:number,backend:()
     const gpu=backend()==='webgpu',burstRest=passMs*(gpu?BURST_REST:1);
     const rest=urgent?burstRest:(moving?Math.max(MOVING_REST_MS,passMs*MOVING_REST):burstRest)*backoff;
     if(at-lastEnd<rest||!urgent&&moving&&!gpu&&at-movingSince<MOVING_REST_MS)return 'rest';
-    // A pass that starts with a nonnegative balance can incur at most its own wall time in debt.
-    if(urgent)return tokens>=(backoff>1?passMs:0)?'ready':'budget';
+    // During backoff an urgent pass can spend any positive balance without incurring debt.
+    if(urgent)return (backoff>1?tokens>0:tokens>=0)?'ready':'budget';
     return tokens>0||wakePermit&&!sceneMoving?'ready':'budget';
   };
   return {
-    allow:(...args)=>check(...args)==='ready',
     check,
     spend(wallMs,at,sceneMoving=false,debt=true){
       refill(at);if(!sceneMoving)wakePermit=false;

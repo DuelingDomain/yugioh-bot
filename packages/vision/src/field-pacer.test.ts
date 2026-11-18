@@ -61,17 +61,17 @@ test('an urgent pass for a new resting card skips backoff and the moving rest, a
  const p=createFieldPacer({cores:8},0,()=> 'wasm');
  for(let i=0;i<60;i++)p.late(1000);
  p.changed(1000);p.spend(300,1000,true);
- assert.equal(p.allow(1400,true,true),false);assert.equal(p.allow(1400,false,true),false);
- assert.equal(p.allow(1300,true,true,true),true);
+ assert.equal(p.check(1400,true,true),'rest');assert.equal(p.check(1400,false,true),'rest');
+ assert.equal(p.check(1300,true,true,true),'ready');
  // Backoff ~4: the duty over a long run stays near the sustain rate (0.2 / 4 = 0.05, plus the initial bucket).
  let busy=0,at=1300;
- for(;at<120_000;at+=10)if(p.allow(at,true,true,true)){at+=300;p.spend(300,at,true);busy+=300;}
+ for(;at<120_000;at+=10)if(p.check(at,true,true,true)==='ready'){at+=300;p.spend(300,at,true);busy+=300;}
  assert.ok(busy/at<=.08,`urgent duty at backoff ${busy/at}`);
  // No backoff: an urgent burst may borrow one pass, and a normal pass is allowed again within 3 s.
  const q=createFieldPacer({cores:8},0,()=> 'wasm');
  q.spend(300,300,true);let t=300;
- for(let i=0;i<40&&t<10_000;i++,t+=10)if(q.allow(t,false,true,true)){t+=300;q.spend(300,t,true);}
- const burstEnd=t;while(!q.allow(t))t+=10;
+ for(let i=0;i<40&&t<10_000;i++,t+=10)if(q.check(t,false,true,true)==='ready'){t+=300;q.spend(300,t,true);}
+ const burstEnd=t;while(q.check(t)!=='ready')t+=10;
  assert.ok(t-burstEnd<=3000,`normal pass waits ${t-burstEnd} ms after an urgent burst`);
 });
 
@@ -87,6 +87,10 @@ test('urgent admission respects rest and borrows at most one pass',()=>{
  const backedOff=createFieldPacer({cores:8},0);
  for(let i=0;i<60;i++)backedOff.late(1000);
  backedOff.spend(3000,3000,true,'urgent');
- assert.equal(backedOff.check(6000,false,true,true),'budget');
- assert.equal(backedOff.check(63_000,false,true,true),'ready','an overrun during backoff leaves no debt');
+ assert.equal(backedOff.check(5999,false,true,true),'rest');
+ assert.equal(backedOff.check(6000,false,true,true),'ready','an overrun during backoff leaves no debt');
+ backedOff.spend(3000,9000,true,'urgent');
+ assert.equal(backedOff.check(12_000,false,true,true),'ready','a positive balance admits another urgent pass');
+ backedOff.spend(15_000,27_000,true);
+ assert.equal(backedOff.check(33_600,false,true,true),'budget','backoff still blocks borrowing');
 });

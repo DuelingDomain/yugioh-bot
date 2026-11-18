@@ -4116,21 +4116,23 @@ it.each(["idle", "creator-left"] as const)("expires no-result %s evidence after 
   } finally {vi.unstubAllEnvs();}
 });
 
-it('rotates the ref of a recovered Set and keeps identity only for a face-up card returned to its original cell', () => {
+it('rotates the ref of a recovered Set and keeps identity only for a face-up card returned promptly to its original cell', () => {
   const cases = [
-    { faceUp: true, slot: 1, physicalZoneChanged: false, known: true },
-    { faceUp: false, slot: 1, physicalZoneChanged: false, known: false },
-    { faceUp: true, slot: 2, physicalZoneChanged: false, known: false },
-    { faceUp: true, slot: 1, physicalZoneChanged: true, known: false },
+    { faceUp: true, slot: 1, physicalZoneChanged: false, returnAt: 4, known: true },
+    { faceUp: true, slot: 1, physicalZoneChanged: false, returnAt: 3 + 3000, known: true },
+    { faceUp: true, slot: 1, physicalZoneChanged: false, returnAt: 3 + 10_000, known: false },
+    { faceUp: false, slot: 1, physicalZoneChanged: false, returnAt: 4, known: false },
+    { faceUp: true, slot: 2, physicalZoneChanged: false, returnAt: 4, known: false },
+    { faceUp: true, slot: 1, physicalZoneChanged: true, returnAt: 4, known: false },
   ] as const;
-  for (const { faceUp, slot, physicalZoneChanged, known } of cases) {
+  for (const { faceUp, slot, physicalZoneChanged, returnAt, known } of cases) {
     const place = remoteActionSchema.parse({ type: 'twin.place', seat: 0, actorSeat: 0, zone: 'spell-trap', at: 1,
       idempotencyKey: 'first-place', card: { ref: 'old', slot: 1, faceUp: true, cardId: 5318639 } });
     const flip = remoteActionSchema.parse({ type:'twin.flip', seat: 0, actorSeat: 0, cardRef: 'old', faceUp: false, at: 2, idempotencyKey: 'first-set' });
     const lift = remoteActionSchema.parse({ type: 'twin.move', seat: 0, actorSeat: 0, cardRef: 'old', zone: 'hand',
       source: 'auto', faceUp: !faceUp, at: 3, idempotencyKey: 'lift' });
     const recover = remoteActionSchema.parse({ type: 'twin.move', seat: 0, actorSeat: 0, cardRef: 'old', setRef: 'fresh', zone: 'spell-trap',
-      slot, faceUp: false, source: 'auto', ...(physicalZoneChanged ? { physicalZoneChanged: true } : {}), at: 4, idempotencyKey: 'recover' });
+      slot, faceUp: false, source: 'auto', ...(physicalZoneChanged ? { physicalZoneChanged: true } : {}), at: returnAt, idempotencyKey: 'recover' });
     const initial = ygoModule.initialState({ seatCount: 2 });
     const events = faceUp ? [place, lift, recover] : [place, flip, lift, recover];
     const state = events.reduce((position, event) => ygoModule.reduce(position, event), initial);
@@ -4138,10 +4140,17 @@ it('rotates the ref of a recovered Set and keeps identity only for a face-up car
       replay: true, twinPlacementGuard: 9, fieldFaceState: 2, setReturnFaceState: 1,
     }), initial);
     for (const position of [state, historical]) {
-      expect(position.seats[0].twin).toEqual([expect.objectContaining({ ref: 'fresh', slot, faceUp: false, cardId: 5318639 })]);
-      const viewerCard = projectRemoteState(position, new Set([1])).seats[0].twin[0];
-      expect(viewerCard.cardId).toBe(known ? 5318639 : undefined);
-      expect(viewerCard.knownFaceDown).toBe(known ? true : undefined);
+      expect(projectRemoteState(position, new Set([0])).seats[0].twin).toEqual([
+        expect.objectContaining({ ref: 'fresh', zone: 'spell-trap', slot, faceUp: false, cardId: 5318639 }),
+      ]);
+      const opponent = projectRemoteState(position, new Set([1])).seats[0].twin[0];
+      const spectator = projectRemoteSpectator({table:{seats:[]} as never,state:position,events:[]}).state.seats[0].twin[0];
+      expect(opponent.ref).toBe('fresh');
+      for (const viewerCard of [opponent, spectator]) {
+        expect(viewerCard).toMatchObject({ zone: 'spell-trap', slot, faceUp: false });
+        expect(viewerCard.cardId).toBe(known ? 5318639 : undefined);
+        expect(viewerCard.knownFaceDown).toBe(known ? true : undefined);
+      }
     }
   }
 });

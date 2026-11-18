@@ -133,7 +133,7 @@ export type FieldEvent = { type:'reading'|'placed'|'moved'|'flipped'|'removed'|'
 export interface FieldMetrics { detectorMs:number; /** Wall time of the latest priority Set pass, included in detector duty. */ priorityPassMs?:number; recognitionMs:number; dutyPercent:number; intervalMs:number; samples:number; skipped:number; placements:number; latencyMs:number; errors:number; event?:FieldTiming }
 /** What the watcher saw on its last sample, for the owner's debug overlay. Local only, never sent. */
 export interface FieldDebug { at:number; path:string; full:boolean; region?:FractionalBox; detections:{quad:DetectedQuad['quad'];kind:DetectedQuad['kind'];confidence:number;zone:FieldZone;use:string; /** The box centre lies between two zone cells (zone shown is the nearest). */ gap?:boolean}[]; reasons:Record<string,string>; /** Best raw detector score inside the calibrated Deck/Extra cell this full pass (null: no outline at or above the decode floor .2). */ pileScores?:Partial<Record<'DECK'|'EXTRA',number|null>> }
-export interface FieldSnapshot { /** True once per watcher, while a resting card has never been sharp enough to read (soft camera): the page shows one focus hint instead of a prompt per card. */ softCamera?:boolean; held?:HeldCardTrack[]; /** Frame sharpness vs its recent baseline (ratio) and whether removals hold for blur (debug line). */ blur?:{sharpness:number;ratio:number;hold:boolean;/** Crop sharpness a card needs to be read now (12 on a good camera, lower on a soft one). */limit:number}; /** Shadow over the mat (share 0..1) and whether removals wait for it to settle (debug line). */ shadow?:{share:number;hold:boolean}; /** Field twin refs whose zone showed no outline in 2 full scans (no hand, no moving shadow): the re-sync removes them. */ missingTwins?:string[]; /** Pile zones with no stack outline in 2 full scans in a row (no hand over them). */ missingPiles?:FieldZone[]; /** Last time a hand moved over the GY / banished pile (watcher clock). */ pileTouchedAt?:Partial<Record<'GY'|'BANISHED',number>>; /** Hand contact within a tracked public pile, excluding motion nearby. */ pileContactAt?:Partial<Record<'GY'|'BANISHED',number>>; /** Since when the GY / banished cell shows the empty mat on sharp frames with no hand over it (watcher clock). */ pileClearSince?:Partial<Record<'GY'|'BANISHED',number>>; /** Spell/Trap zones where a still, hand-free cell reads unlike its empty mat and is available for the pixel sleeve check, seen on the last full pass. */ blindZones?:FieldZone[]; /** Time of the latest clean full scan with sleeve edges in a blind Spell/Trap cell. */ blindSleeveAt?:Partial<Record<FieldZone,number>>; /** First full scan that saw the current stable blind sleeve. */ blindSleeveSince?:Partial<Record<FieldZone,number>>; /** Main Monster and Spell/Trap zones with a hand over the cell on the last full pass. */ handZones?:FieldZone[]; /** Sample time of the last full detector pass (watcher clock). */ lastFullAt?:number; /** Sample time when the last Scan field sweep (two fresh full passes) finished (watcher clock). */ lastScanAt?:number; /** Field zones with a card on the board that the sweep could not judge: the spot lies mostly outside the frame. */ lastScanOffFrame?:FieldZone[]; /** Field zones where that sweep saw a back resting on the mat (weak boxes count), over no front that still looks like itself. */ lastScanBacks?:FieldZone[]; status:'stopped'|'starting'|'watching'|'hidden'|'busy'|'budget'|'error'; tracks:FieldTrack[]; piles?:{zone:'DECK'|'EXTRA';card:DetectedQuad}[]; metrics:FieldMetrics; error?:string; debug?:FieldDebug; /** Resting cards whose centres fall in a gap between cells or outside the grid, seen in several full passes in a row: the grid is probably shifted (Recalibrate). */ gridShift?:{gap:number;outside:number;suspect:boolean}; /** Watcher clock time of the last sample that showed motion on the mat. */ lastMotionAt?:number; /** Resting cards inside a zone in the last full pass that no track follows and that nothing skipped, so the board may miss them. */ untracked?:number }
+export interface FieldSnapshot { /** True once per watcher, while a resting card has never been sharp enough to read (soft camera): the page shows one focus hint instead of a prompt per card. */ softCamera?:boolean; held?:HeldCardTrack[]; /** Frame sharpness vs its recent baseline (ratio) and whether removals hold for blur (debug line). */ blur?:{sharpness:number;ratio:number;hold:boolean;/** Crop sharpness a card needs to be read now (12 on a good camera, lower on a soft one). */limit:number}; /** Shadow over the mat (share 0..1) and whether removals wait for it to settle (debug line). */ shadow?:{share:number;hold:boolean}; /** Field twin refs whose zone showed no outline in 2 full scans (no hand, no moving shadow): the re-sync removes them. */ missingTwins?:string[]; /** Pile zones with no stack outline in 2 full scans in a row (no hand over them). */ missingPiles?:FieldZone[]; /** Last time a hand moved over the GY / banished pile (watcher clock). */ pileTouchedAt?:Partial<Record<'GY'|'BANISHED',number>>; /** Hand contact within a tracked public pile, excluding motion nearby. */ pileContactAt?:Partial<Record<'GY'|'BANISHED',number>>; /** Since when the GY / banished cell shows the empty mat on sharp frames with no hand over it (watcher clock). */ pileClearSince?:Partial<Record<'GY'|'BANISHED',number>>; /** Spell/Trap zones that looked occupied in a still, hand-free cell on the last full pass. */ blindZones?:FieldZone[]; /** Time of the latest clean full scan with sleeve edges in a blind Spell/Trap cell. */ blindSleeveAt?:Partial<Record<FieldZone,number>>; /** First full scan that saw the current stable blind sleeve. */ blindSleeveSince?:Partial<Record<FieldZone,number>>; /** Main Monster and Spell/Trap zones with a hand over the cell on the last full pass. */ handZones?:FieldZone[]; /** Sample time of the last full detector pass (watcher clock). */ lastFullAt?:number; /** Sample time when the last Scan field sweep (two fresh full passes) finished (watcher clock). */ lastScanAt?:number; /** Field zones with a card on the board that the sweep could not judge: the spot lies mostly outside the frame. */ lastScanOffFrame?:FieldZone[]; /** Field zones where that sweep saw a back resting on the mat (weak boxes count), over no front that still looks like itself. */ lastScanBacks?:FieldZone[]; status:'stopped'|'starting'|'watching'|'hidden'|'busy'|'budget'|'error'; tracks:FieldTrack[]; piles?:{zone:'DECK'|'EXTRA';card:DetectedQuad}[]; metrics:FieldMetrics; error?:string; debug?:FieldDebug; /** Resting cards whose centres fall in a gap between cells or outside the grid, seen in several full passes in a row: the grid is probably shifted (Recalibrate). */ gridShift?:{gap:number;outside:number;suspect:boolean}; /** Watcher clock time of the last sample that showed motion on the mat. */ lastMotionAt?:number; /** Resting cards inside a zone in the last full pass that no track follows and that nothing skipped, so the board may miss them. */ untracked?:number }
 export interface FieldBuffer { /** `urgent`: a new card is settling, so the buffer must not add a wait before this sample. */ sample(options?:{maxAgeMs?:number;urgent?:boolean}):Promise<{frame:FieldFrame;at:number}> }
 export interface KnownFieldCard { id:string; card?:DetectedQuad; zone:FieldZone|'HAND'; cardId?:string; faceDown?:boolean; position?:FieldTrack['position'] }
 export interface FieldWatcherOptions {
@@ -523,20 +523,27 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       if(!pile){if(hand)handZones.add(zone);else handZones.delete(zone);}
       if(zone.startsWith('M'))continue;
       const entry=emptyLooks.get(zone),base=entry?.look,b=boundsOf(box.quad),look=evidence.appearance?.(box);
+      const still=!hand&&evidence.motion(box)<=.025;
       // A known card whose own track was removed from this cell (a face-up card flipped Set in place) does not block the scan, unless a GY/banished pile was touched around its removal (the card went there).
       const gone=(k:KnownFieldCard)=>tracks.some(t=>t.view.removed&&t.view.zone===zone&&(t.view.id===k.id||t.binding?.id===k.id)&&
         !(['GY','BANISHED'] as const).some(z=>(pileTouches.get(z)??-Infinity)>=departureAt(t.view)-1500));
       const clear=!!base?.length&&!!look?.length&&(pile||!tracks.some(t=>!t.view.removed&&t.view.zone===zone&&t.view.state==='identified'&&!t.view.card.cell)&&!known.some(k=>k.zone===zone&&!gone(k)))&&
-        !hand&&evidence.motion(box)<=.025&&unlikeMat(entry,look,evidence.halo?.(box));
+        still&&unlikeMat(entry,look,evidence.halo?.(box));
       const previousSleeve=blindSleevesSeen.get(zone);
       if(!pile){blindSleevesSeen.delete(zone);if(clear)blindZones.add(zone);else blindZones.delete(zone);}
-      if(!clear){blindScans.delete(zone);blindCountAt.delete(zone);blindShape.delete(zone);blindMisses.delete(zone);continue;}
+      if(!clear){
+        blindScans.delete(zone);blindCountAt.delete(zone);blindShape.delete(zone);blindMisses.delete(zone);
+        // A back can already cover the departing front's slot before a detector hit or an empty-mat baseline.
+        if(pile||!still||!tracks.some(t=>t.view.zone===zone&&t.view.removed&&!t.view.faceDown&&
+          at>=departureAt(t.view)&&at-departureAt(t.view)<=SET_FOLLOW_UP_WINDOW_MS))continue;
+      }
       // A shadow or blur over the cell pauses the count; it does not reset it.
       if(removalHold(box)){if(blindCountAt.has(zone))blindCountAt.set(zone,now());continue;}
       // Spell/Trap evidence counts consecutive full passes, which CPU pacing can separate by seconds.
       // Keep the pile count's existing idle timeout.
       const stale=pile&&now()-(blindCountAt.get(zone)??-Infinity)>PILE_BLIND_STALE_MS,scans=(stale?0:blindScans.get(zone)??0)+1;
-      blindScans.set(zone,scans);if(pile){blindCountAt.set(zone,now());if(scans<SET_STEADY_SCANS)continue;}
+      if(clear)blindScans.set(zone,scans);
+      if(pile){blindCountAt.set(zone,now());if(scans<SET_STEADY_SCANS)continue;}
       // A detector outline decides a pile; the pixel outline only fills in when it is missing.
       if(pile&&detected.some(c=>overlapFraction(boundsOf(c.quad),b)>=.2))continue;
       const old=blindShape.get(zone),hold=()=>{
@@ -546,14 +553,15 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       const map=quadMap(box.quad as Quad);if(!map)continue;
       const wide:Quad=[map(-BLIND_PAD,-BLIND_PAD),map(1+BLIND_PAD,-BLIND_PAD),map(1+BLIND_PAD,1+BLIND_PAD),map(-BLIND_PAD,1+BLIND_PAD)];
       const crop=evidence.crop?.({quad:wide,kind:'face-down',confidence:1,partial:false}),found=crop&&findFlatSleeve(crop,BLIND_PAD),back=quadMap(wide);
-      if(!found||!back){hold();continue;}
+      if(!found||!back){if(clear)hold();continue;}
       const quad=[back(found.u0,found.v0),back(found.u1,found.v0),back(found.u1,found.v1),back(found.u0,found.v1)],
         fresh:DetectedQuad=pile?{quad,kind:'face-down',confidence:.3,partial:false,pile:true,blind:true}:{quad,kind:'face-down',confidence:.3,partial:false,cell:true,blind:true};
       // The same sleeve keeps one outline (pixel edges jitter by a pixel or two).
       // A still deck box or card case is flat and edged too: only about one card in shape counts.
       // Visual only: a plain deck box (about .74 ratio) can still pass this card-aspect check.
-      if(!cardAspect(fresh)){hold();continue;}
+      if(!cardAspect(fresh)){if(clear)hold();continue;}
       if(!pile){
+        if(!clear){blindZones.add(zone);continue;}
         const same=previousSleeve&&medianGap(previousSleeve.look,look)<=SET_BRIDGE_LOOK&&sameFieldAppearance(previousSleeve.look,look);
         blindSleevesSeen.set(zone,{at,since:same?previousSleeve.since:at,look:look!});
         if(scans<SET_STEADY_SCANS)continue;
@@ -763,7 +771,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
     if(t.missingSamples<DEPARTURE_SCANS||at-t.clearWindowAt<removalMs)return;
     if(shadowOver(t.view.card)&&at-t.clearWindowAt<DEPARTURE_HOLD_MS){note(t,shadowNote());return;}
     t.view.removed=true;t.restoredAt=undefined;
-    if(t.view.state==='identified'||t.placeholder)emit('removed',t);
+    if(t.view.state==='identified'||t.placeholder)emit('removed',t,{reason:'empty'});
     // A candidate lost from view is dismissed softly: it reads again when it shows again.
     if(t.view.state!=='identified'){t.softDismiss=t.view.state==='candidate';t.view.state='dismissed';}
   }
@@ -1707,7 +1715,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
               if(removalHold(t.view.card)&&t.fullMisses<DEPARTURE_SCANS)note(t,shadowNote());
               else if(t.fullMisses>=2&&sample.at-t.fullMissAt>=250&&!stackWaiting.has(t.view.id)&&(!pendingNew||weak)){
                 note(t,`${phantom?'phantom (no box on the mat plane)':empty?'its cell shows the empty mat':'no outline'} in ${t.fullMisses} full passes over ${Math.round(sample.at-t.fullMissAt)} ms`);
-                t.view.removed=true;t.view.removedFrameAt=t.fullMissAt;t.restoredAt=undefined;t.fullMisses=0;t.fullMissAt=undefined;emit('removed',t,phantom?{reason:'phantom'}:{});
+                t.view.removed=true;t.view.removedFrameAt=t.fullMissAt;t.restoredAt=undefined;t.fullMisses=0;t.fullMissAt=undefined;emit('removed',t,phantom?{reason:'phantom'}:empty?{reason:'empty'}:{});
                 // A candidate lost from view is dismissed softly: it reads again when it shows again.
                 if(t.view.state!=='identified'){t.softDismiss=t.view.state==='candidate';t.view.state='dismissed';}
               }

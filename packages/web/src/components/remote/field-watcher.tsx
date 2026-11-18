@@ -67,7 +67,7 @@ const slidePileActivity=(snap:FieldSnapshot|undefined)=>{
   }
   return activity;
 };
-/** A clear pass can fall between the hand leaving and the turned card settling. */
+/** A card still in the cell can need time to settle after the hand leaves. */
 const FLIP_SETTLE_MS=3000,FLIP_HOLD_MAX_MS=8000,FLIP_POLL_MS=250;
 const publicField=(zone:string)=>['monster','extra-monster','spell-trap','field','pendulum'].includes(zone);
 /** A card the camera sent from the field to the hand, a pile or the Extra Deck still owns its field origin. */
@@ -859,19 +859,23 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       leaveStarted.current.set(id,started);pendingDepartures.current.set(id,{event,origin});
       const zone=event.track.zone,removedAt=event.removedAt??started;
       const firstMiss=event.track.removedFrameAt??removedAt;
-      // Wait for a full pass sampled after the removal, then follow its hand or sleeve evidence.
+      // Use a full pass to judge the cell. The scan that saw the card missing can already show empty mat.
       const flipHoldLimit=(snap:FieldSnapshot|undefined)=>{
         if(!snap||!mainSlotPattern.test(zone)||pileNear(pileActivity(snap),removedAt))return 0;
         const fullAt=snap.lastFullAt;
         const replacements=snap.tracks.filter(t=>t.id!==id&&!t.removed&&t.zone===zone);
+        const blind=snap.blindZones?.includes(zone),hand=snap.handZones?.includes(zone);
+        const occupied=blind||hand||replacements.length>0;
         const freshBack=replacements.some(t=>fieldBackCandidate(t)&&t.firstSeen>=event.track.lastSeen-1000||
           t.card.kind==='face-down'&&t.state==='identified'&&!t.card.partial&&!t.card.covered&&t.lastSeen>=Math.max(removedAt,fullAt??-Infinity));
         if((snap.blindSleeveAt?.[zone]??-Infinity)>=removedAt||freshBack)return FIELD_SET_RETURN_MS;
-        if(event.removedAt!==undefined&&(fullAt===undefined||fullAt<=event.removedAt))return FLIP_HOLD_MAX_MS;
-        if(snap.blindZones?.includes(zone)&&!snap.handZones?.includes(zone))return DEPARTURE_WAIT_MS;
+        const emptyAtRemoval=card.faceUp&&!occupied&&(event.reason==='empty'||
+          zone.startsWith('M')&&event.track.removedFrameAt!==undefined&&fullAt!==undefined&&fullAt>=firstMiss);
+        if(event.removedAt!==undefined&&!emptyAtRemoval&&(fullAt===undefined||fullAt<=removedAt))return FLIP_HOLD_MAX_MS;
+        if(blind&&!hand&&!card.faceUp)return DEPARTURE_WAIT_MS;
         if(fullAt!==undefined&&replacements.some(t=>t.firstSeen>=event.track.lastSeen-1000&&t.visible&&!t.faceDown&&t.card.kind==='face-up'&&t.lastSeen>=fullAt))return 0;
-        if(snap.handZones?.includes(zone))return FLIP_HOLD_MAX_MS;
-        return card.faceUp&&event.removedAt!==undefined?FLIP_SETTLE_MS:0;
+        if(hand)return FLIP_HOLD_MAX_MS;
+        return card.faceUp&&occupied&&event.removedAt!==undefined?FLIP_SETTLE_MS:0;
       };
       let pileWaitUntil:number|undefined;
       const arm=(wait:number)=>departureTimers.current.set(id,setTimeout(()=>{

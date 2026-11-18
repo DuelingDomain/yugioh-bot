@@ -560,10 +560,10 @@ test('a face-up Spell turned Set in place under a flickering shadow is the same 
   };
   const padded=flat(sleeve,[.23,.77,.19,.81]),barePadded=flat(mat),own=flat(sleeve),cell=zones.fieldZoneCells().find(c=>c.zone==='S3')!,inCell=(c:DetectedQuad)=>Math.abs(zones.fieldCenter(c).x-(cell.x+cell.w/2))<cell.w/2&&Math.abs(zones.fieldCenter(c).y-(cell.y+cell.h/2))<cell.h/2;
   const gy=zones.fieldZoneCells().find(c=>c.zone==='GY')!,inGy=(c:DetectedQuad)=>Math.abs(zones.fieldCenter(c).x-(gy.x+gy.w/2))<gy.w/2&&Math.abs(zones.fieldCenter(c).y-(gy.y+gy.h/2))<gy.h/2;
-  const scene=async(toGy:boolean,paced=false)=>{
+  const scene=async(toGy:boolean,paced=false,learnedMat=true)=>{
   const r=fieldRig('sure',20,undefined,{width:160,height:90}),run=async(n:number,shade?:boolean)=>{for(let i=0;i<n;i++){if(shade)r.shadow=i%2?{share:0,changed:0}:{share:.9,changed:.9};r.watcher.scanNow();await r.tick(300);}r.shadow=undefined;};
   r.outlines=[];r.watcher.setCalibration(zones.createFieldCalibration([{x:0,y:0},{x:1,y:1}]));
-  r.appearanceAt=()=>Array(288).fill(.25);r.cropAt=c=>c.blind?own:barePadded;await run(8);
+  r.appearanceAt=()=>Array(288).fill(.25);r.cropAt=c=>c.blind?own:barePadded;if(learnedMat)await run(8);
   const front={...card(cell.x+cell.w*.15,cell.y+cell.h*.1,cell.w*.7,cell.h*.8),kind:'face-up' as const};
   r.known=[{id:'twin',zone:'S3',cardId:'A',faceDown:false}];r.outlines=[front];
   r.appearanceAt=c=>c.kind==='face-up'?Array.from({length:288},(_,i)=>i%2?.6:.3):Array(288).fill(.25);r.cropAt=c=>c.kind==='face-up'?fieldCrop(c):barePadded;await run(10);
@@ -608,6 +608,12 @@ test('a face-up Spell turned Set in place under a flickering shadow is the same 
     }
     await run(1);
     assert.ok(r.watcher.getSnapshot().blindZones?.includes('S3'),'the first sleeve scan after removal ignores the old GY motion');
+    if(!learnedMat){
+      assert.equal(r.events.some(e=>e.type==='placed'&&e.track.faceDown),false,'a sleeve without an empty mat baseline only holds the cell');
+      r.appearanceAt=()=>Array(288).fill(.25);r.cropAt=()=>barePadded;await run(1);
+      assert.equal(r.watcher.getSnapshot().blindZones?.includes('S3'),false,'empty mat clears the sleeve hold');
+      const events=r.events.slice();r.watcher.dispose();return events;
+    }
   }
   await run(30,true);r.motionAt=undefined;await run(10);
   const events=r.events.slice();r.watcher.dispose();return events;
@@ -616,6 +622,7 @@ test('a face-up Spell turned Set in place under a flickering shadow is the same 
   const turned=await scene(false);
   assert.ok(flipped(turned),'the same card turns face-down despite GY motion before the removal window');
   assert.equal(turned.some(e=>e.type==='placed'&&e.track.faceDown),false,'no new unknown Set');
+  await scene(false,false,false);
   assert.equal(flipped(await scene(true)),false,'a hand over the GY with the card gone is no flip in place');
   const slow=await scene(false,true);
   assert.ok(flipped(slow),'the known card flips in place with four seconds between full passes');
@@ -670,7 +677,7 @@ test('disappearance needs sustained clear absence and emits once, preserving id 
 test('departure needs repeated clear mat samples, never motion, stationary hands or unknown mat pixels',async()=>{
   const r=fieldRig();for(let i=0;i<6;i++)await r.tick();r.outlines=[];
   await r.tick(100);await r.tick(100);assert.equal(r.events.filter(e=>e.type==='removed').length,0);
-  await r.tick(100);assert.equal(r.events.filter(e=>e.type==='removed').length,1);r.watcher.dispose();
+  await r.tick(100);assert.deepEqual(r.events.filter(e=>e.type==='removed').map(e=>e.reason),['empty']);r.watcher.dispose();
   // Owner rule: detector absence removes a card unless a hand (skin) covers the
   // spot, the spot still shows the card, it moves, or the CPU is busy. The mat
   // colour and its surround do not matter.
