@@ -38,7 +38,7 @@ import {nextFieldGhosts,setFieldGhosts,blockGhostCell,newGhostState} from '@/lib
 import {FieldWatcherUI} from './field-watcher-ui';
 import {serverNow} from './ui/api';
 import {cardInfo,loadCards,useCardInfo} from './ui/catalog';
-import {fieldSummonKind,fieldSummonMaterials,fieldSummonMinimum,fieldSummonNotice,heldStackStillStacked,fieldKeepsMonsterStack,fieldStackXyzCandidates,SUMMON_WINDOW_MS,type FieldVanish} from '@/lib/remote/field-summons';
+import {fieldSummonKind,fieldSummonMaterials,fieldSummonMinimum,fieldSummonNotice,heldStackStillStacked,fieldKeepsMonsterStack,fieldStackXyzCandidates,SUMMON_WINDOW_MS,SUMMON_RECENT_MS,type FieldVanish} from '@/lib/remote/field-summons';
 import {distinctFieldQuads,fieldSetReturn,xyzAttachTargets} from '@/lib/remote/field-proposals';
 
 const toZone=(zone:string,slot?:number):FieldZone|undefined=>zone==='monster'?`M${slot??1}` as FieldZone:zone==='spell-trap'?`S${slot??1}` as FieldZone:zone==='extra-monster'?`EMZ${slot??1}` as FieldZone:({field:'FIELD',graveyard:'GY',banished:'BANISHED',deck:'DECK',extra:'EXTRA'} as Record<string,FieldZone>)[zone];
@@ -122,6 +122,8 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   const prompted=useRef(new Set<string>()),placeholders=useRef(new Map<string,string>()),readerRemovals=useRef(new Set<string>());
   // Summon window: monsters that left the field (watcher time) and Extra Deck summons placed moments ago.
   const separatedStackCards=useRef(new Set<string>());
+  /** Cards placed before their facts arrived: the summon check runs when the facts do (see the zone-rule effect). */
+  const lateSummons=useRef(new Map<string,{code:number;name:string;at:number;trackId:string}>());
   const vanishes=useRef<FieldVanish[]>([]),summons=useRef(new Map<string,{kind:RemoteSummonKind;name:string;rating?:number;at:number;count:number;pending:string[];trackId:string}>());
   // Stacks the glue holds back (a card moved on top of another card): the summon window decides, then the default applies.
   // stackKept: a stack whose default the player undid; the camera leaves it alone while it stays stacked.
@@ -444,7 +446,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       if(existing&&!existing.faceUp&&knownZone(existing)===track.zone)void metadata.catch(()=>undefined);
       // A slow or cold lookup must not hold the serial queue (and every write behind it): after FACTS_WAIT_MS a NEW card is placed with what the camera saw.
       // The full wait stays where a rule needs the facts first: Extra Deck summon materials (cards under it, a card that just left, an Extra Monster Zone) and a stale occupant to release.
-      else if(!cardInfo(code)&&(existing||stackUnder(event.track.id).length||pendingLeft.current.size||vanishes.current.some(v=>Math.abs(v.at-track.firstSeen)<=2*SUMMON_WINDOW_MS)||track.zone.startsWith('EMZ')||staleFieldOccupant(twins,watch.getTracks().map(t=>({...t,id:bindings.current.get(t.id)??t.id})),track.zone,track.id)))await metadata;
+      else if(!cardInfo(code)&&(existing||stackUnder(event.track.id).length||pendingLeft.current.size||vanishes.current.some(v=>Math.abs(v.at-track.firstSeen)<=2*SUMMON_WINDOW_MS)||track.zone.startsWith('EMZ')||twins.some(c=>c.zone==='hand'&&c.departedFrom?.auto&&['monster','extra-monster'].includes(c.departedFrom.zone)&&serverNow()-(c.departedFrom.at??-Infinity)<=SUMMON_RECENT_MS)||staleFieldOccupant(twins,watch.getTracks().map(t=>({...t,id:bindings.current.get(t.id)??t.id})),track.zone,track.id)))await metadata;
       else if(!cardInfo(code)){let timer:ReturnType<typeof setTimeout>|undefined;await Promise.race([metadata,new Promise<void>(resolve=>{timer=setTimeout(()=>{slowFacts=true;resolve();},FACTS_WAIT_MS);})]);clearTimeout(timer);}
     }
     // The card can move while its details load. Defer like the check above; there is nothing to save yet.
@@ -571,6 +573,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
           bindings.current.set(event.track.id,canonical.ref);
           // Count only the materials the server took (it skips cards that changed since the read).
           const after=updated.state.seats[seat].twin,usedRefs=(summon?.materialRefs??[]).filter(ref=>{const c=after.find(t=>t.ref===ref);return summon!.kind==='xyz'?c?.materialOf===canonical.ref:c?.zone==='graveyard';});
+          if(slowFacts&&!cardInfo(code!)&&code)lateSummons.current.set(canonical.ref,{code,name:entry?.name??'Card',at:performance.now(),trackId:event.track.id});
           if(summonType)summons.current.set(canonical.ref,{kind:summonType.kind,name:entry?.name??'Card',rating:summonType.rating,at:performance.now(),count:usedRefs.length,pending:[],trackId:event.track.id});
           if(summon){const used=new Set(usedRefs);vanishes.current=vanishes.current.filter(v=>!used.has(v.ref));for(const ref of usedRefs)stackKept.current.delete(ref);for(const [trackId,v] of pendingLeft.current)if(used.has(v.ref)){const timer=departureTimers.current.get(trackId);if(timer)clearTimeout(timer);departureTimers.current.delete(trackId);pendingLeft.current.delete(trackId);}}
         }
@@ -1305,6 +1308,14 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   useEffect(()=>{
     if(!live())return;
     const twins=room.state.seats[seat].twin,format=room.format?.id??room.state.deckChecks.format.id;
+    // A card placed without facts: now that its facts are here, record its summon with the placement time so materials lifted afterwards are taken.
+    for(const [ref,late] of [...lateSummons.current]){
+      const facts=cardInfo(late.code),card=twins.find(c=>c.ref===ref);
+      if(!card||!['monster','extra-monster'].includes(card.zone)||performance.now()-late.at>SUMMON_WINDOW_MS){lateSummons.current.delete(ref);continue;}
+      if(!facts)continue;
+      lateSummons.current.delete(ref);
+      const kind=fieldSummonKind(facts);if(kind&&!summons.current.has(ref))summons.current.set(ref,{kind:kind.kind,name:late.name,rating:kind.rating,at:late.at,count:0,pending:[],trackId:late.trackId});
+    }
     for(const card of twins){
       if(!card.faceUp||!publicField(card.zone)||manual.current.has(card.ref))continue;
       // Only a card the camera sees now: a hand move on the board is the player's choice.
