@@ -32,5 +32,7 @@
 
 /* The owner mark of a given card (proxy) on the field it sits on. It hugs the top-left corner, clear of the ATK/DEF plate at the bottom. */
 .owner{position:absolute;left:2px;top:2px;z-index:4;max-width:64%;display:inline-flex;align-items:center;gap:3px;padding:0 4px 0 3px;border-radius:9px;background:rgb(5 8 16/.92);box-shadow:0 0 0 1px var(--oc,#e8b94f);color:#f1ecff;font:700 9px/13px var(--font-duel-ui),system-ui,sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none}
+/* Below the Equip pill and the not-in-decklist mark, which keep the top edge. */
+.ownerLow{top:18px}
 .owner i{flex:none;width:6px;height:6px;border-radius:50%;background:var(--oc,#e8b94f)}
 @media (max-width:700px){.owner{font-size:8px;line-height:11px;gap:2px;padding:0 3px 0 2px;max-width:70%}}
