@@ -64,7 +64,7 @@ async function soloTable(api: APIRequestContext, seatCount: 2 | 3 | 4, registere
 test.describe("remote duels screen, solo", () => {
   test.beforeEach(async ({ context }) => { await authenticatePlayer(context.request, { userId: 101 }, process.env.E2E_AUTH_SECRET!, "http://localhost:3310"); });
 
-  test("Scan field button beside the board and the S key", async ({ page, context }) => {
+  test("Scan field button in the camera tool row and the S key", async ({ page, context }) => {
     test.setTimeout(120_000);
     const slug = await soloTable(context.request, 2);
     await fakeCamera(page);

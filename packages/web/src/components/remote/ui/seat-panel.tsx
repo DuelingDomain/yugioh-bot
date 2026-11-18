@@ -62,7 +62,7 @@ export type SeatPanelProps = {
   hand?: HandProps;
   /** Tournament table: the mode this player announced, shown to the opponent. */ detectionMode?: TournamentMode | "unknown";
   /** Opponent seats only: asks that player's Auto-detect to Scan field again. Absent for my seat, bots and spectators. */ onRescan?: () => Promise<string>;
-  deckWarning?: string; onDeckFlag?: (button: HTMLElement) => void; cameraControl?: ReactNode; emptyFeedText: string; emptyFeedAction?: ReactNode; turnIn: boolean;
+  deckWarning?: string; onDeckFlag?: (button: HTMLElement) => void; cameraControl?: ReactNode | ((tool: ReactNode) => ReactNode); emptyFeedText: string; emptyFeedAction?: ReactNode; turnIn: boolean;
 };
 
 /** Camera first (default) or enlarged field, per viewer and seat. Remembered in this browser only. */
@@ -102,6 +102,13 @@ export function SeatPanel(p: SeatPanelProps) {
     if (zone && (zone.querySelector(`.${s.cd}`) || p.you && p.live)) return;
     setFieldView(true);
   };
+  // My Scan field button sits in the tool row under the camera, so the virtual field is centred and the button never covers a zone.
+  // Only the large-field view keeps it beside the field.
+  const inTools = typeof p.cameraControl === "function" && !fieldView;
+  const scanButton = scan ? <button type="button" className={s.scanbtn} aria-disabled={scan.scanning || !scan.ready} aria-keyshortcuts="S" aria-label={scan.scanning ? "Scanning field" : scan.ready ? "Scan field" : "Scan field, camera off"} onClick={() => { if (scan.ready && !scan.scanning) scan.scan?.(); }} data-testid="field-scan"
+          title={scan.ready ? "Compare the camera with the board now and fix differences (S)" : "Turn the camera on to scan the field"}>
+          <ScanLine size={15} strokeWidth={1.8} aria-hidden="true" /><span>{scan.scanning ? "Scanning…" : "Scan field"}</span>
+          {scan.ready ? <kbd aria-hidden="true">S</kbd> : <small>Camera off</small>}</button> : null;
   const previous = useRef(p.lp); const [delta, setDelta] = useState(0); const [input, setInput] = useState("");
   useEffect(() => {
     if (previous.current === p.lp) return;
@@ -134,6 +141,9 @@ export function SeatPanel(p: SeatPanelProps) {
         aria-label={p.undo.enabled ? `Undo: ${p.undo.label}. ${p.undo.reason ? p.undo.reason + ". " : ""}Shortcut Ctrl Z` : "Nothing to undo"}
         title={p.undo.enabled ? (p.undo.reason ?? "Undo your last action (Ctrl+Z)") : "Nothing to undo"}>
         <Icon name="undo" /><span className={s.sul} data-testid="seat-undo-label">{p.undo.enabled ? `Undo: ${p.undo.label}` : "Nothing to undo"}</span></button> : null}
+      {p.onRescan && !scan ? <button type="button" className={`${s.vtog} ${s.rescan}`} data-testid={`field-rescan-${p.seat}`} data-sent={rescanNote || undefined} aria-label={`Rescan ${p.name}'s field${rescanNote ? `. ${rescanNote}` : ""}`}
+        title={rescanNote || "Ask this player's Auto-detect to scan their field again"} onClick={() => { if (!rescanNote) void p.onRescan?.().then(setRescanNote); }}>
+        <RefreshCw size={13} strokeWidth={1.8} aria-hidden="true" /><span className={s.rslabel}>Rescan</span><span className={s.sr} role="status">{rescanNote}</span></button> : null}
       {p.onToggleView ? <button type="button" className={`${s.vtog} ${s.vhide}`} data-testid={`field-toggle-${p.seat}`} onClick={p.onToggleView} aria-keyshortcuts="W"
         title={p.webcamOnly ? "Show the virtual fields (beta) (W). Card recognition does not need them." : "Hide the virtual fields (beta). The camera takes the screen (W)"}>
         <span>{p.webcamOnly ? "Show" : "Hide"} <span className={s.vlong}>virtual </span>field</span> <span className={s.vbeta}>Beta</span> <kbd>W</kbd></button> : null}
@@ -147,7 +157,7 @@ export function SeatPanel(p: SeatPanelProps) {
     {p.onDock ? <NotifyDock seat={p.seat} onSlot={p.onDock} view={`${p.webcamOnly ? "webcam" : "both"}:${fieldView ? "field" : "camera"}`} /> : null}
     <div className={s.sbody}>
       <Feed seat={p.seat} name={p.name} you={p.you} health={p.health} marks={p.marks} reticles={p.reticles} onBegin={p.onBegin} readLive={p.readLive} onAbort={p.onAbort} onMiss={p.onMiss} onSearch={p.onSearch} onPoint={p.onPoint} onSelect={p.onSelect} holdSelection={p.holdSelection} onAdd={p.onAdd} onReset={p.onReset} onReadBoard={p.onReadBoard} onZoneCard={p.onZoneCard} onPick={p.webcamOnly ? p.onCamPick : undefined} hoverTip={p.webcamOnly ? p.hoverTip : undefined} onCardMenu={p.onCardMenu} emptyText={p.emptyFeedText} emptyAction={p.emptyFeedAction}
-        below={p.cameraControl}
+        below={typeof p.cameraControl === "function" ? p.cameraControl(inTools ? scanButton : null) : p.cameraControl}
         extra={<>
           {fieldView ? <button type="button" className={s.swapcam} tabIndex={-1} aria-label="Camera view: show the camera large again" data-testid={`swap-cam-${p.seat}`} onClick={() => setFieldView(false)} /> : null}
           {targeting ? cardList : null}
@@ -162,14 +172,8 @@ export function SeatPanel(p: SeatPanelProps) {
       <div className={s.fside}>
         {targeting ? null : cardList}
         <div className={s.fboard}>
-        {scan ? <button type="button" className={s.scanbtn} aria-disabled={scan.scanning || !scan.ready} aria-keyshortcuts="S" aria-label={scan.scanning ? "Scanning field" : scan.ready ? "Scan field" : "Scan field, camera off"} onClick={() => { if (scan.ready && !scan.scanning) scan.scan?.(); }} data-testid="field-scan"
-          title={scan.ready ? "Compare the camera with the board now and fix differences (S)" : "Turn the camera on to scan the field"}>
-          <ScanLine size={15} strokeWidth={1.8} aria-hidden="true" /><span>{scan.scanning ? "Scanning…" : "Scan field"}</span>
-          {scan.ready ? <kbd aria-hidden="true">S</kbd> : <small>Camera off</small>}</button> : tapHere ? <span className={s.scanbtn} style={{ visibility: "hidden" }} aria-hidden="true"><ScanLine size={15} strokeWidth={1.8} /><span>Scan field</span></span> : null}
-        {p.onRescan && !scan ? <button type="button" className={s.scanbtn} data-testid={`field-rescan-${p.seat}`} aria-label={`Rescan ${p.name}'s field`} title="Ask this player's Auto-detect to scan their field again"
-          onClick={() => { if (!rescanNote) void p.onRescan?.().then(setRescanNote); }}>
-          <RefreshCw size={15} strokeWidth={1.8} aria-hidden="true" /><span>Rescan</span><small role="status">{rescanNote}</small></button> : null}
-        <div className={s.fwrap} onClick={enlargeFromField} data-rail={scan || tapHere || p.onRescan ? "" : undefined} data-testid={`fwrap-${p.seat}`}>
+        {inTools ? null : scan ? scanButton : tapHere ? <span className={s.scanbtn} style={{ visibility: "hidden" }} aria-hidden="true"><ScanLine size={15} strokeWidth={1.8} /><span>Scan field</span></span> : null}
+        <div className={s.fwrap} onClick={enlargeFromField} data-rail={!inTools && (scan || tapHere) ? "" : undefined} data-testid={`fwrap-${p.seat}`}>
           <div className={s.holo}>
             <i className={`${s.corner} ${s.a}`} /><i className={`${s.corner} ${s.b}`} /><i className={`${s.corner} ${s.c}`} /><i className={`${s.corner} ${s.d}`} />
             <button type="button" ref={p.plateRef} className={`${s.fplate} ${p.pickPlate ? s.pick : ""}`} tabIndex={p.pickPlate ? 0 : -1} data-plate={p.seat} onClick={p.onPlate}

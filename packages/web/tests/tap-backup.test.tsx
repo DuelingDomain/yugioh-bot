@@ -137,7 +137,7 @@ it('several departures remain separately correctable after the toast window, wit
   vi.useFakeTimers();let room=tapRoom();room.state.seats[0].twin=[monster('one'),{...monster('two'),slot:2}];
   for(const ref of ['one','two'])room=applyTap(room,{type:'twin.move',actorSeat:0,seat:0,cardRef:ref,zone:'hand',source:'auto'});
   const action=vi.fn();render(<RecentDepartures room={room} seat={0} onAction={action}/>);act(()=>vi.advanceTimersByTime(6000));
-  fireEvent.click(screen.getByText('Recent departures (2)'));const rows=screen.getAllByRole('group',{name:/Departure:/});expect(rows).toHaveLength(2);
+  fireEvent.click(screen.getByText('Departures (2)'));const rows=screen.getAllByRole('group',{name:/Departure:/});expect(rows).toHaveLength(2);
   fireEvent.click(within(rows[1]).getByRole('button',{name:'GY'}));expect(action).toHaveBeenLastCalledWith(expect.objectContaining({type:'twin.move',cardRef:'one',zone:'graveyard',confirmed:true,cam:expect.objectContaining({by:'player'})}));
   fireEvent.click(within(rows[0]).getByRole('button',{name:'Undo'}));expect(action).toHaveBeenLastCalledWith(expect.objectContaining({type:'undo',targetActionId:'action-2'}));
 });
