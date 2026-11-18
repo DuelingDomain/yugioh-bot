@@ -95,7 +95,7 @@ describe("checked physical Niche recall and incoming single-engine discovery", (
       expect(next.find(row => row.engine === "Blue-Eyes")!.links[0]!.from).toBe("Odion");
       // The accepted line stays separate from optional evidence. Its union
       // with the core uses maximum multiplicity and canonical Main+Extra copies.
-      for (const [engine, bridgeNeeded, engineNeeded] of [["Argostars", 1, 12], ["Ashtra", 1, 10], ["Tearlaments", 2, 11]] as const) {
+      for (const [engine, bridgeNeeded, engineNeeded] of [["Argostars", 1, 12], ["Ashtra", 1, 11], ["Tearlaments", 2, 11]] as const) {
         const suggestion = next.find(row => row.engine === engine)!;
         const required = new Map<number, number>();
         for (const name of suggestion.links.flatMap(link => link.bridge.review.line)) {
