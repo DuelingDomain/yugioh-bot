@@ -4661,3 +4661,25 @@ describe("remote hand activation (a card held up from the hand)", () => {
     expect(unsure.unsure).toEqual([expect.objectContaining({ type: "held-unsure", lifted: true, candidates: [expect.objectContaining({ cardId: "1" }), expect.objectContaining({ cardId: "2" }), expect.objectContaining({ cardId: "3" })] })]);
   });
 });
+
+it("a new room ends the host's own empty lobbies, as an online table does, and keeps one with a guest", () => {
+  const {service,users}=setup();
+  const make=(user:number,at:number,replace:boolean,seatCount:2|3=2)=>{const ended:string[]=[];const room=service.create({guildId:"g",userId:user,displayName:"H",gameId:"ygo",seatCount,...(replace?{replaceEmptyLobbies:(slugs:string[])=>ended.push(...slugs)}:{})},at);return {room,ended};};
+  const status=(slug:string,user:number)=>service.get(slug,"g",user);
+  // Without the option nothing changes: two rooms stay open.
+  const plain1=make(users[1],2000,false).room,plain2=make(users[1],2001,false).room;
+  expect([plain1,plain2].map(r=>status(r.slug,users[1]).status)).toEqual(["lobby","lobby"]);
+  // The option ends every empty lobby of the host, never another host's.
+  const other=make(users[2],2002,false).room;
+  const abandoned=make(users[1],2003,true);
+  expect(abandoned.ended.sort()).toEqual([plain1.slug,plain2.slug].sort());
+  expect(status(plain1.slug,users[1])).toMatchObject({status:"ended",endReason:"creator-left"});
+  expect(status(other.slug,users[2]).status).toBe("lobby");
+  expect(service.list("g",users[1],"live").map(t=>t.slug)).toEqual([abandoned.room.slug]);
+  // A lobby with a guest is kept, so a new room never throws a waiting guest out.
+  service.join(abandoned.room.slug,"g",users[3],"Guest",1,2004);
+  const next=make(users[1],2005,true);
+  expect(next.ended).toEqual([]);
+  expect(status(abandoned.room.slug,users[1]).status).toBe("lobby");
+  expect(service.list("g",users[1],"live").map(t=>t.slug).sort()).toEqual([abandoned.room.slug,next.room.slug].sort());
+});
