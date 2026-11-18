@@ -346,7 +346,7 @@
   --fcw:max(24px,min((var(--fw) - 18px) / (7 + 6 * var(--gf)),(var(--fh) - 18px - (var(--fr) - 1) * var(--gp)) / (var(--fr) * 1.458)));
   flex:none;min-height:0;align-self:center;
   width:calc((7 + 6 * var(--gf)) * var(--fcw) + 18px);height:calc(var(--fr) * 1.458 * var(--fcw) + (var(--fr) - 1) * var(--gp) + 18px)}
-/* The virtual board is centred in the seat. "Scan field" (mine) and Rescan (another seat) are in the tool row under the camera, with Token and Give.
+/* The virtual board is centred in the seat. "Scan field" (mine) is in the tool row under the camera, with Token and Give. Rescan for another seat is in that seat's header.
    Only the large-field view keeps the button beside the board (a column on a narrow seat, and --scanh keeps that row out of the board's height).
    Tuning: --fmin / --fmax are the least and most share of the seat height the board may take (set them on .seat to change the camera/field balance). */
 .fboard>.fwrap{flex:none;max-width:100%}
@@ -737,16 +737,17 @@
 @container seat (max-width:760px){.vhide kbd{display:none}.sh .nm{min-width:72px}.sh .sundo{flex-shrink:20}.sh:has(.sundo) :is(.tag.you,.vlong){display:none}}
 /* Every feed gets the same height budget, so a seat with the camera controls row and a seat without it show equal feeds. */
 .seat[data-wc] .feedcol:not(:has(.camsel)){padding-bottom:42px}
-/* In a seat this narrow the header has no room for the long labels: Rescan shows its icon only and "Hide virtual field" shortens, so nothing runs into the feed signal. */
-@container seat (max-width:700px){:is(.vlong,.rslabel){display:none}}
-@container seat (max-width:560px){:is(.tag.you,.hlt,.sul){display:none}.sh{gap:6px}.vhide{padding:0 6px}.wcpiles button{padding:0 5px}.sh .sundo{flex:none;padding:0 3px}}
+/* In a narrow seat the header has no room for the long labels: "Hide virtual field" shortens, the Beta tag goes, and Rescan shows its icon only, so nothing runs into the feed signal. */
+@container seat (max-width:700px){.vlong{display:none}}
+@container seat (max-width:420px){.vhide .vbeta{display:none}}
+@container seat (max-width:560px){:is(.tag.you,.hlt,.sul,.rslabel){display:none}.sh{gap:6px}.vhide{padding:0 6px}.wcpiles button{padding:0 5px}.sh .sundo{flex:none;padding:0 3px}}
 .seat[data-wc] .seatDock{--dock-anchor:bottom;top:auto;bottom:8px;width:min(280px,calc(100% - 20px));max-height:min(34%,240px);justify-content:flex-end}
 /* One notice, or a card choice, shows in full. It may cover the camera and grows away from its anchor; only a longer list scrolls. */
 .seat .seatDock:is([data-count="1"],:has(.bigTray)){max-height:var(--dock-room,calc(100% - 44px))}
 .seat .seatDock:has(.bigTray){width:min(340px,calc(100% - 16px))}
 @container seat (max-height:420px){.seat .seatDock:has(.bigTray){width:min(400px,calc(100% - 16px))}}
 @media (max-width:900px){
-  .vlong,.rslabel{display:none}.vhide kbd{display:none}.viewseg .vbeta{display:none}
+  .vlong,.rslabel{display:none}.vhide kbd{display:none}.viewseg .vbeta,.vhide .vbeta{display:none}
   .viewseg button{padding:6px 9px}
   .wcbattle{top:8px}
 }
@@ -1373,7 +1374,7 @@
 .depChip,.depNote{display:inline-flex;align-items:center;gap:6px;max-width:100%;border:1px solid var(--line2);border-radius:999px;background:rgb(20 13 38/.94);color:var(--ink2);box-shadow:0 6px 20px rgb(0 0 0/.5);font-size:12px;font-weight:600;line-height:1}
 .depChip{height:26px;padding:0 11px}
 .depChip:hover,.depChip[aria-expanded=true],.depNote:hover{border-color:var(--gold);color:var(--gold-ink)}
-.depNotes{display:flex;flex-direction:column;align-items:flex-start;gap:4px;max-width:100%}.depNotes:empty{display:none}
+.depNotes{display:flex;flex-direction:column;align-items:flex-start;gap:4px;max-width:100%}
 .depNote{height:30px;padding:0 6px 0 12px;animation:pop .25s var(--ease)}
 .depNote b{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink);font-weight:700}
 .depNote span{flex:none;color:var(--gold-ink)}

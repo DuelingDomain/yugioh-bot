@@ -13,6 +13,8 @@ const NOTE_MAX = 3;
 const PILES = ['hand', 'deck', 'extra', 'graveyard', 'banished'];
 /** Width of a departure note: a card name, its destination and the Change tag. */
 const NOTES_W = 230;
+/** Free space left of the camera box (px) below which the notes stay at the box corner. */
+const MIN_FREE = 24;
 type Anchor = { l: number; b: number; w: number; h: number };
 
 /**
@@ -72,9 +74,10 @@ export function RecentDepartures({ room, seat, onAction }: { room: RemoteRoom; s
       if (window.innerWidth > 900) {
         const box = document.querySelector<HTMLElement>(boxSelector), r = box?.getBoundingClientRect();
         if (box && r && r.width >= 160 && r.height >= 100) {
-          // The notes start at the seat's left edge, so they cover only the part of the picture the free space left of the camera cannot hold.
+          // Rule: the notes start at the seat's left edge whenever the camera box leaves more than MIN_FREE px free there, so they cover only the picture part (note width minus free space) that the free space cannot hold.
+          // Starting at the seat edge never clips and never covers more than starting at the box corner would. With no free space they sit at the box corner.
           const seatLeft = document.querySelector<HTMLElement>(`[data-testid="seat-${seat}"]`)?.getBoundingClientRect().left ?? r.left;
-          const left = r.left - seatLeft >= 40 ? Math.round(seatLeft) + 8 : Math.round(r.left) + 8;
+          const left = r.left - seatLeft > MIN_FREE ? Math.round(seatLeft) + 8 : Math.round(r.left) + 8;
           // Over the picture, the notes sit above the "revealed in hand" chip when that one is there.
           const chip = left + NOTES_W > r.left ? box.querySelector<HTMLElement>(`.${s.hover}`)?.getBoundingClientRect() : undefined;
           const bottom = chip && chip.height > 0 ? window.innerHeight - chip.top + 8 : window.innerHeight - r.bottom + 8;
@@ -89,11 +92,14 @@ export function RecentDepartures({ room, seat, onAction }: { room: RemoteRoom; s
     };
     measure();
     // The camera box changes size with the window and with the layout. The chip appears and goes inside the box.
-    const resize = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure), mutate = new MutationObserver(measure);
+    // Both observers fire in bursts (the feed redraws often), so the measuring runs at most once per frame.
+    let frame = 0;
+    const schedule = () => { if (!frame) frame = requestAnimationFrame(() => { frame = 0; measure(); }); };
+    const resize = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(schedule), mutate = new MutationObserver(schedule);
     for (const element of [document.querySelector(boxSelector), document.querySelector(`[data-testid="seat-${seat}"]`)]) if (element) resize?.observe(element);
     const box = document.querySelector(boxSelector); if (box) mutate.observe(box, { childList: true, subtree: true });
     window.addEventListener('resize', measure);
-    return () => { resize?.disconnect(); mutate.disconnect(); window.removeEventListener('resize', measure); };
+    return () => { resize?.disconnect(); mutate.disconnect(); cancelAnimationFrame(frame); window.removeEventListener('resize', measure); };
   }, [has, seat]);
   if (!items.length) return null;
   const live = room.status === 'active' && !room.state.ended && !room.state.seats[seat]?.eliminated;
