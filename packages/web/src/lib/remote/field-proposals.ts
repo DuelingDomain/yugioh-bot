@@ -1,5 +1,5 @@
 import {remoteActionError,type RoomMutation} from './room-mutations';
-import type { RemoteActionProposal, RemoteSummonKind, TwinCard } from '@yugidraft/shared/remote';
+import type { RemoteActionProposal, RemoteEvent, RemoteSummonKind, TwinCard } from '@yugidraft/shared/remote';
 import { fieldZoneLocation, type FieldEvent, type FieldTrack } from '@yugidraft/vision';
 // A manual read may finish before the watcher's first identity read. Preserve
 // its physical row even when card legality projects it into another virtual row.
@@ -164,6 +164,50 @@ export async function applyFieldFaceFlip(track:FieldTrack,current:()=>FieldTrack
     if(!undone)throw new Error(proposal.faceUp?'The card changed during reveal. Undo the reveal before continuing.':'The card changed during the flip. Undo the flip before continuing.');
   }
   return null;
+}
+
+/** How long after a card left a cell its Set back can still be placed (the placement can wait on the reader); the back itself must show at once, see FIELD_SET_SEEN_MS. */
+export const FIELD_LEFT_SET_MS=15_000;
+/** The back must be first seen within this long of the card leaving (the departure write, about 0.8 s after the track is removed): a later back is another card put there. */
+export const FIELD_SET_SEEN_MS=3000;
+/**
+ * A face-down back that settles where a card just left may be that card turned over or slid to another zone.
+ *  - flip: the cell still holds a known face-up card whose track was removed and no departure was written yet (the board turns it over in place);
+ *  - return: that card already went to the hand (an auto departure from this same cell); it comes back Set;
+ *  - move: exactly one UNNAMED Set card left another zone of the row, exactly this one new Set settles in a free zone of it: the same card moved.
+ * Nothing applies when a GY/banished pile track or a hand over a pile is newer than the card's last sighting (the card really went to a pile),
+ * when the back was first seen more than FIELD_SET_SEEN_MS after the departure, or when the hand changed size since (return and move).
+ * Any other reading (two candidates, a manual move, an occupied cell) is undefined: the caller places a new Set as before.
+ */
+export function fieldSetReturn({track,twins,tracks,owns,events,seat,at,now,pileTouched}:{track:Pick<FieldTrack,'id'|'zone'|'faceDown'|'firstSeen'>;twins:readonly TwinCard[];tracks:readonly FieldTrack[];owns:(track:FieldTrack)=>string;events:readonly Pick<RemoteEvent,'at'|'action'>[];seat:number;/** Server clock. */at:number;/** The camera clock of the track times. */now:number;/** When a hand was last over each pile (camera clock). */pileTouched?:Partial<Record<'GY'|'BANISHED',number>>}):{kind:'flip'|'return'|'move';card:TwinCard}|undefined {
+  if(!track.faceDown||!/^(M[1-5]|S[1-5])$/.test(track.zone))return;
+  const cell=fieldZoneLocation(track.zone),backAt=at-(now-track.firstSeen);
+  const there=(c:Pick<TwinCard,'zone'|'slot'>)=>c.zone===cell.zone&&(c.slot??0)===(cell.slot??0);
+  const toPile=(since:number)=>tracks.some(t=>/^(GY|BANISHED)$/.test(t.zone)&&t.firstSeen>=since)||[pileTouched?.GY,pileTouched?.BANISHED].some(touched=>touched!==undefined&&touched>=since);
+  const occupant=twins.find(there);
+  if(occupant){
+    if(!occupant.faceUp||occupant.token||occupant.materials?.length||!(occupant.cardId||occupant.passcode))return;
+    const seen=tracks.filter(t=>owns(t)===occupant.ref);
+    // A hidden but not removed track is a card under an arm: it has not gone.
+    if(!seen.length||seen.some(t=>!t.removed))return;
+    const lastSeen=Math.max(...seen.map(t=>t.lastSeen));
+    return now-lastSeen<=FIELD_LEFT_SET_MS&&track.firstSeen>=lastSeen-1000&&track.firstSeen<=lastSeen+FIELD_SET_SEEN_MS+2000&&!toPile(lastSeen-1000)?{kind:'flip',card:occupant}:undefined;
+  }
+  // A card the camera lifted to the hand, newest first. A manual move has no `auto` mark and never counts.
+  const left=twins.filter(c=>c.zone==='hand'&&c.departedFrom?.auto&&c.departedFrom.at!==undefined&&at-c.departedFrom.at<=FIELD_LEFT_SET_MS&&backAt>=c.departedFrom.at-1500&&backAt<=c.departedFrom.at+FIELD_SET_SEEN_MS).sort((a,b)=>b.departedFrom!.at!-a.departedFrom!.at!);
+  const gone=(c:TwinCard)=>{const seen=tracks.filter(t=>owns(t)===c.ref);return toPile((seen.length?Math.max(...seen.map(t=>t.lastSeen)):now-(at-c.departedFrom!.at!))-1000);};
+  const sized=(c:TwinCard)=>events.some(e=>e.at>=c.departedFrom!.at!&&(e.action.type==='hand.draw'||e.action.type==='hand.count'||e.action.type==='hand.add'||e.action.type==='twin.move'&&e.action.zone==='hand'&&e.action.cardRef!==c.ref)&&('seat' in e.action?e.action.seat:e.action.actorSeat)===seat);
+  const back=left.find(c=>there(c.departedFrom!));
+  if(back)return gone(back)||sized(back)?undefined:{kind:'return',card:back};
+  // Moved to another zone: one unnamed Set left, one new Set arrived, and the hand did not change size.
+  const row=cell.zone,sets=left.filter(c=>!c.faceUp&&c.departedFrom!.zone===row);
+  if(sets.length!==1||left.some(c=>c!==sets[0]&&c.departedFrom!.zone===row&&!c.faceUp))return;
+  const card=sets[0],departure=card.departedFrom!;
+  if(card.cardId||card.passcode||card.name)return;
+  if(twins.some(c=>c.zone===departure.zone&&(c.slot??0)===(departure.slot??0)))return;
+  const arrivals=tracks.filter(t=>t.faceDown&&!t.removed&&t.visible&&/^(M[1-5]|S[1-5])$/.test(t.zone)&&fieldZoneLocation(t.zone).zone===row&&!twins.some(c=>c.ref===owns(t)));
+  if(arrivals.length!==1||arrivals[0].id!==track.id)return;
+  return gone(card)||sized(card)?undefined:{kind:'move',card};
 }
 
 /** A virtual occupant without a current physical witness cannot reserve a slot. */

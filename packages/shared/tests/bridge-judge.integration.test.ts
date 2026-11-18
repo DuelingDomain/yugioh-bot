@@ -57,6 +57,7 @@ describe("bridge judgement pipeline", () => {
         const sent = JSON.parse(bridgeJudgeRequest(evidence, "mechanic").messages[0]!.content as string);
         expect(sent.deterministic_pros).toEqual([
           "Tearlaments Kashtira, while controlled, satisfies the monster requirement for Tearlaments Cryme's activation, subject to its printed conditions.",
+          "Tearlaments Kashtira names Tearlaments.",
         ]);
       }
       const graph = JSON.parse((db.prepare("SELECT graph_json FROM bridge_graph WHERE id=1").get() as { graph_json: string }).graph_json);
@@ -153,12 +154,24 @@ describe("bridge judgement pipeline", () => {
     const db = new Database(":memory:"); migrate(db);
     try {
       importBridgeArtifact(db);
+      // Regeneration no longer publishes Drytron/Ursarctic as distinct engines.
+      // Keep its printed GY recovery as an explicit formatter fixture so this
+      // test still distinguishes recovery from a Deck search or a Summon.
+      const cards = [21576077, 14959144];
+      const recovery: ArchetypeBridge = {
+        source: "Drytron", target: "Ursarctic", format: "advanced", score: 6, raw_score: 6, target_mean: 0,
+        two_way: false, grade: "Good", cards, warnings: [], genesys_points: null,
+        validation: "deterministic", judge: "pending", engine_status: "unverified", evidence_hash: bridgeHash(cards),
+        reasons: [{ key: "reach", weight: 6, cards, description: "Drytron Eclipse: search → Ultimate Bright Knight Ursatron Alpha",
+          evidence: cards.map(id => printedText(JSON.parse((db.prepare("SELECT capabilities_json FROM card_capability WHERE passcode=?").get(id) as { capabilities_json: string }).capabilities_json).card)),
+          steps: [{ from: 21576077, to: 14959144, capability: "search" }] }],
+      };
       for (const [source, target, expected] of [
         ["Snake-Eye", "Fire King", "Snake-Eye Ash adds Legendary Fire King Ponix (Level 1 FIRE) from the Deck to the hand, subject to its printed conditions."],
         ["Drytron", "Ursarctic", "Drytron Eclipse adds Ultimate Bright Knight Ursatron Alpha (Level 7 WATER) from the GY to the hand, subject to its printed conditions."],
         ["Odion", "Ashtra", "Temple of the Kings allows Ashtra Divine Domain to be activated the turn it was Set, subject to its printed conditions."],
       ]) {
-        const bridge = createBridgeService(db).bridgeBetween(source!, target!)!;
+        const bridge = source === "Drytron" ? recovery : createBridgeService(db).bridgeBetween(source!, target!)!;
         const evidence = buildBridgeJudgeEvidence(db, bridge)!;
         for (const framing of BRIDGE_JUDGE_FRAMINGS) saveBridgeJudgement(db, makeBridgeJudgementRecord(evidence, framing,
           result({ pros: ["Invented free-form benefit."], line: evidence.cards.slice(0, 2).map(card => card.name) })));

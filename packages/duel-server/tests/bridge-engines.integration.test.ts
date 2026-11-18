@@ -4,7 +4,7 @@ import Database from "better-sqlite3";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
 import { BRIDGE_JUDGE_FRAMINGS, BRIDGE_JUDGE_VERSION, buildBridgeJudgeEvidence, importBridgeArtifact, importCardEffectArtifact, makeBridgeJudgementRecord,
-  saveBridgeJudgement, rankEngineCandidates, bridgePackage, type ArchetypeBridge, type BridgeEnginesResponse } from "@yugidraft/shared/cards/effects";
+  saveBridgeJudgement, rankEngineCandidates, bridgePackage, coPlayPair, coPlayBoost, type ArchetypeBridge, type BridgeEnginesResponse } from "@yugidraft/shared/cards/effects";
 import { createBridgeService, createSavedDeckService } from "@yugidraft/shared/services";
 import { BridgeEngineQueries, type EngineQuery } from "../src/bridge-engine-queries.js";
 import { BridgeApi } from "../src/bridge-api.js";
@@ -293,19 +293,20 @@ describe("stored multi-engine bridge API", () => {
     const api = new BridgeApi(db, { ...bridgeQueryFixture(db), bridgeEngineShortlist, bridgeEngineProjection, bridgeEngines, bridgeCandidates: vi.fn(), rateBridge: vi.fn() });
     const call = (engines: string[]) => api.handle({ userId: user.userId, bridgeRequest: { op: "engines", engines, format: "advanced" } }, "g", user.playerId) as Promise<BridgeEnginesResponse>;
     const round = (n: number) => Math.round(n * 1000) / 1000;
+    const prior = (sources: string[], target: string) => 1 + Math.max(0, ...sources.map(source => coPlayBoost(coPlayPair(source, target, "tcg"))));
     try {
       const combined = (await call(["Azamina", "Diabell"])).next.find(row => row.engine === "White Forest")!;
       expect(combined).toMatchObject({ covered: 2, of: 2, twoWay: [] });
       expect([first, second].some(row => row.reasons[0]!.cards.some(id => context.hubs.has(id)))).toBe(false);
       const values = [first.score * 0.8, second.score * 0.8].sort((a, b) => b - a);
-      expect(combined.score).toBe(round((values[0]! + 0.8 * values[1]!) * 1.3 * (context.idf.advanced.get("White Forest") ?? 1)));
+      expect(combined.score).toBe(round((values[0]! + 0.8 * values[1]!) * 1.3 * (context.idf.advanced.get("White Forest") ?? 1) * prior(["Azamina", "Diabell"], "White Forest")));
       const oneWay = (await call(["Blue-Eyes"])).next.find(row => row.engine === "Black Luster Soldier")!;
       expect(oneWay.twoWay).toEqual([]); expect(oneWay.links[0]!.bridge.two_way).toBe(false);
       approve(reverse);
       const twoWay = (await call(["Blue-Eyes"])).next.find(row => row.engine === "Black Luster Soldier")!;
       expect(twoWay.twoWay).toEqual(["Blue-Eyes"]);
       const f = forward.score * 0.8, b = reverse.score * 0.8;
-      expect(twoWay.score).toBe(round((Math.max(f, 0.7 * b) + 0.3 * Math.min(f, b)) * (context.idf.advanced.get("Black Luster Soldier") ?? 1)));
+      expect(twoWay.score).toBe(round((Math.max(f, 0.7 * b) + 0.3 * Math.min(f, b)) * (context.idf.advanced.get("Black Luster Soldier") ?? 1) * prior(["Blue-Eyes"], "Black Luster Soldier")));
     } finally { await api.jobs.close(); }
   });
 
@@ -527,13 +528,23 @@ describe("multi-source deep search", () => {
       const failed = await start();
       expect(await finish(api, user, failed.jobId)).toMatchObject({ state: "failed", error: "Review service unavailable, try later." });
       expect(workers.rateBridge).toHaveBeenCalledTimes(12);
+      // The regenerated graph has reciprocal pairs for the same engines.
+      // Offer one pair per target on success so the six-engine stop is tested
+      // independently of the twelve-pair outage budget.
+      const targets = new Set<string>();
+      const candidates = service.engineRows(engines, "advanced").filter(row => {
+        if (!engines.includes(row.source) || engines.includes(row.target) || targets.has(row.target)) return false;
+        targets.add(row.target); return true;
+      });
+      expect(candidates.length).toBeGreaterThan(6);
+      workers.bridgeCandidates.mockImplementation(async scan => scan.op === "outgoing" ? candidates.filter(row => row.source === scan.source) : []);
       workers.rateBridge.mockClear(); workers.rateBridge.mockImplementation(async row => approve(row));
       const retry = await start();
       const result = await finish(api, user, retry.jobId);
       expect(result.state).toBe("done");
       const reviewedTargets = new Set(workers.rateBridge.mock.calls.map(([row]) => engines.includes(row.source) ? row.target : row.source));
       expect(reviewedTargets.size).toBe(6);
-      expect(workers.rateBridge.mock.calls.length).toBeLessThan(12);
+      expect(workers.rateBridge).toHaveBeenCalledTimes(6);
       expect(result.next.length).toBeLessThanOrEqual(6);
       expect(result.next.every(next => next.links.every(link => link.bridge.judge === "accepted"))).toBe(true);
       const reviews = workers.rateBridge.mock.calls.length;

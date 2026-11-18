@@ -764,6 +764,9 @@ export const GROUP_ONE: CatalogScenario[] = [
 
 /** Script evidence for the forbidden list (group c). The key is the passcode. */
 export const FORBIDDEN_EVIDENCE: Record<number, Evidence[]> = {
+  54475145: [ev(54475145, 53, "Duel.RegisterFlagEffect(rp,id"), ev(54475145, 80, "eg:Filter(s.spconfilter,nil,tp)")],
+  100461101: [{ file: "pre-release/c100461101.lua", line: 57, token: "local opp=1-tp" }, { file: "pre-release/c100461101.lua", line: 87, token: "Duel.GetControl(g,opp,0,0,nil,opp)" }],
+  100464005: [{ file: "pre-release/c100464005.lua", line: 54, token: "local opp=1-tp" }, { file: "pre-release/c100464005.lua", line: 59, token: "Duel.AnnounceNumberRange(opp,0,4)" }],
   101403005: [{ file: "pre-release/c101403005.lua", line: 32, token: "local opp=1-tp" }, { file: "pre-release/c101403005.lua", line: 63, token: "Duel.GetFieldGroup(tp,0,LOCATION_HAND)" }],
   101403067: [{ file: "pre-release/c101403067.lua", line: 30, token: "Duel.RegisterFlagEffect(rp,id" }, { file: "pre-release/c101403067.lua", line: 128, token: "Duel.GetFlagEffectLabel(tp,id)" }],
   100459021: [{ file: "pre-release/c100459021.lua", line: 51, token: "Duel.SendtoHand(rg,rg:GetFirst():GetPreviousControler()" }],
