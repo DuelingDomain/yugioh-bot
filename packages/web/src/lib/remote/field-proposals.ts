@@ -186,7 +186,7 @@ export const FIELD_SET_SLIDE_MS=3000;
 export const fieldBackCandidate=(track:FieldTrack)=>!track.removed&&track.state!=='dismissed'&&
   (track.faceDown||track.state==='candidate'&&track.card.kind==='face-down')&&!track.card.partial&&!track.card.covered;
 
-/** The last field ref can follow one new back while the departure is still pending. */
+/** A Set can follow one new back in its row while the departure is still pending. */
 export function fieldSetSlide({track,twins,tracks,owns,zoneOf,now,pileTouched,seenOffField}:{
   track:FieldTrack;twins:readonly TwinCard[];tracks:readonly FieldTrack[];owns:(track:FieldTrack)=>string;
   zoneOf:(card:TwinCard)=>FieldTrack['zone']|undefined;now:number;pileTouched?:Partial<Record<'GY'|'BANISHED',number>>;
@@ -198,18 +198,19 @@ export function fieldSetSlide({track,twins,tracks,owns,zoneOf,now,pileTouched,se
   const occupant=twins.find(c=>c.zone===destination&&c.slot===slot);
   const sources=twins.flatMap(card=>{
     const zone=zoneOf(card);
-    if(occupant&&occupant!==card||card.token||card.ownerSeat!==undefined||card.materials?.length||!zone||zone===track.zone||!MAIN_FIELD_SLOT.test(zone))return [];
+    if(card.faceUp!==false||occupant&&occupant!==card||card.token||card.ownerSeat!==undefined||card.materials?.length||
+      !zone||zone===track.zone||zone[0]!==track.zone[0]||!MAIN_FIELD_SLOT.test(zone))return [];
     const owned=tracks.filter(t=>owns(t)===card.ref);
     if(owned.some(t=>!t.removed))return [];
     const from=owned.find((t):t is RemovedFieldTrack=>t.removed&&t.zone===zone&&t.removedAt!==undefined);
     if(!from)return [];
     const since=from.removedFrameAt??from.removedAt;
-    if(track.firstSeen<since||track.firstSeen-from.removedAt>FIELD_SET_SLIDE_MS||
+    if(track.firstSeen<since||track.firstSeen-since>FIELD_SET_SLIDE_MS||
       now-from.removedAt>FIELD_SET_RETURN_MS||seenOffField(card,since))return [];
-    if(Object.values(pileTouched??{}).some(at=>at>=since)||
+    if(Object.values(pileTouched??{}).some(at=>at>=since-1500)||
       tracks.some(t=>/^(GY|BANISHED)$/.test(t.zone)&&t.firstSeen>=since))return [];
-    if(tracks.some(t=>t.id!==track.id&&MAIN_FIELD_SLOT.test(t.zone)&&t.zone!==from.zone&&fieldBackCandidate(t)&&
-      t.firstSeen>=since&&t.firstSeen-from.removedAt<=FIELD_SET_SLIDE_MS&&!twins.some(c=>c.ref===owns(t))))return [];
+    if(tracks.some(t=>t.id!==track.id&&MAIN_FIELD_SLOT.test(t.zone)&&t.zone[0]===zone[0]&&t.zone!==zone&&fieldBackCandidate(t)&&
+      t.firstSeen>=since&&t.firstSeen-since<=FIELD_SET_SLIDE_MS&&!twins.some(c=>c.ref===owns(t))))return [];
     return [{card,from}];
   });
   if(sources.length===1)return sources[0];

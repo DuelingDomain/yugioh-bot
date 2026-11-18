@@ -2524,11 +2524,14 @@ it("keeps omitted-zone hidden recognition private even in later event history",(
 it("links camera reads to a privately chosen Set and keeps batch notes independently dismissible",async()=>{
   const {remoteRecognitionRef}=await import("../../src/remote/effect-tracking.js");
   const s=originSession();
-  for(const ref of ["a","b"]) {
-    s.act({type:"effect.activated",source:{cardId:70825459}});
-    s.act({type:"twin.place",seat:0,zone:"spell-trap",card:{ref,faceUp:false}});
-  }
+  s.act({type:"twin.place",seat:0,zone:"spell-trap",card:{ref:"lifted",faceUp:false,slot:2}});
+  s.act({type:"twin.move",seat:0,cardRef:"lifted",zone:"hand",source:"auto"});
+  s.act({type:"effect.activated",source:{cardId:70825459}});
+  s.act({type:"twin.place",seat:0,zone:"spell-trap",card:{ref:"a",faceUp:false,slot:1}});
+  s.act({type:"effect.activated",source:{cardId:70825459}});
+  s.act({type:"twin.move",seat:0,cardRef:"lifted",setRef:"b",zone:"spell-trap",slot:2,source:"auto",faceUp:false});
   const origins=s.room.state.effectTracking!.origins;
+  expect(origins.map(origin=>origin.ref)).toEqual(["a","b"]);
   s.act({type:"effect.choose",originId:origins[0].id,cardId:53582587});
   expect(remoteRecognitionRef(s.room.state,0,53582587)).toBe("a");
   expect(remoteRecognitionRef(s.room.state,0,5318639)).toBeUndefined();
