@@ -273,6 +273,8 @@ Socket.IO uses the existing ws process and `NEXT_PUBLIC_WS_URL` (or same origin 
 
 The MVP follows the existing single-WS-process room pattern. It does not add a Redis adapter; multiple WS instances require the deployment's shared room/pubsub adapter before scaling out.
 
+The signed-in camera setting also offers the opt-in [hybrid card reader](hybrid-reader.md); Current remains the default.
+
 ## Recognition data messages
 
 Field Sets use [positive back admission](set-card-admission.md): unsupported boxes stay off the board, ask one private presence question during play, and retain an owner-local rejection region. The camera settings expose each comparison layer. Saved actions include optional `cam.set` diagnostics; test-recording sidecars retain decisions that made no board action. These fields never affect reducer rules or reveal hidden identities.
