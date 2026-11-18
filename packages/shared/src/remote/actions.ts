@@ -29,7 +29,7 @@ export const twinCardSchema = z.strictObject({
   bestMatch: z.boolean().optional(),
   nameCandidates: nameCandidates.optional(),
   /** A token: table state with no physical card. Its name is the token name; ATK/DEF are the values shown to everyone. `artId` is the catalog card whose art it borrows. */
-  token: z.strictObject({ atk: z.number().int().min(0).max(999999), def: z.number().int().min(0).max(999999), artId: cardId.optional() }).optional(),
+  token: z.strictObject({ atk: z.number().int().min(0).max(999999), def: z.number().int().min(0).max(999999), artId: cardId.optional(), /** The seat that placed it on another player's field. Set by the reducer; absent when the owner placed it. */ by: remoteSeatSchema.optional() }).optional(),
 });
 const effectSource = z.strictObject({ cardId: cardId.optional(), cardRef: id.optional(), name: z.string().trim().min(1).max(200).optional() })
   .refine(source=>!!(source.cardId || source.cardRef || source.name), "Identify the effect source");
