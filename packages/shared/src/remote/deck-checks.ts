@@ -81,11 +81,13 @@ export type RemoteReductionContext = {
   quitGameOnly?: 1;
   /** Any seated player may put a token on another field; its creator may move or remove it. Absent on historic events. */
   foreignTokens?: 1;
+  /** A card can be given to an opponent's field as a proxy; the owner can edit it there and the camera never moves it. Absent on historic events. */
+  givenCards?: 1;
 };
 /** Persist current reducer semantics for live actions and account-deletion concessions. */
 export const REMOTE_REDUCTION_VERSIONS = {
   undoVersion: 1, matchFlowVersion: 2, twinPlacementGuard: 8, fieldFaceState: 1,
-  pileArrivalGuard: 2, handKnowledge: 1, handReview: 1, handCountCorrections: 1, quitGameOnly: 1, foreignTokens: 1,
+  pileArrivalGuard: 2, handKnowledge: 1, handReview: 1, handCountCorrections: 1, quitGameOnly: 1, foreignTokens: 1, givenCards: 1,
 } as const satisfies RemoteReductionContext;
 
 export function initialDeckChecks(format = normalizeRemoteFormat()): RemoteDeckChecks {

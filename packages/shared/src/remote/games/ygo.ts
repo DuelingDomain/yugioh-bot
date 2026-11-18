@@ -288,6 +288,28 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
     case "deck.flag.dismiss": break;
     case "twin.merge": ownField(action.seat); break;
     case "twin.place": {
+      if (action.give) {
+        // A card given from the hand (a Kaiju, Lava Golem): it appears on the opponent's field as a proxy that the giver owns. Nothing physical backs it there.
+        remoteAssert(!context?.replay || context.givenCards === 1, "Invalid remote action");
+        const card = action.card, to = seat(action.seat);
+        remoteAssert(action.seat !== action.actorSeat && action.source !== "auto" && !card.token && !card.nameCandidates && (action.zone === "monster" || action.zone === "spell-trap") &&
+          card.slot !== undefined && card.slot >= 1 && card.slot <= 5, "A given card goes into a free Main Monster or Spell & Trap Zone of an opponent", 409);
+        const giver = seat(action.actorSeat);
+        remoteAssert(!next.seats.some(o => o.twin.some(c => c.ref === card.ref && !(o === giver && c.zone === "hand"))) && to.twin.length < 100, "Duplicate card ref or field is full", 409);
+        giver.twin = giver.twin.filter(c => c.ref !== card.ref);
+        freeSlot(to, action.zone, card.slot);
+        const given: TwinCard = { ...card, zone: action.zone, ownerSeat: action.actorSeat };
+        for (const key of ["departedFrom", "trapZone", "equippedTo", "materialOf", "materials", "pendulumUp"] as const) delete given[key];
+        // A face-down card keeps its identity for its owner only, as with any control change.
+        if (!remotePublicCard(given)) {
+          const kept: NonNullable<TwinCard["ownerIdentity"]> = {};
+          for (const key of ["cardId", "passcode", "name", "race"] as const) if (given[key] !== undefined) (kept as Record<string, unknown>)[key] = given[key];
+          if (Object.keys(kept).length) given.ownerIdentity = kept;
+          for (const key of ["cardId", "passcode", "name", "race", "bestMatch", "publicIdentity"] as const) delete given[key];
+        }
+        to.twin.push(given);
+        tokenAction = true; break;
+      }
       const s = action.card.token ? tokenField(action.seat) : ownField(action.seat); validZone(action.zone);
       if(action.card.nameCandidates)remoteAssert(action.source==='auto'&&action.card.faceUp&&remoteFieldZone(action.zone)&&!action.card.token&&action.card.nameCandidates[0]?.cardId===(action.card.cardId??action.card.passcode),'Unsure names require a named public field placement',409);
       if (action.card.token) {
@@ -323,9 +345,14 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
     case "twin.move": case "twin.flip": case "twin.remove": {
       // A token belongs to the field it sits on and to the seat that placed it there.
       const tokenHere = action.seat !== action.actorSeat ? next.seats[action.seat]?.twin.find(c => c.ref === action.cardRef) : undefined;
-      const s = tokenHere?.token && tokenHere.token.by === action.actorSeat ? tokenField(action.seat) : ownField(action.seat);
+      // A card that another seat controls stays editable by its owner too (a given proxy).
+      const ownerEdit = !!tokenHere && !tokenHere.token && tokenHere.ownerSeat === action.actorSeat && (!context?.replay || context.givenCards === 1);
+      const s = tokenHere?.token && tokenHere.token.by === action.actorSeat ? tokenField(action.seat) : ownerEdit ? seat(action.seat) : ownField(action.seat);
       const card = s.twin.find(c => c.ref === action.cardRef);
       remoteAssert(card, "Unknown twin card", 409);
+      // The camera never moves a card that another seat controls: its paper card is not in that zone.
+      if (card.ownerSeat !== undefined && "source" in action && action.source === "auto" && (!context?.replay || context.givenCards === 1)) return state;
+      if (ownerEdit && action.type === "twin.flip" && action.faceUp) restoreOwnerIdentity(card);
       remoteAssert(card.token || action.type !== "twin.flip" || !action.tokenStats, "Only a token has ATK/DEF to set", 409);
       if (card.token) {
         // The camera never touches a token: nothing physical backs it.

@@ -4245,6 +4245,56 @@ it('lets a seated player put a token on another field: only its creator and that
   expect(ygoModule.reduce(fresh, foreign, { replay: true, foreignTokens: 1 }).seats[1].twin[0]).toMatchObject({ ref: 'primal', token: { by: 0 } });
 });
 
+it('gives a card to an opponent as a proxy: the owner keeps it, the camera never moves it, and it goes to the owner pile; old events replay unchanged', () => {
+  const { users, service } = setup();
+  const [a, b, c] = users; let n = 0;
+  const table = service.create({ guildId: 'g', userId: a, displayName: 'A', gameId: 'ygo', seatCount: 3 }, 3000);
+  const slug = table.slug;
+  service.join(slug, 'g', b, 'B', 1, 3001); service.join(slug, 'g', c, 'C', 2, 3001);
+  for (const user of [a, b, c]) service.ready(slug, 'g', user, true, 3002);
+  service.start(slug, 'g', a, 3003);
+  const send = (user: number, actorSeat: number, input: Record<string, unknown>) => service.act(slug, 'g', user, { baseSeq: service.get(slug, 'g', a).lastSeq,
+    action: remoteActionSchema.parse({ actorSeat, idempotencyKey: 'give-' + (++n), ...input }) }, 3100 + n);
+  const state = () => service.get(slug, 'g', a).state;
+  const proxy = (seat = 1) => state().seats[seat].twin.find(card => card.ref === 'kaiju');
+  const kaiju = { ref: 'kaiju', cardId: 14558127, name: 'Gameciel', slot: 2, faceUp: false, position: 'defense' };
+
+  // Seat 0 gives a face-down card from the hand to seat 1's free zone. Seat 1 sees a proxy without the identity; the owner keeps it.
+  send(a, 0, { type: 'twin.place', seat: 1, zone: 'monster', give: true, card: kaiju });
+  expect(proxy()).toMatchObject({ zone: 'monster', slot: 2, position: 'defense', faceUp: false, ownerSeat: 0, ownerIdentity: { cardId: 14558127 } });
+  expect(proxy()!.cardId).toBeUndefined();
+  expect(service.get(slug, 'g', b).state.seats[1].twin.find(card => card.ref === 'kaiju')).not.toHaveProperty('ownerIdentity');
+  expect(state().seats[0].twin.some(card => card.ref === 'kaiju')).toBe(false);
+  // The zone must be free, the target another seat, and a camera action is refused.
+  expect(() => send(a, 0, { type: 'twin.place', seat: 1, zone: 'monster', give: true, card: { ...kaiju, ref: 'kaiju-2' } })).toThrow(/occupied/i);
+  expect(() => send(a, 0, { type: 'twin.place', seat: 0, zone: 'monster', give: true, card: { ...kaiju, ref: 'kaiju-3', slot: 3 } })).toThrow(/opponent/i);
+
+  // The camera of the holder never removes it; the third seat cannot touch it; the owner and the holder can turn it.
+  const before = state();
+  send(b, 1, { type: 'twin.move', seat: 1, cardRef: 'kaiju', zone: 'graveyard', source: 'auto' });
+  expect(proxy()).toMatchObject({ zone: 'monster', ownerSeat: 0 });
+  expect(state().seats[1].twin).toEqual(before.seats[1].twin);
+  expect(() => send(c, 2, { type: 'twin.flip', seat: 1, cardRef: 'kaiju', faceUp: true })).toThrow('Only the field owner can edit their twin');
+  send(b, 1, { type: 'twin.flip', seat: 1, cardRef: 'kaiju', faceUp: false, position: 'attack' });
+  expect(proxy()).toMatchObject({ position: 'attack' });
+  send(a, 0, { type: 'twin.flip', seat: 1, cardRef: 'kaiju', faceUp: true, position: 'defense' });
+  expect(proxy()).toMatchObject({ position: 'defense', faceUp: true, cardId: 14558127 });
+  expect(proxy()).not.toHaveProperty('ownerIdentity');
+
+  // It leaves the field to the OWNER's Graveyard, not the holder's.
+  send(b, 1, { type: 'twin.move', seat: 1, cardRef: 'kaiju', zone: 'graveyard' });
+  expect(proxy(1)).toBeUndefined();
+  expect(proxy(0)).toMatchObject({ zone: 'graveyard' });
+  expect(proxy(0)).not.toHaveProperty('ownerSeat');
+
+  // Replay: the stored versions include givenCards, so the replayed state equals the live one. An old event stream (no flag) refuses a give.
+  expect(service.replay(slug, 'g', a)).toEqual(state());
+  const give = remoteActionSchema.parse({ type: 'twin.place', actorSeat: 0, seat: 1, zone: 'monster', give: true, card: kaiju, idempotencyKey: 'old-give', at: 1 });
+  const fresh = ygoModule.initialState({ seatCount: 3 });
+  expect(() => ygoModule.reduce(fresh, give, { replay: true })).toThrow('Invalid remote action');
+  expect(ygoModule.reduce(fresh, give, { replay: true, givenCards: 1 }).seats[1].twin[0]).toMatchObject({ ref: 'kaiju', ownerSeat: 0 });
+});
+
 describe("remote match history and replay", () => {
   function endedTable(privateAnnotations = false) {
     const s = deckSession("normal", false);
