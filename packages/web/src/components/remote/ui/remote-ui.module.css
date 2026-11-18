@@ -1361,20 +1361,26 @@
 @media(max-width:900px){
   .pop.big.show.zonePicker{left:8px!important;right:8px;top:auto!important;bottom:max(8px,env(safe-area-inset-bottom));width:auto;max-height:62dvh;padding:10px 12px 12px;border-radius:14px 14px 12px 12px}
 }
-/* Recent departures: a collapsed row under the board. Open it and every card that just left has its own destinations and Undo. */
-.departureHistory{margin:8px;border:1px solid var(--line);border-radius:8px;background:var(--p1)}
-.departureHistory summary{display:flex;align-items:center;min-height:36px;padding:0 12px;cursor:pointer;color:var(--ink2);font-weight:600;font-size:13px;list-style:none}
-.departureHistory summary::-webkit-details-marker{display:none}
-.departureHistory summary::before{content:"";width:6px;height:6px;margin-right:9px;border-right:2px solid var(--gold-ink);border-bottom:2px solid var(--gold-ink);transform:rotate(-45deg);transition:transform .15s}
-.departureHistory[open] summary::before{transform:rotate(45deg)}
-.departureHistory summary:hover{color:var(--ink)}
-.departureHistory[open] summary{border-bottom:1px solid var(--line)}
-.departureHistory [role="group"]{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:8px 12px;border-top:1px solid var(--line)}
-.departureHistory [role="group"]:first-of-type{border-top:0}
-.departureHistory [role="group"] b{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink);font-size:14px}
-.departureHistory [role="group"] > span{flex:none;color:var(--ink3);font-size:12px}
-.departureHistory [role="group"] .dwhere{flex:1 0 100%;display:flex;flex-wrap:wrap;gap:6px}
-@media(pointer:coarse),(max-width:900px){.departureHistory summary{min-height:44px}.departureHistory button{min-height:44px;padding:0 12px}.departureHistory [role="group"] b{flex-basis:100%;white-space:normal}.departureHistory [role="group"] > span{flex-basis:100%}}
+/* Recent departures: a floating overlay, never part of the layout. Notes stack above a "Departures (N)" chip; a click opens the destinations.
+   Wide screens: bottom-left of the seat's camera box (--dep-* come from the component). Phones and unmeasured layouts: bottom-left above the dock. */
+.depDock{position:fixed;left:var(--dep-l,12px);bottom:var(--dep-b,calc(var(--dock) + var(--rail) + var(--gap) * 2 + 8px));z-index:60;display:flex;flex-direction:column;align-items:flex-start;gap:6px;max-width:min(var(--dep-w,440px),calc(100vw - 24px));pointer-events:none}
+.depDock>*{pointer-events:auto}
+.depChip,.depNote{display:inline-flex;align-items:center;gap:6px;max-width:100%;border:1px solid var(--line2);border-radius:999px;background:rgb(20 13 38/.94);color:var(--ink2);box-shadow:0 6px 20px rgb(0 0 0/.5);font-size:12px;font-weight:600;line-height:1}
+.depChip{height:26px;padding:0 11px}
+.depChip:hover,.depChip[aria-expanded=true],.depNote:hover{border-color:var(--gold);color:var(--gold-ink)}
+.depNotes{display:flex;flex-direction:column;align-items:flex-start;gap:4px;max-width:100%}
+.depNote{height:30px;padding:0 6px 0 12px;animation:pop .25s var(--ease)}
+.depNote b{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink);font-weight:700}
+.depNote span{flex:none;color:var(--gold-ink)}
+.depNote i{flex:none;font-style:normal;padding:4px 8px;border-radius:999px;background:var(--gold-soft);color:var(--gold-ink);font-size:11px}
+.depMore{padding:2px 8px;border-radius:999px;background:rgb(20 13 38/.94);border:1px solid var(--line2);color:var(--ink3);font-size:11px;font-weight:700}
+.depPanel{display:flex;flex-direction:column;width:min(440px,100%);max-height:var(--dep-h,50vh);overflow-y:auto;border:1px solid var(--line2);border-radius:10px;background:rgb(20 13 38/.97);box-shadow:0 12px 36px rgb(0 0 0/.6);animation:pop .2s var(--ease)}
+.depPanel [role="group"]{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:8px 10px;border-top:1px solid var(--line)}
+.depPanel [role="group"]:first-child{border-top:0}
+.depPanel [role="group"] b{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink);font-size:13px}
+.depPanel [role="group"] > span{flex:none;color:var(--ink3);font-size:12px}
+.depPanel [role="group"] .btn{height:26px;padding:0 8px;font-size:11.5px}
+@media(pointer:coarse),(max-width:900px){.depDock{left:8px;right:8px;bottom:var(--dep-b,calc(var(--dockh,128px) + 120px));max-width:none}.depNote,.depChip{min-height:36px}.depPanel{width:100%;max-height:50dvh}.depPanel [role="group"] b{flex-basis:100%;white-space:normal}.depPanel [role="group"] > span{flex-basis:100%}.depPanel [role="group"] .btn{min-height:40px}}
 @media(pointer:coarse),(max-width:600px) { .dact button,.dact select { min-height:44px; } }
 
 /* Zone actions: the same panel as the picker. One list of full-width rows, materials under it. */

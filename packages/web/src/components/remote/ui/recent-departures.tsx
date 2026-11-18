@@ -1,4 +1,5 @@
 'use client';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import type { RemoteActionProposal, RemoteRoom } from '@yugidraft/shared/remote';
 import { FIELD_LEAVE_DESTINATIONS, fieldLeaveLabel } from '@/lib/remote/field-proposals';
 import { playerStamp } from '@/lib/remote/field-timing';
@@ -6,10 +7,18 @@ import { cardCode, cardName } from './model';
 import { cardInfo } from './catalog';
 import s from './remote-ui.module.css';
 
-/** The toast is a shortcut. These independent refs remain reachable in the owner's notices. */
+/** A card that just left the field shows as a small note for this long. The Departures chip keeps it reachable after that, as long as the event is kept. */
+const NOTE_MS = 8000;
+const NOTE_MAX = 3;
+
+/**
+ * Cards the camera just sent away from the field (the default destination, or a pile it saw). A floating overlay on the left: it never moves the board.
+ * Each new card shows as a compact note ("Card → GY") that fades by itself; a click on it opens that card's destinations. The "Departures (N)" chip
+ * stays and lists every kept card, so a destination can be fixed later. Nothing here takes focus.
+ */
 export function RecentDepartures({ room, seat, onAction }: { room: RemoteRoom; seat: number; onAction(action: RemoteActionProposal): void }) {
-  if (!(room.solo || seat === room.mySeat)) return null;
-  const events = [...room.events].reverse().filter(e => e.action.type === 'twin.move' && e.action.seat === seat && e.action.source === 'auto' && e.action.cam?.by !== 'player' && ['hand','extra','graveyard','banished'].includes(e.action.zone));
+  const mine = room.solo || seat === room.mySeat;
+  const events = mine ? [...room.events].reverse().filter(e => e.action.type === 'twin.move' && e.action.seat === seat && e.action.source === 'auto' && e.action.cam?.by !== 'player' && ['hand','extra','graveyard','banished'].includes(e.action.zone)) : [];
   const seen = new Set<string>();
   const items = events.flatMap(e => {
     if (e.action.type !== 'twin.move' || seen.has(e.action.cardRef)) return [];
@@ -17,16 +26,75 @@ export function RecentDepartures({ room, seat, onAction }: { room: RemoteRoom; s
     const ref=e.action.cardRef,card = room.state.seats[seat]?.twin.find(c => c.ref === ref);
     return card ? [{ card, event: e }] : [];
   }).slice(0, 6);
+  const [open, setOpen] = useState<string | null>(null);
+  const [gone, setGone] = useState<ReadonlySet<string>>(() => new Set());
+  const [, tick] = useState(0);
+  const root = useRef<HTMLDivElement>(null);
+  // When each entry first showed here. Entries that were already there at mount (a reload, a late join) never pop up as notes.
+  const firstSeen = useRef(new Map<string, number>());
+  const mounted = useRef(false);
+  for (const { event } of items) if (!firstSeen.current.has(event.id)) firstSeen.current.set(event.id, mounted.current ? Date.now() : 0);
+  const now = Date.now();
+  const fresh = items.filter(({ event }) => !gone.has(event.id) && (firstSeen.current.get(event.id) ?? 0) > 0 && now - firstSeen.current.get(event.id)! < NOTE_MS);
+  const nextEnd = Math.min(...fresh.map(({ event }) => firstSeen.current.get(event.id)! + NOTE_MS));
+  useEffect(() => { mounted.current = true; }, []);
+  useEffect(() => {
+    if (!Number.isFinite(nextEnd)) return;
+    const timer = setTimeout(() => tick(n => n + 1), Math.max(50, nextEnd - Date.now() + 20));
+    return () => clearTimeout(timer);
+  }, [nextEnd]);
+  useEffect(() => {
+    if (!open) return;
+    const away = (event: PointerEvent) => { if (!root.current?.contains(event.target as Node)) setOpen(null); };
+    const key = (event: KeyboardEvent) => { if (event.key === 'Escape') setOpen(null); };
+    document.addEventListener('pointerdown', away, true); document.addEventListener('keydown', key);
+    return () => { document.removeEventListener('pointerdown', away, true); document.removeEventListener('keydown', key); };
+  }, [open]);
+  // On a wide screen the overlay sits in the bottom-left corner of this seat's camera box (the biggest, least busy part of the seat). It is fixed, so it moves nothing.
+  // Without a camera box to measure (a layout that hides it) CSS puts it above the dock and the phase bar.
+  const [anchor, setAnchor] = useState<{ l: number; b: number; w: number; h: number } | null>(null);
+  const has = items.length > 0;
+  useEffect(() => {
+    if (!has) return;
+    const measure = () => {
+      let next: { l: number; b: number; w: number; h: number } | null = null;
+      if (window.innerWidth > 900) {
+        const r = document.querySelector<HTMLElement>(`[data-testid="feed-box-${seat}"]`)?.getBoundingClientRect();
+        if (r && r.width >= 160 && r.height >= 100) next = { l: Math.round(r.left) + 8, b: Math.round(window.innerHeight - r.bottom) + 8, w: Math.round(r.width) - 16, h: Math.round(r.height) - 16 };
+      } else {
+        // On a phone the turn and phase bar sits above the dock. The overlay goes above that bar, so it never covers it.
+        const r = document.querySelector<HTMLElement>('[data-testid="rail"]')?.getBoundingClientRect();
+        if (r && r.height > 0) next = { l: 0, b: Math.round(window.innerHeight - r.top) + 8, w: 0, h: 0 };
+      }
+      setAnchor(prev => prev?.l === next?.l && prev?.b === next?.b && prev?.w === next?.w && prev?.h === next?.h ? prev : next);
+    };
+    measure();
+    const timer = setInterval(measure, 400);
+    window.addEventListener('resize', measure);
+    return () => { clearInterval(timer); window.removeEventListener('resize', measure); };
+  }, [has, seat]);
   if (!items.length) return null;
   const live = room.status === 'active' && !room.state.ended && !room.state.seats[seat]?.eliminated;
-  return <details className={s.departureHistory} data-testid="recent-departures"><summary>Recent departures ({items.length})</summary>
-    {items.map(({ card, event }) => {
+  const shown = open ? items.filter(({ event }) => open === 'all' || event.id === open) : [];
+  const notes = open ? [] : fresh.slice(0, NOTE_MAX);
+  return <div ref={root} className={s.depDock} data-testid="recent-departures"
+    style={anchor ? { '--dep-b': `${anchor.b}px`, ...(anchor.w ? { '--dep-l': `${anchor.l}px`, '--dep-w': `${anchor.w}px`, '--dep-h': `${anchor.h}px` } : {}) } as CSSProperties : undefined}>
+    {shown.length ? <div className={s.depPanel}>
+      {shown.map(({ card, event }) => {
       const change = [...room.state.undoHistory??[]].sort((a,b)=>b.order-a.order).find(e => !e.undone && e.actorSeat === (room.solo ? seat : room.mySeat) && e.cards.includes(`${seat}:${card.ref}`));
       return <div key={event.id} role="group" aria-label={`Departure: ${cardName(card, cardInfo(cardCode(card)))}`}>
         <b>{cardName(card, cardInfo(cardCode(card)))}</b><span> → {fieldLeaveLabel(card.zone,card.faceUp)}</span>
         {FIELD_LEAVE_DESTINATIONS.map(d => <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} key={d.title} disabled={!live || !['hand','deck','extra','graveyard','banished'].includes(card.zone) || card.zone === d.zone && (d.zone !== 'banished' || card.faceUp === !('down' in d))} onClick={() => onAction({type:'twin.move',actorSeat:room.solo?seat:room.mySeat,seat,cardRef:card.ref,zone:d.zone,confirmed:true,cam:playerStamp('recent-departure'),...(d.zone === 'banished' ? {faceUp:!('down' in d)} : d.zone === 'graveyard' ? {faceUp:true} : d.zone === 'extra'&&card.faceUp&&/pendulum/i.test(cardInfo(cardCode(card))?.type??'')?{faceUp:true,pendulum:true}:d.zone === 'deck' || d.zone === 'extra' ? {faceUp:false} : {})})}>{d.title}</button>)}
         <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} disabled={!live || !change || !!change.reason} title={change?.reason} onClick={() => { if (change) onAction({type:'undo',actorSeat:room.solo?seat:room.mySeat,targetActionId:change.actionId,cam:playerStamp('recent-departure-undo')}); }}>Undo</button>
       </div>;
-    })}
-  </details>;
+      })}
+    </div> : null}
+    {notes.length ? <div className={s.depNotes} role="status">
+      {notes.map(({ card, event }) => <button type="button" key={event.id} className={s.depNote} onClick={() => { setOpen(event.id); setGone(g => new Set(g).add(event.id)); }} title="Change where it went">
+        <b>{cardName(card, cardInfo(cardCode(card)))}</b><span>→ {fieldLeaveLabel(card.zone,card.faceUp)}</span><i>Change</i>
+      </button>)}
+      {fresh.length > NOTE_MAX ? <span className={s.depMore}>+{fresh.length - NOTE_MAX}</span> : null}
+    </div> : null}
+    <button type="button" className={s.depChip} aria-expanded={open === 'all'} onClick={() => { setOpen(open === 'all' ? null : 'all'); setGone(new Set(items.map(i => i.event.id))); }}>Departures ({items.length})</button>
+  </div>;
 }
