@@ -81,6 +81,21 @@ describe("multiplayer forbidden list in deck validation", () => {
     }
   });
 
+  it.each([
+    [54475145, "Heart of the Blue-Eyes"],
+    [100461101, "Arcana Force VIII - The Strength"],
+    [100464005, "Finger Game"],
+  ] as const)("restricts the November 16 risk %s to 1v1", (code, name) => {
+    for (const mode of ["normal", "domain"] as const) for (const validateDeck of [true, false]) {
+      const deck: DuelDeck = { main: [code], extra: [], side: [code], ...(mode === "domain" ? { deckMaster: code } : {}) };
+      const rules = { ...settings, validateDeck };
+      for (const table of ["ffa3", "ffa4", "tag"] as const) {
+        expect(inspectDeck(mode, deck, DATA, rules, { table }).issues.some(issue => issue.message.startsWith(`${name} is forbidden in `)), `${mode} ${table} validate=${validateDeck}`).toBe(true);
+      }
+      expect(inspectDeck(mode, deck, DATA, rules, { table: "1v1" }).issues.some(issue => issue.message.includes(" is forbidden in ")), `${mode} 1v1 validate=${validateDeck}`).toBe(false);
+    }
+  });
+
   it("does not change the default table", () => {
     const deck = deckWith(EXODIA, HAND_DESTRUCTION, CREATURE_SWAP, NIBIRU);
     expect(inspectDeck("normal", deck, DATA, settings)).toEqual(inspectDeck("normal", deck, DATA, settings, { table: "1v1" }));

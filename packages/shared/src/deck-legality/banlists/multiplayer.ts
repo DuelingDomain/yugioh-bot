@@ -37,6 +37,10 @@ const ALL: MultiplayerFormat[] = ["ffa3", "ffa4", "tag"];
 const NO_RESULT = " A 'you win' effect has no defined result for the other players.";
 
 export const MULTIPLAYER_FORBIDDEN: readonly MultiplayerForbidden[] = [
+  // --- 2026-11-16 data review: docs/audits/2026-11-16-engine-data-review.md
+  { code: 54475145, name: "Heart of the Blue-Eyes", category: "global-state", reason: "Its Ankh flag and summon-event group need a live multiplayer proof that the flag belongs to the correct seat or team and only the chosen opponent's summoned monsters are sent to the GY.", formats: ALL },
+  { code: 100461101, name: "Arcana Force VIII - The Strength", category: "control-swap", reason: "Its coin effect saves a folded opponent before the result. Both control branches need an explicit chosen opponent, including one opposing member in Tag, and a live multiplayer proof.", formats: ALL },
+  { code: 100464005, name: "Finger Game", category: "symmetry", reason: "Its each-player effect reads exactly two Decks and compares a declaration from 0 to 4 with four excavated cards. Multiplayer participation and the counting range need an owner decision and an adapted script.", formats: ALL },
   // --- 2026-11-09 data review: docs/audits/2026-11-09-engine-data-review.md
   // Stock scripts need multiplayer adaptation before admission.
   { code: 101403005, name: "Amazoness Chain Master - Brink of Death Chain Dance", category: "chooser", reason: "Its GY trigger does not declare one opponent. The Level 10 choice, summon and random hand discard must all use that same chosen opponent, including one opposing member in Tag.", formats: ALL },
