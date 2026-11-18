@@ -61,6 +61,7 @@ function ZonePrompt({prompt,first,zone,pending,onChoose,onWrong,onNotACard}:{pro
     return()=>{window.removeEventListener('resize',place);window.removeEventListener('scroll',place,true);document.removeEventListener('pointerdown',outside);};
   },[open]);
   const run=(act:()=>void)=>()=>{act();close();};
+  const others=prompt.candidates.filter(c=>!c.disabled&&c!==first).slice(0,2);
   return <>
     <button ref={badge} type="button" className={s.zoneBadge} data-testid="zone-uncertainty" aria-haspopup="dialog" aria-expanded={open} aria-label={`Check card in ${zone}`} title="Check this card" onClick={event=>{event.stopPropagation();setOpen(o=>!o);}} onPointerDown={stop} onKeyDown={event=>{event.stopPropagation();}}>?</button>
     {open?createPortal(<div ref={panel} className={`${duelFontClasses} ${s.theme} ${s.zonePanel}`} style={style} role="group" aria-label={`Check ${zone}`} data-testid="zone-uncertainty-choices" onClick={stop} onPointerDown={stop} onKeyDown={event=>{event.stopPropagation();if(event.key==='Escape'){event.preventDefault();close(true);}}}>
@@ -70,6 +71,7 @@ function ZonePrompt({prompt,first,zone,pending,onChoose,onWrong,onNotACard}:{pro
         <button type="button" className={table.btn} disabled={pending||!onWrong} onClick={run(()=>onWrong?.(prompt.id))}>Wrong card</button>
         <button type="button" className={table.btn} disabled={pending} onClick={run(()=>onNotACard(prompt.id))}>Not a card</button>
       </div>
+      {others.length?<div className={s.zoneActions}>{others.map(c=><button key={c.id} type="button" className={table.btn} disabled={pending} title={c.label} onClick={run(()=>onChoose(prompt.id,c.id))}>{c.label.split(' · ')[0]}</button>)}</div>:null}
     </div>,document.body):null}
   </>;
 }
