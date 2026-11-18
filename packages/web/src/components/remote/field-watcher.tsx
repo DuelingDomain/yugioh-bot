@@ -2,7 +2,7 @@
 import { recognitionPriorsFor } from "@/lib/remote/recognition-priors";
 
 import {useCallback,useEffect,useMemo,useRef,useState} from 'react';
-import {catalogCardId,fieldZoneLocation,fieldStackUnder,yugioh,type HeldCardEvent,type HeldUnsureEvent,type FieldEvent,type FieldTrack,type FieldZone,type KnownFieldCard,type FieldCalibration,fieldPacerDevice} from '@yugidraft/vision';
+import {catalogCardId,fieldZoneLocation,fieldStackUnder,yugioh,type HeldCardEvent,type HeldUnsureEvent,type FieldEvent,type FieldSnapshot,type FieldTrack,type FieldZone,type KnownFieldCard,type FieldCalibration,fieldPacerDevice} from '@yugidraft/vision';
 import {useSendHealth} from '@/lib/remote/send-health-store';
 import {markVideoOfferShown,readVideoChoice,VIDEO_OFFER_MS,videoOfferShown} from '@/lib/remote/video-rate';
 import {createSlowWatch,isWeakDevice,markTapOfferShown,readTapChoice,saveTapChoice,tapOfferShown,TAP_OFFER_MS,type TapChoice} from '@/lib/remote/tap-offer';
@@ -50,6 +50,8 @@ const FACTS_WAIT_MS=1000;
 const mainDeckOwnRow=(frameClass:string|undefined,zone:string)=>/^M[1-5]$/.test(zone)&&['Normal','Effect','Ritual'].includes(frameClass??'')||/^S[1-5]$/.test(zone)&&['Spell','Trap'].includes(frameClass??'');
 /** A card that left the field while a hand worked over the GY / banished pile within PILE_NEAR_MS waits this much longer (once) for the pile read, so the board shows one move to the pile and no wrong stop in the hand. */
 const PILE_HOLD_MS=1200,PILE_NEAR_MS=1500;
+/** A Spell/Trap card that left its spot while the camera may be reading a plain sleeve there (a flip in place) waits up to this long in all. */
+const FLIP_HOLD_MAX_MS=3000,FLIP_POLL_MS=250;
 const publicField=(zone:string)=>['monster','extra-monster','spell-trap','field','pendulum'].includes(zone);
 /** A card the camera sent from the field to the hand, a pile or the Extra Deck still owns its field origin. */
 const leftField=(c:TwinCard,at:number,spot:{zone:string;slot?:number})=>!!c.departedFrom&&publicField(c.departedFrom.zone)&&(c.zone==='hand'||!!c.departedFrom.auto&&['graveyard','banished','extra'].includes(c.zone)&&
@@ -747,14 +749,24 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       if(departureTimers.current.has(event.track.id))return;
       if(card.faceUp&&['monster','extra-monster'].includes(card.zone))pendingLeft.current.set(event.track.id,{ref:card.ref,at:event.track.lastSeen});
       // The watcher already needed two empty full scans; a short wait lets a flip or a summon claim the card first.
-      leaveStarted.current.set(event.track.id,performance.now());pendingDepartures.current.set(event.track.id,{event,origin});
-      const id=event.track.id,fire=()=>{departureTimers.current.delete(id);pileHeld.current.delete(id);if(live()&&watch.isRemoved(id))handle(event,origin);else{pendingLeft.current.delete(id);pendingDepartures.current.delete(id);}};
-      departureTimers.current.set(id,setTimeout(()=>{
+      const id=event.track.id,started=performance.now(),fire=()=>{departureTimers.current.delete(id);pileHeld.current.delete(id);if(live()&&watch.isRemoved(id))handle(event,origin);else{pendingLeft.current.delete(id);pendingDepartures.current.delete(id);}};
+      leaveStarted.current.set(id,started);pendingDepartures.current.set(id,{event,origin});
+      const pileNear=(snap:FieldSnapshot|undefined,since:number)=>Object.values(snap?.pileTouchedAt??{}).some(at=>at>=since-PILE_NEAR_MS);
+      // A pile touch near the first removal rules out a flip. Poll through the hand over the slot, then look for a sleeve or a face-down track there.
+      const flipPending=(snap:FieldSnapshot|undefined)=>{
+        if(!snap||!/^S[1-5]$/.test(event.track.zone)||pileNear(snap,event.removedAt??started))return false;
+        const zone=event.track.zone as FieldZone;
+        return snap.handZones?.includes(zone)||snap.blindZones?.includes(zone)||snap.tracks.some(t=>t.id!==id&&!t.removed&&t.faceDown&&t.zone===zone&&t.firstSeen>=event.track.lastSeen-1000);
+      };
+      const arm=(wait:number)=>departureTimers.current.set(id,setTimeout(()=>{
+        if(!live()||!watch.isRemoved(id)){departureTimers.current.delete(id);pendingLeft.current.delete(id);pendingDepartures.current.delete(id);return;}
+        const snap=watch.getSnapshot?.();
+        if(performance.now()-started+FLIP_POLL_MS<=FLIP_HOLD_MAX_MS&&flipPending(snap)){arm(FLIP_POLL_MS);return;}
         // A pile read is likely (a hand was over a pile around the removal): hold the hand write once. The pile-evidence effect still settles the departure the moment the pile card is read.
-        const touches=Object.values(watch.getSnapshot?.()?.pileTouchedAt??{}) as number[];
-        if(!pileHeld.current.has(id)&&touches.some(at=>at>=event.track.lastSeen-PILE_NEAR_MS)){pileHeld.current.add(id);departureTimers.current.set(id,setTimeout(fire,PILE_HOLD_MS));return;}
+        if(!pileHeld.current.has(id)&&pileNear(snap,event.track.lastSeen)){pileHeld.current.add(id);departureTimers.current.set(id,setTimeout(fire,PILE_HOLD_MS));return;}
         fire();
-      },DEPARTURE_WAIT_MS));
+      },wait));
+      arm(DEPARTURE_WAIT_MS);
       return;
     }
     console.info('[remote field] evidence',event.type,event.track.id,event.track.zone,event.track.revision,event.result?.tier,JSON.stringify(event.result?.quality),event.reason);

@@ -522,6 +522,46 @@ test('a flat plain sleeve the detector never boxes is placed as a Set from its p
   assert.equal(lit.events.filter(e=>e.type==='removed').length,1,'the lifted Set is removed under the new light');
   lit.watcher.dispose();
 });
+test('a face-up Spell turned Set in place under a flickering shadow is the same card flipped, not a card removed and a new Set; a card taken to the GY is not',async()=>{
+  const sleeve=[110,150,130],mat=[60,60,70],flat=(rgb:number[],inner?:[number,number,number,number])=>{
+    const width=96,height=140,data=new Uint8ClampedArray(width*height*4);
+    for(let py=0;py<height;py++)for(let px=0;px<width;px++){const x=px/width,y=py/height,on=!inner||x>=inner[0]&&x<=inner[1]&&y>=inner[2]&&y<=inner[3];data.set([...(on?rgb:mat),255],(py*width+px)*4);}
+    return {width,height,data};
+  };
+  const padded=flat(sleeve,[.23,.77,.19,.81]),barePadded=flat(mat),own=flat(sleeve),cell=zones.fieldZoneCells().find(c=>c.zone==='S4')!,inCell=(c:DetectedQuad)=>Math.abs(zones.fieldCenter(c).x-(cell.x+cell.w/2))<cell.w/2&&Math.abs(zones.fieldCenter(c).y-(cell.y+cell.h/2))<cell.h/2;
+  const gy=zones.fieldZoneCells().find(c=>c.zone==='GY')!,inGy=(c:DetectedQuad)=>Math.abs(zones.fieldCenter(c).x-(gy.x+gy.w/2))<gy.w/2&&Math.abs(zones.fieldCenter(c).y-(gy.y+gy.h/2))<gy.h/2;
+  const scene=async(toGy:boolean)=>{
+  const r=fieldRig('sure',20,undefined,{width:160,height:90}),run=async(n:number,shade?:boolean)=>{for(let i=0;i<n;i++){if(shade)r.shadow=i%2?{share:0,changed:0}:{share:.9,changed:.9};r.watcher.scanNow();await r.tick(300);}r.shadow=undefined;};
+  r.outlines=[];r.watcher.setCalibration(zones.createFieldCalibration([{x:0,y:0},{x:1,y:1}]));
+  r.appearanceAt=()=>Array(288).fill(.25);r.cropAt=c=>c.blind?own:barePadded;await run(8);
+  const front={...card(cell.x+cell.w*.15,cell.y+cell.h*.1,cell.w*.7,cell.h*.8),kind:'face-up' as const};
+  r.known=[{id:'twin',zone:'S4',cardId:'A',faceDown:false}];r.outlines=[front];
+  r.appearanceAt=c=>c.kind==='face-up'?Array.from({length:288},(_,i)=>i%2?.6:.3):Array(288).fill(.25);r.cropAt=c=>c.kind==='face-up'?fieldCrop(c):barePadded;await run(10);
+  assert.equal(r.watcher.getSnapshot().tracks.find(t=>t.id==='twin')?.faceDown,false,'the face-up Spell is on the board');
+  r.outlines=[];r.appearanceAt=c=>Array(288).fill(inCell(c)?.65:.25);r.cropAt=c=>c.blind?own:inCell(c)?padded:barePadded;
+  if(toGy)r.motionAt=c=>inGy(c)?.2:0;
+  else{
+    // The GY moves near the last sighting, while a hand delays the source removal.
+    r.occludedAt=inCell;r.motionAt=c=>inGy(c)?.2:0;await run(1);r.motionAt=undefined;await run(8);
+    const removed=()=>r.events.some(e=>e.type==='removed'&&e.track.id==='twin');
+    assert.equal(removed(),false,'the hand delays removal');
+    r.occludedAt=undefined;
+    for(let i=0;i<8&&!removed();i++)await run(1);
+    const removal=r.events.find(e=>e.type==='removed'&&e.track.id==='twin');
+    assert.ok(removal,'the front track is removed after the hand clears');
+    assert.equal(removal.removedAt,r.at,'the event publishes the removal clock, even after a long absence');
+    await run(1);
+    assert.ok(r.watcher.getSnapshot().blindZones?.includes('S4'),'the first sleeve scan after removal ignores the old GY motion');
+  }
+  await run(30,true);r.motionAt=undefined;await run(10);
+  const events=r.events.slice();r.watcher.dispose();return events;
+  };
+  const flipped=(events:{type:string;track:{id:string;faceDown?:boolean}}[])=>events.some(e=>e.type==='flipped'&&e.track.id==='twin'&&e.track.faceDown);
+  const turned=await scene(false);
+  assert.ok(flipped(turned),'the same card turns face-down despite GY motion before the removal window');
+  assert.equal(turned.some(e=>e.type==='placed'&&e.track.faceDown),false,'no new unknown Set');
+  assert.equal(flipped(await scene(true)),false,'a hand over the GY with the card gone is no flip in place');
+});
 test('a flat sleeve stack on the Deck cell the detector never boxes becomes a pile from its pixels, bare mat and a lifted stack do not',async()=>{
   const sleeve=[110,150,130],mat=[60,60,70],flat=(rgb:number[],inner?:[number,number,number,number])=>{
     const width=96,height=140,data=new Uint8ClampedArray(width*height*4);
