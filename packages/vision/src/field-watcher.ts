@@ -492,6 +492,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
    * outlive a few failed edge scans (PILE_BLIND_HOLD) so a stack the detector finds only now and then does not flicker. */
   const blindScans=new Map<string,number>(),blindShape=new Map<string,DetectedQuad>(),blindMisses=new Map<string,number>();
   const blindClearAt=new Map<string,number>(),blindCountAt=new Map<string,number>(),blindHandAt=new Map<string,number>(),BLIND_ZONE_MS=2000,HAND_ZONE_MS=1000;
+  const blindRemovedAt=new WeakMap<FieldTrack,number>();
   const blindSleeves=(evidence:FieldAnalysis,boxes:DetectedQuad[],usable:DetectedQuad[],cardAspect:(c:DetectedQuad)=>boolean):DetectedQuad[]=>{
     const out:DetectedQuad[]=[],known=options.getKnownCards?.()??[];
     for(const cell of fieldCells()){
@@ -499,7 +500,8 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       const entry=emptyLooks.get(zone),base=entry?.look,box=cellQuad(cell),b=boundsOf(box.quad),look=evidence.appearance?.(box);
       if(!pile&&handNear(evidence,box))blindHandAt.set(zone,now());
       // A known card whose own track was removed from this cell (a face-up card flipped Set in place) does not block the scan, unless a GY/banished pile was touched around its removal (the card went there).
-      const gone=(k:KnownFieldCard)=>tracks.some(t=>t.view.removed&&t.view.zone===zone&&(t.view.id===k.id||t.binding?.id===k.id)&&!(['GY','BANISHED'] as const).some(z=>(pileTouches.get(z)??-Infinity)>=t.view.lastSeen-1500));
+      const gone=(k:KnownFieldCard)=>tracks.some(t=>t.view.removed&&t.view.zone===zone&&(t.view.id===k.id||t.binding?.id===k.id)&&
+        !(['GY','BANISHED'] as const).some(z=>(pileTouches.get(z)??-Infinity)>=(blindRemovedAt.get(t.view)??t.view.lastSeen)-1500));
       const clear=!!base?.length&&!!look?.length&&(pile||!boxes.some(c=>overlapFraction(boundsOf(c.quad),b)>=.2)&&tracks.every(t=>t.view.removed||t.view.zone!==zone||!!t.view.card.cell)&&!known.some(k=>k.zone===zone&&!gone(k)))&&
         !handNear(evidence,box)&&evidence.motion(box)<=.025&&unlikeMat(entry,look,evidence.halo?.(box));
       if(!pile){if(clear)blindClearAt.set(zone,now());else blindClearAt.delete(zone);}
@@ -629,6 +631,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
   };
   /** A dismissed track that still shows a front reads again (bounded; Scan field resets the bound). */
   const rearm=(t:InternalTrack,why:string)=>{
+    blindRemovedAt.delete(t.view);
     t.view.state='candidate';t.view.removed=false;t.view.cardId=undefined;t.view.bestMatch=undefined;t.view.revision=(t.view.revision??0)+1;
     t.nameRetry=undefined;t.view.nameCandidates=undefined;t.prompted=false;t.promptOnly=undefined;t.identityCheck=undefined;t.resolvedAt=undefined;t.read=undefined;t.needsRead=true;t.best=undefined;
     t.unsureReads=0;t.rereadEarly=false;t.lastResult=undefined;t.handWaitAt=undefined;t.faceWaitAt=undefined;t.frontScans=0;t.dismissedMissAt=undefined;t.userDismissed=false;t.softDismiss=false;resetFace(t);resetAbsence(t);note(t,`re-armed: ${why}`);
@@ -636,6 +639,8 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
   const beatsLock=(lock:{score:number},result?:RecognitionResult)=>!!result&&result.tier==='sure'&&(result.candidates[0]?.score??0)>=lock.score+LOCK_MARGIN;
   const emit=(type:FieldEvent['type'],t:InternalTrack,extra:Partial<FieldEvent>={})=>{
     note(t,`${type}${extra.reason?` (${extra.reason})`:''}`);
+    // The last detector sighting can predate removal by several seconds. Retries keep the original removal time.
+    if(type==='removed'&&/^S[1-5]$/.test(t.view.zone)&&!blindRemovedAt.has(t.view))blindRemovedAt.set(t.view,now());
     if(type==='placed')startupTracks.delete(t);
     if(type==='placed'&&options.backgroundReread!==false&&extra.result&&extra.result.tier!=='sure'&&t.view.bestMatch&&!t.view.faceDown&&fieldSlot(t.view.zone)&&!t.binding&&!t.userDismissed)
       t.nameRetry??={attempts:0,nextAt:now()+NAME_RETRY_MIN_MS};
@@ -1609,6 +1614,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         t.previewEligible=c.confidence>=.7&&!c.partial&&!c.covered&&!isCovered(c,cards)&&!cards.some(other=>other!==c&&quadIou(c,other)>0);
         proposePose(t,c,cards,evidence,sample.at,current.width,current.height);
         if(t.under){note(t,'seen again on top');t.under=undefined;delete t.view.under;}
+        if(t.view.removed)blindRemovedAt.delete(t.view);
         t.reappeared ||= t.view.removed;t.missed=false;t.view.removed=false;resetAbsence(t);if(!t.setBridged)t.view.lastSeen=sample.at;t.view.card=c;
         // A hand moves. Skin-coloured pixels that stay still on a still, confident outline for HAND_WAIT_MS are
         // the card's own print (an orange frame or warm art read as skin under a locked, darker exposure or white

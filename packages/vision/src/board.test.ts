@@ -538,12 +538,25 @@ test('a face-up Spell turned Set in place under a flickering shadow is the same 
   r.known=[{id:'twin',zone:'S4',cardId:'A',faceDown:false}];r.outlines=[front];
   r.appearanceAt=c=>c.kind==='face-up'?Array.from({length:288},(_,i)=>i%2?.6:.3):Array(288).fill(.25);r.cropAt=c=>c.kind==='face-up'?fieldCrop(c):barePadded;await run(10);
   assert.equal(r.watcher.getSnapshot().tracks.find(t=>t.id==='twin')?.faceDown,false,'the face-up Spell is on the board');
-  r.outlines=[];r.appearanceAt=c=>Array(288).fill(inCell(c)?.65:.25);r.cropAt=c=>c.blind?own:inCell(c)?padded:barePadded;if(toGy)r.motionAt=c=>inGy(c)?.2:0;await run(30,true);r.motionAt=undefined;await run(10);
+  r.outlines=[];r.appearanceAt=c=>Array(288).fill(inCell(c)?.65:.25);r.cropAt=c=>c.blind?own:inCell(c)?padded:barePadded;
+  if(toGy)r.motionAt=c=>inGy(c)?.2:0;
+  else{
+    // The GY moves near the last sighting, while a hand delays the source removal.
+    r.occludedAt=inCell;r.motionAt=c=>inGy(c)?.2:0;await run(1);r.motionAt=undefined;await run(8);
+    const removed=()=>r.events.some(e=>e.type==='removed'&&e.track.id==='twin');
+    assert.equal(removed(),false,'the hand delays removal');
+    r.occludedAt=undefined;
+    for(let i=0;i<8&&!removed();i++)await run(1);
+    assert.ok(removed(),'the front track is removed after the hand clears');
+    await run(1);
+    assert.ok(r.watcher.getSnapshot().blindZones?.includes('S4'),'the first sleeve scan after removal ignores the old GY motion');
+  }
+  await run(30,true);r.motionAt=undefined;await run(10);
   const events=r.events.slice();r.watcher.dispose();return events;
   };
   const flipped=(events:{type:string;track:{id:string;faceDown?:boolean}}[])=>events.some(e=>e.type==='flipped'&&e.track.id==='twin'&&e.track.faceDown);
   const turned=await scene(false);
-  assert.ok(flipped(turned),'the same card turns face-down in place');
+  assert.ok(flipped(turned),'the same card turns face-down despite GY motion before the removal window');
   assert.equal(turned.some(e=>e.type==='placed'&&e.track.faceDown),false,'no new unknown Set');
   assert.equal(flipped(await scene(true)),false,'a hand over the GY with the card gone is no flip in place');
 });
