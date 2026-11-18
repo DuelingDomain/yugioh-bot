@@ -1326,7 +1326,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
           try{const updated=await flipFace(act,fix);if(updated){changes++;lastUndo=updated.state.undo?.actionId??lastUndo;}}catch(error){console.info('[remote field] face write failed',fix.card.ref,error instanceof Error?error.message:error);}
         }
         for(const zone of backs){
-          const card=current.current.room.state.seats[seat].twin.find(c=>(c.faceUp||c.publicIdentity&&!c.setBy)&&publicField(c.zone)&&knownZone(c)===zone&&![...placeholders.current.values()].includes(c.ref));if(!card)continue;
+          const card=current.current.room.state.seats[seat].twin.find(c=>c.ownerSeat===undefined&&(c.faceUp||c.publicIdentity&&!c.setBy)&&publicField(c.zone)&&knownZone(c)===zone&&![...placeholders.current.values()].includes(c.ref));if(!card)continue;
           const proposal=fieldFaceProposal(card,{faceDown:true,position:'attack'},seat);if(!proposal)continue;
           const wasUp=card.faceUp;
           if(!await write(`flip:${card.ref}:true`,proposal))continue;

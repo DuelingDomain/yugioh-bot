@@ -45,7 +45,9 @@ export const fieldStrongBack=(track:Partial<Pick<FieldTrack,'card'|'pixelsDown'>
  * server hides it from the opponent). A face-up flip needs the fresh read of the card. On a card already face-down, a back the
  * camera sees clears an old "Revealed" (never the public identity of a card Set by an effect). Undefined when there is nothing to do.
  */
-export function fieldFaceProposal(card:Pick<TwinCard,'ref'|'zone'|'faceUp'|'materials'|'publicIdentity'|'setBy'>,track:Pick<FieldTrack,'faceDown'|'position'|'bestMatch'>&Partial<Pick<FieldTrack,'card'|'pixelsDown'>>,seat:number,identity?:{cardId:number;name?:string}):Extract<RemoteActionProposal,{type:'twin.flip'}>|undefined {
+export function fieldFaceProposal(card:Pick<TwinCard,'ref'|'zone'|'faceUp'|'materials'|'publicIdentity'|'setBy'|'ownerSeat'>,track:Pick<FieldTrack,'faceDown'|'position'|'bestMatch'>&Partial<Pick<FieldTrack,'card'|'pixelsDown'>>,seat:number,identity?:{cardId:number;name?:string}):Extract<RemoteActionProposal,{type:'twin.flip'}>|undefined {
+  // A card another seat controls (a given proxy) has no paper card here: the camera never turns it.
+  if(card.ownerSeat!==undefined)return;
   const base={type:'twin.flip' as const,source:'auto' as const,actorSeat:seat,seat,cardRef:card.ref};
   if(track.faceDown){
     if(card.faceUp?card.materials?.length&&!fieldStrongBack(track):!card.publicIdentity||card.setBy)return;
