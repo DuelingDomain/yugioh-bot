@@ -21,5 +21,5 @@ test.each([
   expect(observation.state).toBe('down');
   if(patterned)expect(observation.confidence).toBeLessThan(.9);
   if(known)memory.backs.push(setCropLook(crop));
-  expect(measureSetEvidence(crop,score,observation,memory).evidence.positive).toBe(positive);
+  expect(measureSetEvidence(crop,{kind:'face-down',confidence:score},observation,memory).evidence.positive).toBe(positive);
 });

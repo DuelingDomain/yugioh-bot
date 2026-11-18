@@ -4,6 +4,7 @@ import {readFileSync} from 'node:fs';
 import {inflateSync} from 'node:zlib';
 import * as board from './board';
 import { RecognitionPipeline } from './pipeline';
+import {classifyFaceState} from './face-state';
 import { yugioh } from './games/yugioh';
 import { boundsOf } from './geometry';
 import type { DetectedQuad, DetectOptions, LoadedIndex } from './types';
@@ -133,6 +134,28 @@ function fieldRig(tier: RecognitionResult['tier'] = 'sure',maxTracks=20,gallery?
   return {watcher,events,inputs,detectOptions,set readGate(value:Promise<void>|undefined){readGate=value;},set shadowPasses(v:number){shadowPasses=v;},set scene(v:typeof scene){scene=v;},set backend(v:typeof backend){backend=v;},set tierAt(v:((card:DetectedQuad)=>RecognitionResult['tier'])|undefined){tierAt=v;},set shadow(v:{share:number;changed:number;moved?:Uint8Array;gx?:number;gy?:number}|undefined){shadow=v;},set frameSharpness(v:number|undefined){frameSharpness=v;},get crops(){return cropCalls;},get keeps(){return keeps;},set detectorCost(v:number){detectorCost=v;},set identityAt(v:((card:DetectedQuad)=>string)|undefined){identityAt=v;},set motionAt(v:((card:DetectedQuad)=>number)|undefined){motionAt=v;},set motionRegion(v:{x:number;y:number;w:number;h:number}|undefined){motionRegion=v;},set cropAware(v:boolean){cropAware=v;},set cropAt(v:((card:DetectedQuad)=>ReturnType<typeof fieldCrop>)|undefined){cropAt=v;},set appearanceAt(v:((card:DetectedQuad)=>number[])|undefined){appearanceAt=v;},set touchedAt(v:((card:DetectedQuad)=>number)|undefined){touchedAt=v;},set occludedAt(v:((card:DetectedQuad)=>boolean)|undefined){occludedAt=v;},set skinNearAt(v:((card:DetectedQuad)=>number)|undefined){skinNearAt=v;},set qualityAt(v:((card:DetectedQuad)=>Record<string,boolean>)|undefined){qualityAt=v;},get reads(){return reads;},get detects(){return detects;},get at(){return at;},set embedding(v:number[]){embedding=v;},set embeddingSpace(v:'art-box'|'whole-card'){embeddingSpace=v;},
     async tick(ms=333){at+=ms;await watcher.tick();},set identity(v:string){identity=v;},set decklist(v:string[]){decklist=v;},set known(v:field.KnownFieldCard[]){known=v;},set outlines(v:DetectedQuad[]){outlines=v;},set motion(v:number){motion=v;},set detail(v:number){detail=v;},set appearance(v:number[]){appearance=v;appearanceExplicit=true;},set halo(v:number[]|undefined){halo=v;},set hidden(v:boolean){hidden=v;},set busy(v:boolean){busy=v;}};
 }
+test('conflicting front pixels use the reader and dismissal cannot bypass positive Set evidence',async context=>{
+ for(const dismissed of [false,true])await context.test(`dismissed=${dismissed}`,async()=>{
+  const r=fieldRig(),width=96,height=140,data=new Uint8ClampedArray(width*height*4),amplitude=dismissed?80:48;
+  for(let y=0;y<height;y++)for(let x=0;x<width;x++)data.set([
+   100+amplitude*Math.sin(x/width*32+y/height*21),
+   100+amplitude*.8*Math.cos(x/width*27-y/height*41),
+   100+amplitude*1.1*Math.sin(y/height*35),255,
+  ],(y*width+x)*4);
+  const crop={width,height,data};assert.equal(classifyFaceState(crop).state,'down','fixture reproduces ambiguous texture verdict');
+  r.cropAt=()=>crop;
+  try {
+   await r.tick(100);
+   if(dismissed){
+    r.watcher.dismiss(r.watcher.getSnapshot().tracks[0].id);
+    r.outlines=[{...card(.3,.3),kind:'face-down'}];
+   }
+   for(let i=0;i<30;i++)await r.tick(100);
+   assert.equal(r.events.some(e=>['placed','flipped'].includes(e.type)&&e.track.faceDown),false,`unverified Set, dismissed=${dismissed}`);
+   if(!dismissed)assert.ok(r.events.some(e=>e.type==='placed'&&e.track.cardId==='A'&&!e.track.faceDown),'the ordinary reader can resolve conflicting pixels');
+  } finally {r.watcher.dispose();}
+ });
+});
 test('a still fan card with 61.9134% hand contact asks once instead of placing either face',async()=>{
  const trace=JSON.parse(readFileSync(new URL('./fixtures/held-fan-contact.json',import.meta.url),'utf8'));
  for(const kind of ['face-down','face-up'] as const)for(const occluded of [true,false])for(const handRelease of [true,false]){
@@ -1581,6 +1604,27 @@ test('a lifted card over a monster zone gives no placeholder or placement until 
  assert.equal(all.filter(e=>e.type==='placed'&&e.track.cardId==='B').length,1,JSON.stringify(all.map(e=>[e.type,e.track.zone,e.track.cardId])));
  assert.ok(firstAt[0]-liftedUntil>=300,`first field event ${firstAt[0]-liftedUntil} ms after it was last lifted`);
  r.watcher.dispose();
+});
+
+test('resting size uses distinct cards rather than repeated samples of the smallest card',async()=>{
+ for(const scale of [1.17,1.3]){
+ const r=fieldRig('sure',20,undefined,{width:160,height:90});
+ r.watcher.setCalibration(zones.createFieldCalibration([{x:.11,y:.25},{x:.84,y:.84}],{playerSide:'bottom',mirrored:false}));
+ const bases=[card(.2,.38,.08,.2072),card(.36,.38,.0848,.22),card(.52,.38,.0704,.1824)];
+ const known:field.KnownFieldCard[]=[];
+ r.identityAt=c=>String(Math.round(c.quad[0].x*100));
+ r.appearanceAt=c=>Array(12).fill(c.quad[0].x);
+ r.watcher.subscribe(e=>{if(e.type==='placed'){r.watcher.confirm(e.track.id,e.track.cardId);known.push({...e.track});r.known=known;}});
+ try {
+  for(let n=1;n<=3;n++){r.outlines=bases.slice(0,n);for(let i=0;i<20;i++)await r.tick(100);}
+  assert.equal(r.events.filter(e=>e.type==='placed').length,3);
+  // The two ordinary outlines leave view; the smaller outline alone must not acquire extra votes.
+  r.outlines=[bases[2]];for(let i=0;i<30;i++)await r.tick(100);
+  const arriving=card(.65,.38,.08*scale,.2072*scale);
+  r.outlines=[bases[2],arriving];for(let i=0;i<15;i++)await r.tick(100);
+  assert.equal(r.events.some(e=>e.type==='placed'&&e.track.cardId==='65'),scale<1.2,`size ${scale}x: no fingers detected`);
+ } finally {r.watcher.dispose();}
+ }
 });
 
 test('centre assignment accepts full camera quads that cross calibrated field and side-zone edges',async()=>{

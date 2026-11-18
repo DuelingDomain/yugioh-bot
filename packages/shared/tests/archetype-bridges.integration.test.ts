@@ -138,7 +138,7 @@ describe("pinned bridge pipeline", () => {
       const ranked = validator.liveCandidates("Odion", format);
       expect(ranked.slice(0, 2).map(row => row.target)).toContain("Ashtra");
       expect(ranked.slice(0, 4).map(row => row.target)).toContain("Argostars");
-      expect(validator.liveCandidates("Snake-Eye", format)[0]?.target).toBe("Fire King");
+      expect(validator.liveCandidates("Snake-Eye", format)[0]?.target).toBe(format === "advanced" ? "Infernoid" : "Fire King");
       for (const target of ["Ashtra", "Argostars"]) {
         const row = validator.between("Odion", target, format)!;
         expect(row.cards.some(id => manifest.groups[target]!.includes(id))).toBe(true);

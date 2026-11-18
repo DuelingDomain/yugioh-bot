@@ -68,7 +68,7 @@ export function useTestRecording({ enabled, slug, video, backend, calibrationRef
       // Server clock minus client clock, taken at the middle of the start request.
       const offset = Math.round(started.serverTime - (t0 + t1) / 2), rtt = t1 - t0;
       const queue: { n: number; blob: Blob }[] = [];
-      let n = 0, sent = 0, pumping: Promise<void> | null = null, closed = false, recorder: MediaRecorder | null = null;
+      let n = 0, sent = 0, pumping: Promise<void> | null = null, closed = false, closeReason = "rotated", recorder: MediaRecorder | null = null;
       // The clocks when the recorder really started: video time 0. Sent with chunk 0, so the start request's round trip is not in it.
       let startDateNow = 0, startPerfNow = 0;
       // Chunk 0 carries the start request's sample; every later chunk times a tiny round trip of its own first (the upload is too slow to time).
@@ -92,6 +92,8 @@ export function useTestRecording({ enabled, slug, video, backend, calibrationRef
             // The server forgot this recording (restart or deploy), lost the header, or the file is full: close it, the poll opens a new file.
             if (code === "UNKNOWN_RECORDING" || code === "NO_HEADER" || code === "RECORDING_UNAVAILABLE" || code === "RECORDING_TOO_LARGE") { closed = true; return; }
             if (code === "CHUNK_TOO_LARGE") return; // this one chunk is too big: drop it, keep the file
+            // A 413 without the app's code comes from the proxy (body limit): every chunk would fail, so close the file with a visible reason.
+            if (response.status === 413 && !code) { closeReason = "proxy-413"; closed = true; return; }
             if (FATAL.has(response.status)) { dead = true; closed = true; return; }
             if (response.status === 409 || response.status === 400) return; // This chunk cannot be accepted: drop it.
           } catch { /* network: retry */ }
@@ -133,7 +135,7 @@ export function useTestRecording({ enabled, slug, video, backend, calibrationRef
         if (!closed || !session) return;
         clearInterval(watchClosed);
         if (sent < 3) noteFailure(); else failures = 0; // a file with fewer than 3 chunks (a second tab replacing this one) must not be reopened every second
-        void end("rotated");
+        void end(closeReason);
       }, 1000);
       // Called every second by the poll. A changed calibration that stays the same for CALIBRATION_SETTLE_MS is sent; a failed send is not repeated.
       let pendingKey = sentKey, pendingSince = 0;

@@ -84,7 +84,7 @@ describe("round 3 bridge rules on the pinned catalog", () => {
       expect(diabell).toEqual(["White Forest", "Snake-Eye", "Azamina"]);
       if (format === "advanced") {
         const zefra = engine.distinctTargets(engine.liveCandidates("Zefra", format), 4);
-        expect(zefra.map(row => row.target)).toEqual(["Yang Zing", "Stellarknight", "Shaddoll", "Nekroz"]);
+        expect(zefra.map(row => row.target)).toEqual(["Yang Zing", "Shaddoll", "Stellarknight", "Nekroz"]);
         expect(zefra.every(row => row.reasons[0]!.key === "reach")).toBe(true);
       }
     }

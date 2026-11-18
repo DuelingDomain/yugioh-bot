@@ -1,5 +1,232 @@
 [
   {
+    "date": "2026-11-16T14:36:24.086Z",
+    "label": "Project Ignis 2026-11-16",
+    "pullRequest": {
+      "number": 619,
+      "url": "https://github.com/DuelingDomain/yugioh-bot/pull/619"
+    },
+    "counts": {
+      "newCards": 29,
+      "changedCards": 0,
+      "removedCards": 0,
+      "changedScripts": 37,
+      "newSetCodes": 3
+    },
+    "setCodes": [
+      "MVB1",
+      "PASO",
+      "RV02"
+    ],
+    "newCards": [
+      {
+        "name": "Dragon's Orb",
+        "passcode": 100463007,
+        "setName": "Set MVB1",
+        "setCode": "MVB1",
+        "prerelease": true
+      },
+      {
+        "name": "Enhanced Counter",
+        "passcode": 100463006,
+        "setName": "Set MVB1",
+        "setCode": "MVB1",
+        "prerelease": true
+      },
+      {
+        "name": "Obelisk the Tormentor, the Pharaoh's Memory",
+        "passcode": 100463001,
+        "setName": "Set MVB1",
+        "setCode": "MVB1",
+        "prerelease": true
+      },
+      {
+        "name": "Arcana Force VIII - The Strength",
+        "passcode": 100461101,
+        "setName": "Other pre-release cards",
+        "setCode": null,
+        "prerelease": true
+      },
+      {
+        "name": "Black Shasta",
+        "passcode": 100464002,
+        "setName": "Other pre-release cards",
+        "setCode": null,
+        "prerelease": true
+      },
+      {
+        "name": "Conviction of the Unchained",
+        "passcode": 100295131,
+        "setName": "Other pre-release cards",
+        "setCode": null,
+        "prerelease": true
+      },
+      {
+        "name": "Craydeath the Four Dimensional Dragon",
+        "passcode": 100464003,
+        "setName": "Other pre-release cards",
+        "setCode": null,
+        "prerelease": true
+      },
+      {
+        "name": "Dunamis Magistus",
+        "passcode": 100462028,
+        "setName": "Other pre-release cards",
+        "setCode": null,
+        "prerelease": true
+      },
+      {
+        "name": "Endymion, the Lord of Magistus",
+        "passcode": 100462003,
+        "setName": "Other pre-release cards",
+        "setCode": null,
+        "prerelease": true
+      },
+      {
+        "name": "Finger Game",
+        "passcode": 100464005,
+        "setName": "Other pre-release cards",
+        "setCode": null,
+        "prerelease": true
+      },
+      {
+        "name": "Minjal Khery Hebet",
+        "passcode": 100464001,
+        "setName": "Other pre-release cards",
+        "setCode": null,
+        "prerelease": true
+      },
+      {
+        "name": "Spellbook Genius of Prophecy",
+        "passcode": 100296303,
+        "setName": "Other pre-release cards",
+        "setCode": null,
+        "prerelease": true
+      },
+      {
+        "name": "Triad Proteus",
+        "passcode": 100464004,
+        "setName": "Other pre-release cards",
+        "setCode": null,
+        "prerelease": true
+      },
+      {
+        "name": "Wisprath Magistus",
+        "passcode": 100462005,
+        "setName": "Other pre-release cards",
+        "setCode": null,
+        "prerelease": true
+      },
+      {
+        "name": "Assault Slash Wyvern",
+        "passcode": 101404003,
+        "setName": "Set PASO",
+        "setCode": "PASO",
+        "prerelease": true
+      },
+      {
+        "name": "Blue-Eyes Alternative White Dragon, the Guided Phantom Beast",
+        "passcode": 101404001,
+        "setName": "Set PASO",
+        "setCode": "PASO",
+        "prerelease": true
+      },
+      {
+        "name": "Blue-Eyes Chaos MAXIMUM Dragon",
+        "passcode": 101404027,
+        "setName": "Set PASO",
+        "setCode": "PASO",
+        "prerelease": true
+      },
+      {
+        "name": "Blue-Eyes Chaos MAXIMUM Dragon",
+        "passcode": 101404127,
+        "setName": "Set PASO",
+        "setCode": "PASO",
+        "prerelease": true
+      },
+      {
+        "name": "Dimensional Ascension",
+        "passcode": 101404051,
+        "setName": "Set PASO",
+        "setCode": "PASO",
+        "prerelease": true
+      },
+      {
+        "name": "Endless Darkness",
+        "passcode": 101404049,
+        "setName": "Set PASO",
+        "setCode": "PASO",
+        "prerelease": true
+      },
+      {
+        "name": "Krystal Cloud Dragon",
+        "passcode": 101404002,
+        "setName": "Set PASO",
+        "setCode": "PASO",
+        "prerelease": true
+      },
+      {
+        "name": "Neo Blue-Eyes Hyper Ultimate Dragon",
+        "passcode": 101404029,
+        "setName": "Set PASO",
+        "setCode": "PASO",
+        "prerelease": true
+      },
+      {
+        "name": "Neo Chaos Form",
+        "passcode": 101404050,
+        "setName": "Set PASO",
+        "setCode": "PASO",
+        "prerelease": true
+      },
+      {
+        "name": "Pandemic Infection",
+        "passcode": 101404071,
+        "setName": "Set PASO",
+        "setCode": "PASO",
+        "prerelease": true
+      },
+      {
+        "name": "Saggi the Dark Sacrifice Clown",
+        "passcode": 101404004,
+        "setName": "Set PASO",
+        "setCode": "PASO",
+        "prerelease": true
+      },
+      {
+        "name": "Marincess Blue Crystal Heart",
+        "passcode": 100460029,
+        "setName": "Set RV02",
+        "setCode": "RV02",
+        "prerelease": true
+      },
+      {
+        "name": "Marincess Overflow",
+        "passcode": 100460032,
+        "setName": "Set RV02",
+        "setCode": "RV02",
+        "prerelease": true
+      },
+      {
+        "name": "Blue-Eyes Alternative White Dragon",
+        "passcode": 38517738,
+        "setName": "Unknown product set",
+        "setCode": null,
+        "prerelease": false
+      },
+      {
+        "name": "The Melody of Awakening Dragon",
+        "passcode": 48800176,
+        "setName": "Unknown product set",
+        "setCode": null,
+        "prerelease": false
+      }
+    ],
+    "cardListAvailable": true,
+    "note": "Card counts compare loaded database rows. The card list follows the report and excludes blocked pre-release cards and graduations. Set codes are known sets of listed new cards."
+  },
+  {
     "date": "2026-11-09T20:24:01.582Z",
     "label": "Project Ignis 2026-11-09",
     "pullRequest": {
