@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import type { RemoteActionProposal, RemoteRoom } from "@yugidraft/shared/remote";
 import type { ControlOffer } from "@/lib/remote/card-logic";
 import { searchCards, type CardInfo } from "./catalog";
@@ -70,6 +70,16 @@ export function useControlChange({ act, room, live, extraZones, layers, info, na
     window.addEventListener("keydown", stop, true);
     return () => window.removeEventListener("keydown", stop, true);
   }, [giving, layers.layer]);
+  // One give at a time: a second click while the first is still on its way does nothing, so no second proxy is made.
+  const givingNow = useRef(false);
+  // When the mode ends, focus goes back to the Give button, unless a dialog took it.
+  const giveButton = useRef<HTMLButtonElement>(null);
+  const wasGiving = useRef(false);
+  useEffect(() => {
+    const on = !!giving;
+    if (wasGiving.current && !on && !layers.layer) giveButton.current?.focus({ preventScroll: true });
+    wasGiving.current = on;
+  }, [giving, layers.layer]);
   const rowOf = (card: TwinCard): Row | undefined => card.zone === "monster" || card.zone === "extra-monster" ? "monster" : card.zone === "spell-trap" ? "spell-trap" : undefined;
   /** "Give to opponent" from the card menu. An Extra Monster Zone card goes into a Main Monster Zone. */
   const give = (card: TwinCard) => {
@@ -87,15 +97,19 @@ export function useControlChange({ act, room, live, extraZones, layers, info, na
   };
   const giveAt = (seat: number, key: ZoneKey, card: TwinCard | undefined): boolean => {
     if (!giving || card || !giveSlots(seat)?.includes(key)) return false;
+    if (givingNow.current) return true;
     const sent = giving, slot = Number(key[1]);
-    const done = (updated: RemoteRoom | null) => { if (updated) setGiving(now => now === sent ? null : now); };
-    if (sent.card) void act({ type: "twin.control", actorSeat: sent.seat, seat: sent.seat, toSeat: seat, cardRef: sent.card.ref, zone: sent.row, slot, faceUp: sent.card.faceUp }).then(done);
+    givingNow.current = true;
+    const done = (updated: RemoteRoom | null) => { givingNow.current = false; if (updated) setGiving(now => now === sent ? null : now); };
+    const failed = () => { givingNow.current = false; };
+    if (sent.card) void act({ type: "twin.control", actorSeat: sent.seat, seat: sent.seat, toSeat: seat, cardRef: sent.card.ref, zone: sent.row, slot, faceUp: sent.card.faceUp }).then(done).catch(failed);
     else if (sent.draft) void act({ type: "twin.place", actorSeat: sent.seat, seat, zone: sent.row, give: true, card: { ref: crypto.randomUUID(), cardId: sent.draft.cardId, name: sent.name, slot, faceUp: sent.draft.faceUp,
-      position: sent.row === "monster" && !sent.draft.faceUp ? "defense" : sent.draft.position } }).then(done);
+      position: sent.row === "monster" && !sent.draft.faceUp ? "defense" : sent.draft.position } }).then(done).catch(failed);
+    else givingNow.current = false;
     return true;
   };
   const giveTrigger = (seat: number): ReactNode => canGive && seat === mySeat
-    ? <button type="button" className={`${s.btn} ${s.sm} ${giving ? s.go : ""}`} aria-pressed={!!giving} data-testid={`give-open-${seat}`}
+    ? <button ref={giveButton} type="button" className={`${s.btn} ${s.sm} ${giving ? s.go : ""}`} aria-pressed={!!giving} data-testid={`give-open-${seat}`}
       onClick={() => { if (giving) setGiving(null); else open({ step: "hand", seat: mySeat }); }}
       title="Give a card from your hand to an opponent's field (a Kaiju, Lava Golem). It shows there as your proxy.">Give card</button> : null;
 
@@ -191,7 +205,7 @@ export function useControlChange({ act, room, live, extraZones, layers, info, na
     <div className={t.dialog}><h3>{heading}</h3>{body}</div>
   </PopupFrame> : null;
   const bar = giving && canGive ? <div className={t.bar} role="toolbar" aria-label="Give a card" data-testid="give-bar">
-    <span className={t.barText} role="status">Click a free {giving.row === "monster" ? "Monster" : "Spell & Trap"} Zone on an opponent's field for <b>{giving.name}</b>. It stays yours there.</span>
+    <span className={t.barText} role="status">Click a free {giving.row === "monster" ? "Monster" : "Spell & Trap"} Zone on an opponent's field for <b>{giving.name}</b>. It stays yours there. Move its paper card off your zones.</span>
     <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} onClick={() => setGiving(null)} data-testid="give-cancel">Cancel <kbd>Esc</kbd></button>
   </div> : null;
   return { offer, take, giveBack, askEquip, node: <>{node}{bar}</>, may, give, giveSlots, giveAt, giveTrigger, giving: !!giving && canGive, canGive };
