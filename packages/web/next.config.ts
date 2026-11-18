@@ -35,6 +35,9 @@ const nextConfig: NextConfig = {
     const coop = { key: "Cross-Origin-Opener-Policy", value: "same-origin" };
     return [
       { source: "/dev/vision-lab/:path*", headers: [coop, { key: "Cross-Origin-Embedder-Policy", value: "require-corp" }] },
+      // A dedicated worker of an isolated page needs its own COEP header, or the browser refuses it with an empty error event (the voice
+      // workers showed "Speech worker failed"). The files are same-origin, so require-corp fits the lab and the credentialless tables.
+      { source: "/dev/vision-assets/:path*", headers: [{ key: "Cross-Origin-Embedder-Policy", value: "require-corp" }] },
       { source: "/duels/remote/:slug/cam", headers: [{ key: "Referrer-Policy", value: "no-referrer" }, { key: "Cache-Control", value: "private, no-store" }] },
       { source: "/duels/remote/:slug", headers: [coop, { key: "Cross-Origin-Embedder-Policy", value: "credentialless" }] },
     ];
