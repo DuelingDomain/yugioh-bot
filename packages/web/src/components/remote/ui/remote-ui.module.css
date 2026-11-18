@@ -342,16 +342,20 @@
 .fside{flex:0 0 auto;min-height:0;align-items:stretch}
 /* Zone columns sit a half card apart (--gf), so a card in Defense lies on its side at full size inside its own column and never covers
    the next zone. A narrow screen keeps a small gap and shrinks the turned card instead (--dfit = (1 + --gf) / 1.458, at most 1). */
-.fwrap{--gp:4px;--gf:.5;--dfit:min(1,calc((1 + var(--gf)) / 1.458));--fr:3;--scanh:0px;--fh:max(calc(100cqh * .3),min(calc(100cqh * .47),calc(100cqh - 163px - var(--scanh,0px) - (100cqw - 16px) * .5625)));--fw:calc(100cqw - 16px - var(--scanw,0px));
+.fwrap{--gp:4px;--gf:.5;--dfit:min(1,calc((1 + var(--gf)) / 1.458));--fr:3;--scanh:0px;--fh:max(calc(100cqh * var(--fmin,.34)),min(calc(100cqh * var(--fmax,.5)),calc(100cqh - 163px - var(--scanh,0px) - (100cqw - 16px) * .5625)));--fw:calc(100cqw - 16px - var(--scanw,0px));
   --fcw:max(24px,min((var(--fw) - 18px) / (7 + 6 * var(--gf)),(var(--fh) - 18px - (var(--fr) - 1) * var(--gp)) / (var(--fr) * 1.458)));
   flex:none;min-height:0;align-self:center;
   width:calc((7 + 6 * var(--gf)) * var(--fcw) + 18px);height:calc(var(--fr) * 1.458 * var(--fcw) + (var(--fr) - 1) * var(--gp) + 18px)}
-/* "Scan field" sits left of my virtual board in a wide stacked seat. Otherwise it gets its own row above the board, and --scanh keeps that row out of the board's height. */
+/* The virtual board is centred in the seat. My "Scan field" is in the camera tool row (with Token and Give). Rescan (another seat) floats in the
+   free space left of a wide board; a narrow seat gives it its own row above the board, and --scanh keeps that row out of the board's height.
+   Tuning: --fmin / --fmax are the least and most share of the seat height the board may take (set them on .seat to change the camera/field balance). */
 .fboard>.fwrap{flex:none;max-width:100%}
 .fboard{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px 10px;min-width:0}
-@container seat (min-width:800px){.fboard{flex-direction:row}}
 .fwrap[data-rail]{--scanw:0px;--scanh:40px}
-@container seat (min-width:800px){.fwrap[data-rail]{--scanw:140px;--scanh:0px}}
+@container seat (min-width:800px){.fwrap[data-rail]{--scanh:0px}.fboard{position:relative}.fboard>.scanbtn{position:absolute;left:0;bottom:4px;z-index:2}}
+/* The large-field view keeps the button beside the board. */
+@container seat (min-width:800px){.seat[data-view="field"] .fboard{flex-direction:row;position:static}.seat[data-view="field"] .fboard>.scanbtn{position:static}.seat[data-view="field"] .fwrap[data-rail]{--scanw:172px}}
+.toolrow .scanbtn{height:26px;padding:0 9px;font-size:12px}.toolrow .scanbtn kbd{display:none}
 .scanbtn{flex:none;display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 11px;border-radius:8px;border:1px solid rgb(232 185 79/.55);background:rgb(232 185 79/.10);color:var(--gold-ink);font:700 12.5px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;white-space:nowrap}
 .scanbtn:hover:not([aria-disabled="true"]){background:rgb(232 185 79/.2);border-color:var(--gold)}
 .scanbtn[aria-disabled="true"]{opacity:.6;cursor:default}
@@ -390,6 +394,8 @@
   /* Too short for a button row: an icon-only button sits in the empty top-left corner of the board (the top right holds the Banished zone). */
   .fwrap[data-rail]{--scanh:0px}.fboard{position:relative}
   .scanbtn{position:absolute;top:8px;left:8px;right:auto;z-index:2;width:26px;height:26px;padding:0;justify-content:center}.scanbtn span,.scanbtn kbd,.scanbtn small{display:none}
+  /* In the tool row it stays in the row, as the icon only. */
+  .toolrow .scanbtn{position:static;padding:0}
   .holo{padding:6px 6px 7px}
 }
 
@@ -397,13 +403,10 @@
    and the board is the strip under it. Three rows that sat between them move: Token joins the camera row (right end), Scan field floats in the
    empty space left of the board, and --fh leaves the camera everything the board does not need (capped so the board leaves room for Scan field). The board still has 7 columns and 3 rows. */
 @container seat (max-aspect-ratio:1.55) and (max-height:640px) and (min-width:520px) and (max-width:799px) {
-  .seat:not([data-view="field"]):not([data-wc]) .feedcol:has(.camsel){position:relative}
-  .seat:not([data-view="field"]):not([data-wc]) .feedcol:has(.camsel)>.toolrow{position:absolute;right:0;bottom:2px;width:auto}
-  /* The floating Token / Give buttons take the right end of the camera row: the centred controls leave that room. */
-  .seat:not([data-view="field"]):not([data-wc]) .feedcol:has(.camsel):has(.toolrow>*)>.camsel{padding-right:150px}
   .seat:not([data-view="field"]):not([data-wc]) :is(.sbody,.fside){gap:4px}
   .seat:not([data-view="field"]):not([data-wc]) .feedcol{gap:4px}
-  .seat:not([data-view="field"]):not([data-wc]) .fwrap{--fh:clamp(112px,calc(100cqh - 440px),calc((100cqw - 240px)/2.2))}
+  /* --frest is the height the camera, its two control rows, the hand row and LP keep; the board takes the rest (3 rows of cards). */
+  .seat:not([data-view="field"]):not([data-wc]) .fwrap{--frest:410px;--fh:clamp(112px,calc(100cqh - var(--frest)),calc((100cqw - 120px) / 2.2))}
   .seat:not([data-view="field"]):not([data-wc]) .fwrap[data-rail]{--scanh:0px}
   .seat:not([data-view="field"]):not([data-wc]) .fboard{position:relative}
   .seat:not([data-view="field"]):not([data-wc]) .fboard>.scanbtn{position:absolute;left:0;top:0;z-index:2;height:30px;padding:0 9px}
@@ -791,7 +794,7 @@
   .mctl,.msub{display:none}
   .fside{display:contents}
   .fwrap[data-rail]{--scanw:0px}
-  .fboard{display:contents}.scanbtn{order:2;align-self:flex-start;height:30px}
+  .fboard{display:contents}.scanbtn{order:2;align-self:flex-start;height:30px}.toolrow .scanbtn{height:30px}
   .fwrap{--gf:.2;width:auto;align-self:stretch;height:150px;order:2}
   .app[data-mode] .fwrap:has([data-rows]){height:215px}
   .lp{display:grid;padding:0 2px}
@@ -895,6 +898,9 @@
 /* Token and Give card share one row that wraps, so two buttons never cost two lines at 360px. */
 .toolrow{flex:none;width:100%;display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:6px;min-width:0}
 .toolrow:empty{display:none}
+/* Camera choice and the tool row (Scan field, Token, Give) share one row when the seat is wide enough, and wrap to two when it is not. */
+.camtools{flex:none;width:100%;display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:4px 12px;min-width:0}
+.camtools>.camsel{width:auto;max-width:100%}.camtools>.toolrow{width:auto;max-width:100%}
 .camsel{flex:none;width:100%;display:flex;flex-wrap:nowrap;align-items:center;justify-content:center;gap:6px;min-width:0;min-height:28px}
 .camsel>div:not([popover]){display:flex;flex-wrap:nowrap;align-items:center;justify-content:center;gap:6px;min-width:0}
 .camsel select{min-width:0;flex:0 1 180px;max-width:200px;height:28px;border-radius:6px;background:var(--p0);border:1px solid var(--line2);color:var(--ink2);font:600 11.5px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif}
