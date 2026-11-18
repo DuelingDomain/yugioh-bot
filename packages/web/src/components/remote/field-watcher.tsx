@@ -48,8 +48,8 @@ const DEPARTURE_WAIT_MS=800;
 const FACTS_WAIT_MS=1000;
 /** A card that left the field while a hand worked over the GY / banished pile within PILE_NEAR_MS waits this much longer (once) for the pile read, so the board shows one move to the pile and no wrong stop in the hand. */
 const PILE_HOLD_MS=1200,PILE_NEAR_MS=1500;
-/** A Spell/Trap card that left its spot while the camera may be reading a plain sleeve there (a flip in place) waits up to this long in all. */
-const FLIP_HOLD_MAX_MS=3000,FLIP_POLL_MS=250;
+/** A card that may have flipped in place in a main field slot waits up to this long for evidence. */
+const FLIP_HOLD_MAX_MS=8000,FLIP_POLL_MS=250;
 const publicField=(zone:string)=>['monster','extra-monster','spell-trap','field','pendulum'].includes(zone);
 /** A card the camera sent from the field to the hand, a pile or the Extra Deck still owns its field origin. */
 const leftField=(c:TwinCard,at:number,spot:{zone:string;slot?:number})=>!!c.departedFrom&&publicField(c.departedFrom.zone)&&(c.zone==='hand'||!!c.departedFrom.auto&&['graveyard','banished','extra'].includes(c.zone)&&
@@ -715,7 +715,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     if(event.type==='placed'&&!live()){if(syncHoldRef.current)heldPlaced.current.deferred++;else heldPlaced.current.dropped++;}
     if(event.type!=='removed'){
       const timer=departureTimers.current.get(event.track.id);if(timer){clearTimeout(timer);departureTimers.current.delete(event.track.id);}
-      pendingLeft.current.delete(event.track.id);leaveStarted.current.delete(event.track.id);pileHeld.current.delete(event.track.id);
+      pendingLeft.current.delete(event.track.id);leaveStarted.current.delete(event.track.id);pileHeld.current.delete(event.track.id);pendingDepartures.current.delete(event.track.id);
     }
     // A phantom: no card box on the mat plane ever backed this track (an arm, a box across two cells). Its unnamed card is
     // taken back off the board, never sent to the hand. A named front still leaves through the usual departure.
@@ -738,15 +738,19 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       const origin={ref:card.ref,zone:card.zone,slot:card.slot};
       if(departureTimers.current.has(event.track.id))return;
       if(card.faceUp&&['monster','extra-monster'].includes(card.zone))pendingLeft.current.set(event.track.id,{ref:card.ref,at:event.track.lastSeen});
-      // The watcher already needed two empty full scans; a short wait lets a flip or a summon claim the card first.
+      // A short wait lets a flip or a summon claim the removed card first.
       const id=event.track.id,started=performance.now(),fire=()=>{departureTimers.current.delete(id);pileHeld.current.delete(id);if(live()&&watch.isRemoved(id))handle(event,origin);else{pendingLeft.current.delete(id);pendingDepartures.current.delete(id);}};
       leaveStarted.current.set(id,started);pendingDepartures.current.set(id,{event,origin});
       const pileNear=(snap:FieldSnapshot|undefined,since:number)=>Object.values(snap?.pileTouchedAt??{}).some(at=>at>=since-PILE_NEAR_MS);
-      // A pile touch near the first removal rules out a flip. Poll through the hand over the slot, then look for a sleeve or a face-down track there.
+      // Wait for a full pass sampled after the removal, then follow its hand or sleeve evidence.
       const flipPending=(snap:FieldSnapshot|undefined)=>{
-        if(!snap||!/^S[1-5]$/.test(event.track.zone)||pileNear(snap,event.removedAt??started))return false;
+        if(!snap||!/^[MS][1-5]$/.test(event.track.zone)||pileNear(snap,event.removedAt??started))return false;
         const zone=event.track.zone as FieldZone;
-        return snap.handZones?.includes(zone)||snap.blindZones?.includes(zone)||snap.tracks.some(t=>t.id!==id&&!t.removed&&t.faceDown&&t.zone===zone&&t.firstSeen>=event.track.lastSeen-1000);
+        const fullAt=snap.lastFullAt;
+        if(event.removedAt!==undefined&&(fullAt===undefined||fullAt<=event.removedAt))return true;
+        const replacements=snap.tracks.filter(t=>t.id!==id&&!t.removed&&t.zone===zone&&t.firstSeen>=event.track.lastSeen-1000);
+        if(fullAt!==undefined&&replacements.some(t=>t.visible&&!t.faceDown&&t.card.kind==='face-up'&&t.lastSeen>=fullAt))return false;
+        return snap.handZones?.includes(zone)||snap.blindZones?.includes(zone)||replacements.some(t=>t.faceDown);
       };
       const arm=(wait:number)=>departureTimers.current.set(id,setTimeout(()=>{
         if(!live()||!watch.isRemoved(id)){departureTimers.current.delete(id);pendingLeft.current.delete(id);pendingDepartures.current.delete(id);return;}
@@ -1465,6 +1469,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       // without a live track: remove it. An Undo keeps it until the player presses Scan field.
       for(const ref of missingSince.current.keys())if(!snap.missingTwins?.includes(ref))missingSince.current.delete(ref);
       for(const ref of snap.missingTwins??[]){
+        if(!strict&&[...pendingDepartures.current.values()].some(({origin})=>origin.ref===ref))continue;
         const since=missingSince.current.get(ref)??performance.now();missingSince.current.set(ref,since);
         // Scan field is authoritative: its two fresh passes already showed the zone empty, so it does not wait.
         if(!manualScan&&performance.now()-since<2000)continue;
@@ -1559,7 +1564,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     const timer=setInterval(()=>{
       if(document.hidden||!live()||syncHoldRef.current||scanTimer.current!==undefined||resyncing.current||calibrationBusy.current)return;
       const now=performance.now(),snap=watch.getSnapshot?.();
-      if(now-autoScanAt.current<20_000||!snap||snap.status!=='watching'||snap.lastFullAt===undefined||now-snap.lastFullAt>3000)return;
+      if(now-autoScanAt.current<20_000||!snap||(snap.status!=='watching'&&snap.status!=='budget')||snap.lastFullAt===undefined||now-snap.lastFullAt>3000)return;
       if(snap.lastMotionAt!==undefined&&now-snap.lastMotionAt<3000)return;
       const missing=(snap.missingTwins??[]).filter(ref=>!undoKept.current.has(ref)&&!manual.current.has(ref)),untracked=snap.untracked??0;
       if(!missing.length&&!untracked)return;

@@ -7,10 +7,10 @@
  */
 export interface FieldPacerDevice { cores:number; memoryGb?:number }
 export interface FieldPacer {
-  /** A pass may start now. `moving`: a hand or card still moves and nothing waits for an outline; a pass now sees little, so it waits longer and saves the bucket for when the card lands. */
-  allow(at:number,moving?:boolean,sceneMoving?:boolean):boolean;
-  /** A detector pass of this wall time ended at `at`. */
-  spend(wallMs:number,at:number,sceneMoving?:boolean):void;
+  /** A pass may start unless it is resting or out of detector time. Moving hands wait longer to save time for when the card lands. */
+  check(at:number,moving?:boolean,sceneMoving?:boolean):'ready'|'rest'|'budget';
+  /** A detector pass ended at `at`. A priority pass can spend available tokens without adding debt. */
+  spend(wallMs:number,at:number,sceneMoving?:boolean,allowDebt?:boolean):void;
   /** The scene changed at `at`: retries after a change come sooner than the slow timer. */
   changed(at:number):void;
   /** Slow timer for a full pass on a still scene. It does not back off: a dark card can fall under the scene check. */
@@ -39,13 +39,16 @@ export function createFieldPacer(device:FieldPacerDevice,start:number,backend:()
   const refill=(at:number)=>{tokens=Math.min(capacity(),tokens+Math.max(0,at-last)*sustain()/backoff);last=Math.max(last,at);};
   const prune=(at:number)=>{while(passes.length&&at-passes[0].end>WINDOW_MS)passes.shift();};
   return {
-    allow(at,moving=false,sceneMoving=moving){
+    check(at,moving=false,sceneMoving=moving){
       refill(at);
       const rest=moving?Math.max(MOVING_REST_MS,passMs*MOVING_REST):passMs*(backend()==='webgpu'?BURST_REST:1);
-      return (tokens>0||wakePermit&&!sceneMoving)&&at-lastEnd>=rest*backoff&&(!moving||backend()==='webgpu'||at-movingSince>=MOVING_REST_MS);
+      if(at-lastEnd<rest*backoff||moving&&backend()!=='webgpu'&&at-movingSince<MOVING_REST_MS)return 'rest';
+      return tokens>0||wakePermit&&!sceneMoving?'ready':'budget';
     },
-    spend(wallMs,at,sceneMoving=false){
-      refill(at);if(!sceneMoving)wakePermit=false;tokens-=wallMs;passMs=passMs?passMs*.7+wallMs*.3:wallMs;lastEnd=at;passes.push({end:at,wall:wallMs});prune(at);
+    spend(wallMs,at,sceneMoving=false,allowDebt=true){
+      refill(at);if(!sceneMoving)wakePermit=false;
+      tokens=allowDebt?tokens-wallMs:Math.max(Math.min(tokens,0),tokens-wallMs);
+      passMs=passMs?passMs*.7+wallMs*.3:wallMs;lastEnd=at;passes.push({end:at,wall:wallMs});prune(at);
     },
     changed(at){
       if(at-changedAt>1000+passMs){
