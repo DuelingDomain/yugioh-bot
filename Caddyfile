@@ -36,8 +36,28 @@
 }
 
 {$SITE_DOMAIN} {
-    request_body {
+    # 1 MB for every request, except one video chunk of the Remote Duels test
+    # recording (about 3 MB every 10 s). The chunk limit is a little above
+    # RECORDING_CHUNK_MAX_BYTES (8 MiB) in packages/web/src/lib/remote/recordings-server.ts;
+    # the app still refuses a larger chunk itself. The two matchers do not overlap,
+    # because a second request_body cannot raise a limit that an earlier one set.
+    @recordingChunk {
+        method POST
+        path /api/remote/*/recording
+        query n=*
+    }
+    @otherBody {
+        not {
+            method POST
+            path /api/remote/*/recording
+            query n=*
+        }
+    }
+    request_body @otherBody {
         max_size 1MB
+    }
+    request_body @recordingChunk {
+        max_size 9MB
     }
     # Allow crawling so search engines can read noindex, including on redirects.
     # Authentication still protects private app content.

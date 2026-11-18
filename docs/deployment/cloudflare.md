@@ -74,7 +74,7 @@ Compare the output with the `trusted_proxies static` line. Update the Caddyfile 
 | WebSockets | Supported on all plans ([docs](https://developers.cloudflare.com/network/websockets/)) | Socket.IO works. |
 | WebSocket idle close | The current docs page gives **no number**. Older sources say 100 seconds. Cloudflare advises a heartbeat. | Duel sockets ping every 5 s ([`socket-options.ts`](../../packages/ws/src/socket-options.ts)). Other sockets use the Socket.IO default (25 s). Both are far below 100 s. |
 | Proxy read timeout | 125 s, then error 524. Not configurable on Free ([docs](https://developers.cloudflare.com/fundamentals/reference/connection-limits/)). | Caddy answers or holds for 30 s at most. No effect. |
-| Upload size | 100 MB on Free. | Caddy limits request bodies to 1 MB. No effect. |
+| Upload size | 100 MB on Free. | Caddy limits request bodies to 1 MB, and to 9 MB for one Remote Duels test recording chunk (`POST /api/remote/<slug>/recording?n=`). No effect. |
 | Cacheable file size | 512 MB on Free ([docs](https://developers.cloudflare.com/cache/concepts/default-cache-behavior/)). | No effect. |
 | Cloudflare caches | By file extension. HTML and JSON are **not** cached by default. A response with `private`, `no-store`, `no-cache`, `max-age=0` or `Set-Cookie` is not cached. | Safe default. Do not add "Cache Everything". |
 
