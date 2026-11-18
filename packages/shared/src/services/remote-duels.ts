@@ -302,10 +302,26 @@ export function createRemoteDuelService(db: Database.Database, options: {
       });
     },
     pruneSessions(now = Date.now()): void { transaction(() => pruneRemoteSessions(db, now)); },
-    create(input: { tournamentMatchId?: number; guildId: string; userId: number; displayName: string; gameId: string; seatCount: SeatCount; bestOf?: RemoteBestOf; solo?: boolean; format?: unknown; rules?: unknown; maxLiveRooms?: number; showCardsSetFromDeck?: boolean; revealedHand?: RemoteRevealedHand; visibility?: RemoteVisibility }, now = Date.now()): RemoteRoom {
-      return transaction(() => {
+    create(input: { tournamentMatchId?: number; guildId: string; userId: number; displayName: string; gameId: string; seatCount: SeatCount; bestOf?: RemoteBestOf; solo?: boolean; format?: unknown; rules?: unknown; maxLiveRooms?: number; showCardsSetFromDeck?: boolean; revealedHand?: RemoteRevealedHand; visibility?: RemoteVisibility;
+      /** Ends the host's own empty lobbies in the same transaction, as a new online table does. Called with the slugs it ended, after the create committed. */
+      replaceEmptyLobbies?: (slugs: string[]) => void }, now = Date.now()): RemoteRoom {
+      const replaced: string[] = [];
+      const created = transaction(() => {
         const game = getRemoteGame(input.gameId);
         remoteAssert(input.visibility === undefined || input.visibility === "public" || input.visibility === "private", "Invalid visibility");
+        // Same rule as the online tables (replaceWaitingHostedTables in duels.ts): a host has one empty waiting room, so a setup that was left behind never stacks up.
+        // A lobby with another player, a started table and a tournament table are kept. Done before the live count, so the ended room frees its place.
+        if (input.replaceEmptyLobbies && input.tournamentMatchId == null) {
+          const lobbies = db.prepare(`select ${tableColumns} from remote_tables t where t.guild_id=? and t.created_by=? and t.status='lobby' and t.started_at is null and t.tournament_match_id is null`)
+            .all(input.guildId, input.userId) as TableRow[];
+          for (const lobby of lobbies) {
+            if (seats(lobby).some(s => !s.bot && s.userId !== input.userId)) continue;
+            append(lobby, { type: "table.ended", reason: "creator-left" }, now, input.userId, 0);
+            db.prepare("update remote_tables set status='ended',ended_at=?,end_reason='creator-left' where id=?").run(now, lobby.id);
+            captureRemoteTournamentEvidence(db, lobby.id, now);
+            replaced.push(lobby.slug);
+          }
+        }
         // In this transaction, so two creates at the same moment cannot both take the last place. A room past the idle close waits only for the sweep, so it does not count.
         if (!input.solo && input.maxLiveRooms !== undefined) {
           const live = db.prepare("select count(*) as n from remote_tables where solo=0 and status!='ended' and last_event_at>?").get(now - REMOTE_IDLE_CLOSE_MS) as { n: number };
@@ -336,6 +352,8 @@ export function createRemoteDuelService(db: Database.Database, options: {
         }
         return room(load(slug, input.guildId), input.userId);
       });
+      if (replaced.length) input.replaceEmptyLobbies?.(replaced);
+      return created;
     },
     configure(slug: string, guildId: string, userId: number, input: { format?: unknown; bestOf?: RemoteBestOf; rules?: unknown; showCardsSetFromDeck?: boolean; revealedHand?: RemoteRevealedHand }, now = Date.now()): RemoteRoom {
       return transaction(() => {
