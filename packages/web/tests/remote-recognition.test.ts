@@ -1102,6 +1102,16 @@ it('camera evidence for a departed card: an unread GY top or a face-down banishe
   expect(fieldPileEvidence({...base,twins:[{...stand('fw-1','graveyard',true),name:'Known'}],tracks:[track('fw-1','GY')]})).toBeUndefined();
   expect(fieldPileEvidence({...base,twins:[stand('fw-1','graveyard',true)],tracks:[track('fw-1','GY',-20000)]})).toBeUndefined();
   expect(fieldPileEvidence({...base,twins:[stand('fw-1','graveyard',true),stand('fw-2','banished',false)],tracks:[track('fw-1','GY'),track('fw-2','BANISHED')]})).toBeUndefined();
+  // A slow reader has not named the pile card yet, so the board has no card for it: one resting GY box is the evidence; a Normal Spell defaults to the GY, not the hand.
+  const {fieldPileTrackEvidence,fieldDefaultDestination}=await import('../src/lib/remote/field-proposals');
+  const resting=(id:string,zone:string,firstSeen=1000)=>({...track(id,zone,firstSeen),state:'candidate',faceDown:false,restSince:firstSeen+300}) as any;
+  expect(fieldPileTrackEvidence({...base,twins:[],tracks:[resting('t-1','GY')]})).toMatchObject({zone:'graveyard',faceUp:true});
+  expect(fieldPileTrackEvidence({...base,twins:[],tracks:[resting('t-1','GY'),resting('t-2','BANISHED')]})).toBeUndefined();
+  expect(fieldPileTrackEvidence({...base,twins:[],tracks:[{...resting('t-1','GY'),restSince:undefined}]})).toBeUndefined();
+  expect(fieldPileTrackEvidence({...base,twins:[],tracks:[resting('t-1','GY',-20000)]})).toBeUndefined();
+  expect(fieldDefaultDestination({faceUp:true,zone:'spell-trap'},{type:'Spell Card',race:'Normal'})).toEqual({zone:'graveyard'});
+  expect(fieldDefaultDestination({faceUp:true,zone:'spell-trap'},{type:'Spell Card',race:'Continuous'})).toEqual({zone:'hand'});
+  expect(fieldDefaultDestination({faceUp:true,zone:'monster'},{type:'Effect Monster'})).toEqual({zone:'hand'});
 });
 
 it.each(['DECK','HAND'] as const)('a known card returns from %s to M4 after the move window without a new identity guess',async zone=>{

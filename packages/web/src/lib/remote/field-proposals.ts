@@ -75,18 +75,20 @@ export function heldFieldReadPending(tracks:readonly FieldTrack[],readAt:number)
 /**
  * Where a card goes when the camera saw no pile: a card taken off the field is assumed to be in the hand (Dueling Domain owner rule).
  * An Extra Deck monster (Fusion, Synchro, Xyz, Link) cannot be in the hand: it goes to the Extra Deck, face-down (face-up when it is
- * a Pendulum Monster the camera lost face-up). GY or banished only when the camera sees the card arrive there (or the player says
+ * a Pendulum Monster the camera lost face-up). A face-up Normal or Quick-Play Spell leaves the field for the GY by rule once it has
+ * resolved, so it goes there. Otherwise GY or banished only when the camera sees the card arrive there (or the player says
  * so). A token has no hand (the server drops it).
  */
-export function fieldDefaultDestination(card:Pick<TwinCard,'faceUp'>,facts?:{type?:string}):{zone:'hand'}|{zone:'extra';faceUp:boolean} {
+export function fieldDefaultDestination(card:Pick<TwinCard,'faceUp'>&Partial<Pick<TwinCard,'zone'>>,facts?:{type?:string|null;race?:string|null}):{zone:'hand'}|{zone:'graveyard'}|{zone:'extra';faceUp:boolean} {
   const type=facts?.type??'';
+  if(card.faceUp&&card.zone==='spell-trap'&&/\bspell\b/i.test(type)&&/^(normal|quick-play)$/i.test(facts?.race??''))return {zone:'graveyard'};
   return /\b(fusion|synchro|xyz|link)\b/i.test(type)?{zone:'extra',faceUp:!!card.faceUp&&/\bpendulum\b/i.test(type)}:{zone:'hand'};
 }
 /** The destinations a player can pick for a card that left the field (the tag on the moved card). `down`: face-down. */
 export const FIELD_LEAVE_DESTINATIONS=[{zone:'graveyard',title:'GY'},{zone:'banished',title:'Banish'},{zone:'banished',down:true,title:'Banish face-down'},{zone:'hand',title:'Hand'},{zone:'deck',title:'Deck'},{zone:'extra',title:'Extra Deck'}] as const;
 export const fieldLeaveLabel=(zone:string,faceUp?:boolean)=>zone==='material'?'Under Xyz':FIELD_LEAVE_DESTINATIONS.find(d=>d.zone===zone&&(zone!=='banished'||(('down' in d)===(faceUp===false))))?.title??zone;
 /** `destination`: a pile the camera showed, or a choice. Without one, the card is assumed in the hand (fieldDefaultDestination). A card in a pile that leaves it goes to the hand too. */
-export function fieldDepartureProposal(card:TwinCard,seat:number,destination?:'deck'|'extra'|{zone:'graveyard'|'banished'|'extra';faceUp?:boolean},facts?:{type?:string}):Extract<RemoteActionProposal,{type:'twin.move'}>|undefined {
+export function fieldDepartureProposal(card:TwinCard,seat:number,destination?:'deck'|'extra'|{zone:'graveyard'|'banished'|'extra';faceUp?:boolean},facts?:{type?:string|null;race?:string|null}):Extract<RemoteActionProposal,{type:'twin.move'}>|undefined {
   if(card.token||!['monster','extra-monster','spell-trap','field','pendulum','graveyard','banished'].includes(card.zone))return;
   const pile=['graveyard','banished'].includes(card.zone);
   const to=typeof destination==='string'?{zone:destination}:destination??fieldDefaultDestination(card,facts);
@@ -106,6 +108,20 @@ export function fieldPileEvidence({twins,tracks,lastSeen,owns}:{twins:readonly T
   const found=twins.filter(c=>['graveyard','banished'].includes(c.zone)&&c.ref.startsWith('fw-')&&!c.cardId&&!c.passcode&&!c.name&&(c.zone==='banished'||c.faceUp)).filter(c=>
     tracks.some(t=>owns(t)===c.ref&&t.zone===(c.zone==='banished'?'BANISHED':'GY')&&t.visible&&!t.removed&&t.firstSeen>=lastSeen-1000));
   return found.length===1?{twin:found[0],zone:found[0].zone as 'graveyard'|'banished',faceUp:found[0].faceUp}:undefined;
+}
+
+/**
+ * The same evidence before the reader has named the pile card (a slow reader names it a second or more after it settles, and the
+ * board has no stand-in for it yet): one resting pile track that first showed up around the removal, with no board card of its own.
+ * Not with an unnamed stand-in of the same kind around (fieldPileEvidence decides that case) or two such tracks: then the camera cannot say.
+ */
+export function fieldPileTrackEvidence({twins,tracks,lastSeen,owns}:{twins:readonly TwinCard[];tracks:readonly FieldTrack[];lastSeen:number;owns:(track:FieldTrack)=>string}):{track:FieldTrack;zone:'graveyard'|'banished';faceUp:boolean}|undefined {
+  const recent=tracks.filter(t=>/^(GY|BANISHED)$/.test(t.zone)&&!t.removed&&t.state!=='dismissed'&&t.firstSeen>=lastSeen-1000&&(t.zone==='BANISHED'||!t.faceDown));
+  const standIn=(t:FieldTrack)=>twins.some(c=>c.ref===owns(t)&&['graveyard','banished'].includes(c.zone)&&!c.cardId&&!c.passcode&&!c.name);
+  if(recent.some(standIn))return;
+  // A resting box only: a hand hovering over the pile is not a card that arrived.
+  const found=recent.filter(t=>t.restSince!==undefined&&!twins.some(c=>c.ref===owns(t)));
+  return found.length===1?{track:found[0],zone:found[0].zone==='BANISHED'?'banished':'graveyard',faceUp:!found[0].faceDown}:undefined;
 }
 
 /** Queue delays must not attach an old read to replacement pixels. */
