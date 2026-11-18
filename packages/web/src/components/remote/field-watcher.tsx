@@ -151,7 +151,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   const [notice,setNotice]=useState(''),[undoId,setUndoId]=useState(''),[pending,setPending]=useState(false),[recovery,setRecovery]=useState<StaleFieldPlacementError|null>(null);
   const heldTimers=useRef(new Map<string,ReturnType<typeof setInterval>>()),departureTimers=useRef(new Map<string,ReturnType<typeof setTimeout>>());
   /** Monsters out of view during the 2 s departure wait (track id): an Extra Deck summon in that window takes them as materials. */
-  const pendingLeft=useRef(new Map<string,FieldVanish>()),leaveStarted=useRef(new Map<string,number>()),pendingDepartures=useRef(new Map<string,{event:FieldEvent;origin:Pick<TwinCard,'ref'|'zone'|'slot'>}>()),settlingDepartures=useRef(new Set<string>()),lateDefaults=useRef(new Map<string,{at:number;lastSeen:number}>()),lateBusy=useRef(false);
+  const pendingLeft=useRef(new Map<string,FieldVanish>()),leaveStarted=useRef(new Map<string,number>()),pendingDepartures=useRef(new Map<string,{event:FieldEvent;origin:Pick<TwinCard,'ref'|'zone'|'slot'>}>()),settlingDepartures=useRef(new Set<string>()),lateDefaults=useRef(new Map<string,{at:number;lastSeen:number;cardId?:string;/** The default rule sent it to the Graveyard: it waits for its own pile track, or a Banished one. */pile?:true}>()),lateBusy=useRef(false);
   useEffect(()=>()=>{pendingDepartures.current.clear();settlingDepartures.current.clear();lateDefaults.current.clear();for(const timer of heldTimers.current.values())clearInterval(timer);heldTimers.current.clear();for(const timer of departureTimers.current.values())clearTimeout(timer);departureTimers.current.clear();pendingLeft.current.clear();},[room.slug,seat,source]);
   const choiceClosed=useRef(new Set<string>());
   const [leaveChoice,setLeaveChoice]=useState<{twinRef:string;zone:'graveyard'|'banished';faceUp:boolean;options:{ref:string;name:string}[]}|null>(null),[departure,setDepartureState]=useState<Departure|null>(null),departureRef=useRef<Departure|null>(null);
@@ -792,14 +792,14 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
         // Camera first: a pile card the camera placed around now (unread, or face-down on the banished pile) is this card, when no other
         // departed card could be it. No pile yet: the card goes to the hand now (a pile seen later moves it).
         const wasPublic=publicField(card.zone),twinsNow=current.current.room.state.seats[seat].twin;
-        const pileProof={twins:twinsNow,tracks:watch.getTracks(),lastSeen:event.track.lastSeen,owns:(t:FieldTrack)=>bindings.current.get(t.id)??t.id};
+        const pileProof={twins:twinsNow,tracks:watch.getTracks(),lastSeen:event.track.lastSeen,owns:(t:FieldTrack)=>bindings.current.get(t.id)??t.id,cardId:event.track.cardId};
         const seen:PileSeen|undefined=wasPublic&&pendingDepartures.current.size+lateDefaults.current.size<=1?fieldPileEvidence(pileProof)??fieldPileTrackEvidence(pileProof):undefined;
         forget();
         const proposal=fieldDepartureProposal(card,seat,seen?{zone:seen.zone,faceUp:seen.faceUp}:undefined,cardInfo(cardCode(card)));if(!proposal)return;
         const name=proposal.name??(card.faceUp?entries.current.get(event.track.cardId??'')?.name:undefined)??'Card';
         let updated=await act({...proposal,...(card.faceUp?{name}:{})}),undoTarget=updated?.state.undo?.actionId??'';
         if(updated&&seen){const adopted=await adoptPileCard(act,seen,card.ref,undoTarget);if(adopted){updated=adopted.state;undoTarget=adopted.undoTarget;}}
-        else if(updated&&wasPublic)lateDefaults.current.set(card.ref,{at:performance.now(),lastSeen:event.track.lastSeen});
+        else if(updated&&wasPublic)lateDefaults.current.set(card.ref,{at:performance.now(),lastSeen:event.track.lastSeen,cardId:event.track.cardId,...(proposal.zone==='graveyard'?{pile:true as const}:{})});
         if(!live()||!watch.isRemoved(card.ref))return;
         setDeparture({ref:card.ref,name,zone:updated?proposal.zone:'pending',...(proposal.faceUp===false&&proposal.zone==='banished'?{down:true}:{})});
         setNotice(`${name} ${proposal.zone==='deck'?'returned to Deck':'left the field'}${seen?' · seen on camera':''} · ${updated?'auto':'update failed'}`);setUndoId(updated?undoTarget:'');
@@ -1160,10 +1160,14 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   }
   /** The camera showed a pile card for a card the board holds in the hand: one move to that pile (even when it only turns), one chained Undo. */
   function settleLate(ref:string,seen:PileSeen) {
+    const waiting=lateDefaults.current.get(ref);
     lateBusy.current=true;lateDefaults.current.delete(ref);setLeaveChoice(null);
     return queue(async act=>{
       const now=current.current.room.state.seats[seat].twin,card=now.find(c=>c.ref===ref);
-      if(!live()||!card||!['hand','extra'].includes(card.zone)||'twin' in seen&&!now.some(c=>c.ref===seen.twin.ref)||undoKept.current.has(ref))return;
+      // A card the default rule put in the Graveyard waits too: its own pile track (or a Banished one) settles it.
+      if(!live()||!card||!(['hand','extra'].includes(card.zone)||waiting?.pile&&card.zone==='graveyard')||'twin' in seen&&!now.some(c=>c.ref===seen.twin.ref)||undoKept.current.has(ref))return;
+      // The proof is checked again here: the queue can be slow, and the track may be gone, named as another card, or owned by now.
+      if('track' in seen){const t=watch.getTrack(seen.track.id);if(!t||t.removed||/^(GY|BANISHED)$/.test(t.zone)===false||t.cardId&&t.cardId!==waiting?.cardId||now.some(c=>c.ref===(bindings.current.get(t.id)??t.id)))return;}
       // Always one move: the camera confirmed the pile, so the card drops its field origin and no later second copy can take it.
       const moved=await act({type:'twin.move',source:'auto',confirmed:true,actorSeat:seat,seat,cardRef:ref,zone:seen.zone,faceUp:seen.zone==='banished'?seen.faceUp:true,...(card.faceUp&&card.name?{name:card.name}:{})});
       if(!moved)return;
@@ -1185,17 +1189,17 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     for(const [id,{event,origin}] of pendingDepartures.current){
       if(now-(leaveStarted.current.get(id)??now)>10_000){pendingDepartures.current.delete(id);continue;}
       if(settlingDepartures.current.has(id)||!watch.isRemoved(id))continue;
-      const proof={twins,tracks,lastSeen:event.track.lastSeen,owns};
+      const proof={twins,tracks,lastSeen:event.track.lastSeen,owns,cardId:event.track.cardId};
       if(pendingDepartures.current.size+lateDefaults.current.size>1||!(fieldPileEvidence(proof)??fieldPileTrackEvidence(proof)))continue;
       const timer=departureTimers.current.get(id);if(timer)clearTimeout(timer);departureTimers.current.delete(id);settlingDepartures.current.add(id);
       handle(event,origin);
     }
     // Cards the camera took off the field and the board holds in the hand: a pile card the camera shows now moves one of them there.
     const late=[...lateDefaults.current].filter(([ref,info])=>{
-      if(now-info.at<=LATE_PILE_MS&&twins.some(c=>c.ref===ref&&['hand','extra'].includes(c.zone)))return true;
+      if(now-info.at<=LATE_PILE_MS&&twins.some(c=>c.ref===ref&&(['hand','extra'].includes(c.zone)||info.pile&&c.zone==='graveyard')))return true;
       lateDefaults.current.delete(ref);return false;
     });
-    const lateProof={twins,tracks,lastSeen:Math.min(...late.map(([,i])=>i.lastSeen)),owns};
+    const lateProof={twins,tracks,lastSeen:Math.min(...late.map(([,i])=>i.lastSeen)),owns,cardId:late.length===1?late[0][1].cardId:undefined};
     const seen:PileSeen|undefined=late.length&&!lateBusy.current&&!pendingDepartures.current.size?fieldPileEvidence(lateProof)??(late.length===1?fieldPileTrackEvidence(lateProof):undefined):undefined;
     if(!late.length)choiceClosed.current.clear();
     if(!seen){if(leaveChoice&&!late.length)setLeaveChoice(null);return;}
