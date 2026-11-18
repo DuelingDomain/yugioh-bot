@@ -499,14 +499,14 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       const entry=emptyLooks.get(zone),base=entry?.look,box=cellQuad(cell),b=boundsOf(box.quad),look=evidence.appearance?.(box);
       if(!pile&&handNear(evidence,box))blindHandAt.set(zone,now());
       // A known card whose own track was removed from this cell (a face-up card flipped Set in place) does not block the scan, unless a GY/banished pile was touched around its removal (the card went there).
-      const gone=(k:KnownFieldCard)=>tracks.some(t=>t.view.removed&&t.view.zone===zone&&(t.view.id===k.id||t.binding?.id===k.id)&&![...pileTouches.values()].some(at=>at>=t.view.lastSeen-1500));
+      const gone=(k:KnownFieldCard)=>tracks.some(t=>t.view.removed&&t.view.zone===zone&&(t.view.id===k.id||t.binding?.id===k.id)&&!(['GY','BANISHED'] as const).some(z=>(pileTouches.get(z)??-Infinity)>=t.view.lastSeen-1500));
       const clear=!!base?.length&&!!look?.length&&(pile||!boxes.some(c=>overlapFraction(boundsOf(c.quad),b)>=.2)&&tracks.every(t=>t.view.removed||t.view.zone!==zone||!!t.view.card.cell)&&!known.some(k=>k.zone===zone&&!gone(k)))&&
         !handNear(evidence,box)&&evidence.motion(box)<=.025&&unlikeMat(entry,look,evidence.halo?.(box));
       if(!pile){if(clear)blindClearAt.set(zone,now());else blindClearAt.delete(zone);}
       if(!clear){blindScans.delete(zone);blindCountAt.delete(zone);blindShape.delete(zone);blindMisses.delete(zone);continue;}
       // A shadow or blur over the cell pauses the count; it does not reset it.
-      if(removalHold(box))continue;
-      // A pause longer than BLIND_ZONE_MS makes the old count stale: start again.
+      if(removalHold(box)){if(blindCountAt.has(zone))blindCountAt.set(zone,now());continue;}
+      // A hold is not idle time. A gap longer than BLIND_ZONE_MS between counted scans (outside a hold) makes the old count stale: start again.
       const stale=now()-(blindCountAt.get(zone)??-Infinity)>BLIND_ZONE_MS,scans=(stale?0:blindScans.get(zone)??0)+1;blindScans.set(zone,scans);blindCountAt.set(zone,now());if(scans<SET_STEADY_SCANS)continue;
       // A detector outline decides a pile; the pixel outline only fills in when it is missing.
       if(pile&&usable.some(c=>overlapFraction(boundsOf(c.quad),b)>=.2))continue;
