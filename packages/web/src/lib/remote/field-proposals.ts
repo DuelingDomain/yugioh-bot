@@ -1,5 +1,5 @@
 import {remoteActionError,type RoomMutation} from './room-mutations';
-import type { RemoteActionProposal, RemoteSummonKind, TwinCard } from '@yugidraft/shared/remote';
+import type { RemoteActionProposal, RemoteEvent, RemoteSummonKind, TwinCard } from '@yugidraft/shared/remote';
 import { fieldZoneLocation, type FieldEvent, type FieldTrack } from '@yugidraft/vision';
 // A manual read may finish before the watcher's first identity read. Preserve
 // its physical row even when card legality projects it into another virtual row.
@@ -172,9 +172,11 @@ export const FIELD_LEFT_SET_MS=15_000;
  * A face-down back that settles on an empty-looking or stale cell may be a card the owner just turned over or slid to another zone.
  *  - flip: the cell still holds a known face-up card whose track is gone and no departure was written yet (the board turns it over in place);
  *  - return: that card already went to the hand (an auto departure from this same cell, nothing else placed there since); it comes back Set;
- * Any other reading (a manual move, another card in the cell, an old departure) is undefined: the caller places a new Set as before.
+ *  - move: exactly one Set card left some other zone of the seat, exactly this one new Set settles in a free zone of the same row, and no
+ *    hand-size change was seen since: the same card moved (its private name stays on the twin).
+ * Any other reading (two candidates, a manual move, an occupied cell, a draw in between) is undefined: the caller places a new Set as before.
  */
-export function fieldSetReturn({track,twins,tracks,owns,at,now}:{track:Pick<FieldTrack,'id'|'zone'|'faceDown'|'firstSeen'>;twins:readonly TwinCard[];tracks:readonly FieldTrack[];owns:(track:FieldTrack)=>string;/** Server clock. */at:number;/** The camera clock of the track times. */now:number}):{kind:'flip'|'return';card:TwinCard}|undefined {
+export function fieldSetReturn({track,twins,tracks,owns,events,seat,at,now}:{track:Pick<FieldTrack,'id'|'zone'|'faceDown'|'firstSeen'>;twins:readonly TwinCard[];tracks:readonly FieldTrack[];owns:(track:FieldTrack)=>string;events:readonly Pick<RemoteEvent,'at'|'action'>[];seat:number;/** Server clock. */at:number;/** The camera clock of the track times. */now:number}):{kind:'flip'|'return'|'move';card:TwinCard}|undefined {
   if(!track.faceDown||!/^(M[1-5]|S[1-5])$/.test(track.zone))return;
   const cell=fieldZoneLocation(track.zone),backAt=at-(now-track.firstSeen);
   const there=(c:Pick<TwinCard,'zone'|'slot'>)=>c.zone===cell.zone&&(c.slot??0)===(cell.slot??0);
@@ -190,6 +192,15 @@ export function fieldSetReturn({track,twins,tracks,owns,at,now}:{track:Pick<Fiel
   const left=twins.filter(c=>c.zone==='hand'&&c.departedFrom?.auto&&c.departedFrom.at!==undefined&&at-c.departedFrom.at<=FIELD_LEFT_SET_MS&&backAt>=c.departedFrom.at-1500).sort((a,b)=>b.departedFrom!.at!-a.departedFrom!.at!);
   const back=left.find(c=>there(c.departedFrom!));
   if(back)return {kind:'return',card:back};
+  // Moved to another zone: one Set left, one new Set arrived, and the hand did not change size.
+  const row=cell.zone,sets=left.filter(c=>!c.faceUp&&c.departedFrom!.zone===row);
+  if(sets.length!==1||left.some(c=>c!==sets[0]&&c.departedFrom!.zone===row&&!c.faceUp))return;
+  const card=sets[0],departure=card.departedFrom!;
+  if(twins.some(c=>c.zone===departure.zone&&(c.slot??0)===(departure.slot??0)))return;
+  const arrivals=tracks.filter(t=>t.faceDown&&!t.removed&&t.visible&&/^(M[1-5]|S[1-5])$/.test(t.zone)&&fieldZoneLocation(t.zone).zone===row&&!twins.some(c=>c.ref===owns(t)));
+  if(arrivals.length!==1||arrivals[0].id!==track.id)return;
+  const sized=events.some(e=>e.at>=departure.at!&&(e.action.type==='hand.draw'||e.action.type==='hand.count'||e.action.type==='hand.add'||e.action.type==='twin.move'&&e.action.zone==='hand'&&e.action.cardRef!==card.ref)&&'seat' in e.action&&e.action.seat===seat);
+  return sized?undefined:{kind:'move',card};
 }
 
 /** A virtual occupant without a current physical witness cannot reserve a slot. */

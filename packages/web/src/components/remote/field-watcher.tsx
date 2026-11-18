@@ -441,8 +441,8 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       return;
     }
     existing=freshBinding.existing??pileExit(track,entry,twins);
-    // A back that settles where a known card just left is that card Set again: turned over in place or back from the hand.
-    const setBack=!existing&&track.faceDown&&event.type==='placed'&&!chosen&&!humanChoice&&!piles.has(track.zone)?fieldSetReturn({track:{...track,id:event.track.id},twins,tracks:watch.getTracks(),owns:t=>bindings.current.get(t.id)??t.id,at:serverNow(),now:performance.now()}):undefined;
+    // A back that settles where a known card just left is that card Set again: turned over in place, back from the hand, or slid to another zone.
+    const setBack=!existing&&track.faceDown&&event.type==='placed'&&!chosen&&!humanChoice&&!piles.has(track.zone)?fieldSetReturn({track:{...track,id:event.track.id},twins,tracks:watch.getTracks(),owns:t=>bindings.current.get(t.id)??t.id,events:current.current.room.events,seat,at:serverNow(),now:performance.now()}):undefined;
     if(setBack){
       const card=setBack.card,cell=fieldZoneLocation(track.zone);
       const proposal=setBack.kind==='flip'?fieldFaceProposal(card,track,seat):{type:'twin.move' as const,source:'auto' as const,actorSeat:seat,seat,cardRef:card.ref,zone:cell.zone,...(cell.slot?{slot:cell.slot}:{}),faceUp:false,position:fieldTwinPosition(track)};
@@ -453,7 +453,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
         if(setBack.kind==='flip')face.current.flipped(card.ref,performance.now());
         placeholders.current.delete(event.track.id);bindings.current.set(event.track.id,card.ref);
         watch.confirm(event.track.id,undefined,card.ref,false);rememberPhysical(card.ref,track.zone);setPrompts(list=>list.filter(p=>p.track.id!==event.track.id));
-        setNotice(`Set card ${setBack.kind==='flip'?'turned over':'put back'} · auto`);setUndoId(updated.state.undo?.actionId??'');
+        setNotice(`Set card ${setBack.kind==='flip'?'turned over':setBack.kind==='return'?'put back':'moved'} · auto`);setUndoId(updated.state.undo?.actionId??'');
       }finally{setPending(false);}
       return;
     }
