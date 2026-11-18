@@ -71,7 +71,7 @@ function ZonePrompt({prompt,first,zone,pending,onChoose,onWrong,onNotACard}:{pro
         <button type="button" className={table.btn} disabled={pending||!onWrong} onClick={run(()=>onWrong?.(prompt.id))}>Wrong card</button>
         <button type="button" className={table.btn} disabled={pending} onClick={run(()=>onNotACard(prompt.id))}>Not a card</button>
       </div>
-      {others.length?<div className={s.zoneActions}>{others.map(c=><button key={c.id} type="button" className={table.btn} disabled={pending} title={c.label} onClick={run(()=>onChoose(prompt.id,c.id))}>{c.label.split(' · ')[0]}</button>)}</div>:null}
+      {others.length?<div className={s.zoneActions}>{others.map(c=><button key={c.id} type="button" className={table.btn} disabled={pending} onClick={run(()=>onChoose(prompt.id,c.id))}>{c.label}</button>)}</div>:null}
     </div>,document.body):null}
   </>;
 }
