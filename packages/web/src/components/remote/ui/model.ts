@@ -134,7 +134,7 @@ export const hueOf = (id: number) => (id * 47) % 360;
 /** Decklist cards for one seat (Main, Extra and Side). */
 export function deckIdsOf(room: RemoteRoom, seat: number): number[] {
   const deck = room.seats.find(s => s.seat === seat)?.deck?.deck;
-  return deck ? [...deck.main, ...deck.extra, ...deck.side] : [];
+  return deck ? [...deck.main, ...deck.extra, ...deck.side, ...(deck.deckMaster ? [deck.deckMaster] : [])] : [];
 }
 export function hasDeck(room: RemoteRoom, seat: number) { return !!room.seats.find(s => s.seat === seat)?.deck; }
 export function notInDecklist(room: RemoteRoom, seat: number, code: number | undefined) {

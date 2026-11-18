@@ -29,9 +29,10 @@ const listed = (value: string | undefined, userId: number) => Number.isSafeInteg
 /** Server runtime switches; unlike REMOTE_DUELS_USERS, neither list accepts a wildcard. */
 export const remoteVoiceEnabledFor = (userId: number) => remoteDuelsEnabledFor(userId) && listed(process.env.REMOTE_VOICE_USERS, userId);
 export const remoteVoiceDiagnosticsEnabledFor = (userId: number) => remoteVoiceEnabledFor(userId) && listed(process.env.REMOTE_VOICE_DIAGNOSTICS_USERS, userId);
+export const remoteUnsureNamesEnabledFor = (userId:number) => remoteDuelsEnabledFor(userId) && listed(process.env.REMOTE_UNSURE_NAMES_USERS,userId);
 export function remoteRoomForViewer<T extends RemoteTable & { mySeat?: number; spectator?: boolean }>(room: T, userId: number) {
   const voiceEnabled = room.mySeat !== undefined && room.mySeat >= 0 && !room.spectator && remoteVoiceEnabledFor(userId);
-  return { ...room, voiceEnabled, voiceDiagnosticsEnabled: voiceEnabled && remoteVoiceDiagnosticsEnabledFor(userId) };
+  return { ...room, unsureNamesEnabled:room.mySeat!==undefined&&room.mySeat>=0&&!room.spectator&&remoteUnsureNamesEnabledFor(userId), voiceEnabled, voiceDiagnosticsEnabled: voiceEnabled && remoteVoiceDiagnosticsEnabledFor(userId) };
 }
 /** For pages and files that have no actor yet: the signed-in viewer, against the switch and the rollout list. */
 export async function remoteDuelsForViewer() {
@@ -106,6 +107,8 @@ export async function remoteMutation(request: Request, context: RemoteRouteConte
       case "actions": {
         const action = remoteActionSchema.safeParse(body.action); remoteAssert(action.success, "Invalid action");
         remoteAssert(typeof body.baseSeq === "number" && Number.isSafeInteger(body.baseSeq) && body.baseSeq >= 0, "Invalid base sequence");
+        const tentative=action.data.type==='twin.place'?action.data.card.nameCandidates:action.data.type==='card.identified'?action.data.nameCandidates:action.data.type==='cards.identified'?action.data.cards.find(c=>c.nameCandidates)?.nameCandidates:undefined;
+        remoteAssert(!tentative||remoteUnsureNamesEnabledFor(actor.userId),'Unsure names are not enabled',403);
         const commitAt=performance.now();
         result = actor.remote.act(slug, actor.guildId, actor.userId, { baseSeq: body.baseSeq, action: action.data,onTiming:(stage,ms)=>timings.push(`remote-${stage};dur=${ms.toFixed(2)}`) });
         timings.push(`remote-commit;dur=${(performance.now()-commitAt).toFixed(2)}`);break;

@@ -4,6 +4,7 @@ import {readFileSync} from 'node:fs';
 import {inflateSync} from 'node:zlib';
 import * as board from './board';
 import { RecognitionPipeline } from './pipeline';
+import {classifyFaceState} from './face-state';
 import { yugioh } from './games/yugioh';
 import { boundsOf } from './geometry';
 import type { DetectedQuad, DetectOptions, LoadedIndex } from './types';
@@ -116,7 +117,7 @@ const fieldCrop=(c:DetectedQuad)=>{
  return {width,height,data};
 };
 const sureResult = (tier: RecognitionResult['tier'] = 'sure') => ({candidates:[{cardId:'A',score:.95},{cardId:'B',score:.5}],tier,quality:{detected:true,cornersFound:true,framesUsed:1,selectedFrameIndices:[0],sharpness:10,fallback:false},timingsMs:{total:20},backend:'wasm'}) as RecognitionResult;
-function fieldRig(tier: RecognitionResult['tier'] = 'sure',maxTracks=20,gallery?:ReturnType<typeof createFieldIdentityGallery>,size={width:frame.width,height:frame.height},setOptions:Pick<field.FieldWatcherOptions,'setGuards'|'setCardMemory'|'onSetDecision'|'nameVoting'>={}) {
+function fieldRig(tier: RecognitionResult['tier'] = 'sure',maxTracks=20,gallery?:ReturnType<typeof createFieldIdentityGallery>,size={width:frame.width,height:frame.height},setOptions:Pick<field.FieldWatcherOptions,'setGuards'|'setCardMemory'|'onSetDecision'|'nameVoting'|'backgroundReread'>={}) {
   let appearanceExplicit=false;
   let detectorCost=0,readGate:Promise<void>|undefined;
   let scene:import('./field-motion').FieldAnalysis['scene'];
@@ -133,6 +134,28 @@ function fieldRig(tier: RecognitionResult['tier'] = 'sure',maxTracks=20,gallery?
   return {watcher,events,inputs,detectOptions,set readGate(value:Promise<void>|undefined){readGate=value;},set shadowPasses(v:number){shadowPasses=v;},set scene(v:typeof scene){scene=v;},set backend(v:typeof backend){backend=v;},set tierAt(v:((card:DetectedQuad)=>RecognitionResult['tier'])|undefined){tierAt=v;},set shadow(v:{share:number;changed:number;moved?:Uint8Array;gx?:number;gy?:number}|undefined){shadow=v;},set frameSharpness(v:number|undefined){frameSharpness=v;},get crops(){return cropCalls;},get keeps(){return keeps;},set detectorCost(v:number){detectorCost=v;},set identityAt(v:((card:DetectedQuad)=>string)|undefined){identityAt=v;},set motionAt(v:((card:DetectedQuad)=>number)|undefined){motionAt=v;},set motionRegion(v:{x:number;y:number;w:number;h:number}|undefined){motionRegion=v;},set cropAware(v:boolean){cropAware=v;},set cropAt(v:((card:DetectedQuad)=>ReturnType<typeof fieldCrop>)|undefined){cropAt=v;},set appearanceAt(v:((card:DetectedQuad)=>number[])|undefined){appearanceAt=v;},set touchedAt(v:((card:DetectedQuad)=>number)|undefined){touchedAt=v;},set occludedAt(v:((card:DetectedQuad)=>boolean)|undefined){occludedAt=v;},set skinNearAt(v:((card:DetectedQuad)=>number)|undefined){skinNearAt=v;},set qualityAt(v:((card:DetectedQuad)=>Record<string,boolean>)|undefined){qualityAt=v;},get reads(){return reads;},get detects(){return detects;},get at(){return at;},set embedding(v:number[]){embedding=v;},set embeddingSpace(v:'art-box'|'whole-card'){embeddingSpace=v;},
     async tick(ms=333){at+=ms;await watcher.tick();},set identity(v:string){identity=v;},set decklist(v:string[]){decklist=v;},set known(v:field.KnownFieldCard[]){known=v;},set outlines(v:DetectedQuad[]){outlines=v;},set motion(v:number){motion=v;},set detail(v:number){detail=v;},set appearance(v:number[]){appearance=v;appearanceExplicit=true;},set halo(v:number[]|undefined){halo=v;},set hidden(v:boolean){hidden=v;},set busy(v:boolean){busy=v;}};
 }
+test('conflicting front pixels use the reader and dismissal cannot bypass positive Set evidence',async context=>{
+ for(const dismissed of [false,true])await context.test(`dismissed=${dismissed}`,async()=>{
+  const r=fieldRig(),width=96,height=140,data=new Uint8ClampedArray(width*height*4),amplitude=dismissed?80:48;
+  for(let y=0;y<height;y++)for(let x=0;x<width;x++)data.set([
+   100+amplitude*Math.sin(x/width*32+y/height*21),
+   100+amplitude*.8*Math.cos(x/width*27-y/height*41),
+   100+amplitude*1.1*Math.sin(y/height*35),255,
+  ],(y*width+x)*4);
+  const crop={width,height,data};assert.equal(classifyFaceState(crop).state,'down','fixture reproduces ambiguous texture verdict');
+  r.cropAt=()=>crop;
+  try {
+   await r.tick(100);
+   if(dismissed){
+    r.watcher.dismiss(r.watcher.getSnapshot().tracks[0].id);
+    r.outlines=[{...card(.3,.3),kind:'face-down'}];
+   }
+   for(let i=0;i<30;i++)await r.tick(100);
+   assert.equal(r.events.some(e=>['placed','flipped'].includes(e.type)&&e.track.faceDown),false,`unverified Set, dismissed=${dismissed}`);
+   if(!dismissed)assert.ok(r.events.some(e=>e.type==='placed'&&e.track.cardId==='A'&&!e.track.faceDown),'the ordinary reader can resolve conflicting pixels');
+  } finally {r.watcher.dispose();}
+ });
+});
 test('a still fan card with 61.9134% hand contact asks once instead of placing either face',async()=>{
  const trace=JSON.parse(readFileSync(new URL('./fixtures/held-fan-contact.json',import.meta.url),'utf8'));
  for(const kind of ['face-down','face-up'] as const)for(const occluded of [true,false])for(const handRelease of [true,false]){
@@ -280,8 +303,8 @@ test('two resting cards outside the zone grid in three full passes mark the grid
   r.watcher.setCalibration(zones.createFieldCalibration([{x:0,y:0},{x:1,y:1}]));assert.equal(r.watcher.getSnapshot().gridShift,undefined);
   r.watcher.dispose();
 });
-test('uncertain results prompt with five alternatives, require confirmation and do not retry',async()=>{
-  const r=fieldRig('low match');for(let i=0;i<8;i++)await r.tick();
+test('with background re-read disabled, uncertain results ask once until confirmation',async()=>{
+  const r=fieldRig('low match',20,undefined,undefined,{nameVoting:false,backgroundReread:false});for(let i=0;i<8;i++)await r.tick();
   assert.equal(r.events.filter(e=>e.type==='placed').length,0);assert.equal(r.events.filter(e=>e.type==='prompt').length,1);assert.equal(r.reads,1);
   r.watcher.confirm(r.watcher.getSnapshot().tracks[0].id,'B');for(let i=0;i<6;i++)await r.tick();assert.equal(r.reads,1);r.watcher.dispose();
 });
@@ -318,7 +341,7 @@ test('the deadline prompt still asks for a look that has a remembered name, and 
   assert.equal(prompts[0].result?.candidates[0].cardId,'A','the remembered name comes first');r.watcher.dispose();
 });
 test('one-shot owner prompts: best matches settle normally, bound moves stay quiet and dismissal is final',async()=>{
-  const r=fieldRig('not sure');r.decklist=[];r.embedding=[1,0];
+  const r=fieldRig('not sure',20,undefined,undefined,{backgroundReread:false});r.decklist=[];r.embedding=[1,0];
   for(let i=0;i<8;i++)await r.tick();
   const placed=r.events.find(e=>e.type==='placed');assert.ok(placed,'a readable best match is a normal card, even without a deck');
   assert.equal(placed.track.bestMatch,true);r.watcher.confirm(placed.track.id,'A','owner-ref');r.known=[{id:'owner-ref',zone:'M2',cardId:'A'}];
@@ -331,11 +354,11 @@ test('one-shot owner prompts: best matches settle normally, bound moves stay qui
   const newer=r.events.filter(e=>e.type==='placed').at(-1)!;assert.ok(newer.track.id!=='owner-ref'&&newer.track.bestMatch,'the new card is placed as a best match');
   assert.equal(r.watcher.getSnapshot().tracks.find(t=>t.id==='owner-ref')?.cardId,'A','bound identity is changed only by an explicit correction');r.watcher.dispose();
   const restart=fieldRig();restart.known=[{id:'existing-twin',zone:'M2',cardId:'X'}];restart.identity='Y';for(let i=0;i<8;i++)await restart.tick();assert.equal(restart.reads,1);assert.equal(restart.watcher.getSnapshot().tracks[0].id,'existing-twin');assert.equal(restart.watcher.getSnapshot().tracks[0].cardId,'Y');assert.equal(restart.events.some(e=>e.type==='prompt'),false);restart.watcher.dispose();
-  const q=fieldRig('low match');for(let i=0;i<8;i++)await q.tick();const prompt=q.events.find(e=>e.type==='prompt')!;
+  const q=fieldRig('low match',20,undefined,undefined,{nameVoting:false});for(let i=0;i<8;i++)await q.tick();const prompt=q.events.find(e=>e.type==='prompt')!,dismissalReads=q.reads;
   q.watcher.dismiss(prompt.track.id);q.appearance=Array.from({length:12},(_,i)=>i%2);q.identity='B';q.outlines=[card(.4,.3)];
   for(let i=0;i<40;i++)await q.tick(250);
-  assert.equal(q.events.filter(e=>e.type==='prompt').length,1);assert.equal(q.reads,1);assert.equal(q.watcher.getSnapshot().tracks[0].state,'dismissed');q.watcher.dispose();
-  const history=fieldRig('low match',2);for(let n=0;n<3;n++){history.embedding=Array.from({length:3},(_,i)=>i===n?1:0);history.appearance=Array.from({length:12},(_,i)=>i===n?1:0);history.outlines=[card(.3,.3)];for(let i=0;i<8;i++)await history.tick();const latest=history.events.filter(e=>e.type==='prompt').at(-1)!;history.watcher.dismiss(latest.track.id);history.outlines=[];history.appearance=Array(12).fill(.2);for(let i=0;i<12;i++)await history.tick();}assert.equal(history.events.filter(e=>e.type==='prompt').length,3,'absent dismissals do not exhaust live slots');history.embedding=[1,0,0];history.appearance=Array.from({length:12},(_,i)=>i===0?1:0);history.outlines=[card(.3,.3)];for(let i=0;i<8;i++)await history.tick();assert.equal(history.events.filter(e=>e.type==='prompt').length,3,'returning dismissed card stays silent');history.watcher.dispose();
+  assert.equal(q.events.filter(e=>e.type==='prompt').length,1);assert.equal(q.reads,dismissalReads);assert.equal(q.watcher.getSnapshot().tracks[0].state,'dismissed');q.watcher.dispose();
+  const history=fieldRig('low match',2,undefined,undefined,{nameVoting:false});for(let n=0;n<3;n++){history.embedding=Array.from({length:3},(_,i)=>i===n?1:0);history.appearance=Array.from({length:12},(_,i)=>i===n?1:0);history.outlines=[card(.3,.3)];for(let i=0;i<8;i++)await history.tick();const latest=history.events.filter(e=>e.type==='prompt').at(-1)!;history.watcher.dismiss(latest.track.id);history.outlines=[];history.appearance=Array(12).fill(.2);for(let i=0;i<12;i++)await history.tick();}assert.equal(history.events.filter(e=>e.type==='prompt').length,3,'absent dismissals do not exhaust live slots');history.embedding=[1,0,0];history.appearance=Array.from({length:12},(_,i)=>i===0?1:0);history.outlines=[card(.3,.3)];for(let i=0;i<8;i++)await history.tick();assert.equal(history.events.filter(e=>e.type==='prompt').length,3,'returning dismissed card stays silent');history.watcher.dispose();
   const ignoredSet=fieldRig();ignoredSet.outlines=[{...card(.3,.3),kind:'face-down'}];for(let i=0;i<8;i++)await ignoredSet.tick();ignoredSet.watcher.dismiss(ignoredSet.events[0].track.id);ignoredSet.outlines=[];for(let i=0;i<12;i++)await ignoredSet.tick();ignoredSet.outlines=[{...card(.3,.3),kind:'face-down'}];for(let i=0;i<8;i++)await ignoredSet.tick();assert.equal(ignoredSet.events.filter(e=>e.type==='prompt').length,0);assert.equal(ignoredSet.reads,0);ignoredSet.watcher.dispose();
   const unread=fieldRig('low match');unread.known=[{id:'unread',zone:'M2',faceDown:false}];for(let i=0;i<8;i++)await unread.tick();assert.equal(unread.events.some(e=>e.type==='prompt'),false);assert.equal(unread.watcher.getSnapshot().tracks[0].id,'unread');unread.watcher.dispose();
   const hidden=fieldRig();hidden.known=[{id:'hidden',zone:'M2',faceDown:true}];for(let i=0;i<8;i++)await hidden.tick();assert.ok(hidden.events.some(e=>e.type==='placed'&&e.track.id==='hidden'&&!e.track.faceDown));assert.equal(hidden.events.some(e=>e.type==='prompt'),false);hidden.watcher.dispose();
@@ -398,7 +421,7 @@ test('Scan field re-arms player dismissals and persists only named gallery entri
  const named={space:'art-box' as const,values:[0,1]},dismissed={space:'art-box' as const,values:[1,0]};
  gallery.remember(named,'B');const otherSeat=createFieldIdentityGallery();otherSeat.remember(dismissed);
  // Voting's timed default path has separate watcher coverage. Keep this gallery/Scan test synchronous.
- const r=fieldRig('low match',20,gallery,undefined,{nameVoting:false});r.embedding=dismissed.values;
+ const r=fieldRig('low match',20,gallery,undefined,{nameVoting:false,backgroundReread:false});r.embedding=dismissed.values;
  try{
   for(let i=0;i<8;i++)await r.tick();const id=r.watcher.getSnapshot().tracks[0].id;
   r.watcher.dismiss(id);assert.deepEqual(gallery.resolve(dismissed),{kind:'match',cardId:undefined});
@@ -414,7 +437,7 @@ test('Scan field re-arms player dismissals and persists only named gallery entri
 
 test('dismissed tracks expire only after sustained absence in full detector passes',async()=>{
  for(const playerDismissed of [false,true]){
-  const r=fieldRig(playerDismissed?'low match':'sure');
+  const r=fieldRig(playerDismissed?'low match':'sure',20,undefined,undefined,{nameVoting:false});
   try{
    if(!playerDismissed)r.qualityAt=()=>({faceDown:true});
    for(let i=0;i<8;i++)await r.tick();const id=r.watcher.getSnapshot().tracks[0].id;
@@ -438,11 +461,11 @@ test('dismissed tracks expire only after sustained absence in full detector pass
 });
 
 test('player-dismissed cards stay quiet on unchanged confident fronts without Scan field',async()=>{
- const r=fieldRig('low match');r.embedding=[1,0];
+ const r=fieldRig('low match',20,undefined,undefined,{nameVoting:false});r.embedding=[1,0];
  try{
-  for(let i=0;i<8;i++)await r.tick();const id=r.watcher.getSnapshot().tracks[0].id;r.watcher.dismiss(id);
+  for(let i=0;i<8;i++)await r.tick();const id=r.watcher.getSnapshot().tracks[0].id,dismissalReads=r.reads;r.watcher.dismiss(id);
   for(let i=0;i<30;i++)await r.tick(600);
-  assert.equal(r.watcher.getSnapshot().tracks[0].state,'dismissed');assert.equal(r.reads,1);
+  assert.equal(r.watcher.getSnapshot().tracks[0].state,'dismissed');assert.equal(r.reads,dismissalReads);
   assert.equal(r.events.filter(e=>e.type==='prompt').length,1);
  }finally{r.watcher.dispose();}
 });
@@ -941,7 +964,7 @@ test('owner live move: same-color face-down outlines cannot reconnect a departin
  assert.equal(r.events.some(e=>e.type==='moved'&&e.track.id===id),false);assert.equal(r.events.some(e=>e.type==='flipped'&&e.track.id===id),false);assert.equal(r.watcher.getSnapshot().tracks.length,2);r.watcher.dispose();
 });
 test('turning a pending prompt face-down invalidates its old public identity choice',async()=>{
- const r=fieldRig('low match');for(let i=0;i<8;i++)await r.tick();const previous=r.events.at(-1)!.track.revision??0;r.appearance=Array(12).fill(.8);r.outlines=[{...card(.3,.3),kind:'face-down'}];await r.tick();assert.equal(r.watcher.getSnapshot().tracks[0].state,'dismissed');assert.equal(r.watcher.getSnapshot().tracks[0].revision,previous+1);r.watcher.dispose();
+ const r=fieldRig('low match',20,undefined,undefined,{nameVoting:false});for(let i=0;i<8;i++)await r.tick();const previous=r.events.at(-1)!.track.revision??0;r.appearance=Array(12).fill(.8);r.outlines=[{...card(.3,.3),kind:'face-down'}];await r.tick();assert.equal(r.watcher.getSnapshot().tracks[0].state,'dismissed');assert.equal(r.watcher.getSnapshot().tracks[0].revision,previous+1);r.watcher.dispose();
 });
 test('unverified zone reservations do not exempt new outlines from the deck-spread guard',async()=>{
  const r=fieldRig();r.known=[{id:'old-X',zone:'M1',cardId:'X'},{id:'old-Y',zone:'M3',cardId:'Y'}];r.outlines=[card(.2,.3),card(.45,.3),card(.65,.3)];for(let i=0;i<18;i++)await r.tick();assert.equal(r.events.some(e=>e.type==='placed'),false);r.watcher.dispose();
@@ -1581,6 +1604,27 @@ test('a lifted card over a monster zone gives no placeholder or placement until 
  assert.equal(all.filter(e=>e.type==='placed'&&e.track.cardId==='B').length,1,JSON.stringify(all.map(e=>[e.type,e.track.zone,e.track.cardId])));
  assert.ok(firstAt[0]-liftedUntil>=300,`first field event ${firstAt[0]-liftedUntil} ms after it was last lifted`);
  r.watcher.dispose();
+});
+
+test('resting size uses distinct cards rather than repeated samples of the smallest card',async()=>{
+ for(const scale of [1.17,1.3]){
+ const r=fieldRig('sure',20,undefined,{width:160,height:90});
+ r.watcher.setCalibration(zones.createFieldCalibration([{x:.11,y:.25},{x:.84,y:.84}],{playerSide:'bottom',mirrored:false}));
+ const bases=[card(.2,.38,.08,.2072),card(.36,.38,.0848,.22),card(.52,.38,.0704,.1824)];
+ const known:field.KnownFieldCard[]=[];
+ r.identityAt=c=>String(Math.round(c.quad[0].x*100));
+ r.appearanceAt=c=>Array(12).fill(c.quad[0].x);
+ r.watcher.subscribe(e=>{if(e.type==='placed'){r.watcher.confirm(e.track.id,e.track.cardId);known.push({...e.track});r.known=known;}});
+ try {
+  for(let n=1;n<=3;n++){r.outlines=bases.slice(0,n);for(let i=0;i<20;i++)await r.tick(100);}
+  assert.equal(r.events.filter(e=>e.type==='placed').length,3);
+  // The two ordinary outlines leave view; the smaller outline alone must not acquire extra votes.
+  r.outlines=[bases[2]];for(let i=0;i<30;i++)await r.tick(100);
+  const arriving=card(.65,.38,.08*scale,.2072*scale);
+  r.outlines=[bases[2],arriving];for(let i=0;i<15;i++)await r.tick(100);
+  assert.equal(r.events.some(e=>e.type==='placed'&&e.track.cardId==='65'),scale<1.2,`size ${scale}x: no fingers detected`);
+ } finally {r.watcher.dispose();}
+ }
 });
 
 test('centre assignment accepts full camera quads that cross calibrated field and side-zone edges',async()=>{
