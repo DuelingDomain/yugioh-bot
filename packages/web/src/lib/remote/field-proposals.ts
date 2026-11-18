@@ -59,10 +59,11 @@ export function fieldFaceProposal(card:Pick<TwinCard,'ref'|'zone'|'faceUp'|'mate
 }
 type FieldSetMove = Extract<RemoteActionProposal, {type:'twin.move'}> & {faceUp:false};
 /** Report a change of zone and face together so the reducer can distinguish it from an in-place flip. */
-export function fieldSetMove(card: Pick<TwinCard, 'ref'|'zone'|'slot'>, track: Pick<FieldTrack, 'zone'|'faceDown'|'position'>, seat: number, physicalZoneChanged = false): FieldSetMove | undefined {
+export function fieldSetMove(card: Pick<TwinCard, 'ref'|'zone'|'slot'> & Partial<Pick<TwinCard, 'ownerSeat'>>, track: Pick<FieldTrack, 'zone'|'faceDown'|'position'>, seat: number, physicalZoneChanged = false): FieldSetMove | undefined {
   const location = fieldZoneLocation(track.zone);
   const sameSlot = card.zone === location.zone && card.slot === location.slot;
-  if (!track.faceDown || sameSlot && !physicalZoneChanged) return;
+  // A card another seat controls (a proxy) has no paper card here: the camera never moves it.
+  if (card.ownerSeat !== undefined || !track.faceDown || sameSlot && !physicalZoneChanged) return;
   return {type:'twin.move',source:'auto',actorSeat:seat,seat,cardRef:card.ref,...location,position:fieldTwinPosition(track),faceUp:false,
     ...(sameSlot && physicalZoneChanged ? {physicalZoneChanged:true} : {})};
 }
