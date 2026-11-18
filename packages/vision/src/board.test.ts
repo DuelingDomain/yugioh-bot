@@ -522,6 +522,44 @@ test('a flat plain sleeve the detector never boxes is placed as a Set from its p
   assert.equal(lit.events.filter(e=>e.type==='removed').length,1,'the lifted Set is removed under the new light');
   lit.watcher.dispose();
 });
+test('a flat sleeve stack on the Deck cell the detector never boxes becomes a pile from its pixels, bare mat and a lifted stack do not',async()=>{
+  const sleeve=[110,150,130],mat=[60,60,70],flat=(rgb:number[],inner?:[number,number,number,number])=>{
+    const width=96,height=140,data=new Uint8ClampedArray(width*height*4);
+    for(let py=0;py<height;py++)for(let px=0;px<width;px++){const x=px/width,y=py/height,on=!inner||x>=inner[0]&&x<=inner[1]&&y>=inner[2]&&y<=inner[3];data.set([...(on?rgb:mat),255],(py*width+px)*4);}
+    return {width,height,data};
+  };
+  const padded=flat(sleeve,[.23,.77,.19,.81]),barePadded=flat(mat),own=flat(sleeve),cell=zones.fieldZoneCells().find(c=>c.zone==='DECK')!,inCell=(c:DetectedQuad)=>Math.abs(zones.fieldCenter(c).x-(cell.x+cell.w/2))<cell.w/2&&Math.abs(zones.fieldCenter(c).y-(cell.y+cell.h/2))<cell.h/2;
+  for(const withSleeve of [true,false]){
+    const r=fieldRig('sure',20,undefined,{width:160,height:90}),run=async(n:number)=>{for(let i=0;i<n;i++){r.watcher.scanNow();await r.tick(300);}},deck=()=>r.watcher.getSnapshot().piles?.some(p=>p.zone==='DECK');
+    r.outlines=[];r.watcher.setCalibration(zones.createFieldCalibration([{x:0,y:0},{x:1,y:1}]));
+    r.appearanceAt=()=>Array(288).fill(.25);r.cropAt=c=>c.blind?own:barePadded;await run(8);
+    if(withSleeve){r.appearanceAt=c=>Array(288).fill(inCell(c)?.65:.25);r.cropAt=c=>c.blind?own:inCell(c)?padded:barePadded;}
+    await run(30);
+    if(withSleeve){
+      assert.ok(deck(),'the sleeve stack is a Deck pile');assert.equal(r.watcher.getSnapshot().missingPiles?.includes('DECK'),false);
+      await run(60);assert.ok(deck(),'the pile stays while the stack rests, without any detector outline');
+      r.appearanceAt=()=>Array(288).fill(.25);r.cropAt=c=>c.blind?own:barePadded;await run(30);
+      assert.equal(deck(),false,'a lifted stack clears the pile');
+    }else assert.equal(deck(),false,'bare mat is never a pile');
+    r.watcher.dispose();
+  }
+  // Hard cases. Each runs on a fresh rig; the mat is .25 (ring .2), the printed card-shaped zone crop `padded` looks like a sleeve edge, and nothing is ever boxed by the detector.
+  const piles=(r:ReturnType<typeof fieldRig>)=>(r.watcher.getSnapshot().piles??[]).map(p=>p.zone);
+  const rig=()=>{const r=fieldRig('sure',20,undefined,{width:160,height:90});r.outlines=[];r.watcher.setCalibration(zones.createFieldCalibration([{x:0,y:0},{x:1,y:1}]));return {r,run:async(n:number)=>{for(let i=0;i<n;i++){r.watcher.scanNow();await r.tick(300);}}};};
+  {// A low-contrast stack (.36 against .25, inside the shift an appearance match absorbs) clears when lifted.
+    const {r,run}=rig();r.appearanceAt=()=>Array(288).fill(.25);r.cropAt=c=>c.blind?own:barePadded;await run(8);
+    r.appearanceAt=c=>Array(288).fill(inCell(c)?.36:.25);r.cropAt=c=>c.blind?own:inCell(c)?padded:barePadded;await run(30);assert.ok(piles(r).includes('DECK'),'a low-contrast stack is a pile');
+    r.appearanceAt=()=>Array(288).fill(.25);r.cropAt=c=>c.blind?own:barePadded;await run(30);assert.equal(piles(r).includes('DECK'),false,'a lifted low-contrast stack clears the pile');r.watcher.dispose();
+  }
+  {// A stack there from the start teaches no empty-mat baseline: lifted over a printed card-shaped zone, the bare cell is not a pile.
+    const {r,run}=rig();r.appearanceAt=c=>Array(288).fill(inCell(c)?.65:.25);r.cropAt=c=>c.blind?own:inCell(c)?padded:barePadded;await run(12);
+    r.appearanceAt=()=>Array(288).fill(.25);r.cropAt=c=>c.blind?own:padded;await run(30);assert.equal(piles(r).length,0,'a lifted stack over a printed zone is no pile');r.watcher.dispose();
+  }
+  {// A printed zone filled unlike its ring teaches no baseline; a light change that scales the zone and its ring by one factor must not turn that zone into a pile.
+    const {r,run}=rig();r.halo=Array(192).fill(.2);r.appearanceAt=()=>Array(288).fill(.45);r.cropAt=c=>c.blind?own:padded;await run(12);
+    r.halo=Array(192).fill(.28);r.appearanceAt=()=>Array(288).fill(.63);await run(30);assert.equal(piles(r).length,0,'a light change on an empty printed zone is no pile');r.watcher.dispose();
+  }
+});
 test('disappearance needs sustained clear absence and emits once, preserving id on occlusion',async()=>{
   const r=fieldRig();for(let i=0;i<6;i++)await r.tick();const id=r.watcher.getSnapshot().tracks[0].id;
   r.outlines=[];r.motion=.2;for(let i=0;i<10;i++)await r.tick();assert.equal(r.events.filter(e=>e.type==='removed').length,0);
