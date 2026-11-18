@@ -1439,11 +1439,13 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         if(!c) {
           // A still, hand-free back with positive Set evidence flickers in the detector (score .4-.55: one hit in ~8 scans).
           // For up to SET_BRIDGE_MS its last outline stands in for the missed hit, while its pixels still match the back
-          // seen at the last hit. A moved, covered or lifted card changes the pixels and takes the ordinary miss path below.
+          // seen at the last hit and still differ from the mat around them (a lifted card leaves mat, which also looks "same" to a
+          // flat sleeve). A moved, covered or lifted card takes the ordinary miss path below.
           const last=t.view.card;
           if(detectorRan&&!region&&setGuards.positiveBack&&t.view.state==='candidate'&&!t.binding&&!t.view.removed&&last.kind==='face-down'&&
             t.setPositiveAt!==undefined&&sample.at-t.setPositiveAt<=SET_BRIDGE_MS&&sample.at-(t.setRealAt??-Infinity)<=SET_BRIDGE_MS&&
             !handNear(evidence,last)&&evidence.motion(last)<=.025&&!removalHold(last)&&!last.partial&&!last.covered&&
+            sleeveOnMat(evidence.appearance?.(last),evidence.halo?.(last))&&!clearFieldBackground(evidence.appearance?.(last),evidence.halo?.(last))&&
             sameFieldAppearance(t.setBackLook,evidence.appearance?.(last))){
             c=structuredClone(last);t.setBridged=true;note(t,'detector missed: still back kept');
           }
@@ -1511,7 +1513,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
           // The lightweight observation above already checked clear mat.
           continue;
         }
-        t.fullMisses=0;t.fullMissAt=undefined;if(!t.setBridged)t.setRealAt=sample.at;
+        t.fullMisses=0;t.fullMissAt=undefined;if(detectorRan&&!t.setBridged)t.setRealAt=sample.at;
         if(c.confidence>=.7&&!c.kept&&!c.cell&&matchesLook(t,evidence.appearance?.(c)))departureChecks.delete(t);
         if(t.view.state==='candidate'&&tooBig(c)){expireCandidate(t,'candidate expired: outline larger than two zones');continue;}
         if(detectorRan)t.dismissedMissAt=undefined;
@@ -1528,7 +1530,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         t.previewEligible=c.confidence>=.7&&!c.partial&&!c.covered&&!isCovered(c,cards)&&!cards.some(other=>other!==c&&quadIou(c,other)>0);
         proposePose(t,c,cards,evidence,sample.at,current.width,current.height);
         if(t.under){note(t,'seen again on top');t.under=undefined;delete t.view.under;}
-        t.reappeared ||= t.view.removed;t.missed=false;t.view.removed=false;resetAbsence(t);t.view.lastSeen=sample.at;t.view.card=c;
+        t.reappeared ||= t.view.removed;t.missed=false;t.view.removed=false;resetAbsence(t);if(!t.setBridged)t.view.lastSeen=sample.at;t.view.card=c;
         // A hand moves. Skin-coloured pixels that stay still on a still, confident outline for HAND_WAIT_MS are
         // the card's own print (an orange frame or warm art read as skin under a locked, darker exposure or white
         // balance): they stop blocking the face gate and the read, so a clearly seen card is never held for ever.
@@ -1545,7 +1547,8 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
           if(moved)t.moveAt??=sample.at;else t.moveAt=undefined;
         }
         if(!t.timing)beginTiming(t,t.view.firstSeen);if(detectorRan)count(t,'detects');stage(t,'detectorDone');if(t.timing){t.timing.durationsMs.detector=metrics.detectorMs;for(const [key,value] of Object.entries(options.recognizer.detectorTimingsMs??{}))t.timing.durationsMs[`detector.${key}`]=value;}stage(t,'tracker');if(t.timing)t.timing.durationsMs.capture=captureMs;
-        const pixels=appearance(c);
+        // A reused outline is not in this scan's appearance map: read its pixels directly.
+        const pixels=t.setBridged?evidence.appearance?.(c):appearance(c);
         if(t.identityAppearance?.length&&matchesLook(t,pixels))t.lookUpright=upright(c);
         const publicIdentity=bound(t)&&!t.view.faceDown?options.getKnownCards?.().find(k=>k.id===t.view.id&&!k.faceDown)?.cardId:undefined;
         if(t.awaitingName&&publicIdentity===t.awaitingName.next)t.awaitingName=undefined;
@@ -1592,9 +1595,9 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         const ignored=setGuards.ignore?setMemory.ignored.find(r=>(r.source!=='startup'||setGuards.startup)&&sameSetRegion(r.quad,setMatQuad(c,calibration).quad)):undefined;
         if(admittingSet||ignored){
           const stillBack=detectorRan&&c.kind==='face-down'&&observation.state==='down'&&observation.confidence>=.8&&cardAspect(c)&&!c.partial&&!c.covered&&!handNear(evidence,c)&&evidence.motion(c)<=.025;
-          if(detectorRan)t.setDownScans=stillBack?(t.setDownScans??0)+1:0;
+          if(detectorRan&&!t.setBridged)t.setDownScans=stillBack?(t.setDownScans??0)+1:0;
           const measured=measureSetEvidence(crop,c,observation,setMemory,sleeveOnMat(pixels,evidence.halo?.(c)),(t.setDownScans??0)>=SET_STEADY_SCANS);
-          if(measured.evidence.positive&&!t.setBridged){t.setPositiveAt=sample.at;t.setBackLook=pixels?.slice();}
+          if(measured.evidence.positive&&detectorRan&&!t.setBridged){t.setPositiveAt=sample.at;t.setBackLook=pixels?.slice();}
           t.view.setEvidence={...measured.evidence,decision:t.view.setEvidence?.decision??'waiting'};setLooks.set(t,measured.look);
           if(faceClean&&restOk(t)&&t.view.setEvidence.decision==='waiting'&&!setObserved.has(t)){setObserved.add(t);setDecision(t,'waiting');}
           if(ignored){
@@ -1708,6 +1711,8 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
           if(!faceClean){t.anchor=c;t.stableSince=NaN;t.observations=0;}
           note(t,'Set needs positive back evidence');continue;
         }
+        // Positive evidence ends the "no positive back" wait: it must be unbroken, not summed over scans a reused outline bridges.
+        setWait.delete(t);
         if(admittingSet&&t.promptOnly==='card-presence'&&t.view.setEvidence?.positive){t.view.state='candidate';t.promptOnly=undefined;t.prompted=false;}
         if(face.state==='unknown'){
           if(observation.state!=='unknown')faceState.pendingAt??=sample.at;else faceState.pendingAt=undefined;
