@@ -493,6 +493,24 @@ test('a flickering still back is placed on its reused outline, never after 1.2 s
   const printed=rig();printed.appearance=Array(12).fill(.3);printed.outlines=[back];await printed.tick(200);await printed.tick(200);printed.appearance=Array(12).fill(.38);printed.outlines=[];printed.watcher.scanNow();await printed.tick(200);assert.equal(placed(printed),0,'a lighter printed zone box is not the sleeve, even though its flat look matches with a shift');
   for(const r of [flick,late,lifted,printed])r.watcher.dispose();
 });
+test('a flat plain sleeve the detector never boxes is placed as a Set from its pixels, bare mat is not',async()=>{
+  const sleeve=[110,150,130],mat=[60,60,70],flat=(rgb:number[],inner?:[number,number,number,number])=>{
+    const width=96,height=140,data=new Uint8ClampedArray(width*height*4);
+    for(let py=0;py<height;py++)for(let px=0;px<width;px++){const x=px/width,y=py/height,on=!inner||x>=inner[0]&&x<=inner[1]&&y>=inner[2]&&y<=inner[3];data.set([...(on?rgb:mat),255],(py*width+px)*4);}
+    return {width,height,data};
+  };
+  // The padded cell crop holds the cell in its middle 1/1.3; a sleeve about .7 x .8 of the cell sits at its centre.
+  const padded=flat(sleeve,[.23,.77,.19,.81]),barePadded=flat(mat),own=flat(sleeve),cell=zones.fieldZoneCells().find(c=>c.zone==='S4')!,inCell=(c:DetectedQuad)=>Math.abs(zones.fieldCenter(c).x-(cell.x+cell.w/2))<cell.w/2&&Math.abs(zones.fieldCenter(c).y-(cell.y+cell.h/2))<cell.h/2;
+  for(const withSleeve of [true,false]){
+    const r=fieldRig('sure',20,undefined,{width:160,height:90});r.outlines=[];r.watcher.setCalibration(zones.createFieldCalibration([{x:0,y:0},{x:1,y:1}]));
+    r.appearanceAt=()=>Array(288).fill(.25);r.cropAt=c=>c.blind?own:barePadded;for(let i=0;i<8;i++){r.watcher.scanNow();await r.tick(300);}
+    if(withSleeve){r.appearanceAt=c=>Array(288).fill(inCell(c)?.65:.25);r.cropAt=c=>c.blind?own:inCell(c)?padded:barePadded;}
+    for(let i=0;i<30;i++){r.watcher.scanNow();await r.tick(300);}
+    const placed=r.events.filter(e=>e.type==='placed');
+    if(withSleeve){assert.equal(placed.length,1,'the flat sleeve is placed');assert.equal(placed[0].track.zone,'S4');assert.equal(placed[0].track.faceDown,true);}else assert.equal(placed.length,0,'bare mat is never a Set');
+    r.watcher.dispose();
+  }
+});
 test('disappearance needs sustained clear absence and emits once, preserving id on occlusion',async()=>{
   const r=fieldRig();for(let i=0;i<6;i++)await r.tick();const id=r.watcher.getSnapshot().tracks[0].id;
   r.outlines=[];r.motion=.2;for(let i=0;i<10;i++)await r.tick();assert.equal(r.events.filter(e=>e.type==='removed').length,0);
