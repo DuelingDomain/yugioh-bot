@@ -51,6 +51,7 @@ const quads: DetectedQuad[] = [
   { quad: [{ x: .1, y: .1 }, { x: .4, y: .1 }, { x: .4, y: .9 }, { x: .1, y: .9 }], kind: "face-up", confidence: .95, partial: false },
   { quad: [{ x: .6, y: .2 }, { x: .9, y: .2 }, { x: .9, y: .8 }, { x: .6, y: .8 }], kind: "face-down", confidence: .87, partial: true },
 ];
+const committedBack={detector:.43,pixel:'down',pixelConfidence:.9,sd:null,backDistance:null,positive:true,basis:'pixels',decision:'committed'};
 const cards = [
   { cardId: "46986414", passcode: 46986414, frameClass: "Normal", name: "Dark Magician" },
   { cardId: "89631139", passcode: 89631139, frameClass: "Normal", name: "Blue-Eyes White Dragon" },
@@ -815,6 +816,26 @@ it('board re-sync: one undoable fix per change, Undo is left alone, a failed wri
   // ... and the next cycle tries it again.
   fail=false;await resync();
   await waitFor(()=>expect(fixture.room().state.seats[0].twin[0]).toMatchObject({zone:'spell-trap',slot:3}));
+  const now=performance.now()+4000,clock=vi.spyOn(performance,'now').mockReturnValue(now);
+  try{
+   const back={id:'fw-hidden-set',zone:'S5',card:{...quads[0],kind:'face-down'},faceDown:true,cardId:undefined,visible:false,firstSeen:now-5000,lastSeen:now-2000,setEvidence:committedBack};
+   fixture.addTrack(back);
+   fixture.addTrack({...back,id:'fw-stale-set',zone:'M3',lastSeen:now-3001});
+   const watch=state.fieldWatch.watch;
+   watch.getSnapshot=()=>({...watch.snapshot,lastFullAt:now-100});
+   fixture.refresh();
+   await resync();
+   expect(fixture.room().state.seats[0].twin.filter((c:any)=>!c.faceUp)).toEqual([expect.objectContaining({ref:back.id,zone:'spell-trap',slot:5})]);
+   // A stale, invisible but committed track remains when a player moves its card to Hand.
+   // It must not be re-placed after the recent-departure window expires.
+   state.fieldWatch.recordEvents=false;
+   fixture.setTwins(fixture.room().state.seats[0].twin.map((c:any)=>c.ref===back.id?{...c,zone:'hand',slot:undefined,
+     departedFrom:{zone:'spell-trap',slot:5,at:Date.now()-5000}}:c));
+   const writes=fixture.post.mock.calls.length;
+   await resync();
+   expect(fixture.post.mock.calls).toHaveLength(writes);
+   expect(fixture.room().state.seats[0].twin.find((c:any)=>c.ref===back.id).zone).toBe('hand');
+  }finally{clock.mockRestore();}
  }finally{fixture.dispose();schedule.mockRestore();}
 });
 it('repairs an absent duplicate at the same precise physical field slot',async()=>{
@@ -1040,24 +1061,27 @@ describe('typed watcher zone projection',()=>{
    else{expect(dismiss).not.toHaveBeenCalled();expect(fixture.room().state.seats[0].twin).toEqual(placement?[]:[expect.objectContaining({ref:old.ref,zone:'hand'})]);}
   }finally{ready.resolve();fixture.dispose();}
  },10_000);
- it.each(['earlier GY touch','hand over the slot'] as const)('holds a slow in-place Set after removal with %s',async scenario=>{
+ it.each(['earlier GY touch','hand over the slot','no full scan during CPU guard','a back candidate','pixels only'] as const)('holds a slow in-place Set after removal with %s',async scenario=>{
   const old={ref:'slow-set',zone:'spell-trap',slot:4,cardId:41420027,name:'Solemn Judgment',faceUp:true,position:'attack'};
   const fixture=await typedWatcherFixture(zoneEntries[0],'S4',[old],'moved');
   vi.useFakeTimers();
   try{
    const advance=(ms:number)=>act(async()=>{await vi.advanceTimersByTimeAsync(ms);});
    await advance(5000);
-   const removedAt=performance.now(),earlierPile=scenario==='earlier GY touch',watch=state.fieldWatch.watch;
+   const removedAt=performance.now(),earlierPile=scenario==='earlier GY touch',cpu=scenario==='no full scan during CPU guard',watch=state.fieldWatch.watch;
    Object.assign(fixture.track,{lastSeen:removedAt-2400,removed:true,visible:false});
    watch.isRemoved=()=>fixture.track.removed;
    watch.getSnapshot=()=>watch.snapshot;
-   Object.assign(watch.snapshot,{pileTouchedAt:earlierPile?{GY:removedAt-2100}:{},blindZones:earlierPile?['S4']:[],handZones:earlierPile?[]:['S4']});
+   Object.assign(watch.snapshot,{pileTouchedAt:earlierPile?{GY:removedAt-2100}:{},blindZones:[],handZones:scenario==='hand over the slot'?['S4']:[],
+    ...(cpu?{status:'budget',lastFullAt:removedAt-2400}:{})});
    fixture.refresh();
    await fixture.emit({type:'removed',removedAt});
-   await advance(1000);
+   await advance(cpu?4000:1000);
    expect(fixture.post).not.toHaveBeenCalled();
-   Object.assign(watch.snapshot,{blindZones:['S4'],handZones:[]});
-   await advance(1250);
+   const candidate=scenario==='a back candidate';
+   Object.assign(watch.snapshot,{blindZones:candidate?[]:['S4'],blindSleeveAt:candidate?{}:{S4:performance.now()},handZones:[],lastFullAt:performance.now()});
+   if(candidate)watch.snapshot.tracks.push({...fixture.track,id:'pending-back',removed:false,state:'candidate',firstSeen:removedAt,card:{...fixture.track.card,kind:'face-down'}});
+   await advance(candidate||scenario==='pixels only'?7500:1250);
    expect(fixture.post).not.toHaveBeenCalled();
 
    Object.assign(fixture.track,{faceDown:true,cardId:undefined,visible:true,removed:false,revision:1});
@@ -1065,7 +1089,103 @@ describe('typed watcher zone projection',()=>{
    await advance(1000);
    expect(fixture.post.mock.calls.map(([proposal])=>proposal.type)).toEqual(['twin.flip']);
    expect(fixture.room().state.seats[0].twin).toEqual([expect.objectContaining({...old,faceUp:false})]);
+   if(cpu){
+    Object.assign(fixture.track,{removed:true,visible:false});
+    Object.assign(watch.snapshot,{missingTwins:[old.ref],blindZones:[],lastFullAt:performance.now()});
+    watch.scanNow=vi.fn(()=>{watch.snapshot.lastScanAt=performance.now();});
+    fixture.refresh();
+    await advance(1200);
+    expect(watch.scanNow).toHaveBeenCalledExactlyOnceWith({gentle:true});
+    expect(fixture.post.mock.calls[1]?.[0]).toMatchObject({type:'twin.move',cardRef:old.ref,zone:'hand'});
+   }
   }finally{fixture.dispose();vi.useRealTimers();}
+ });
+ it.each(['a back in another slot','a back during the pile wait','blind cell without a sleeve'] as const)('handles a departure with %s',async scenario=>{
+  const old={ref:'real-removal',zone:'spell-trap',slot:4,cardId:41420027,name:'Solemn Judgment',faceUp:false,publicIdentity:true,position:'attack'};
+  const fixture=await typedWatcherFixture(zoneEntries[0],'S4',[old],'moved');
+  vi.useFakeTimers();
+  try{
+   let now=performance.now();
+   vi.spyOn(performance,'now').mockImplementation(()=>now);
+   const advance=(ms:number)=>act(async()=>{now+=ms;await vi.advanceTimersByTimeAsync(ms);});
+   const removedAt=now,watch=state.fieldWatch.watch;
+   Object.assign(fixture.track,{lastSeen:removedAt-1500,removedAt,removed:true,visible:false,faceDown:true});
+   watch.isRemoved=()=>fixture.track.removed;
+   watch.getSnapshot=()=>watch.snapshot;
+   const cross=scenario==='a back in another slot',pile=scenario==='a back during the pile wait';
+   Object.assign(watch.snapshot,{lastFullAt:removedAt-100,blindZones:['S4'],...(pile?{pileTouchedAt:{GY:removedAt}}:{})});
+   const addBack=()=>fixture.addTrack({id:'cross-slot-back',zone:'S2',state:'candidate',removed:false,faceDown:true,cardId:undefined,firstSeen:cross?now:removedAt+100,
+     card:{...fixture.track.card,kind:'face-down'}});
+   fixture.refresh();
+   await fixture.emit({type:'removed',removedAt});
+   if(pile){
+    await advance(900);
+    expect(fixture.post).not.toHaveBeenCalled();
+    addBack();
+   }
+   if(cross){
+    Object.assign(watch.snapshot,{blindZones:[],handZones:['S2'],pileTouchedAt:{GY:removedAt+100},pileContactAt:{}});
+    await advance(2700);
+    const back=addBack();
+    await advance(500);
+    expect(fixture.post).not.toHaveBeenCalled();
+    Object.assign(back,{state:'identified',visible:true,lastSeen:now});
+    await fixture.emit({type:'placed',track:{...back}});
+    await advance(8000);
+    fixture.refresh();
+    Object.assign(back,{visible:false});
+    await fixture.emit({type:'removed',removedAt,reason:'empty'});
+    await advance(900);
+    await advance(1300);
+    expect(fixture.post).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({type:'twin.move',cardRef:old.ref,zone:'spell-trap',slot:2,faceUp:false}),expect.anything());
+    expect(fixture.room().state.seats[0].twin).toEqual([expect.objectContaining({ref:old.ref,slot:2,name:old.name,faceUp:false})]);
+    const {projectRemoteState}=await import('@yugidraft/shared/remote');
+    const publicCard=projectRemoteState(fixture.room().state,new Set([1])).seats[0].twin[0];
+    expect(publicCard).not.toHaveProperty('name');
+    expect(publicCard).not.toHaveProperty('cardId');
+    return;
+   }
+   if(pile)await advance(1300);
+   else {
+    await advance(800);
+    expect(fixture.post).not.toHaveBeenCalled();
+    watch.snapshot.lastFullAt=now;
+    await advance(250);
+   }
+   expect(fixture.post).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({type:'twin.move',cardRef:old.ref,zone:'hand'}),expect.anything());
+  }finally{fixture.dispose();vi.mocked(performance.now).mockRestore();vi.useRealTimers();}
+ });
+ it.each(['recent','stale removal','held read','pile read','manual departure'] as const)('checks a committed Hand-to-Set return against its removal and later sightings: %s',async scenario=>{
+  const old={ref:'rebound-set',zone:'hand',cardId:41420027,name:'Solemn Judgment',faceUp:true,position:'attack',publicIdentity:true,
+   departedFrom:{zone:'spell-trap',slot:4,auto:scenario!=='manual departure',at:Date.now()-500}};
+  const fixture=await typedWatcherFixture(zoneEntries[0],'S4',[old],'moved');
+  try{
+   const now=performance.now()+20_000;
+   vi.spyOn(performance,'now').mockReturnValue(now);
+   const removedAt=now-(scenario==='stale removal'?10_001:4000);
+   fixture.refreshAfterPosts();
+   Object.assign(fixture.track,{faceDown:true,cardId:undefined,visible:false,revision:1,lastSeen:now-3100,setEvidence:committedBack});
+   if(scenario==='held read')await act(async()=>state.fieldWatch.config.onHeldCard({id:'held-bounce',cardId:'41420027',at:performance.timeOrigin+removedAt+1000,lifted:true}));
+   if(scenario==='pile read')fixture.addTrack({id:'pile-bounce',zone:'GY',cardId:'41420027',firstSeen:removedAt-1000,lastSeen:removedAt+1000});
+   await fixture.emit({type:'flipped',removedAt});
+   await fixture.emit({type:'moved',removedAt});
+   if(scenario!=='recent'){expect(fixture.post).not.toHaveBeenCalled();return;}
+   await waitFor(()=>expect(fixture.post).toHaveBeenCalledOnce());
+   const proposal=fixture.post.mock.calls[0][0];
+   expect(proposal).toMatchObject({type:'twin.move',cardRef:old.ref,zone:'spell-trap',slot:4,faceUp:false});
+   expect(proposal.setRef).toBeDefined();
+   expect(proposal.setRef).not.toBe(old.ref);
+   expect(state.fieldWatch.watch.forget).not.toHaveBeenCalledWith(old.ref);
+   expect(fixture.room().state.seats[0].twin).toEqual([expect.objectContaining({ref:proposal.setRef,faceUp:false,cardId:old.cardId})]);
+   const {projectRemoteSnapshot}=await import('@yugidraft/shared/remote');
+   const room=fixture.room();
+   const event={id:'set-return',seq:1,actorSeat:0,userId:null,at:Date.now(),action:{...proposal,idempotencyKey:'set-return'}};
+   const projected=projectRemoteSnapshot({table:{...room,seats:[]},state:room.state,events:[event]},new Set([1]));
+   expect(projected.state.seats[0].twin).toEqual([expect.objectContaining({ref:proposal.setRef,faceUp:false})]);
+   expect(projected.state.seats[0].twin[0].cardId).toBeUndefined();
+   expect(projected.events[0].action).toMatchObject({type:'twin.place',card:{ref:proposal.setRef,faceUp:false}});
+   expect(JSON.stringify(projected.events)).not.toContain(old.ref);
+  }finally{fixture.dispose();vi.restoreAllMocks();}
  });
  it('a pile card the camera shows right after a departure settles the move at once, and the stand-in goes (one card, one pile)',async()=>{
   const old={ref:'left-field',zone:'spell-trap',slot:4,cardId:41420027,name:'Solemn Judgment',faceUp:true,position:'attack'};

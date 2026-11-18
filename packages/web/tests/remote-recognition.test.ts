@@ -584,6 +584,14 @@ it('queued evidence cannot apply or confirm an old name over replacement pixels'
  for(const track of [undefined,{...event.track,visible:false},{...event.track,removed:true},{...event.track,revision:1},{...event.track,cardId:'B'}])expect(fieldEvidenceMatches(event,track)).toBe(false);
  expect(fieldEvidenceMatches(event,{...event.track,zone:'M4'})).toBe(true);
  expect(fieldEvidenceMatches({...event,type:'prompt'},{...event.track,state:'prompt'})).toBe(true);
+ const now=vi.spyOn(performance,'now').mockReturnValue(5000);
+ try{
+   const back={...event.track,cardId:undefined,faceDown:true,visible:false,lastSeen:2000,setEvidence:{decision:'committed'}};
+   const placed={...event,track:back};
+   expect(fieldEvidenceMatches(placed,back)).toBe(true);
+   for(const stale of [{lastSeen:1999},{removed:true},{setEvidence:{decision:'waiting'}}])
+     expect(fieldEvidenceMatches(placed,{...back,...stale})).toBe(false);
+ }finally{now.mockRestore();}
 });
 
 it('a replacement during the placement HTTP request rolls back the new twin and never confirms its name',async()=>{
@@ -1152,15 +1160,15 @@ async function setBackRig(slide:boolean,named:boolean){
   const {remoteActionSchema}=await import('../../shared/src/remote/actions');
   r.state.down=slide;r.state.outlines=[r.quad(.47,.30,slide)];await r.tick(8);
   const first=r.state.events.find(e=>e.type==='placed')!;
-  r.state.absent=true;r.state.outlines=[];r.state.halo=.2;await r.tick(35);
+  r.state.absent=true;r.state.outlines=[];r.state.halo=.2;
+  for(let i=0;i<35&&!r.state.events.some(e=>e.type==='removed');i++)await r.tick();
+  const removal=r.state.events.find(e=>e.type==='removed')!;expect(removal.removedAt).toBeTypeOf('number');
   r.state.absent=false;r.state.down=true;r.state.halo=.45;r.state.outlines=[r.quad(slide?.634:.47,.30,true)];await r.tick(15);
   const back=r.watcher.getSnapshot().tracks.find(t=>t.faceDown&&t.visible&&!t.removed)!;
   let game=ygoModule.initialState({seatCount:2}),serial=0;
   const act=(input:Record<string,unknown>,at:number)=>game=ygoModule.reduce(game,remoteActionSchema.parse({actorSeat:0,seat:0,at,idempotencyKey:`rig-${++serial}`,...input}));
   act({type:'twin.place',zone:'monster',card:{ref:first.track.id,slot:3,faceUp:!slide,position:slide?'defense':'attack',...(named?{cardId:100,name:'Terraforming'}:{})}},1000);
-  return {r,first,back,act,game:()=>game,owns:(t:{id:string})=>t.id,tracks:()=>r.watcher.getSnapshot().tracks,reduce:ygoModule,
-    // The late placement: the back was first seen 1.1 s before the departure was written, the board decides 10 s after it (the owner's S5 to S2 case).
-    late:async(depart:number)=>{await r.tick(100);return {now:r.state.at,at:depart-1100+(r.state.at-back.firstSeen)};}};
+  return {r,first,back,removal,act,game:()=>game,owns:(t:{id:string})=>t.id,tracks:()=>r.watcher.getSnapshot().tracks};
 }
 it('a Set back where a known card just left is that card, never a duplicate; a pile read or a draw in between keeps the old result',async()=>{
   const {fieldSetReturn}=await import('../src/lib/remote/field-proposals');
@@ -1172,11 +1180,12 @@ it('a Set back where a known card just left is that card, never a duplicate; a p
     // Order two: the hand move went first and the late back brings the same card back as a Set, once, with an exact hand count.
     const handBefore=g.game().seats[0].handCount;
     g.act({type:'twin.move',source:'auto',cardRef:g.first.track.id,zone:'hand'},100_000);
-    const {now,at}=await g.late(100_000);
+    const {now,at}={now:g.r.state.at,at:103_000};
     const found=fieldSetReturn({track:g.back,twins:g.game().seats[0].twin,tracks:g.tracks(),owns:g.owns,events:[],seat:0,now,at});
     expect(found).toMatchObject({kind:'return',card:{ref:g.first.track.id}});
+    expect(fieldSetReturn({track:g.back,twins:g.game().seats[0].twin,tracks:g.tracks(),owns:g.owns,events:[],seat:0,now:g.removal.removedAt!+10_001,at})).toBeUndefined();
     // A GY read after the card left, or a draw since, is not a turn-over.
-    expect(fieldSetReturn({track:g.back,twins:g.game().seats[0].twin,tracks:g.tracks(),owns:g.owns,events:[],seat:0,now,at,pileTouched:{GY:500}})).toBeUndefined();
+    expect(fieldSetReturn({track:g.back,twins:g.game().seats[0].twin,tracks:g.tracks(),owns:g.owns,events:[],seat:0,now,at,pileTouched:{GY:g.removal.removedAt!}})).toBeUndefined();
     expect(fieldSetReturn({track:g.back,twins:g.game().seats[0].twin,tracks:g.tracks(),owns:g.owns,events:[{at:101_000,action:{type:'hand.draw',actorSeat:0,count:1,idempotencyKey:'draw'}}],seat:0,now,at})).toBeUndefined();
     g.act({type:'twin.move',source:'auto',cardRef:found!.card.ref,zone:'monster',slot:3,faceUp:false,position:'defense'},at);
     expect(g.game().seats[0].twin.map(c=>[c.ref,c.zone,c.slot,c.faceUp,c.cardId,!!c.publicIdentity])).toEqual([[g.first.track.id,'monster',3,false,100,false]]);
@@ -1184,21 +1193,37 @@ it('a Set back where a known card just left is that card, never a duplicate; a p
   }finally{g.r.dispose();}
 });
 
-it('a Set card slid to another zone is one move of the same unnamed card; a named card or a second Set is not',async()=>{
-  const {fieldSetReturn}=await import('../src/lib/remote/field-proposals');
+it('a Set card slid to another zone keeps its ref unless the transfer is ambiguous or another destination was seen',async()=>{
+  const {fieldSetReturn,fieldSetSlide}=await import('../src/lib/remote/field-proposals');
   const g=await setBackRig(true,false);
   try{
-    const handBefore=g.game().seats[0].handCount;
+    const before=g.game().seats[0];
+    const {now,at}={now:g.r.state.at,at:103_000};
+    const evidence={track:g.back,tracks:g.tracks(),owns:g.owns,events:[],seat:0,now,at};
+    const slide={...evidence,twins:before.twin.map(c=>({...c,faceUp:true,name:'Terraforming',cardId:100})),
+      zoneOf:()=> 'M3' as const,seenOffField:()=>false};
+    expect(fieldSetSlide(slide)).toMatchObject({card:{ref:g.first.track.id,name:'Terraforming'}});
+    const samePass=slide.tracks.map(t=>t.id===g.first.track.id?{...t,removedAt:g.back.firstSeen+200,removedFrameAt:g.back.firstSeen}:t);
+    expect(fieldSetSlide({...slide,tracks:samePass})?.card.ref).toBe(g.first.track.id);
+    const removedAt=g.removal.removedAt!;
+    const lateBlind={...g.back,firstSeen:removedAt+3400,card:{...g.back.card,blind:true}};
+    const delayed={...slide,track:lateBlind,tracks:slide.tracks.map(t=>t.id===lateBlind.id?lateBlind:t),now:removedAt+3800};
+    expect(fieldSetSlide(delayed)).toBeUndefined();
+    expect(fieldSetSlide({...delayed,blindSleeveSince:{[lateBlind.zone]:removedAt+2900}})?.card.ref).toBe(g.first.track.id);
+    expect(fieldSetSlide({...delayed,blindSleeveSince:{[lateBlind.zone]:removedAt+3100}})).toBeUndefined();
+    expect(fieldSetSlide({...delayed,now:removedAt+10_001,blindSleeveSince:{[lateBlind.zone]:removedAt+2900}})).toBeUndefined();
+    expect(fieldSetSlide({...slide,pileTouched:{GY:g.removal.removedAt!}})).toBeUndefined();
+    expect(fieldSetSlide({...slide,seenOffField:()=>true})).toBeUndefined();
+    expect(fieldSetSlide({...slide,tracks:[...slide.tracks,{...g.back,id:'other',zone:'M5'}]})).toBeUndefined();
     g.act({type:'twin.move',source:'auto',cardRef:g.first.track.id,zone:'hand'},100_000);
-    const {now,at}=await g.late(100_000);
-    const input={track:g.back,twins:g.game().seats[0].twin,tracks:g.tracks(),owns:g.owns,events:[],seat:0,now,at};
+    const input={...evidence,twins:g.game().seats[0].twin};
     const found=fieldSetReturn(input);
     expect(found).toMatchObject({kind:'move',card:{ref:g.first.track.id}});
     expect(fieldSetReturn({...input,twins:input.twins.map(c=>({...c,name:'Terraforming',cardId:100}))})).toBeUndefined();
     expect(fieldSetReturn({...input,tracks:[...input.tracks,{...g.back,id:'other',zone:'M5'}]})).toBeUndefined();
     g.act({type:'twin.move',source:'auto',cardRef:found!.card.ref,zone:'monster',slot:4,faceUp:false,position:'defense'},at);
     expect(g.game().seats[0].twin.map(c=>[c.ref,c.zone,c.slot,c.faceUp,c.cardId])).toEqual([[g.first.track.id,'monster',4,false,undefined]]);
-    expect(g.game().seats[0].handCount).toBe(handBefore);
+    expect(g.game().seats[0].handCount).toBe(before.handCount);
   }finally{g.r.dispose();}
 });
 

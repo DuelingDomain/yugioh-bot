@@ -7,10 +7,12 @@
  */
 export interface FieldPacerDevice { cores:number; memoryGb?:number }
 export interface FieldPacer {
-  /** A pass may start now. `moving`: a hand or card still moves and nothing waits for an outline; a pass now sees little, so it waits longer and saves the bucket for when the card lands. `urgent`: a new card just came to rest and waits for its first read (short, set by the watcher): no moving rest and no backoff, and the bucket may go into a limited debt that the sustain rate repays, so the duty over a longer window stays the same. */
+  /** Boolean form of check for callers that only need admission. */
   allow(at:number,moving?:boolean,sceneMoving?:boolean,urgent?:boolean):boolean;
-  /** A detector pass of this wall time ended at `at`. */
-  spend(wallMs:number,at:number,sceneMoving?:boolean):void;
+  /** Moving hands wait longer. Urgent first reads use the burst rest and may borrow one pass while backoff is off. */
+  check(at:number,moving?:boolean,sceneMoving?:boolean,urgent?:boolean):'ready'|'rest'|'budget';
+  /** Record wall time and rest. Priority passes and urgent passes during backoff spend available tokens only. */
+  spend(wallMs:number,at:number,sceneMoving?:boolean,debt?:boolean|'urgent'):void;
   /** The scene changed at `at`: retries after a change come sooner than the slow timer. */
   changed(at:number):void;
   /** Slow timer for a full pass on a still scene. It does not back off: a dark card can fall under the scene check. */
@@ -38,16 +40,23 @@ export function createFieldPacer(device:FieldPacerDevice,start:number,backend:()
   const capacity=()=>Math.max(2500,passMs*6);
   const refill=(at:number)=>{tokens=Math.min(capacity(),tokens+Math.max(0,at-last)*sustain()/backoff);last=Math.max(last,at);};
   const prune=(at:number)=>{while(passes.length&&at-passes[0].end>WINDOW_MS)passes.shift();};
+  const check:FieldPacer['check']=(at,moving=false,sceneMoving=moving,urgent=false)=>{
+    refill(at);
+    const gpu=backend()==='webgpu',burstRest=passMs*(gpu?BURST_REST:1);
+    const rest=urgent?burstRest:(moving?Math.max(MOVING_REST_MS,passMs*MOVING_REST):burstRest)*backoff;
+    if(at-lastEnd<rest||!urgent&&moving&&!gpu&&at-movingSince<MOVING_REST_MS)return 'rest';
+    // A pass that starts with a nonnegative balance can incur at most its own wall time in debt.
+    if(urgent)return tokens>=(backoff>1?passMs:0)?'ready':'budget';
+    return tokens>0||wakePermit&&!sceneMoving?'ready':'budget';
+  };
   return {
-    allow(at,moving=false,sceneMoving=moving,urgent=false){
-      refill(at);
-      // The debt is at most one pass, and none while the main thread is short of time (backoff), so normal passes resume soon.
-      if(urgent)return tokens>-(backoff>1?0:passMs)&&at-lastEnd>=passMs*(backend()==='webgpu'?BURST_REST:1);
-      const rest=moving?Math.max(MOVING_REST_MS,passMs*MOVING_REST):passMs*(backend()==='webgpu'?BURST_REST:1);
-      return (tokens>0||wakePermit&&!sceneMoving)&&at-lastEnd>=rest*backoff&&(!moving||backend()==='webgpu'||at-movingSince>=MOVING_REST_MS);
-    },
-    spend(wallMs,at,sceneMoving=false){
-      refill(at);if(!sceneMoving)wakePermit=false;tokens-=wallMs;passMs=passMs?passMs*.7+wallMs*.3:wallMs;lastEnd=at;passes.push({end:at,wall:wallMs});prune(at);
+    allow:(...args)=>check(...args)==='ready',
+    check,
+    spend(wallMs,at,sceneMoving=false,debt=true){
+      refill(at);if(!sceneMoving)wakePermit=false;
+      const allowDebt=debt===true||debt==='urgent'&&backoff===1;
+      tokens=allowDebt?tokens-wallMs:Math.max(Math.min(tokens,0),tokens-wallMs);
+      passMs=passMs?passMs*.7+wallMs*.3:wallMs;lastEnd=at;passes.push({end:at,wall:wallMs});prune(at);
     },
     changed(at){
       if(at-changedAt>1000+passMs){

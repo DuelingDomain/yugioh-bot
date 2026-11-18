@@ -4113,6 +4113,36 @@ it.each(["idle", "creator-left"] as const)("expires no-result %s evidence after 
   } finally {vi.unstubAllEnvs();}
 });
 
+it('rotates the ref of a recovered Set and keeps identity only for a face-up card returned to its original cell', () => {
+  const cases = [
+    { faceUp: true, slot: 1, physicalZoneChanged: false, known: true },
+    { faceUp: false, slot: 1, physicalZoneChanged: false, known: false },
+    { faceUp: true, slot: 2, physicalZoneChanged: false, known: false },
+    { faceUp: true, slot: 1, physicalZoneChanged: true, known: false },
+  ] as const;
+  for (const { faceUp, slot, physicalZoneChanged, known } of cases) {
+    const place = remoteActionSchema.parse({ type: 'twin.place', seat: 0, actorSeat: 0, zone: 'spell-trap', at: 1,
+      idempotencyKey: 'first-place', card: { ref: 'old', slot: 1, faceUp: true, cardId: 5318639 } });
+    const flip = remoteActionSchema.parse({ type:'twin.flip', seat: 0, actorSeat: 0, cardRef: 'old', faceUp: false, at: 2, idempotencyKey: 'first-set' });
+    const lift = remoteActionSchema.parse({ type: 'twin.move', seat: 0, actorSeat: 0, cardRef: 'old', zone: 'hand',
+      source: 'auto', faceUp: !faceUp, at: 3, idempotencyKey: 'lift' });
+    const recover = remoteActionSchema.parse({ type: 'twin.move', seat: 0, actorSeat: 0, cardRef: 'old', setRef: 'fresh', zone: 'spell-trap',
+      slot, faceUp: false, source: 'auto', ...(physicalZoneChanged ? { physicalZoneChanged: true } : {}), at: 4, idempotencyKey: 'recover' });
+    const initial = ygoModule.initialState({ seatCount: 2 });
+    const events = faceUp ? [place, lift, recover] : [place, flip, lift, recover];
+    const state = events.reduce((position, event) => ygoModule.reduce(position, event), initial);
+    const historical = events.reduce((position, event) => ygoModule.reduce(position, event, {
+      replay: true, twinPlacementGuard: 9, fieldFaceState: 2, setReturnFaceState: 1,
+    }), initial);
+    for (const position of [state, historical]) {
+      expect(position.seats[0].twin).toEqual([expect.objectContaining({ ref: 'fresh', slot, faceUp: false, cardId: 5318639 })]);
+      const viewerCard = projectRemoteState(position, new Set([1])).seats[0].twin[0];
+      expect(viewerCard.cardId).toBe(known ? 5318639 : undefined);
+      expect(viewerCard.knownFaceDown).toBe(known ? true : undefined);
+    }
+  }
+});
+
 it('a card the camera sent from the field to a pile is the same copy when put back late, and the pile counts stay exact', () => {
   let state = ygoModule.initialState({seatCount:2}), at = 0;
   const act = (input:Record<string,unknown>) => state = ygoModule.reduce(state, remoteActionSchema.parse({actorSeat:0, ...(input.type === 'undo' ? {} : {seat:0}), at, idempotencyKey:crypto.randomUUID(), ...input}));

@@ -91,7 +91,9 @@ export const remoteActionSchema = z.discriminatedUnion("type", [
   z.strictObject({ ...meta, type: z.literal("pile.order"), seat: remoteSeatSchema, zone: z.enum(["graveyard", "banished"]), cardRefs: z.array(id).min(1).max(120)
     .refine(refs => new Set(refs).size === refs.length, "Duplicate pile card") }),
   z.strictObject({ ...meta, type: z.literal("twin.move"), seat: remoteSeatSchema, zone, cardRef: id, slot: slot.optional(), position: z.enum(["attack", "defense"]).optional(), faceUp: z.boolean().optional(), source: z.literal("auto").optional(), name: z.string().trim().min(1).max(200).optional(),
-    /** The camera saw a different mat cell even though the move projects into the same virtual slot. */
+    /** Fresh public ref for a camera-confirmed face-down return from the hand. */
+    setRef: id.optional(),
+    /** The card moved between physical cells, even if its virtual slot stays the same. */
     physicalZoneChanged: z.literal(true).optional(),
     /** A face-up Pendulum Monster in the Extra Deck is public information (only that card; every other Extra card stays hidden). */
     pendulum: z.boolean().optional(),
@@ -134,7 +136,7 @@ export type RemoteActionProposal = Proposal<RemoteAction>;
 export type TwinCard = z.infer<typeof twinCardSchema> & {
   /** A pile held for inspection is not part of the hand until confirmed. */
   inspectionFrom?: 'graveyard' | 'banished';
-  zone: string; departedFrom?: { zone: string; slot?: number; at?: number; /** The camera moved it (default for a card out of view). */ auto?: boolean }; setBy?: import("./effect-filters.js").RemoteEffectSource;
+  zone: string; departedFrom?: { zone: string; slot?: number; at?: number; /** The camera moved it (default for a card out of view). */ auto?: boolean; /** A known face-up field card before the camera moved it to Hand. */ wasKnownFaceUp?: true }; setBy?: import("./effect-filters.js").RemoteEffectSource;
   /** Server-authored: the Spell & Trap Zone a Trap Monster still occupies. Cleared when it leaves the Monster Zones. */
   trapZone?: number;
   /** A face-up Pendulum Monster in the Extra Deck: the one Extra card the opponent sees. */

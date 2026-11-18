@@ -1,7 +1,7 @@
 import {remoteActionError,type RoomMutation} from './room-mutations';
 import {OutageGaveUpError,retryThroughOutage,SKIPPED} from './outage';
-import type { RemoteActionProposal, RemoteEvent, RemoteSummonKind, TwinCard } from '@yugidraft/shared/remote';
-import { fieldZoneLocation, type FieldEvent, type FieldTrack } from '@yugidraft/vision';
+import {REMOTE_TWIN_MOVE_WINDOW_MS,type RemoteActionProposal,type RemoteEvent,type RemoteSummonKind,type TwinCard} from '@yugidraft/shared/remote';
+import { FIELD_SET_RETURN_MS,fieldZoneLocation, type FieldEvent, type FieldSnapshot, type FieldTrack } from '@yugidraft/vision';
 // A manual read may finish before the watcher's first identity read. Preserve
 // its physical row even when card legality projects it into another virtual row.
 const observedZones=new Map<string,FieldTrack['zone']>();
@@ -138,24 +138,33 @@ export function fieldPileTrackEvidence({twins,tracks,lastSeen,owns,cardId}:{twin
   return found.length===1?{track:found[0],zone:found[0].zone==='BANISHED'?'banished':'graveyard',faceUp:!found[0].faceDown}:undefined;
 }
 
+const committedSet=(track:Pick<FieldTrack,'faceDown'|'setEvidence'>)=>track.faceDown===true&&track.setEvidence?.decision==='committed';
+export function recentCommittedSet(track:FieldTrack,at=performance.now()):boolean {
+  const age=at-track.lastSeen;
+  return track.state==='identified'&&!track.removed&&committedSet(track)&&age>=0&&age<=3000;
+}
+export const fieldSetRebind=(event:FieldEvent)=>event.track.faceDown&&(event.type==='flipped'||event.type==='moved');
+
 /** An identified track that was seen this recently still has evidence when a slow tick set `visible` false. */
 const VISIBLE_GRACE_MS=1000;
 /** The first reason queued evidence no longer fits the live track (undefined: it fits). For the "identification deferred" log. */
-export function fieldEvidenceMismatch(event:FieldEvent,current:FieldTrack|undefined,humanChoice=false):string|undefined {
+export function fieldEvidenceMismatch(event:FieldEvent,current:FieldTrack|undefined,humanChoice=false,returningSet=false):string|undefined {
   const human=humanChoice&&event.type==='prompt';
   if(!current)return 'no track';
   if(current.removed)return 'removed';
-  const age=performance.now()-current.lastSeen;
+  const at=performance.now(),age=at-current.lastSeen;
   // A slow tick can leave `visible` false for a moment on a card that rests there: an identified track seen within ~1 s still counts, but only for a card covered by another card in the same zone (`under`): a card that moves, has a hand on it or was swapped never counts.
-  const seen=event.type==='reading'||!!current.visible||!human&&current.state==='identified'&&age>=0&&age<=VISIBLE_GRACE_MS&&current.zone===event.track.zone&&!!current.under;
-  if(human?!(age>=0&&age<=1500):!seen)return human?`not seen for ${Math.round(age)} ms`:`not visible (last seen ${Math.round(age)} ms ago)`;
+  const seen=returningSet?fieldSetRebind(event)&&committedSet(event.track)&&committedSet(current)&&current.zone===event.track.zone:
+    human?age>=0&&age<=1500:event.type==='reading'||!!current.visible||recentCommittedSet(current,at)||
+      current.state==='identified'&&age>=0&&age<=VISIBLE_GRACE_MS&&current.zone===event.track.zone&&!!current.under;
+  if(!seen)return human?`not seen for ${Math.round(age)} ms`:`not visible (last seen ${Math.round(age)} ms ago)`;
   if((current.revision??0)!==(event.track.revision??0))return `revision ${current.revision??0} is not ${event.track.revision??0}`;
   if(current.faceDown!==event.track.faceDown)return 'face changed';
   if(event.type==='reading'?current.state!=='candidate':event.type==='prompt'?current.state!=='prompt':current.state!=='identified'||current.cardId!==event.track.cardId)return `state ${current.state}${current.cardId!==event.track.cardId?` name ${current.cardId??'none'} is not ${event.track.cardId??'none'}`:''}`;
   return undefined;
 }
 /** Queue delays must not attach an old read to replacement pixels. */
-export const fieldEvidenceMatches=(event:FieldEvent,current:FieldTrack|undefined,humanChoice=false)=>fieldEvidenceMismatch(event,current,humanChoice)===undefined;
+export const fieldEvidenceMatches=(event:FieldEvent,current:FieldTrack|undefined,humanChoice=false,returningSet=false)=>fieldEvidenceMismatch(event,current,humanChoice,returningSet)===undefined;
 
 export class StaleFieldPlacementError extends Error {
   constructor(readonly placement:Extract<RemoteActionProposal,{type:'twin.place'}>){super('The card changed during save. Remove the stale placement to continue.');}
@@ -191,48 +200,95 @@ export async function applyFieldFaceFlip(track:FieldTrack,current:()=>FieldTrack
   return null;
 }
 
-/** How long after a card left a cell its Set back can still be placed (the placement can wait on the reader); the back itself must show at once, see FIELD_SET_SEEN_MS. */
-export const FIELD_LEFT_SET_MS=15_000;
-/** The back must be first seen within this long of the card leaving (the departure write, about 0.8 s after the track is removed): a later back is another card put there. */
-export const FIELD_SET_SEEN_MS=3000;
-/**
- * A face-down back that settles where a card just left may be that card turned over or slid to another zone.
- *  - flip: the cell still holds a known face-up card whose track was removed and no departure was written yet (the board turns it over in place);
- *  - return: that card already went to the hand (an auto departure from this same cell); it comes back Set;
- *  - move: exactly one UNNAMED Set card left another zone of the row, exactly this one new Set settles in a free zone of it: the same card moved.
- * Nothing applies when a GY/banished pile track or a hand over a pile is newer than the card's last sighting (the card really went to a pile),
- * when the back was first seen more than FIELD_SET_SEEN_MS after the departure, or when the hand changed size since (return and move).
- * Any other reading (two candidates, a manual move, an occupied cell) is undefined: the caller places a new Set as before.
- */
-export function fieldSetReturn({track,twins,tracks,owns,events,seat,at,now,pileTouched}:{track:Pick<FieldTrack,'id'|'zone'|'faceDown'|'firstSeen'>;twins:readonly TwinCard[];tracks:readonly FieldTrack[];owns:(track:FieldTrack)=>string;events:readonly Pick<RemoteEvent,'at'|'action'>[];seat:number;/** Server clock. */at:number;/** The camera clock of the track times. */now:number;/** When a hand was last over each pile (camera clock). */pileTouched?:Partial<Record<'GY'|'BANISHED',number>>}):{kind:'flip'|'return'|'move';card:TwinCard}|undefined {
-  if(!track.faceDown||!/^(M[1-5]|S[1-5])$/.test(track.zone))return;
-  const cell=fieldZoneLocation(track.zone),backAt=at-(now-track.firstSeen);
+const MAIN_FIELD_SLOT=/^[MS][1-5]$/;
+type RemovedFieldTrack=FieldTrack&{removedAt:number};
+export const FIELD_SET_SLIDE_MS=3000;
+export const fieldBackCandidate=(track:FieldTrack)=>!track.removed&&track.state!=='dismissed'&&
+  (track.faceDown||track.state==='candidate'&&track.card.kind==='face-down')&&!track.card.partial&&!track.card.covered;
+
+/** The last field ref can follow one new back while the departure is still pending. */
+export function fieldSetSlide({track,twins,tracks,owns,zoneOf,now,pileTouched,blindSleeveSince,seenOffField}:{
+  track:FieldTrack;twins:readonly TwinCard[];tracks:readonly FieldTrack[];owns:(track:FieldTrack)=>string;
+  zoneOf:(card:TwinCard)=>FieldTrack['zone']|undefined;now:number;pileTouched?:Partial<Record<'GY'|'BANISHED',number>>;
+  blindSleeveSince?:FieldSnapshot['blindSleeveSince'];
+  seenOffField:(card:TwinCard,removedAt:number)=>boolean;
+}):{card:TwinCard;from:RemovedFieldTrack}|undefined {
+  if(!fieldBackCandidate(track)||!MAIN_FIELD_SLOT.test(track.zone))return;
+  const {zone:destination,slot}=fieldZoneLocation(track.zone);
+  if(twins.some(c=>c.ref===owns(track)))return;
+  const occupant=twins.find(c=>c.zone===destination&&c.slot===slot);
+  const sources=twins.flatMap(card=>{
+    const zone=zoneOf(card);
+    if(occupant&&occupant!==card||card.token||card.ownerSeat!==undefined||card.materials?.length||!zone||zone===track.zone||!MAIN_FIELD_SLOT.test(zone))return [];
+    const owned=tracks.filter(t=>owns(t)===card.ref);
+    if(owned.some(t=>!t.removed))return [];
+    const from=owned.find((t):t is RemovedFieldTrack=>t.removed&&t.zone===zone&&t.removedAt!==undefined);
+    if(!from)return [];
+    const since=from.removedFrameAt??from.removedAt;
+    // A blind track takes several full passes to form. Its first stable sleeve scan dates the arrival.
+    const inSlideWindow=(back:FieldTrack)=>{
+      const sleeveAt=back.card.blind?blindSleeveSince?.[back.zone]:undefined;
+      const arrivedAt=sleeveAt!==undefined&&sleeveAt>=since&&sleeveAt<=back.firstSeen?sleeveAt:back.firstSeen;
+      return arrivedAt>=since&&arrivedAt-from.removedAt<=FIELD_SET_SLIDE_MS;
+    };
+    if(!inSlideWindow(track)||
+      now-from.removedAt>FIELD_SET_RETURN_MS||seenOffField(card,since))return [];
+    if(Object.values(pileTouched??{}).some(at=>at>=since)||
+      tracks.some(t=>/^(GY|BANISHED)$/.test(t.zone)&&t.firstSeen>=since))return [];
+    if(tracks.some(t=>t.id!==track.id&&MAIN_FIELD_SLOT.test(t.zone)&&t.zone!==from.zone&&fieldBackCandidate(t)&&
+      inSlideWindow(t)&&!twins.some(c=>c.ref===owns(t))))return [];
+    return [{card,from}];
+  });
+  if(sources.length===1)return sources[0];
+}
+
+/** A Set can reclaim a missing card only while the physical removal is recent. */
+export function fieldSetReturn({track,twins,tracks,owns,events,seat,at,now,pileTouched,seenOffField}:{track:Pick<FieldTrack,'id'|'zone'|'faceDown'|'firstSeen'|'lastSeen'|'setEvidence'>;twins:readonly TwinCard[];tracks:readonly FieldTrack[];owns:(track:FieldTrack)=>string;events:readonly Pick<RemoteEvent,'at'|'action'>[];seat:number;/** Server clock. */at:number;/** Watcher clock. */now:number;pileTouched?:Partial<Record<'GY'|'BANISHED',number>>;seenOffField?:(card:TwinCard,removedAt:number)=>boolean}):{kind:'flip'|'return'|'move';card:TwinCard}|undefined {
+  if(!track.faceDown||!MAIN_FIELD_SLOT.test(track.zone))return;
+  const cell=fieldZoneLocation(track.zone);
   const there=(c:Pick<TwinCard,'zone'|'slot'>)=>c.zone===cell.zone&&(c.slot??0)===(cell.slot??0);
-  const toPile=(since:number)=>tracks.some(t=>/^(GY|BANISHED)$/.test(t.zone)&&t.firstSeen>=since)||[pileTouched?.GY,pileTouched?.BANISHED].some(touched=>touched!==undefined&&touched>=since);
+  const origin=(card:TwinCard)=>{
+    const seen=tracks.filter(t=>owns(t)===card.ref);
+    if(seen.some(t=>!t.removed))return;
+    const from=seen.filter((t):t is RemovedFieldTrack=>t.removedAt!==undefined).sort((a,b)=>b.removedAt-a.removedAt)[0];
+    if(!from)return;
+    const removedAt=from.removedAt,age=now-removedAt;
+    if(age<0||age>FIELD_SET_RETURN_MS||seenOffField?.(card,removedAt))return;
+    if(tracks.some(t=>/^(GY|BANISHED)$/.test(t.zone)&&t.firstSeen>=removedAt)||
+      (pileTouched?.GY??-Infinity)>=removedAt-1500||(pileTouched?.BANISHED??-Infinity)>=removedAt-1500)return;
+    return from;
+  };
+  const inPlace=(from:RemovedFieldTrack)=>{
+    // A front outline may predate the removal and turn over without starting a new track.
+    const backAt=track.firstSeen<from.lastSeen-1000&&committedSet(track)?track.lastSeen:track.firstSeen;
+    return backAt>=from.lastSeen-1000&&backAt<=from.removedAt+3000;
+  };
+  const handOrigin=(c:TwinCard)=>c.zone==='hand'&&c.departedFrom?.auto&&c.departedFrom.at!==undefined&&c.departedFrom.at<=at?c.departedFrom:undefined;
+  const sized=(c:TwinCard,since:number)=>events.some(e=>e.at>=since&&(e.action.type==='hand.draw'||e.action.type==='hand.count'||e.action.type==='hand.add'||e.action.type==='twin.move'&&e.action.zone==='hand'&&e.action.cardRef!==c.ref)&&('seat' in e.action?e.action.seat:e.action.actorSeat)===seat);
   const occupant=twins.find(there);
   if(occupant){
     if(!occupant.faceUp||occupant.token||occupant.ownerSeat!==undefined||occupant.materials?.length||!(occupant.cardId||occupant.passcode))return;
-    const seen=tracks.filter(t=>owns(t)===occupant.ref);
-    // A hidden but not removed track is a card under an arm: it has not gone.
-    if(!seen.length||seen.some(t=>!t.removed))return;
-    const lastSeen=Math.max(...seen.map(t=>t.lastSeen));
-    return now-lastSeen<=FIELD_LEFT_SET_MS&&track.firstSeen>=lastSeen-1000&&track.firstSeen<=lastSeen+FIELD_SET_SEEN_MS+2000&&!toPile(lastSeen-1000)?{kind:'flip',card:occupant}:undefined;
+    const from=origin(occupant);
+    return from&&inPlace(from)?{kind:'flip',card:occupant}:undefined;
   }
-  // A card the camera lifted to the hand, newest first. A manual move has no `auto` mark and never counts.
-  const left=twins.filter(c=>c.zone==='hand'&&c.ownerSeat===undefined&&c.departedFrom?.auto&&c.departedFrom.at!==undefined&&at-c.departedFrom.at<=FIELD_LEFT_SET_MS&&backAt>=c.departedFrom.at-1500&&backAt<=c.departedFrom.at+FIELD_SET_SEEN_MS).sort((a,b)=>b.departedFrom!.at!-a.departedFrom!.at!);
-  const gone=(c:TwinCard)=>{const seen=tracks.filter(t=>owns(t)===c.ref);return toPile((seen.length?Math.max(...seen.map(t=>t.lastSeen)):now-(at-c.departedFrom!.at!))-1000);};
-  const sized=(c:TwinCard)=>events.some(e=>e.at>=c.departedFrom!.at!&&(e.action.type==='hand.draw'||e.action.type==='hand.count'||e.action.type==='hand.add'||e.action.type==='twin.move'&&e.action.zone==='hand'&&e.action.cardRef!==c.ref)&&('seat' in e.action?e.action.seat:e.action.actorSeat)===seat);
-  const back=left.find(c=>there(c.departedFrom!));
-  if(back)return gone(back)||sized(back)?undefined:{kind:'return',card:back};
-  // Moved to another zone: one unnamed Set left, one new Set arrived, and the hand did not change size.
-  const row=cell.zone,sets=left.filter(c=>!c.faceUp&&c.departedFrom!.zone===row);
-  if(sets.length!==1||left.some(c=>c!==sets[0]&&c.departedFrom!.zone===row&&!c.faceUp))return;
-  const card=sets[0],departure=card.departedFrom!;
-  if(card.cardId||card.passcode||card.name)return;
-  if(twins.some(c=>c.zone===departure.zone&&(c.slot??0)===(departure.slot??0)))return;
-  const arrivals=tracks.filter(t=>t.faceDown&&!t.removed&&t.visible&&/^(M[1-5]|S[1-5])$/.test(t.zone)&&fieldZoneLocation(t.zone).zone===row&&!twins.some(c=>c.ref===owns(t)));
+  const departed=twins.filter(c=>!c.token&&c.ownerSeat===undefined&&(c.zone===cell.zone||handOrigin(c)?.zone===cell.zone));
+  const returned=departed.filter(c=>handOrigin(c)&&there(c.departedFrom!)).sort((a,b)=>b.departedFrom!.at!-a.departedFrom!.at!)[0];
+  if(returned){
+    const from=origin(returned);
+    return from&&inPlace(from)&&!sized(returned,returned.departedFrom!.at!)?{kind:'return',card:returned}:undefined;
+  }
+  // Legacy recovery for an unnamed Set the camera already sent to the hand.
+  const arrivals=tracks.filter(t=>t.faceDown&&!t.removed&&t.visible&&MAIN_FIELD_SLOT.test(t.zone)&&fieldZoneLocation(t.zone).zone===cell.zone&&!twins.some(c=>c.ref===owns(t)));
   if(arrivals.length!==1||arrivals[0].id!==track.id)return;
-  return gone(card)||sized(card)?undefined:{kind:'move',card};
+  const sources=departed.filter(c=>{
+    if(c.faceUp||c.cardId||c.passcode||c.name)return false;
+    const hand=handOrigin(c);
+    if(!hand||twins.some(other=>other.zone===hand.zone&&(other.slot??0)===(hand.slot??0)))return false;
+    const from=origin(c);
+    return from&&from.zone!==track.zone&&Math.abs(track.firstSeen-from.removedAt)<=REMOTE_TWIN_MOVE_WINDOW_MS&&
+      !sized(c,at-(now-from.removedAt));
+  });
+  if(sources.length===1)return {kind:'move',card:sources[0]};
 }
 
 /** A virtual occupant without a current physical witness cannot reserve a slot. */
