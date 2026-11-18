@@ -442,9 +442,11 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     }
     existing=freshBinding.existing??pileExit(track,entry,twins);
     // A back that settles where a known card just left is that card Set again: turned over in place, back from the hand, or slid to another zone.
-    const setBack=!existing&&track.faceDown&&event.type==='placed'&&!chosen&&!humanChoice&&!piles.has(track.zone)?fieldSetReturn({track:{...track,id:event.track.id},twins,tracks:watch.getTracks(),owns:t=>bindings.current.get(t.id)??t.id,events:current.current.room.events,seat,at:serverNow(),now:performance.now()}):undefined;
+    const setBack=!existing&&track.faceDown&&event.type==='placed'&&!chosen&&!humanChoice&&!piles.has(track.zone)?fieldSetReturn({track:{...track,id:event.track.id},twins,tracks:watch.getTracks(),owns:t=>bindings.current.get(t.id)??t.id,events:current.current.room.events,seat,at:serverNow(),now:performance.now(),pileTouched:watch.getSnapshot?.()?.pileTouchedAt}):undefined;
     if(setBack){
       const card=setBack.card,cell=fieldZoneLocation(track.zone);
+      // The same guards as the face check and a placement: a held card, a quiet card, an Undo'd or hand-corrected card is left alone.
+      if(undoKept.current.has(card.ref)||keepsManual(card.ref,cell,fieldTwinPosition(track))||setBack.kind==='flip'&&(face.current.held(card.ref)||!face.current.allows(card.ref,performance.now())))return;
       const proposal=setBack.kind==='flip'?fieldFaceProposal(card,track,seat):{type:'twin.move' as const,source:'auto' as const,actorSeat:seat,seat,cardRef:card.ref,zone:cell.zone,...(cell.slot?{slot:cell.slot}:{}),faceUp:false,position:fieldTwinPosition(track)};
       if(!proposal)return;
       setPending(true);
