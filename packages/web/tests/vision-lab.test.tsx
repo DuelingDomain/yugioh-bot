@@ -64,7 +64,7 @@ const zoneEntries=[
   {cardId:'23995346',passcode:23995346,frameClass:'Fusion',name:'Blue-Eyes Ultimate Dragon'},
   {cardId:'16178681',passcode:16178681,frameClass:'Pendulum',name:'Odd-Eyes Pendulum Dragon'},
   {cardId:'900000101',passcode:900000101,frameClass:'Pendulum',name:'Extra Deck Pendulum fixture'},
-  {cardId:'900000102',passcode:900000102,frameClass:'Spell',name:'Unknown full type fixture'},
+  {cardId:'900000102',passcode:900000102,frameClass:'Normal',name:'Unknown full type fixture'},
 ];
 const catalogFacts=[
   ...cards.map((card,i)=>({id:card.passcode,name:card.name,type:i<2?(i?'Dragon / Normal Monster':'Spellcaster / Normal Monster'):'Spell Card',frameType:i<2?'normal':'spell',effectText:'Fixture card text'})),

@@ -136,8 +136,8 @@ export function fieldEvidenceMismatch(event:FieldEvent,current:FieldTrack|undefi
   if(!current)return 'no track';
   if(current.removed)return 'removed';
   const age=performance.now()-current.lastSeen;
-  // A slow tick can leave `visible` false for a moment on a card that rests there: an identified track seen within ~1 s still counts, but only while it still rests in the same zone (`restSince` is absent while the card moves or a hand is on it) or lies under another card.
-  const seen=event.type==='reading'||!!current.visible||!human&&current.state==='identified'&&age>=0&&age<=VISIBLE_GRACE_MS&&current.zone===event.track.zone&&(current.restSince!==undefined||!!current.under);
+  // A slow tick can leave `visible` false for a moment on a card that rests there: an identified track seen within ~1 s still counts, but only for a card covered by another card in the same zone (`under`): a card that moves, has a hand on it or was swapped never counts.
+  const seen=event.type==='reading'||!!current.visible||!human&&current.state==='identified'&&age>=0&&age<=VISIBLE_GRACE_MS&&current.zone===event.track.zone&&!!current.under;
   if(human?!(age>=0&&age<=1500):!seen)return human?`not seen for ${Math.round(age)} ms`:`not visible (last seen ${Math.round(age)} ms ago)`;
   if((current.revision??0)!==(event.track.revision??0))return `revision ${current.revision??0} is not ${event.track.revision??0}`;
   if(current.faceDown!==event.track.faceDown)return 'face changed';

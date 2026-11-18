@@ -450,7 +450,10 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       // The full wait stays where a rule needs the facts first: Extra Deck summon materials (cards under it, a card that just left, an Extra Monster Zone) and a stale occupant to release.
       else if(!cardInfo(code)&&(existing||stackUnder(event.track.id).length||pendingLeft.current.size||vanishes.current.some(v=>Math.abs(v.at-track.firstSeen)<=2*SUMMON_WINDOW_MS)||track.zone.startsWith('EMZ')||twins.some(c=>c.zone==='hand'&&c.departedFrom?.auto&&['monster','extra-monster'].includes(c.departedFrom.zone)&&serverNow()-(c.departedFrom.at??-Infinity)<=SUMMON_RECENT_MS)||staleFieldOccupant(twins,watch.getTracks().map(t=>({...t,id:bindings.current.get(t.id)??t.id})),track.zone,track.id)))await metadata;
       // A Main Deck card in its own row, with that zone free, is placed at once; the facts (already loading since the event) catch up for the zone-rule effect. A taken zone keeps the wait (the legal row may be another slot).
-      else if(!cardInfo(code)&&mainDeckOwnRow(entry?.frameClass,track.zone)&&!twins.some(c=>c.zone===fieldZoneLocation(track.zone).zone&&c.slot===fieldZoneLocation(track.zone).slot)){slowFacts=true;void metadata.catch(()=>undefined);}
+      else if(!cardInfo(code)&&mainDeckOwnRow(entry?.frameClass,track.zone)&&(spot=>!twins.some(c=>c.zone===spot.zone&&c.slot===spot.slot))(fieldZoneLocation(track.zone))){
+        // Only a lookup that is still running is not waited for. One that settles at once (a macrotask) with no facts abstains below, as before; one that settles empty later keeps the placed card.
+        if(!await Promise.race([metadata.then(()=>true),new Promise<boolean>(resolve=>{setTimeout(()=>resolve(false),0);})])){slowFacts=true;void metadata.catch(()=>undefined);}
+      }
       else if(!cardInfo(code)){let timer:ReturnType<typeof setTimeout>|undefined;await Promise.race([metadata,new Promise<void>(resolve=>{timer=setTimeout(()=>{slowFacts=true;resolve();},FACTS_WAIT_MS);})]);clearTimeout(timer);}
     }
     // The card can move while its details load. Defer like the check above; there is nothing to save yet.
