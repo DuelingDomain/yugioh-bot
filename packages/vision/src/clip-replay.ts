@@ -69,6 +69,7 @@ export function recordedRecognizer(events: ClipEvent[], now: () => number, crop?
   const self: RecordedRecognizer = {
     detectorBackend: 'wasm', separateDetector: true, usedMs: 0, unreplayable: 0,
     async detectCards(_frame, opts) {
+      if (opts?.zoom) return [];
       const at = now();
       // A full pass is answered only by a recorded full pass (a region answer would make every other card vanish).
       if (!opts?.region) return cards(nearest(fulls, at, 2500) ?? nearest(fulls, at, Infinity));

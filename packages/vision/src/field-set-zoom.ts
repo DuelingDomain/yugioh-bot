@@ -4,6 +4,14 @@ import { closeFieldFrame, type FieldFrame } from './field-motion';
 import type { Recognizer } from './client';
 import type { DetectedQuad } from './types';
 
+/** Upscaling a cell with too few native pixels magnifies noise and mat print. */
+export function canZoomCell(frame:FieldFrame,cell:DetectedQuad):boolean {
+  const b=boundsOf(cell.quad);
+  const width=(Math.min(1,b.x+b.w)-Math.max(0,b.x))*frame.width;
+  const height=(Math.min(1,b.y+b.h)-Math.max(0,b.y))*frame.height;
+  return Math.min(width,height)>=96;
+}
+
 /** Crop before transferring to the worker, keeping the native pixels and the original sample's timestamp. */
 export async function detectZoomedCell(frame:FieldFrame,cell:DetectedQuad,recognizer:Pick<Recognizer,'detectCards'>):Promise<DetectedQuad[]> {
   const {width,height}=frame,b=boundsOf(cell.quad);

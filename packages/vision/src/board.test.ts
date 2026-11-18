@@ -540,7 +540,30 @@ test('a flat plain sleeve the detector never boxes is placed as a Set from its p
   assert.deepEqual(zoomed.events.filter(e=>e.type==='placed').map(e=>[e.track.zone,e.track.faceDown]),[['S4',true]]);
   await zoomed.tick(100);
   assert.equal(zoomed.detectOptions.filter(o=>o.zoom).length,1,'the settled Set does not spend another crop');
+  zoomed.appearanceAt=()=>Array(288).fill(.2);
+  zoomed.zoom=()=>[];
+  for(let i=0;i<10;i++)await zoomed.tick(150);
+  const departure=zoomed.events.find(e=>e.type==='removed');
+  assert.ok(departure,'the Set leaving clear mat is removed');
+  const checked=zoomed.watcher.getSnapshot().zoomCheckedAt?.S4;
+  assert.ok(checked!==undefined&&checked>departure.removedAt!&&checked-departure.removedAt!<=1000,'departure forces a fresh zoom even on clear mat');
   zoomed.watcher.dispose();
+
+  const still=fieldRig('sure',20,undefined,{width:1600,height:900},{zoomSets:true});
+  still.outlines=[];still.watcher.setCalibration(zones.createFieldCalibration([{x:0,y:0},{x:1,y:1}]));
+  still.appearanceAt=()=>Array(288).fill(.25);still.cropAt=()=>barePadded;
+  for(let i=0;i<8;i++){still.watcher.scanNow();await still.tick(300);}
+  await still.tick(300);
+  still.appearanceAt=c=>Array(288).fill(inCell(c)?.65:.25);
+  const undecided={width:16,height:16,data:Uint8ClampedArray.from({length:16*16*4},(_,i)=>i%4===3?255:i%8<4?55:180)};
+  still.cropAt=c=>c.kind==='face-down'?undecided:barePadded;
+  still.zoom=()=>[{...card(.30,.36,.40,.50),kind:'face-down',confidence:.85}];
+  still.detectorCost=120;
+  await still.tick(100);await still.tick(100);
+  for(let i=0;i<12;i++)await still.tick(750);
+  assert.equal(still.detectOptions.filter(o=>o.zoom).length,2,'long detector gaps do not renew the zoom budget for an unchanged cell');
+  assert.equal(still.events.filter(e=>e.type==='placed').length,0,'a zoom box with undecided pixels cannot place a Set');
+  still.watcher.dispose();
 
   // A light step (+25/255 on the mat and its ring) is not a sleeve: the baseline follows it, so a Set lifted after the step is removed and bare mat is never placed.
   const lit=fieldRig('sure',20,undefined,{width:160,height:90}),step=25/255,run=async(n:number)=>{for(let i=0;i<n;i++){lit.watcher.scanNow();await lit.tick(300);}};

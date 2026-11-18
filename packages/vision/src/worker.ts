@@ -149,11 +149,12 @@ async function initialize(profile: GameProfile, backend: 'auto' | 'wasm', runtim
   }
 }
 const sceneRefiner=new SceneRefiner();
-let pixelCanvas:OffscreenCanvas|undefined;
-function pixels(frame: ImageBitmap | ImageData): RGBAImage {
+let pixelCanvas:OffscreenCanvas|undefined,zoomPixelCanvas:OffscreenCanvas|undefined;
+function pixels(frame: ImageBitmap | ImageData,zoom=false): RGBAImage {
   if ('close' in frame) {
     try {
-      const canvas = pixelCanvas??=new OffscreenCanvas(frame.width, frame.height);
+      const canvas = zoom?(zoomPixelCanvas??=new OffscreenCanvas(frame.width,frame.height)):
+        (pixelCanvas??=new OffscreenCanvas(frame.width,frame.height));
       if(canvas.width!==frame.width)canvas.width=frame.width;
       if(canvas.height!==frame.height)canvas.height=frame.height;
       const context = canvas.getContext('2d', { willReadFrequently: true });
@@ -206,7 +207,7 @@ scope.onmessage = (event: MessageEvent<Request>) => {
           const detectorSession=await ensureDetector();
           const start=performance.now();
           const source=!message.opts?.zoom&&'close' in message.frame?new ScenePixels(message.frame):undefined;
-          const image=source?source.sample(undefined,configuration.profile.detector.longSide):pixels(message.frame),pixelsMs=performance.now()-start;
+          const image=source?source.sample(undefined,configuration.profile.detector.longSide):pixels(message.frame,message.opts?.zoom),pixelsMs=performance.now()-start;
           const result=await detectScene(image,configuration.profile,detectorSession,Tensor,message.opts,sceneRefiner,source);
           const detectMs=performance.now()-start-pixelsMs,last=lastDetectTimings;
           // Profile split: tensor preprocess, session run (incl. output readback), heatmap decode, then refine/covered/sort.
