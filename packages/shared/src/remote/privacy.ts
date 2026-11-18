@@ -66,6 +66,11 @@ function projectEvent(event:RemoteEvent,seats:ReadonlySet<number>):RemoteEvent {
     if(effects?.privateHandIdentity) next.action={type:'log.note',actorSeat:actor,text:a.type==='deck.count'?'Updated a private Deck count':'Updated a private hand card',idempotencyKey:event.id};
     if(a.type==="side.swap") { next.action={type:"log.note",actorSeat:actor,text:"Updated a private side deck",idempotencyKey:event.id}; delete next.messages; }
     if(a.type==="effect.choose" && !effects?.publicEffectChoice) { next.action={type:"log.note",actorSeat:actor,text:"Updated a private card choice",idempotencyKey:event.id}; delete next.messages; }
+    if(a.type==="twin.move" && a.setRef) {
+      next.action={type:"twin.place",actorSeat:a.actorSeat,seat:a.seat,zone:a.zone,source:"auto",at:a.at,idempotencyKey:a.idempotencyKey,
+        card:{ref:a.setRef,faceUp:false,position:a.position??"attack",...(a.slot!==undefined?{slot:a.slot}:{})}};
+      delete next.messages;
+    }
     if(a.type==="twin.place" && hidden(a.zone,a.card.faceUp)) { delete a.card.cardId; delete a.card.passcode; delete a.card.name; delete a.card.race; delete a.card.nameCandidates; delete next.messages; }
     if(a.type==="card.identified" || a.type==="cards.identified") {
       const sightings=a.type==="card.identified" ? [a] : a.cards;

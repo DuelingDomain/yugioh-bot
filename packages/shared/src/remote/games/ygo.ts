@@ -354,6 +354,9 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
       const s = tokenHere?.token && tokenHere.token.by === action.actorSeat ? tokenField(action.seat) : ownerEdit ? seat(action.seat) : ownField(action.seat);
       const card = s.twin.find(c => c.ref === action.cardRef);
       remoteAssert(card, "Unknown twin card", 409);
+      if(action.type==="twin.move" && action.setRef)remoteAssert(action.source==="auto" && action.faceUp===false && !card.token && card.ownerSeat===undefined && card.zone==="hand" && card.departedFrom?.auto &&
+        FIELD_ZONES.has(card.departedFrom.zone) && FIELD_ZONES.has(action.zone) && !s.twin.some(c=>c.ref===action.setRef),
+        "A face-down return needs a departed hand card and a fresh ref",409);
       // The camera never moves a card that another seat controls: its paper card is not in that zone.
       if (card.ownerSeat !== undefined && "source" in action && action.source === "auto" && (!context?.replay || context.givenCards === 1)) return state;
       // A face-up flip by anyone shows the card the owner kept hidden.
@@ -409,7 +412,8 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
         // GY and banished keep their order in the twin list (oldest first), so a card that enters goes to the end.
         if (enteringPile(card.zone, action.zone)) { s.twin = s.twin.filter(c => c !== card); s.twin.push(card); }
         card.zone = action.zone;
-        if((fieldFaceState?["hand","deck","extra"]:["deck","extra"]).includes(card.zone)) delete card.publicIdentity;
+        if(action.setRef || (fieldFaceState?["hand","deck","extra"]:["deck","extra"]).includes(card.zone)) delete card.publicIdentity;
+        if(action.setRef)delete card.setBy;
         if (action.position !== undefined) card.position = action.position;
         const faceUpBefore = card.faceUp !== false;
         if (action.faceUp !== undefined) card.faceUp = action.faceUp;
@@ -551,6 +555,16 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
   }
   // After merges and eliminations, so no hold or link points to a card that is gone.
   clearZoneLinks(next, at, givenCardsOn);
+  // Apply the ordinary hand and deck accounting first, then retire the ref visible in the hand.
+  if(action.type==="twin.move" && action.setRef){
+    const {seat,cardRef,setRef}=action;
+    const card=next.seats[seat].twin.find(c=>c.ref===cardRef);
+    if(card){
+      card.ref=setRef;
+      for(const instance of next.deckChecks.instances)if(instance.seat===seat)instance.refs=instance.refs.map(ref=>ref===cardRef?setRef:ref);
+      for(const origin of next.effectTracking?.origins??[])if(origin.id===action.idempotencyKey+":set")origin.ref=setRef;
+    }
+  }
   // Camera placements may retain an existing physical ref. History must point to the card actually placed.
   const remembered = action.type === "twin.place" && deckAction.type === "twin.place"
     ? { ...action, card: { ...action.card, ref: deckAction.card.ref } } : action;

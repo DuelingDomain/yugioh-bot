@@ -557,14 +557,14 @@ test('a face-up Spell turned Set in place under a flickering shadow is the same 
     for(let py=0;py<height;py++)for(let px=0;px<width;px++){const x=px/width,y=py/height,on=!inner||x>=inner[0]&&x<=inner[1]&&y>=inner[2]&&y<=inner[3];data.set([...(on?rgb:mat),255],(py*width+px)*4);}
     return {width,height,data};
   };
-  const padded=flat(sleeve,[.23,.77,.19,.81]),barePadded=flat(mat),own=flat(sleeve),cell=zones.fieldZoneCells().find(c=>c.zone==='S4')!,inCell=(c:DetectedQuad)=>Math.abs(zones.fieldCenter(c).x-(cell.x+cell.w/2))<cell.w/2&&Math.abs(zones.fieldCenter(c).y-(cell.y+cell.h/2))<cell.h/2;
+  const padded=flat(sleeve,[.23,.77,.19,.81]),barePadded=flat(mat),own=flat(sleeve),cell=zones.fieldZoneCells().find(c=>c.zone==='S3')!,inCell=(c:DetectedQuad)=>Math.abs(zones.fieldCenter(c).x-(cell.x+cell.w/2))<cell.w/2&&Math.abs(zones.fieldCenter(c).y-(cell.y+cell.h/2))<cell.h/2;
   const gy=zones.fieldZoneCells().find(c=>c.zone==='GY')!,inGy=(c:DetectedQuad)=>Math.abs(zones.fieldCenter(c).x-(gy.x+gy.w/2))<gy.w/2&&Math.abs(zones.fieldCenter(c).y-(gy.y+gy.h/2))<gy.h/2;
   const scene=async(toGy:boolean,paced=false)=>{
   const r=fieldRig('sure',20,undefined,{width:160,height:90}),run=async(n:number,shade?:boolean)=>{for(let i=0;i<n;i++){if(shade)r.shadow=i%2?{share:0,changed:0}:{share:.9,changed:.9};r.watcher.scanNow();await r.tick(300);}r.shadow=undefined;};
   r.outlines=[];r.watcher.setCalibration(zones.createFieldCalibration([{x:0,y:0},{x:1,y:1}]));
   r.appearanceAt=()=>Array(288).fill(.25);r.cropAt=c=>c.blind?own:barePadded;await run(8);
   const front={...card(cell.x+cell.w*.15,cell.y+cell.h*.1,cell.w*.7,cell.h*.8),kind:'face-up' as const};
-  r.known=[{id:'twin',zone:'S4',cardId:'A',faceDown:false}];r.outlines=[front];
+  r.known=[{id:'twin',zone:'S3',cardId:'A',faceDown:false}];r.outlines=[front];
   r.appearanceAt=c=>c.kind==='face-up'?Array.from({length:288},(_,i)=>i%2?.6:.3):Array(288).fill(.25);r.cropAt=c=>c.kind==='face-up'?fieldCrop(c):barePadded;await run(10);
   assert.equal(r.watcher.getSnapshot().tracks.find(t=>t.id==='twin')?.faceDown,false,'the face-up Spell is on the board');
   r.outlines=[];r.appearanceAt=c=>Array(288).fill(inCell(c)?.65:.25);r.cropAt=c=>c.blind?own:inCell(c)?padded:barePadded;
@@ -587,6 +587,7 @@ test('a face-up Spell turned Set in place under a flickering shadow is the same 
       await r.tick(900);
       assert.equal(r.watcher.getSnapshot().status,'budget',JSON.stringify(r.watcher.getSnapshot().debug));
       r.occludedAt=undefined;
+      r.shadow={share:.2,changed:0};
       const heldAt=r.at;
       await r.tick(100);
       const first=r.watcher.getSnapshot().lastFullAt!;
@@ -594,12 +595,18 @@ test('a face-up Spell turned Set in place under a flickering shadow is the same 
       await r.tick(first+4000-r.at);
       assert.equal(r.watcher.getSnapshot().lastFullAt,first+4000,'full detector samples are four seconds apart');
       await r.tick(200);
-      assert.equal(r.watcher.getSnapshot().lastFullAt,first+5000,'a pending sleeve count gets a full pass during detector rest');
+      assert.equal(r.watcher.getSnapshot().lastFullAt,first+4000,'a pending sleeve count respects detector rest');
+      await r.tick(600);
+      const settled=r.watcher.getSnapshot();
+      assert.equal(settled.lastFullAt,first+5600,'the follow-up runs when rest ends');
+      assert.equal(settled.metrics.priorityPassMs,800);
+      assert.ok(settled.metrics.dutyPercent>=16&&settled.metrics.dutyPercent<=50,
+        `detector duty with shadow over S3 is ${settled.metrics.dutyPercent}% and includes both 800 ms passes`);
       for(let i=0;i<8;i++)await r.tick(100);
       const events=r.events.slice();r.watcher.dispose();return events;
     }
     await run(1);
-    assert.ok(r.watcher.getSnapshot().blindZones?.includes('S4'),'the first sleeve scan after removal ignores the old GY motion');
+    assert.ok(r.watcher.getSnapshot().blindZones?.includes('S3'),'the first sleeve scan after removal ignores the old GY motion');
   }
   await run(30,true);r.motionAt=undefined;await run(10);
   const events=r.events.slice();r.watcher.dispose();return events;
@@ -1673,7 +1680,7 @@ test('a face-up card turned face-down in its zone flips in place, also after a l
   l.cropAt=()=>fieldCrop({...front,kind:'face-down'});l.outlines=[{...outline,kind:'face-down',confidence:.43}];l.appearanceAt=()=>sleeve;
   for(let i=0;i<20;i++)await l.tick(67);
   const sets=l.events.filter(e=>e.track.faceDown&&(e.type==='flipped'||e.type==='placed'));
-  if(scenario==='soon')assert.deepEqual(sets.map(e=>[e.type,e.track.id]),[['flipped',ref]]);
+  if(scenario==='soon')assert.deepEqual(sets.map(e=>[e.type,e.track.id,e.removedAt]),[['flipped',ref,first.removedAt]]);
   if(scenario==='late'){assert.equal(sets[0]?.type,'placed');assert.notEqual(sets[0].track.id,ref);}
   if(scenario==='stack')assert.deepEqual(sets,[],'a deck stack never becomes a Set');
   l.watcher.dispose();

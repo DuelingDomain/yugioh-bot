@@ -91,6 +91,8 @@ export const remoteActionSchema = z.discriminatedUnion("type", [
   z.strictObject({ ...meta, type: z.literal("pile.order"), seat: remoteSeatSchema, zone: z.enum(["graveyard", "banished"]), cardRefs: z.array(id).min(1).max(120)
     .refine(refs => new Set(refs).size === refs.length, "Duplicate pile card") }),
   z.strictObject({ ...meta, type: z.literal("twin.move"), seat: remoteSeatSchema, zone, cardRef: id, slot: slot.optional(), position: z.enum(["attack", "defense"]).optional(), faceUp: z.boolean().optional(), source: z.literal("auto").optional(), name: z.string().trim().min(1).max(200).optional(),
+    /** Fresh public ref for a camera-confirmed face-down return from the hand. */
+    setRef: id.optional(),
     /** A face-up Pendulum Monster in the Extra Deck is public information (only that card; every other Extra card stays hidden). */
     pendulum: z.boolean().optional(),
     /** The camera or the player chose this destination (not a rule default): the card keeps no field origin. */
