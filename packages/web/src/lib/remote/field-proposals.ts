@@ -166,6 +166,32 @@ export async function applyFieldFaceFlip(track:FieldTrack,current:()=>FieldTrack
   return null;
 }
 
+/** How long after a card left a cell a Set back that settles can still be that card (a slow back reader needs seconds, not the 2.5 s of the server's same-cell rule). */
+export const FIELD_LEFT_SET_MS=15_000;
+/**
+ * A face-down back that settles on an empty-looking or stale cell may be a card the owner just turned over or slid to another zone.
+ *  - flip: the cell still holds a known face-up card whose track is gone and no departure was written yet (the board turns it over in place);
+ *  - return: that card already went to the hand (an auto departure from this same cell, nothing else placed there since); it comes back Set;
+ * Any other reading (a manual move, another card in the cell, an old departure) is undefined: the caller places a new Set as before.
+ */
+export function fieldSetReturn({track,twins,tracks,owns,at,now}:{track:Pick<FieldTrack,'id'|'zone'|'faceDown'|'firstSeen'>;twins:readonly TwinCard[];tracks:readonly FieldTrack[];owns:(track:FieldTrack)=>string;/** Server clock. */at:number;/** The camera clock of the track times. */now:number}):{kind:'flip'|'return';card:TwinCard}|undefined {
+  if(!track.faceDown||!/^(M[1-5]|S[1-5])$/.test(track.zone))return;
+  const cell=fieldZoneLocation(track.zone),backAt=at-(now-track.firstSeen);
+  const there=(c:Pick<TwinCard,'zone'|'slot'>)=>c.zone===cell.zone&&(c.slot??0)===(cell.slot??0);
+  const occupant=twins.find(there);
+  if(occupant){
+    if(!occupant.faceUp||occupant.token||occupant.materials?.length||!(occupant.cardId||occupant.passcode))return;
+    const seen=tracks.filter(t=>owns(t)===occupant.ref);
+    if(seen.some(t=>!t.removed&&t.visible)||!seen.length)return;
+    const lastSeen=Math.max(...seen.map(t=>t.lastSeen));
+    return now-lastSeen<=FIELD_LEFT_SET_MS&&track.firstSeen>=lastSeen-1000?{kind:'flip',card:occupant}:undefined;
+  }
+  // A card the camera lifted to the hand, newest first. A manual move has no `auto` mark and never counts.
+  const left=twins.filter(c=>c.zone==='hand'&&c.departedFrom?.auto&&c.departedFrom.at!==undefined&&at-c.departedFrom.at<=FIELD_LEFT_SET_MS&&backAt>=c.departedFrom.at-1500).sort((a,b)=>b.departedFrom!.at!-a.departedFrom!.at!);
+  const back=left.find(c=>there(c.departedFrom!));
+  if(back)return {kind:'return',card:back};
+}
+
 /** A virtual occupant without a current physical witness cannot reserve a slot. */
 export function staleFieldOccupant(twins:readonly TwinCard[],tracks:readonly FieldTrack[],zone:FieldTrack['zone'],incomingRef:string,at=Math.max(-Infinity,...tracks.map(track=>track.lastSeen).filter(Number.isFinite))):TwinCard|undefined {
   const location=fieldZoneLocation(zone);

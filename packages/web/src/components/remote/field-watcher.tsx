@@ -38,7 +38,7 @@ import {FieldWatcherUI} from './field-watcher-ui';
 import {serverNow} from './ui/api';
 import {cardInfo,loadCards,useCardInfo} from './ui/catalog';
 import {fieldSummonKind,fieldSummonMaterials,fieldSummonMinimum,fieldSummonNotice,heldStackStillStacked,fieldKeepsMonsterStack,fieldStackXyzCandidates,SUMMON_WINDOW_MS,type FieldVanish} from '@/lib/remote/field-summons';
-import {distinctFieldQuads,xyzAttachTargets} from '@/lib/remote/field-proposals';
+import {distinctFieldQuads,fieldSetReturn,xyzAttachTargets} from '@/lib/remote/field-proposals';
 
 const toZone=(zone:string,slot?:number):FieldZone|undefined=>zone==='monster'?`M${slot??1}` as FieldZone:zone==='spell-trap'?`S${slot??1}` as FieldZone:zone==='extra-monster'?`EMZ${slot??1}` as FieldZone:({field:'FIELD',graveyard:'GY',banished:'BANISHED',deck:'DECK',extra:'EXTRA'} as Record<string,FieldZone>)[zone];
 /** A removed field card goes to the hand this long after the watcher's removal (it may still flip back or be a material). */
@@ -441,6 +441,22 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       return;
     }
     existing=freshBinding.existing??pileExit(track,entry,twins);
+    // A back that settles where a known card just left is that card Set again: turned over in place or back from the hand.
+    const setBack=!existing&&track.faceDown&&event.type==='placed'&&!chosen&&!humanChoice&&!piles.has(track.zone)?fieldSetReturn({track:{...track,id:event.track.id},twins,tracks:watch.getTracks(),owns:t=>bindings.current.get(t.id)??t.id,at:serverNow(),now:performance.now()}):undefined;
+    if(setBack){
+      const card=setBack.card,cell=fieldZoneLocation(track.zone);
+      const proposal=setBack.kind==='flip'?fieldFaceProposal(card,track,seat):{type:'twin.move' as const,source:'auto' as const,actorSeat:seat,seat,cardRef:card.ref,zone:cell.zone,...(cell.slot?{slot:cell.slot}:{}),faceUp:false,position:fieldTwinPosition(track)};
+      if(!proposal)return;
+      setPending(true);
+      try{
+        const updated=await mutate(proposal);if(!updated)return;
+        if(setBack.kind==='flip')face.current.flipped(card.ref,performance.now());
+        placeholders.current.delete(event.track.id);bindings.current.set(event.track.id,card.ref);
+        watch.confirm(event.track.id,undefined,card.ref,false);rememberPhysical(card.ref,track.zone);setPrompts(list=>list.filter(p=>p.track.id!==event.track.id));
+        setNotice(`Set card ${setBack.kind==='flip'?'turned over':'put back'} · auto`);setUndoId(updated.state.undo?.actionId??'');
+      }finally{setPending(false);}
+      return;
+    }
     // Settle only the name of an admitted unsure card. Its location and materials keep their own actions.
     if(existing?.nameCandidates&&!track.nameCandidates&&event.result?.tier==='sure'&&entry&&!chosen&&publicField(existing.zone)&&existing.faceUp){
       const code=catalogCardId(entry);if(!code)return;

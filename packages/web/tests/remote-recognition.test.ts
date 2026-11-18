@@ -1132,6 +1132,33 @@ it('camera evidence for a departed card: an unread GY top or a face-down banishe
   expect(fieldDefaultDestination({faceUp:true,zone:'monster'},{type:'Effect Monster'})).toEqual({zone:'hand'});
 });
 
+it('a Set back where a known card just left is that card: turned over in place, back from the hand, never a duplicate',async()=>{
+  const {fieldSetReturn}=await import('../src/lib/remote/field-proposals');
+  const {ygoModule}=await import('../../shared/src/remote/games/ygo');
+  const {remoteActionSchema}=await import('../../shared/src/remote/actions');
+  let game=ygoModule.initialState({seatCount:2}),serial=0;
+  const act=(input:Record<string,unknown>,at:number)=>game=ygoModule.reduce(game,remoteActionSchema.parse({actorSeat:0,seat:0,at,idempotencyKey:`set-${++serial}`,...input}));
+  const now=1_000_000,track=(id:string,zone:string,extra:Record<string,unknown>={})=>({id,zone,visible:true,removed:false,faceDown:true,firstSeen:now-500,lastSeen:now,...extra}) as any;
+  const gone=track('old','S4',{faceDown:false,visible:false,removed:true,firstSeen:now-9000,lastSeen:now-8000}),back=track('back','S4');
+  const owns=(t:any)=>t.id==='old'?'sp':t.id;
+  const find=(over:Record<string,unknown>={})=>fieldSetReturn({track:back,twins:game.seats[0].twin,tracks:[gone,back],owns,at:5000,now,...over});
+  act({type:'twin.place',zone:'spell-trap',card:{cardId:100,name:'Terraforming',faceUp:true,ref:'sp',slot:4}},1000);
+  const handBefore=game.seats[0].handCount;
+  // Order one: the back shows before the hand move was written: the card turns over where it lies.
+  expect(find()).toMatchObject({kind:'flip',card:{ref:'sp'}});
+  // Order two: the card already went to the hand. The late back brings it back as a Set, once, and the hand count is exact.
+  act({type:'twin.move',source:'auto',cardRef:'sp',zone:'hand'},2000);
+  expect(find()).toMatchObject({kind:'return',card:{ref:'sp'}});
+  expect(find({at:2000+15_001})).toBeUndefined();
+  act({type:'twin.move',source:'auto',cardRef:'sp',zone:'spell-trap',slot:4,faceUp:false,position:'attack'},5000);
+  expect(game.seats[0].twin.filter(c=>c.zone!=='hand').map(c=>[c.ref,c.zone,c.slot,c.faceUp,c.cardId,!!c.publicIdentity])).toEqual([['sp','spell-trap',4,false,100,false]]);
+  expect(game.seats[0].handCount).toBe(handBefore);
+  // A manual hand move, or another card in the cell, is not evidence.
+  const manual=ygoModule.reduce(ygoModule.reduce(ygoModule.initialState({seatCount:2}),remoteActionSchema.parse({actorSeat:0,seat:0,at:1000,idempotencyKey:'m-1',type:'twin.place',zone:'spell-trap',card:{cardId:100,name:'Terraforming',faceUp:true,ref:'sp',slot:4}})),remoteActionSchema.parse({actorSeat:0,seat:0,at:2000,idempotencyKey:'m-2',type:'twin.move',cardRef:'sp',zone:'hand'}));
+  expect(fieldSetReturn({track:back,twins:manual.seats[0].twin,tracks:[gone,back],owns,at:5000,now})).toBeUndefined();
+  expect(fieldSetReturn({track:back,twins:[{ref:'other',zone:'spell-trap',slot:4,faceUp:true,cardId:7},...manual.seats[0].twin] as any,tracks:[back],owns,at:5000,now})).toBeUndefined();
+});
+
 it.each(['DECK','HAND'] as const)('a known card returns from %s to M4 after the move window without a new identity guess',async zone=>{
   const r=await ownerFieldRig();
   try{
