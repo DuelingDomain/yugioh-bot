@@ -37,7 +37,7 @@ export function setLookDistance(a:readonly number[],b:readonly number[]):number 
 }
 /** Experimental proxy supported by only two phantom episodes; matching a confirmed sleeve takes precedence for printed sleeves. */
 export const SET_MAX_SD=40,SET_UNIFORM_SD=8,SET_BACK_DISTANCE=.035;
-export function measureSetEvidence(crop:RGBAImage|undefined,detector:Pick<DetectedQuad,'kind'|'confidence'>,observation:FaceStateResult,memory:SetCardMemory,sleeveBoundary=false):{evidence:SetEvidence;look:number[]} {
+export function measureSetEvidence(crop:RGBAImage|undefined,detector:Pick<DetectedQuad,'kind'|'confidence'>,observation:FaceStateResult,memory:SetCardMemory,sleeveBoundary=false,steadyDown=false):{evidence:SetEvidence;look:number[]} {
   const look=crop?setCropLook(crop):[];
   let sd:number|null=null,backDistance:number|null=null;
   if(look.length){
@@ -51,7 +51,9 @@ export function measureSetEvidence(crop:RGBAImage|undefined,detector:Pick<Detect
   const uniform=sd!==null&&sd<=SET_UNIFORM_SD&&sleeveBoundary&&observation.state!=='up';
   // A weak outline plus a marginal texture verdict also describes small screens. One signal must be strong;
   // an accepted sleeve or a near-uniform back with a mat boundary retains its independent path.
-  const pixelConfidence=detector.confidence>=.7?.8:.9;
+  // A still back that kept the same pixel verdict over several clean scans needs only the lower gate: coloured light and
+  // re-encoded frames lower one reading, a steady one is not an object.
+  const pixelConfidence=detector.confidence>=.7||steadyDown?.8:.9;
   // Texture and a remembered sleeve cannot overrule a detector front: face art can supply both.
   // A nearly uniform sleeve with an independent mat boundary retains its path despite a wrong detector class.
   const positive=(detector.kind==='face-down'||uniform)&&(matching||uniform||!!pixels&&pixels.state==='down'&&pixels.confidence>=pixelConfidence&&sd!==null&&sd<=SET_MAX_SD);
