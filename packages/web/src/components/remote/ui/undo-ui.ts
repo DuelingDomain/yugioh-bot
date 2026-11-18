@@ -41,7 +41,10 @@ export function actionCardRefs(action: AnyAction): string[] {
 export function shortUndoLabel(event: { action: unknown }, cardName: (seat: number, ref: string) => string | undefined, name: (seat: number) => string): string | null {
   const a = event.action as AnyAction;
   switch (a.type) {
-    case "twin.move": return `${a.name ?? cardName(a.seat, a.cardRef) ?? "Card"} → ${zoneShort(a.zone, a.slot)}`;
+    case "twin.move": {
+      const moved = a.setRef ? cardName(a.seat, a.setRef) : undefined;
+      return `${a.name ?? moved ?? cardName(a.seat, a.cardRef) ?? "Card"} → ${zoneShort(a.zone, a.slot)}`;
+    }
     case "twin.place": return `${a.card.name ?? cardName(a.seat, a.card.ref) ?? "Card"} placed → ${zoneShort(a.zone, a.card.slot)}`;
     case "twin.flip": return `${cardName(a.seat, a.cardRef) ?? "Card"} flipped ${a.faceUp ? "up" : "down"}`;
     case "twin.remove": return `${cardName(a.seat, a.cardRef) ?? "Card"} removed`;
