@@ -46,7 +46,7 @@ import type { VoiceFinal } from "./voice/live-client";
 import { utteranceRecord, voiceCommands, type VoiceContext, type VoiceDecision } from "@/lib/remote/voice-diagnostics";
 import { faceDownInFrame, tapMemoryFor, type TapSpot } from '@/lib/remote/tap-memory';
 import { VideoHubProvider, useVideoHub } from "./video-hub";
-import { gpuLossReason, useRecognitionBackend } from "./recognition-backend";
+import { gpuLossReason, setHybridReaderAllowed, useRecognitionBackend } from "./recognition-backend";
 import { cameraPermissionGranted, cameraWanted, rememberCameraWanted, takeCameraReady } from "./camera-choice";
 import { RemoteLobbyRoom } from "./lobby";
 import { REMOTE_RETENTION_NOTICE } from "./retention-notice";
@@ -117,6 +117,9 @@ export function RemoteTableScreen({ slug, tournament = null, watchAsAdmin = fals
   const room = ctl.room;
   const isDeveloper = room?.isDeveloper === true;
   useEffect(() => { setFieldDeveloper(isDeveloper); return () => setFieldDeveloper(false); }, [isDeveloper]);
+  // The server decides who may use the Hybrid reader. A layout effect, so the reader below never starts on Current first.
+  const hybridReader = room?.hybridReaderEnabled === true;
+  useLayoutEffect(() => { setHybridReaderAllowed(hybridReader); return () => setHybridReaderAllowed(false); }, [hybridReader]);
   if (!room) return <div className={`${duelFontClasses} ${s.app}`} data-mode="1v1"><div className={s.shell} style={{ display: "grid", placeItems: "center", alignContent: "center", gap: 12 }}>
     <p role="status" data-testid="remote-load-note" style={{ color: "var(--ink2)", maxWidth: 520, padding: "0 16px", textAlign: "center" }}>{ctl.loadError ? `${ctl.loadError.message.replace(/\.$/, "")}. Join an open seat to enter.` : "Loading table…"}</p>
     {ctl.loadError ? <p style={{ color: "var(--ink2)", fontSize: 13, lineHeight: 1.55, maxWidth: 520, padding: "0 16px", textAlign: "center" }}>{REMOTE_RETENTION_NOTICE}</p> : null}

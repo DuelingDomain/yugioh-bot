@@ -14,21 +14,22 @@ vi.mock('../src/components/ui/themed-select',()=>({ThemedSelect:({label,value,ch
 
 it('defaults to current, persists an explicit choice and restarts once without changing processor mode',async()=>{
   const s=await import('../src/components/remote/ui/recognition-backend');
-  expect(s.cardReader()).toBe('current');expect(s.engineBackend()).toBe('auto');
+  expect(s.cardReader()).toBe('current');expect(s.engineBackend()).toBe('auto');s.setHybridReaderAllowed(true);
   const reset=vi.fn(),stop=s.onRecognitionReset(reset);
   s.setCardReader('hybrid');s.setCardReader('hybrid');
   expect(reset).toHaveBeenCalledOnce();expect(localStorage.getItem('dd-remote-card-reader')).toBe('hybrid');
   expect(s.recognitionBackendNow()).toMatchObject({reader:'hybrid',mode:'auto',generation:1,read:null});
-  stop();vi.resetModules();expect((await import('../src/components/remote/ui/recognition-backend')).cardReader()).toBe('hybrid');
+  stop();vi.resetModules();const again=await import('../src/components/remote/ui/recognition-backend');again.setHybridReaderAllowed(true);expect(again.cardReader()).toBe('hybrid');
 });
 it.each(['hybrid','current'] as const)('query parameter forces %s independently of the stored choice',async reader=>{
   localStorage.setItem('dd-remote-card-reader',reader==='hybrid'?'current':'hybrid');history.replaceState(null,'',`/duels/remote/test?visionReader=${reader}`);
-  const s=await import('../src/components/remote/ui/recognition-backend');expect(s.cardReader()).toBe(reader);
+  const s=await import('../src/components/remote/ui/recognition-backend');s.setHybridReaderAllowed(true);expect(s.cardReader()).toBe(reader);
 });
 it('reader and five Set controls work together in both setting variants and a load failure is visible',async()=>{
   const {RecognitionSetting,RecognitionBadge,SetCardSettings}=await import('../src/components/remote/ui/recognition-setting');
   const s=await import('../src/components/remote/ui/recognition-backend');
   const {readSetGuards}=await import('../src/lib/remote/set-card-settings');
+  s.setHybridReaderAllowed(true);
   const labels=['Require back evidence','Ask about uncertain Sets','Remember Not a card','Ignore setup objects','Wait for hand release'];
   for(const variant of ['sheet','menu'] as const){
     await act(async()=>root.render(<><RecognitionSetting variant={variant}/><SetCardSettings/><RecognitionBadge/></>));
@@ -55,7 +56,7 @@ it('an unavailable Hybrid catalog starts Current and retains the visible note af
   });
   vi.doMock('@yugidraft/vision',()=>({...actual,loadHybridCatalog:async()=>{throw new Error('catalog unavailable');},createRecognizer:create}));
   vi.stubGlobal('fetch',vi.fn(async()=>new Response(JSON.stringify({entries:[]}))));
-  const state=await import('../src/components/remote/ui/recognition-backend');state.setCardReader('hybrid');
+  const state=await import('../src/components/remote/ui/recognition-backend');state.setHybridReaderAllowed(true);state.setCardReader('hybrid');
   const {prepareOwnReader,disposeRecognizer}=await import('../src/components/remote/ui/recognizer');
   try {
     await prepareOwnReader();

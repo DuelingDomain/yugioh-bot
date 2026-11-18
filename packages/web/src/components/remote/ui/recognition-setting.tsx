@@ -20,13 +20,13 @@ const announced = new Set<string>();
  * which sits on the table's own dark theme.
  */
 export function RecognitionSetting({ variant = "sheet" }: { variant?: "sheet" | "menu" }) {
-  const { mode,reader,readerNote } = useRecognitionBackend();
+  const { mode,reader,readerAllowed,readerNote } = useRecognitionBackend();
   const hintId = useId();
   const hint = RECOGNITION_MODES.find(item => item.value === mode)?.hint;
   if (variant === "menu") {
     return <><ThemedSelect variant="menu" wide label="Card recognition" prefix="Recognition ·" title={hint} value={mode} testId="recognition-mode"
       choices={RECOGNITION_MODES.map(item => ({ value: item.value, label: item.label, description: item.hint }))} onChange={setRecognitionMode} />
-      <ThemedSelect variant="menu" wide label="Card reader" prefix="Reader ·" value={reader} testId="card-reader" choices={CARD_READERS} onChange={setCardReader} />
+      {readerAllowed?<ThemedSelect variant="menu" wide label="Card reader" prefix="Reader ·" value={reader} testId="card-reader" choices={CARD_READERS} onChange={setCardReader} />:null}
       {readerNote?<span role="status" className={s.backendNote}>{readerNote}</span>:null}</>;
   }
   return <div className={sheetRoot} style={{ display: "grid", gap: 5 }}>
@@ -34,7 +34,7 @@ export function RecognitionSetting({ variant = "sheet" }: { variant?: "sheet" | 
       choices={RECOGNITION_MODES.map(item => ({ value: item.value, label: item.label }))}
       onChange={setRecognitionMode} />
     <p id={hintId} className={ui.hint} style={{ margin: 0 }}>{hint}</p>
-    <SheetSelect label="Card reader" value={reader} testId="card-reader" compact choices={CARD_READERS} onChange={setCardReader} />
+    {readerAllowed?<SheetSelect label="Card reader" value={reader} testId="card-reader" compact choices={CARD_READERS} onChange={setCardReader} />:null}
     {readerNote?<p role="status" className={ui.hint} style={{margin:0}}>{readerNote}</p>:null}
   </div>;
 }
