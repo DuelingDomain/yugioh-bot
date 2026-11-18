@@ -23,7 +23,7 @@ export function VoiceControls({ method, onMethod, logging, last, recentIds, onMa
     setTarget({ utteranceId: label === "wrong" ? last?.utteranceId ?? null : null, method: label === "wrong" && last ? last.method : method, text: last?.text ?? "", contextIds: [...recentIds] });
   };
   return <div className={s.voiceTools}>
-    <ThemedSelect variant="menu" wide label="Voice method" prefix="Voice ·" value={method} testId="voice-method" choices={methodChoices}
+    <ThemedSelect variant="menu" wide releaseFocusOnPick label="Voice method" prefix="Voice ·" value={method} testId="voice-method" choices={methodChoices}
       onChange={found => { setLabel(null); onMethod(found); }} />
     {logging ? <>
       <span className={s.voiceLogBadge} role="status">VOICE LOG · text only</span>
@@ -31,7 +31,7 @@ export function VoiceControls({ method, onMethod, logging, last, recentIds, onMa
       <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} onClick={() => begin("missed")}>It missed me</button>
       {label ? <form aria-label="Label voice result" onSubmit={event => { event.preventDefault(); onMark({ label, intended, note: intended === "free-text" ? note : "", utteranceId: target.utteranceId, method: target.method, contextIds: target.contextIds }); setLabel(null); }}>
         <span>{label === "wrong" ? `Wrong: “${target.text}”` : "What did you say?"}</span>
-        <ThemedSelect variant="menu" wide label="Intended command" value={intended} testId="voice-intended" choices={intendedChoices}
+        <ThemedSelect variant="menu" wide releaseFocusOnPick label="Intended command" value={intended} testId="voice-intended" choices={intendedChoices}
           onChange={value => { const command = voiceCommands.find(c => c === value); if (command) setIntended(command); else if (value === "nothing" || value === "free-text") setIntended(value); }} />
         {intended === "free-text" ? <input aria-label="Intended words" maxLength={500} required value={note} onChange={event => setNote(event.target.value)} /> : null}
         <button type="submit" className={`${s.btn} ${s.sm}`}>Save label</button>

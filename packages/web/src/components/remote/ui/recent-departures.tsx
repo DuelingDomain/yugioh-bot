@@ -10,6 +10,10 @@ import s from './remote-ui.module.css';
 /** A card that just left the field shows as a small note for this long. The Departures chip keeps it reachable after that, as long as the event is kept. */
 const NOTE_MS = 8000;
 const NOTE_MAX = 3;
+const PILES = ['hand', 'deck', 'extra', 'graveyard', 'banished'];
+/** Width of a departure note: a card name, its destination and the Change tag. */
+const NOTES_W = 230;
+type Anchor = { l: number; b: number; w: number; h: number };
 
 /**
  * Cards the camera just sent away from the field (the default destination, or a pile it saw). A floating overlay on the left: it never moves the board.
@@ -24,7 +28,8 @@ export function RecentDepartures({ room, seat, onAction }: { room: RemoteRoom; s
     if (e.action.type !== 'twin.move' || seen.has(e.action.cardRef)) return [];
     seen.add(e.action.cardRef);
     const ref=e.action.cardRef,card = room.state.seats[seat]?.twin.find(c => c.ref === ref);
-    return card ? [{ card, event: e }] : [];
+    // A card that is back on the field (Undo) or moved on to another zone no longer counts as a departure.
+    return card && PILES.includes(card.zone) ? [{ card, event: e }] : [];
   }).slice(0, 6);
   const [open, setOpen] = useState<string | null>(null);
   const [gone, setGone] = useState<ReadonlySet<string>>(() => new Set());
@@ -43,24 +48,38 @@ export function RecentDepartures({ room, seat, onAction }: { room: RemoteRoom; s
     const timer = setTimeout(() => tick(n => n + 1), Math.max(50, nextEnd - Date.now() + 20));
     return () => clearTimeout(timer);
   }, [nextEnd]);
+  // A panel for a card that dropped out of the list (Undo, or more than 6 newer cards) closes.
+  const openGone = !!open && open !== 'all' && !items.some(({ event }) => event.id === open);
+  useEffect(() => { if (openGone) setOpen(null); }, [openGone]);
   useEffect(() => {
     if (!open) return;
     const away = (event: PointerEvent) => { if (!root.current?.contains(event.target as Node)) setOpen(null); };
-    const key = (event: KeyboardEvent) => { if (event.key === 'Escape') setOpen(null); };
-    document.addEventListener('pointerdown', away, true); document.addEventListener('keydown', key);
-    return () => { document.removeEventListener('pointerdown', away, true); document.removeEventListener('keydown', key); };
+    // Escape closes this panel first: the capture phase and stopPropagation keep the table's own Escape handlers (drawers, prompts) from acting on the same key.
+    const key = (event: KeyboardEvent) => { if (event.key === 'Escape') { event.stopPropagation(); setOpen(null); } };
+    document.addEventListener('pointerdown', away, true); document.addEventListener('keydown', key, true);
+    return () => { document.removeEventListener('pointerdown', away, true); document.removeEventListener('keydown', key, true); };
   }, [open]);
-  // On a wide screen the overlay sits in the bottom-left corner of this seat's camera box (the biggest, least busy part of the seat). It is fixed, so it moves nothing.
+  // On a wide screen the overlay sits at the bottom left of this seat's camera box. It starts in the free space left of the box when there is some (no LP, zone or toolbar is covered), so it covers less of the picture.
+  // It is fixed, so it moves nothing.
   // Without a camera box to measure (a layout that hides it) CSS puts it above the dock and the phase bar.
-  const [anchor, setAnchor] = useState<{ l: number; b: number; w: number; h: number } | null>(null);
+  const [anchor, setAnchor] = useState<Anchor | null>(null);
   const has = items.length > 0;
   useEffect(() => {
     if (!has) return;
+    const boxSelector = `[data-testid="feed-box-${seat}"]`;
     const measure = () => {
-      let next: { l: number; b: number; w: number; h: number } | null = null;
+      let next: Anchor | null = null;
       if (window.innerWidth > 900) {
-        const r = document.querySelector<HTMLElement>(`[data-testid="feed-box-${seat}"]`)?.getBoundingClientRect();
-        if (r && r.width >= 160 && r.height >= 100) next = { l: Math.round(r.left) + 8, b: Math.round(window.innerHeight - r.bottom) + 8, w: Math.round(r.width) - 16, h: Math.round(r.height) - 16 };
+        const box = document.querySelector<HTMLElement>(boxSelector), r = box?.getBoundingClientRect();
+        if (box && r && r.width >= 160 && r.height >= 100) {
+          // The notes start at the seat's left edge, so they cover only the part of the picture the free space left of the camera cannot hold.
+          const seatLeft = document.querySelector<HTMLElement>(`[data-testid="seat-${seat}"]`)?.getBoundingClientRect().left ?? r.left;
+          const left = r.left - seatLeft >= 40 ? Math.round(seatLeft) + 8 : Math.round(r.left) + 8;
+          // Over the picture, the notes sit above the "revealed in hand" chip when that one is there.
+          const chip = left + NOTES_W > r.left ? box.querySelector<HTMLElement>(`.${s.hover}`)?.getBoundingClientRect() : undefined;
+          const bottom = chip && chip.height > 0 ? window.innerHeight - chip.top + 8 : window.innerHeight - r.bottom + 8;
+          next = { l: left, b: Math.round(bottom), w: Math.round(r.right) - left - 8, h: Math.round(r.height) - 16 };
+        }
       } else {
         // On a phone the turn and phase bar sits above the dock. The overlay goes above that bar, so it never covers it.
         const r = document.querySelector<HTMLElement>('[data-testid="rail"]')?.getBoundingClientRect();
@@ -69,9 +88,12 @@ export function RecentDepartures({ room, seat, onAction }: { room: RemoteRoom; s
       setAnchor(prev => prev?.l === next?.l && prev?.b === next?.b && prev?.w === next?.w && prev?.h === next?.h ? prev : next);
     };
     measure();
-    const timer = setInterval(measure, 400);
+    // The camera box changes size with the window and with the layout. The chip appears and goes inside the box.
+    const resize = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure), mutate = new MutationObserver(measure);
+    for (const element of [document.querySelector(boxSelector), document.querySelector(`[data-testid="seat-${seat}"]`)]) if (element) resize?.observe(element);
+    const box = document.querySelector(boxSelector); if (box) mutate.observe(box, { childList: true, subtree: true });
     window.addEventListener('resize', measure);
-    return () => { clearInterval(timer); window.removeEventListener('resize', measure); };
+    return () => { resize?.disconnect(); mutate.disconnect(); window.removeEventListener('resize', measure); };
   }, [has, seat]);
   if (!items.length) return null;
   const live = room.status === 'active' && !room.state.ended && !room.state.seats[seat]?.eliminated;
@@ -84,17 +106,17 @@ export function RecentDepartures({ room, seat, onAction }: { room: RemoteRoom; s
       const change = [...room.state.undoHistory??[]].sort((a,b)=>b.order-a.order).find(e => !e.undone && e.actorSeat === (room.solo ? seat : room.mySeat) && e.cards.includes(`${seat}:${card.ref}`));
       return <div key={event.id} role="group" aria-label={`Departure: ${cardName(card, cardInfo(cardCode(card)))}`}>
         <b>{cardName(card, cardInfo(cardCode(card)))}</b><span> → {fieldLeaveLabel(card.zone,card.faceUp)}</span>
-        {FIELD_LEAVE_DESTINATIONS.map(d => <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} key={d.title} disabled={!live || !['hand','deck','extra','graveyard','banished'].includes(card.zone) || card.zone === d.zone && (d.zone !== 'banished' || card.faceUp === !('down' in d))} onClick={() => onAction({type:'twin.move',actorSeat:room.solo?seat:room.mySeat,seat,cardRef:card.ref,zone:d.zone,confirmed:true,cam:playerStamp('recent-departure'),...(d.zone === 'banished' ? {faceUp:!('down' in d)} : d.zone === 'graveyard' ? {faceUp:true} : d.zone === 'extra'&&card.faceUp&&/pendulum/i.test(cardInfo(cardCode(card))?.type??'')?{faceUp:true,pendulum:true}:d.zone === 'deck' || d.zone === 'extra' ? {faceUp:false} : {})})}>{d.title}</button>)}
+        {FIELD_LEAVE_DESTINATIONS.map(d => <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} key={d.title} disabled={!live || !PILES.includes(card.zone) || card.zone === d.zone && (d.zone !== 'banished' || card.faceUp === !('down' in d))} onClick={() => onAction({type:'twin.move',actorSeat:room.solo?seat:room.mySeat,seat,cardRef:card.ref,zone:d.zone,confirmed:true,cam:playerStamp('recent-departure'),...(d.zone === 'banished' ? {faceUp:!('down' in d)} : d.zone === 'graveyard' ? {faceUp:true} : d.zone === 'extra'&&card.faceUp&&/pendulum/i.test(cardInfo(cardCode(card))?.type??'')?{faceUp:true,pendulum:true}:d.zone === 'deck' || d.zone === 'extra' ? {faceUp:false} : {})})}>{d.title}</button>)}
         <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} disabled={!live || !change || !!change.reason} title={change?.reason} onClick={() => { if (change) onAction({type:'undo',actorSeat:room.solo?seat:room.mySeat,targetActionId:change.actionId,cam:playerStamp('recent-departure-undo')}); }}>Undo</button>
       </div>;
       })}
     </div> : null}
-    {notes.length ? <div className={s.depNotes} role="status">
-      {notes.map(({ card, event }) => <button type="button" key={event.id} className={s.depNote} onClick={() => { setOpen(event.id); setGone(g => new Set(g).add(event.id)); }} title="Change where it went">
+    <div className={s.depNotes} role="status">
+      {notes.map(({ card, event }) => <button type="button" key={event.id} className={s.depNote} aria-label={`${cardName(card, cardInfo(cardCode(card)))} went to ${fieldLeaveLabel(card.zone,card.faceUp)}. Change`} onClick={() => { setOpen(event.id); setGone(g => new Set(g).add(event.id)); }} title="Change where it went">
         <b>{cardName(card, cardInfo(cardCode(card)))}</b><span>→ {fieldLeaveLabel(card.zone,card.faceUp)}</span><i>Change</i>
       </button>)}
-      {fresh.length > NOTE_MAX ? <span className={s.depMore}>+{fresh.length - NOTE_MAX}</span> : null}
-    </div> : null}
+      {!open && fresh.length > NOTE_MAX ? <span className={s.depMore}>+{fresh.length - NOTE_MAX}</span> : null}
+    </div>
     <button type="button" className={s.depChip} aria-expanded={open === 'all'} onClick={() => { setOpen(open === 'all' ? null : 'all'); setGone(new Set(items.map(i => i.event.id))); }}>Departures ({items.length})</button>
   </div>;
 }
