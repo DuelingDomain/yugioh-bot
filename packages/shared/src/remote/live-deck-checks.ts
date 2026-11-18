@@ -72,7 +72,9 @@ export function applyLiveDeckChecks(input: RemoteState, action: RemoteAction, co
     const newCopy = (!context.replay || (context.twinPlacementGuard ?? 0) >= 3) ? true : currentRule ? action.anotherCopy === true || !!proof && proof.at <= at && at - proof.at <= 5000
       : context.twinPlacementGuard !== undefined && (action.source === "auto" ? !!proof && proof.at <= at && at - proof.at <= 5000 : action.anotherCopy === true);
     // A given card is checked against the giver's decklist, not the receiver's: it is the giver's own card.
-    const twin=action.give ? { ...action.card, zone: action.zone } : next.seats[action.seat].twin.find(c=>c.ref===action.card.ref)!;
+    // The record comes from the stored proxy (the reducer's whitelisted copy), with the identity the owner kept.
+    const stored=next.seats[action.seat].twin.find(c=>c.ref===action.card.ref)!;
+    const twin=action.give ? { ...stored, ...stored.ownerIdentity } : stored;
     observe(action.give ? action.actorSeat : action.seat, { ...twin, cardRef: twin.ref, newCopy });
   }
   if (action.type === 'hand.add') for (const instance of checks.instances.filter(i=>i.seat===action.actorSeat)) {
@@ -81,9 +83,16 @@ export function applyLiveDeckChecks(input: RemoteState, action: RemoteAction, co
   }
   const movedSeat = action.type === "twin.move" || action.type === "twin.flip" || action.type === "twin.remove" || action.type === "pile.lift" ? action.seat : -1;
   for (const cardRef of action.type === "twin.move" || action.type === "twin.flip" || action.type === "twin.remove" ? [action.cardRef] : action.type === "pile.lift" ? action.cardRefs : []) {
-    const instance = checks.instances.find(i => i.seat === movedSeat && i.refs.includes(cardRef));
+    let instance = checks.instances.find(i => i.seat === movedSeat && i.refs.includes(cardRef));
+    let holder = movedSeat;
+    // A proxy that left the field went back to its owner's pile: that seat's record follows it, so seeing it again is the same copy.
+    if (!instance && (!context.replay || context.givenCards === 1) && !next.seats[movedSeat].twin.some(c => c.ref === cardRef)) {
+      const back = next.seats.find(o => o.seat !== movedSeat && o.twin.some(c => c.ref === cardRef));
+      const found = back && checks.instances.find(i => i.seat === back.seat && i.refs.includes(cardRef));
+      if (back && found) { instance = found; holder = back.seat; }
+    }
     if (instance) {
-      const twin = next.seats[movedSeat].twin.find(c => c.ref === cardRef);
+      const twin = next.seats[holder].twin.find(c => c.ref === cardRef);
       if (!twin) { instance.public = false; instance.anchored = false; delete instance.zone; delete instance.slot; }
       else {
         instance.zone = twin.zone; instance.slot = remotePhysicalSlot(twin.zone, twin.slot);
