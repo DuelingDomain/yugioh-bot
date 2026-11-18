@@ -398,7 +398,7 @@
    empty space left of the board, and --fh leaves the camera everything the board does not need (capped so the board leaves room for Scan field). The board still has 7 columns and 3 rows. */
 @container seat (max-aspect-ratio:1.55) and (max-height:640px) and (min-width:520px) and (max-width:799px) {
   .seat:not([data-view="field"]):not([data-wc]) .feedcol:has(.camsel){position:relative}
-  .seat:not([data-view="field"]):not([data-wc]) .feedcol:has(.camsel)>[data-testid^="token-open-"]{position:absolute;right:0;bottom:2px}
+  .seat:not([data-view="field"]):not([data-wc]) .feedcol:has(.camsel)>.toolrow{position:absolute;right:0;bottom:2px;width:auto}
   .seat:not([data-view="field"]):not([data-wc]) :is(.sbody,.fside){gap:4px}
   .seat:not([data-view="field"]):not([data-wc]) .feedcol{gap:4px}
   .seat:not([data-view="field"]):not([data-wc]) .fwrap{--fh:clamp(112px,calc(100cqh - 440px),calc((100cqw - 240px)/2.2))}
@@ -411,6 +411,8 @@
 /* ============ dock: voice + undo ============ */
 .dock{display:grid;grid-template-columns:minmax(360px,.9fr) minmax(0,2fr) minmax(300px,.8fr);gap:var(--gap);padding:0 var(--gap) var(--gap);min-height:0}
 .dock.nomic{grid-template-columns:minmax(0,2fr) minmax(300px,.8fr)}
+/* "My field" is a phone-width control (the field scrolls below the camera there). On a wide screen it is not a dock cell: a fourth grid child pushes mic, voice and undo one column over. */
+.dock>.myfield{display:none}
 .dk{display:flex;align-items:center;gap:12px;min-width:0;min-height:0;overflow:hidden;border:1px solid var(--line);border-radius:10px;background:linear-gradient(180deg,var(--p1),var(--p0));padding:8px 12px}
 .mic{position:relative;transition:border-color .3s,box-shadow .3s}
 .mic.listen{border-color:rgb(232 185 79/.7);box-shadow:0 0 0 1px rgb(232 185 79/.2),0 0 28px rgb(232 185 79/.14)}
@@ -474,6 +476,16 @@
 @keyframes uflash{0%{box-shadow:0 0 0 0 rgb(232 185 79/.8)}100%{box-shadow:0 0 0 16px rgb(232 185 79/0)}}
 .hbtn{flex:none;height:100%;width:44px;display:grid;place-items:center;border-radius:8px;border:1px solid var(--line2);background:var(--p0);color:var(--ink2)}
 .hbtn:hover,.hbtn[aria-expanded=true]{border-color:var(--gold);color:var(--gold-ink)}
+/* The dock row is a fixed height. The Voice method select shares the "Heard" row instead of adding a third row that pushed the heard text out of view. */
+@media (min-width:901px){
+  .vox{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-content:center;align-items:center;gap:4px 8px}
+  .vox>*{grid-column:1/-1}
+  .vox>.tr{grid-column:1;grid-row:1}
+  .vox>.voiceTools{grid-column:2;grid-row:1;flex-wrap:nowrap;padding:0}
+  .vox>.trybtn{grid-column:3;grid-row:1}
+  .vox.has>.voiceTools{display:none}
+  .samples{min-height:28px}
+}
 @media (max-height:850px){
   .micb{width:40px;height:40px}.mlab{font-size:14px}.msub{font-size:12px}.mctl .btn{height:24px}.dk{padding:6px 10px}
   .ubtn .ul{font-size:18px}.ubtn .usub{display:none}
@@ -801,6 +813,7 @@
   .dock{position:fixed;left:0;right:0;bottom:0;z-index:36;display:grid;grid-template-columns:.8fr 1.2fr;grid-template-areas:"vox vox" "mic undo";gap:6px 10px;padding:8px 10px calc(8px + env(safe-area-inset-bottom));background:#120b22;border-top:1px solid var(--line2);border-radius:14px 14px 0 0}
   .dock.nomic{grid-template-columns:minmax(0,1fr);grid-template-areas:"vox" "undo"}
   .dock .mic,.dock .undo{border:0;background:none;padding:0}
+  .dock>.myfield{display:inline-flex;grid-area:3/1/4/-1;justify-content:center}
   .vox{grid-area:vox;border:0;background:none;padding:0}
   .vox .tr{display:flex;flex-wrap:wrap;gap:4px 8px;font-size:12px}
   .vox .tr q{min-width:120px}.vox .tr .res{white-space:normal}
