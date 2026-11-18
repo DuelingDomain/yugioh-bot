@@ -4292,6 +4292,27 @@ it('gives a card to an opponent as a proxy: the owner keeps it, the camera never
   expect(proxy(0)).toMatchObject({ zone: 'graveyard' });
   expect(proxy(0)).not.toHaveProperty('ownerSeat');
 
+  // A player who is out (4 seats). Holder out: a proxy of a living owner goes to the owner's Graveyard with its identity; the holder's tokens vanish.
+  const game = (list: [number, Record<string, unknown>][]) => list.reduce((st, [actorSeat, input]) => ygoModule.reduce(st, remoteActionSchema.parse({ actorSeat, idempotencyKey: 'out-' + (++n), at: n, ...input })),
+    ygoModule.initialState({ seatCount: 4 }));
+  const sheep = (ref: string, slot: number) => ({ ref, name: 'Sheep Token', slot, faceUp: true, position: 'defense', token: { atk: 0, def: 0 } });
+  const holderOut = game([[0, { type: 'twin.place', seat: 2, zone: 'monster', give: true, card: kaiju }], [3, { type: 'twin.place', seat: 2, zone: 'monster', card: sheep('sheep', 3) }], [2, { type: 'player.concede' }]]);
+  expect(holderOut.seats[2].twin).toEqual([]);
+  expect(holderOut.seats[0].twin.find(card => card.ref === 'kaiju')).toMatchObject({ zone: 'graveyard', faceUp: true, cardId: 14558127 });
+  expect(holderOut.seats[0].twin.find(card => card.ref === 'kaiju')).not.toHaveProperty('ownerSeat');
+  expect(holderOut.seats[0].twin.find(card => card.ref === 'kaiju')).not.toHaveProperty('ownerIdentity');
+  // Owner out: the proxy stays like a token. The holder removes it, and a send to a pile only removes it (never the holder's Graveyard). A foreign token whose maker is out stays too.
+  const ownerOut = game([[0, { type: 'twin.place', seat: 1, zone: 'monster', give: true, card: kaiju }], [0, { type: 'twin.place', seat: 1, zone: 'monster', give: true, card: { ...kaiju, ref: 'kaiju-b', slot: 3 } }],
+    [0, { type: 'twin.place', seat: 1, zone: 'monster', card: sheep('sheep', 4) }], [0, { type: 'player.concede' }]]);
+  expect(ownerOut.seats[0].twin).toEqual([]);
+  expect(ownerOut.seats[1].twin.map(card => card.ref).sort()).toEqual(['kaiju', 'kaiju-b', 'sheep']);
+  expect(ownerOut.seats[1].twin.find(card => card.ref === 'kaiju')).toMatchObject({ ownerSeat: 0, ownerIdentity: { cardId: 14558127 }, zone: 'monster' });
+  const cleared = game([[0, { type: 'twin.place', seat: 1, zone: 'monster', give: true, card: kaiju }], [0, { type: 'twin.place', seat: 1, zone: 'monster', give: true, card: { ...kaiju, ref: 'kaiju-b', slot: 3 } }],
+    [0, { type: 'twin.place', seat: 1, zone: 'monster', card: sheep('sheep', 4) }], [0, { type: 'player.concede' }],
+    [1, { type: 'twin.remove', seat: 1, cardRef: 'kaiju' }], [1, { type: 'twin.move', seat: 1, cardRef: 'kaiju-b', zone: 'graveyard' }], [1, { type: 'twin.remove', seat: 1, cardRef: 'sheep' }]]);
+  expect(cleared.seats[1].twin).toEqual([]);
+  expect(cleared.seats[0].twin).toEqual([]);
+
   // Replay: the stored versions include givenCards, so the replayed state equals the live one. An old event stream (no flag) refuses a give.
   expect(service.replay(slug, 'g', a)).toEqual(state());
   const give = remoteActionSchema.parse({ type: 'twin.place', actorSeat: 0, seat: 1, zone: 'monster', give: true, card: kaiju, idempotencyKey: 'old-give', at: 1 });

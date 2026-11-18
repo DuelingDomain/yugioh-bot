@@ -1304,7 +1304,8 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     ...(subject && subjectCard && live && !solo && subject.seat !== mySeat && mySeat >= 0 && ["monster", "extra-monster", "graveyard"].includes(subjectCard.zone) && subjectCard.ownerSeat !== mySeat ? { control: { label: "Take control", onClick: () => { control.take(mySeat, subject.seat, subjectCard); } } } : {}),
     // A card I gave away shows on the other field as my proxy: I can take it back to a free zone of mine.
     ...(subject && subjectCard && live && !solo && subject.seat !== mySeat && subjectCard.ownerSeat === mySeat ? { control: { label: "Take back", onClick: () => { control.giveBack(subject.seat, subjectCard); } } } : {}),
-    ...(subject && subjectCard?.ownerSeat !== undefined && control.may(subject.seat) ? { control: { label: "Return control", onClick: () => { control.giveBack(subject.seat, subjectCard); } } } : {}),
+    // An owner who is out has no side to return to: the proxy stays like a token, and Remove (below) takes it off.
+    ...(subject && subjectCard?.ownerSeat !== undefined && !state.seats[subjectCard.ownerSeat]?.eliminated && control.may(subject.seat) ? { control: { label: "Return control", onClick: () => { control.giveBack(subject.seat, subjectCard); } } } : {}),
     ...(subject && subjectCard && subject.seat === mySeat && !subjectCard.token && control.canGive && ["monster", "extra-monster", "spell-trap"].includes(subjectCard.zone) ? { give: { label: "Give to opponent", onClick: () => { if (control.give(subjectCard)) { layers.close(); setSubject(null); } } } } : {}),
     ...(live && (solo || mySeat >= 0) ? { onAddToHand: () => searchForHand(solo ? (subject?.seat ?? mySeat) : mySeat) } : {}),
     undo: cardUndo,
