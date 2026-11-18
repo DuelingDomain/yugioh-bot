@@ -78,9 +78,15 @@ export function ignoreSetRegion(memory:SetCardMemory,quad:DetectedQuad['quad'],l
 /** A plain sleeve the detector cannot see (it scores flat, one-colour backs at nothing): its extent found in the crop of a padded zone cell.
  * The cell sits in the middle of the crop (`pad` of its size on every side). The sleeve is the area around the cell centre within `tolerance`
  * (0..255, max channel) of the centre's median colour, bounded by two clean edges: flat, about one card in size, clear of the crop edge and
- * unlike the ring just outside it. Returns the sleeve rectangle in crop fractions, or undefined (bare mat has no edge, a hand or art is not flat). */
-export const BLIND_SLEEVE_TOLERANCE=36,BLIND_SLEEVE_FLAT=.85,BLIND_SLEEVE_RING_GAP=20;
-export function findFlatSleeve(crop:RGBAImage,pad:number,tolerance=BLIND_SLEEVE_TOLERANCE):{u0:number;v0:number;u1:number;v1:number}|undefined {
+ * unlike the ring just outside it. Returns the sleeve rectangle in crop fractions, or undefined (bare mat has no edge, a hand or art is not flat).
+ * A glare gradient across a sleeve ends the extent short of its true edge, so the ring then still shows sleeve: that one failure is tried again with the wider tolerance. */
+export const BLIND_SLEEVE_TOLERANCE=36,BLIND_SLEEVE_WIDE_TOLERANCE=60,BLIND_SLEEVE_FLAT=.85,BLIND_SLEEVE_RING_GAP=20;
+type FlatSleeve={u0:number;v0:number;u1:number;v1:number};
+export function findFlatSleeve(crop:RGBAImage,pad:number):FlatSleeve|undefined {
+  const narrow=scanFlatSleeve(crop,pad,BLIND_SLEEVE_TOLERANCE);
+  return narrow==='ring'?(()=>{const wide=scanFlatSleeve(crop,pad,BLIND_SLEEVE_WIDE_TOLERANCE);return wide==='ring'?undefined:wide;})():narrow;
+}
+function scanFlatSleeve(crop:RGBAImage,pad:number,tolerance:number):FlatSleeve|undefined|'ring' {
   const {width:w,height:h,data}=crop;if(w<16||h<16)return undefined;
   const px=(x:number,y:number,c:number)=>data[(y*w+x)*4+c];
   const median=(values:number[])=>values.sort((a,b)=>a-b)[Math.floor(values.length/2)];
@@ -102,8 +108,8 @@ export function findFlatSleeve(crop:RGBAImage,pad:number,tolerance=BLIND_SLEEVE_
   const out=(x:number,y:number)=>{if(x<0||y<0||x>=w||y>=h)return;ringN++;if(near(x,y))ringNear++;for(let c=0;c<3;c++)ring[c].push(px(x,y,c));};
   for(let x=x0;x<x1;x++)for(const d of [3,4,5]){out(x,y0-d);out(x,y1-1+d);}
   for(let y=y0;y<y1;y++)for(const d of [3,4,5]){out(x0-d,y);out(x1-1+d,y);}
-  if(!ringN||ringNear/ringN>.3)return undefined;
+  if(!ringN||ringNear/ringN>.3)return 'ring';
   const gap=ring.reduce((s,v,c)=>s+Math.abs(median(v)-centre[c]),0)/3;
-  if(gap<BLIND_SLEEVE_RING_GAP)return undefined;
+  if(gap<BLIND_SLEEVE_RING_GAP)return 'ring';
   return {u0:x0/w,v0:y0/h,u1:x1/w,v1:y1/h};
 }
