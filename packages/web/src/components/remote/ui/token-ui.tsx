@@ -24,7 +24,7 @@ const points = (text: string) => { const n = Number(text); return text.trim() !=
 
 type View = { kind: "new"; seat: number; key: ZoneKey | null } | { kind: "template"; from?: TokenTemplate } | { kind: "card"; seat: number; ref: string; };
 /** What the next click on a free Monster Zone puts there. `left` is how many are still to place; `ask` means ATK/DEF are not fixed and the player types them. */
-export type TokenTemplate = { name: string; atk: number; def: number; artId?: number; position: Position; left: number; ask?: boolean };
+export type TokenTemplate = { name: string; atk: number; def: number; artId?: number; position: Position; left: number; ask?: boolean; /** ATK/DEF were suggested from the Tributed monsters and may be edited. */ prefilled?: boolean };
 const GENERIC: TokenTemplate = { name: "Token", atk: 0, def: 0, position: "attack", left: 1 };
 /** Cards that give named tokens to a player. A card on the table with one of these names offers its token first. Nothing else is guessed. */
 const TOKEN_OF: Record<string, Omit<TokenTemplate, "artId">> = {
@@ -35,6 +35,9 @@ const TOKEN_OF: Record<string, Omit<TokenTemplate, "artId">> = {
   "dandylion": { name: "Fluff Token", atk: 0, def: 0, position: "defense", left: 2 },
 };
 const OFF_FIELD = ["hand", "deck", "extra"];
+/** How long a monster that just left the field still counts as Tributed for the Primal Being Token. */
+const TRIBUTE_WINDOW_MS = 30_000;
+const ON_FIELD = ["monster", "extra-monster"];
 
 /**
  * Tokens on a Remote Duels table: a token is table state with no physical card. The owner creates it from the "Token" button
@@ -96,7 +99,22 @@ export function useTokens({ act, room, live, extraZones, layers, info }: {
     return true;
   };
   /** A chip with open stats (Primal Being Token) asks for them first; the others switch the template at once. */
-  const pick = (template: TokenTemplate) => { if (template.ask) customize(template); else setPlacing(template); };
+  const pick = (template: TokenTemplate) => { if (template.ask) customize(suggestStats(template)); else setPlacing(template); };
+  /**
+   * Primal Being Token: ATK/DEF are the combined original ATK/DEF of the Tributed monsters. The face-up monsters on the fields (not Nibiru) are
+   * taken first; when none are left, the monsters that left a field for a Graveyard in the last 30 seconds. Unknown cards count nothing,
+   * and with nothing known the fields stay empty. The player can edit the suggestion.
+   */
+  const suggestStats = (template: TokenTemplate): TokenTemplate => {
+    const cards = room.state.seats.flatMap(item => item.twin).filter(card => !card.token);
+    const nibiru = (card: TwinCard) => cardName(card, info(cardCode(card))).toLowerCase().startsWith("nibiru");
+    const now = Date.now();
+    const onField = cards.filter(card => card.faceUp && ON_FIELD.includes(card.zone) && !nibiru(card));
+    const left = cards.filter(card => card.zone === "graveyard" && card.departedFrom && ON_FIELD.includes(card.departedFrom.zone) && card.departedFrom.at !== undefined && now - card.departedFrom.at <= TRIBUTE_WINDOW_MS && !nibiru(card));
+    const known = (onField.length ? onField : left).map(card => info(cardCode(card))).filter((card): card is CardInfo => !!card && card.atk !== undefined && card.atk !== null && card.atk >= 0);
+    if (!known.length) return template;
+    return { ...template, atk: known.reduce((sum, card) => sum + (card.atk ?? 0), 0), def: known.reduce((sum, card) => sum + Math.max(0, card.def ?? 0), 0), prefilled: true };
+  };
   const customize = (from?: TokenTemplate) => { setView({ kind: "template", ...(from ? { from } : {}) }); layers.open("token"); };
   const open = useCallback((seat: number, card: TwinCard) => { setView({ kind: "card", seat, ref: card.ref }); layers.open("token"); }, [layers]);
   const close = () => { layers.close("token"); setView(null); };
@@ -110,6 +128,7 @@ export function useTokens({ act, room, live, extraZones, layers, info }: {
   const moveTo = (seat: number, card: TwinCard, key: ZoneKey) => {
     void act({ type: "twin.move", actorSeat: actor(seat), seat, zone: "monster", slot: Number(key[1]), cardRef: card.ref });
   };
+  const setStats = (seat: number, card: TwinCard, atk: number, def: number) => void act({ type: "twin.flip", actorSeat: actor(seat), seat, cardRef: card.ref, faceUp: true, position: card.position, tokenStats: { atk, def } });
   const turn = (seat: number, card: TwinCard) => void act({ type: "twin.flip", actorSeat: actor(seat), seat, cardRef: card.ref, faceUp: true, position: card.position === "defense" ? "attack" : "defense" });
   const remove = (seat: number, card: TwinCard) => { void act({ type: "twin.remove", actorSeat: actor(seat), seat, cardRef: card.ref, cam: playerStamp("token-remove") }); close(); };
 
@@ -132,7 +151,7 @@ export function useTokens({ act, room, live, extraZones, layers, info }: {
     ? <TokenDialog free={freeKeys(view.seat, MAIN)} start={view.key} onCreate={draft => place(view.seat, { ...draft, key: draft.key! })} onClose={close} />
     : view.kind === "template" ? <TokenDialog free={[]} start={null} zoneless initial={view.from} onCreate={draft => { setPlacing({ name: draft.name, atk: draft.atk, def: draft.def, artId: draft.artId ?? view.from?.artId, position: draft.position, left: view.from?.left ?? 1 }); close(); }} onClose={close} />
     : card?.token ? <TokenPopover card={card} editable={owns(view.seat) || (live && isCreator(card))} free={freeKeys(view.seat, MAIN)} art={info(card.token.artId)}
-      onTurn={() => turn(view.seat, card)} onMove={key => moveTo(view.seat, card, key)} onRemove={() => remove(view.seat, card)} onClose={close} /> : null : null;
+      onTurn={() => turn(view.seat, card)} onStats={(atk, def) => setStats(view.seat, card, atk, def)} onMove={key => moveTo(view.seat, card, key)} onRemove={() => remove(view.seat, card)} onClose={close} /> : null : null;
   const node = <>
     {placing && canPlace ? <TokenBar template={placing} suggestions={suggestions} onPick={pick} onCustom={() => customize()} onCancel={() => setPlacing(null)} /> : null}
     {dialog}
@@ -172,7 +191,7 @@ function TokenDialog({ free, start, zoneless, initial, onCreate, onClose }: {
 }) {
   const [mode, setMode] = useState<"common" | "generic">(initial ? "generic" : "common");
   const [query, setQuery] = useState(""); const [found, setFound] = useState<CardInfo[] | null>(null); const [chosen, setChosen] = useState<CardInfo | null>(null);
-  const [name, setName] = useState(initial?.name ?? "Token"); const [atk, setAtk] = useState(initial?.ask ? "" : "0"); const [def, setDef] = useState(initial?.ask ? "" : "0");
+  const [name, setName] = useState(initial?.name ?? "Token"); const [atk, setAtk] = useState(initial?.ask && !initial.prefilled ? "" : String(initial?.atk ?? 0)); const [def, setDef] = useState(initial?.ask && !initial.prefilled ? "" : String(initial?.def ?? 0));
   const [position, setPosition] = useState<Position>(initial?.position ?? "attack");
   const [key, setKey] = useState<ZoneKey | "">(start && free.includes(start) ? start : free[0] ?? "");
   useEffect(() => {
@@ -207,6 +226,7 @@ function TokenDialog({ free, start, zoneless, initial, onCreate, onClose }: {
         <label className={t.field}>Name<input className={t.num} style={{ width: 150 }} type="text" maxLength={200} value={name} data-autofocus data-testid="token-name" {...typing} onChange={event => setName(event.target.value)} /></label>
         <label className={t.field}>ATK<input className={t.num} inputMode="numeric" value={atk} aria-invalid={points(atk) === null} data-testid="token-atk" {...typing} onChange={event => setAtk(event.target.value)} /></label>
         <label className={t.field}>DEF<input className={t.num} inputMode="numeric" value={def} aria-invalid={points(def) === null} data-testid="token-def" {...typing} onChange={event => setDef(event.target.value)} /></label>
+        {initial?.prefilled ? <p className={t.note} data-testid="token-suggested">Suggested from the Tributed monsters (original ATK/DEF). Change it if it is wrong.</p> : null}
       </div>}
       <div className={t.row}>
         <div className={t.seg} role="group" aria-label="Position">
@@ -226,12 +246,15 @@ function TokenDialog({ free, start, zoneless, initial, onCreate, onClose }: {
   </PopupFrame>;
 }
 
-function TokenPopover({ card, editable, free, art, onTurn, onMove, onRemove, onClose }: {
+function TokenPopover({ card, editable, free, art, onTurn, onStats, onMove, onRemove, onClose }: {
   card: TwinCard; editable: boolean; free: ZoneKey[]; art: CardInfo | undefined;
-  onTurn: () => void; onMove: (key: ZoneKey) => void; onRemove: () => void; onClose: () => void;
+  onTurn: () => void; onStats: (atk: number, def: number) => void; onMove: (key: ZoneKey) => void; onRemove: () => void; onClose: () => void;
 }) {
   const [target, setTarget] = useState<ZoneKey | "">("");
   const token = card.token!; const defense = card.position === "defense";
+  const [atk, setAtk] = useState(String(token.atk)); const [def, setDef] = useState(String(token.def));
+  const next = { atk: points(atk), def: points(def) };
+  const changed = next.atk !== null && next.def !== null && (next.atk !== token.atk || next.def !== token.def);
   return <PopupFrame at={CENTER} layer="token" label={`${cardName(card, art)} token`} testid="token-popover">
     <div className={t.dialog}>
       {token.artId ? <BigArt id={token.artId} label={card.name} /> : null}
@@ -241,6 +264,11 @@ function TokenPopover({ card, editable, free, art, onTurn, onMove, onRemove, onC
         <div className={t.row}>
           <button type="button" className={`${s.btn} ${s.sm}`} onClick={onTurn} data-testid="token-turn">{defense ? "Switch to Attack" : "Switch to Defense"}</button>
           <button type="button" className={`${s.btn} ${s.sm}`} onClick={() => { onRemove(); }} data-testid="token-remove">Remove token</button>
+        </div>
+        <div className={t.row}>
+          <label className={t.field}>ATK<input className={t.num} inputMode="numeric" value={atk} aria-invalid={next.atk === null} data-testid="token-edit-atk" onKeyDown={event => { if (event.key !== "Escape") event.stopPropagation(); }} onChange={event => setAtk(event.target.value)} /></label>
+          <label className={t.field}>DEF<input className={t.num} inputMode="numeric" value={def} aria-invalid={next.def === null} data-testid="token-edit-def" onKeyDown={event => { if (event.key !== "Escape") event.stopPropagation(); }} onChange={event => setDef(event.target.value)} /></label>
+          <button type="button" className={`${s.btn} ${s.sm}`} disabled={!changed} onClick={() => { if (next.atk !== null && next.def !== null) onStats(next.atk, next.def); }} data-testid="token-stats">Set ATK/DEF</button>
         </div>
         {free.length ? <div className={t.row}>
           <label className={t.field}>Move to
