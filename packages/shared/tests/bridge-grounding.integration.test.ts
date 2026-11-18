@@ -41,17 +41,19 @@ describe("grounded engine membership and directed access on the pinned catalog",
   });
 
   it("includes checked Blue-Eyes support without treating every mention as membership", () => {
-    const engine = new BridgeEngine(data);
-    for (const name of ["Maiden of White", "Roar of the Blue-Eyed Dragons", "Neo Kaiser Sea Horse", "Kaibaman the Legend"]) {
+    // Fresh artifacts persist grounded membership. Strip that cache so both
+    // positive and negative cases exercise checked support discovery.
+    const support = ["Maiden of White", "Roar of the Blue-Eyed Dragons", "Neo Kaiser Sea Horse", "Kaibaman the Legend"];
+    const supportIds = new Set(support.map(name => named(data.capabilities, name).id));
+    const groups = { ...data.groups, "Blue-Eyes": data.groups["Blue-Eyes"]!.filter(id => !supportIds.has(id)) };
+    const engine = new BridgeEngine({ ...data, groups });
+    for (const name of support) {
       expect(engine.groups.get("Blue-Eyes")!.has(named(data.capabilities, name).id), name).toBe(true);
     }
     expect(engine.groups.get("Blue-Eyes")!.has(named(data.capabilities, "Buster Blader").id)).toBe(false);
     const capabilities = data.capabilities.map(row => row.card.name === "Maiden of White"
       ? { ...row, card: { ...row.card, text: 'This card mentions "True Light" and "Blue-Eyes White Dragon".' }, provides: [] } : row);
-    // Fresh artifacts already persist grounded membership. Remove that cached
-    // membership as well as the action before checking the mention-only case.
     const maiden = named(capabilities, "Maiden of White").id;
-    const groups = { ...data.groups, "Blue-Eyes": data.groups["Blue-Eyes"]!.filter(id => id !== maiden) };
     expect(new BridgeEngine({ ...data, capabilities, groups }).groups.get("Blue-Eyes")!.has(maiden)).toBe(false);
   });
 
