@@ -26,3 +26,34 @@ it('a field write that fails while the server restarts is retried with one key, 
   expect(notices).toEqual([]); // no raw error text for a lost connection
   expect(reconnecting()).toBe(false); // the single shared notice clears on the first success
 });
+
+it('two clicks while reconnecting apply once, and a manual action gives up after about 20 s', async () => {
+  vi.useFakeTimers();
+  const { createRoomMutationQueue } = await import('../src/lib/remote/room-mutations');
+  const applied = new Map<string, number>(), keys: string[] = [], told: string[] = [];
+  let down = 1;
+  const post = vi.fn(async (_proposal: unknown, key?: string) => {
+    keys.push(key!);
+    if (down-- > 0) { noteOutage(new TypeError('Failed to fetch')); noteWriteLost(); return null; }
+    noteReachable(); applied.set(key!, (applied.get(key!) ?? 0) + 1);
+    return { lastSeq: 3 } as never;
+  });
+  const room = { lastSeq: 2, slug: 't', state: { seats: [] } } as never;
+  const queue = createRoomMutationQueue(() => room, post as never, e => told.push(e.message));
+  const lp = { type: 'lp.change', actorSeat: 0, seat: 0, delta: -1000, reason: 'Manual adjustment' } as never;
+  const first = queue.action(lp);
+  await vi.advanceTimersByTimeAsync(0);
+  expect(reconnecting()).toBe(true);
+  expect(await queue.action(lp)).toBeNull(); // the second click is refused, not queued
+  expect(told).toEqual(['Reconnecting, your last action is still being sent']);
+  await vi.advanceTimersByTimeAsync(600);
+  expect((await first)?.lastSeq).toBe(3);
+  expect(keys).toHaveLength(2); expect(new Set(keys).size).toBe(1);
+  expect([...applied.values()]).toEqual([1]);
+  // The server stays away: the manual action ends with one calm message after the cap.
+  down = 1e9; told.length = 0;
+  const lost = queue.action(lp);
+  await vi.advanceTimersByTimeAsync(30_000);
+  expect(await lost).toBeNull();
+  expect(told).toEqual(['Could not reach the table. Check the connection and try again.']);
+});

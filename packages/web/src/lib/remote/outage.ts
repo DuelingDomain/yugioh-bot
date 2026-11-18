@@ -34,9 +34,13 @@ export function noteReachable() {
 export const noteWriteLost = () => { lost++; };
 export const outageDown = () => down;
 export const reconnecting = () => shown;
+/** A write is waiting to be sent again right now (a stale "down" flag alone does not count). */
+export const writeWaiting = () => waiting > 0;
 export function subscribeReconnecting(listener: () => void) { listeners.add(listener); return () => { listeners.delete(listener); }; }
 /** Runs once each time the server is reachable again after an outage. */
 export function onOutageEnd(listener: () => void) { recovered.add(listener); return () => { recovered.delete(listener); }; }
+/** The table page closed: no write waits for a table that is gone, and the next table does not start on "Reconnecting…". */
+export function endOutage() { down = false; for (const w of [...wakers]) w(); refresh(); }
 /** The socket came back: retry the waiting writes now instead of at the next backoff step. */
 export function wakeOutage() { for (const w of [...wakers]) w(); }
 

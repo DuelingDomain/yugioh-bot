@@ -2,7 +2,7 @@
 
 import { noteRemoteActionError } from "@/lib/remote/room-mutations";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { isTransientError, noteWriteLost, reconnecting as isReconnecting, subscribeReconnecting, wakeOutage } from "@/lib/remote/outage";
+import { isTransientError, noteWriteLost, reconnecting as isReconnecting, subscribeReconnecting, wakeOutage, endOutage } from "@/lib/remote/outage";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
 import { io, type Socket } from "socket.io-client";
@@ -35,6 +35,8 @@ export function useRemoteRoom(slug: string, options: { watchAsAdmin?: boolean } 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   if(room&&(!roomRef.current||room.slug!==roomRef.current.slug||room.lastSeq>=roomRef.current.lastSeq))roomRef.current = room;
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; endOutage(); }; }, []);
   const lastSeq = useRef(0),tableKey=useRef(slug),socketSeq=useRef(0);
   if(tableKey.current!==slug){tableKey.current=slug;lastSeq.current=0;socketSeq.current=0;roomRef.current=room?.slug===slug?room:undefined;}
   const status = room?.status; const mySeat = room?.mySeat;
@@ -164,7 +166,7 @@ export function useRemoteRoom(slug: string, options: { watchAsAdmin?: boolean } 
     }
   }, [slug, mutate, refresh]);
 
-  const {action,transaction}=useMemo(()=>createRoomMutationQueue(()=>tableKey.current===slug&&roomRef.current?.slug===slug?roomRef.current:undefined,postAction,e=>{noteRemoteActionError(e);setError(e.message);}),[postAction,slug]);
+  const {action,transaction}=useMemo(()=>createRoomMutationQueue(()=>tableKey.current===slug&&roomRef.current?.slug===slug?roomRef.current:undefined,postAction,e=>{noteRemoteActionError(e);setError(e.message);void refresh().catch(()=>undefined);},()=>mounted.current&&tableKey.current===slug),[postAction,refresh,slug]);
   const reconnecting = useSyncExternalStore(subscribeReconnecting, isReconnecting, () => false);
 
   const sendData = useCallback((message: Parameters<RemoteClientEvents["remote:data"]>[0]) => { socketRef.current?.emit("remote:data", message); }, []);

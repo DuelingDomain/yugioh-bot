@@ -679,11 +679,11 @@ it.each(['hung action','hung recovery','hung action and recovery'])('round 2 NS1
  try{
   await act(async()=>{void hook.result.current.action({type:'lp.change',actorSeat:0,seat:0,delta:-100,reason:'damage'}).then(value=>{done=true;first=value;});});
   expect(done).toBe(false);
-  await act(async()=>{await vi.advanceTimersByTimeAsync(scenario==='hung recovery'?10001:240_000);});
+  await act(async()=>{await vi.advanceTimersByTimeAsync(scenario==='hung recovery'?10001:45_000);});
   expect(done).toBe(true);expect(first).toBeNull();expect(hook.result.current.error).toMatch(/Could not reach|Rejected action/i);
   expect(signals.every(signal=>signal.aborted)).toBe(true);expect(timeout).toHaveBeenCalledWith(10000);expect(mutate.mock.calls.every(args=>args.length>0)).toBe(true);
   let next:any;await act(async()=>{next=await hook.result.current.action({type:'phase.advance',actorSeat:0});});expect(next.lastSeq).toBe(2);expect(hook.result.current.error).toBe('');
-  expect(JSON.parse(fetcher.mock.calls.at(-1)![1].body).baseSeq).toBe(0);
+  expect(JSON.parse(fetcher.mock.calls.at(-1)![1].body).baseSeq).toBe(scenario==='hung action'?1:0);
  }finally{hook.unmount();state.roomHook=null;vi.useRealTimers();}
 });
 describe('remote room navigation',()=>{

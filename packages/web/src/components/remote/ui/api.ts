@@ -16,8 +16,8 @@ export async function remoteApi<T>(path: string, body?: unknown): Promise<T> {
     }) });
     const actionId=(body as {action?:{idempotencyKey?:string}}|undefined)?.action?.idempotencyKey;
     if(actionId)markFieldAction(actionId,'httpResponse',{serverTiming:response.headers.get('server-timing')});
-    // A restarting server answers 502/503/504 with a gateway page, not JSON: treat it like a lost connection.
-    if(isGatewayStatus(response.status))throw Object.assign(new Error(`Server not reachable (${response.status})`),{status:response.status,transient:true});
+    // A restarting server answers 502/503/504 with a gateway page, not JSON: treat it like a lost connection. The app's own JSON 503s (recording busy, LiveKit, Discord check) keep their message.
+    if(isGatewayStatus(response.status)&&!/application\/json/i.test(response.headers.get('content-type')??''))throw Object.assign(new Error(`Server not reachable (${response.status})`),{status:response.status,transient:true});
     const date = Date.parse(response.headers.get("date") ?? "");
     if (Number.isFinite(date)) clockSkew = date + 999 - Date.now();
     noteReachable();
