@@ -9,7 +9,7 @@ Card facts come from one resolver (`/api/cards/resolve`): the EDOPro engine `car
 | Card | Legal zones | Seen elsewhere |
 | --- | --- | --- |
 | Any card in GY, Banished, Deck, Extra | That pile | — |
-| Field Spell | FIELD | → FIELD; when FIELD is taken: S/T, "Check zone?" |
+| Field Spell | FIELD | → FIELD; send the previous card there to the GY |
 | Spell, Trap | S/T | → S/T, same column |
 | Trap Monster (cdb Trap with a Level, or "Special Summon this card as a … Monster") | S/T, M | EMZ → M |
 | Monster | M | S/T or FIELD → M, same column |
@@ -63,4 +63,4 @@ Every 4 s on GPU and 8 s on CPU the watcher compares what the last full detector
 3. **Artifact Lancea, Set in S3.** Face-down: stays in S3. Revealed: Artifact text says "Set this card … Spell & Trap Zone as a Spell", so it stays in S3 with no mark.
 4. **Union equip.** A Union monster (or a monster that an Equip effect on your field equips) in S2 face-up stays in S2. The table asks which monster it equips; the player can also set "Equipped to" in the inspector.
 5. **Odion, Trap Monster from S3.** Embodiment of Apophis is activated in S3 and goes to M3. It stays in M3 (Trap Monster text), and S3 shows "Occupied by Embodiment of Apophis (Trap Monster)" until it leaves the field.
-6. **Field Spell in S1.** A face-up Field Spell seen in S1 moves to FIELD ("Field Spell → Field Zone"). When FIELD is taken, it stays in S1 with "Check zone?".
+6. **Field Spell in S1.** A face-up Field Spell seen in S1 moves to FIELD ("Field Spell → Field Zone"). The previous card in FIELD goes to the GY in the same action.

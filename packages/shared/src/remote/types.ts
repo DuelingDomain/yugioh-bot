@@ -44,6 +44,8 @@ export type RemotePosition = {
   identified: { seat: number; cardRef?: string; private?: boolean; cardId?: number; passcode?: number; zone?: string; source: "click" | "auto" | "voice" | "typed"; name?: string; notInDecklist?: boolean; addErrors: string[] } | null;
   deckChecks: RemoteDeckChecks;
   effectTracking?: RemoteEffectTracking;
+  /** Public, named Spell/Trap card activations. A held activation can be followed by one physical placement. */
+  spellTrapActivations?: Record<number, Record<string, { turn: number; awaitingPlacement?: string }>>;
   /** Older JSON snapshots omit this default-on table rule. */
   showCardsSetFromDeck?: boolean;
   revealedHand?: RemoteRevealedHand;

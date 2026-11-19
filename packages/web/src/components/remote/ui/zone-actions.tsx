@@ -8,6 +8,7 @@ import { cardCode, cellsFor, hasExtraZones, type TwinCard, type ZoneKey, ZN } fr
 import { cardArt, useCardInfo } from './catalog';
 import { Icon, type IconName } from './icons';
 import { fieldSummonKind } from '@/lib/remote/field-summons';
+import { isFieldSpell } from '@/lib/remote/field-legality';
 import { recentReadsFor } from '@/lib/remote/recent-reads';
 import { playerStamp } from '@/lib/remote/field-timing';
 import s from './remote-ui.module.css';
@@ -63,7 +64,11 @@ export function ZoneActions({ room, seat, zone, at, deck, targetRef, startPicker
   if (mode !== 'actions') return <ZoneCardPicker title={mode === 'top' ? 'Put a card on top' : mode === 'flip' ? 'Flip: which card is it?' : undefined} seat={seat} zone={zone} at={at} deck={deck} recent={recentReadsFor(room, seat)} twin={twins}
     targetRef={mode === 'flip' ? topRef : mode === 'place' ? targetRef : undefined} initialFaceUp={mode === 'flip' || mode === 'top' ? true : initialFaceUp}
     allowFaceDown={mode !== 'flip' && mode !== 'top'} excludeRef={mode === 'top' ? card?.ref : undefined}
-    busy={busy} error={error} onClose={onClose} onPick={chosen => { if (mode === 'top') { setPick(chosen); setMaterials(card ? [card.ref] : []); } else onPick(chosen); }} />;
+    busy={busy} error={error} onClose={onClose} onPick={chosen => {
+      if (mode !== 'top') onPick(chosen);
+      else if (card && isFieldSpell(info(chosen.cardId))) onPick({ ...chosen, top: { ref: card.ref, kind: 'replace' } });
+      else { setPick(chosen); setMaterials(card ? [card.ref] : []); }
+    }} />;
   const held = card?.materials?.length ?? 0;
   const set = /^[ms][1-5]$/.test(zone);
   return <PopupFrame at={at} layer="zone" label={`Actions in ${ZN[zone]}`} className={`${s.zonePicker} ${s.zoneMenu}`} testid="zone-actions" busy={busy}>
