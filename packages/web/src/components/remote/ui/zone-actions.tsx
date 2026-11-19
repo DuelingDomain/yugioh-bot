@@ -19,10 +19,10 @@ function Row({ icon, next, primary, children, ...rest }: { icon: IconName; next?
   return <button type="button" className={`${s.zaRow} ${primary ? s.zaPrimary : ''}`} {...rest}><Icon name={icon} /><span>{children}</span>{next ? <Icon name="chev" className={s.zaNext} /> : null}</button>;
 }
 
-export function ZoneActions({ room, seat, zone, at, deck, targetRef, startPicker=false, initialFaceUp, busy, error, onPick, onAction, onSet, onToken, onDetails, onClose }: {
+export function ZoneActions({ tokenOnly, room, seat, zone, at, deck, targetRef, startPicker=false, initialFaceUp, busy, error, onPick, onAction, onSet, onToken, onDetails, onClose }: {
   room: RemoteRoom; seat: number; zone: ZoneKey; at: PopAt; deck: number[]; targetRef?: string; initialFaceUp?: boolean;
   busy: boolean; error: string; startPicker?: boolean; onPick(pick: ZonePick): void; onAction(action: ZoneCardAction): void;
-  onSet(): void; onToken(): void; onDetails(card: TwinCard): void; onClose(): void;
+  onSet(): void; onToken(): void; /** An empty zone of another player's field: the menu only offers a token. */ tokenOnly?: boolean; onDetails(card: TwinCard): void; onClose(): void;
 }) {
   const twins = room.state.seats[seat].twin;
   const card = cellsFor(twins, hasExtraZones(room.format?.id))[zone]?.card;
@@ -82,7 +82,7 @@ export function ZoneActions({ room, seat, zone, at, deck, targetRef, startPicker
         {card.nameCandidates.map(candidate=><Row key={candidate.cardId} icon="check" disabled={busy} onClick={()=>action({type:'card.identified',actorSeat,seat,cardRef:card.ref,cardId:candidate.cardId,name:candidate.name,source:'click'})}>{candidate.name}</Row>)}
       </section>:null}
       <div className={s.zaList}>
-        {card ? <>
+        {tokenOnly ? null : card ? <>
           {!card.token ? <Row icon="layers" next primary data-autofocus="" disabled={busy} onClick={() => { setTopRef(card.ref); setMode('top'); }}>Put a card on top</Row> : null}
           {!card.faceUp && !card.token ? <Row icon="flip" next disabled={busy} onClick={() => { setTopRef(card.ref); setMode('flip'); }}>Flip</Row> : null}
           {card.faceUp && !card.token && set ? <Row icon="cardback" disabled={busy} onClick={() => action({type:'twin.flip',actorSeat,seat,cardRef:card.ref,faceUp:false,...(card.zone==='monster'?{position:'defense' as const}:{})})}>Set a card here</Row> : null}
@@ -90,8 +90,8 @@ export function ZoneActions({ room, seat, zone, at, deck, targetRef, startPicker
           <Row icon="plus" next primary data-autofocus="" disabled={busy} onClick={() => setMode('place')}>Put a card here</Row>
           {set ? <Row icon="cardback" disabled={busy} onClick={onSet}>Set a card here</Row> : null}
         </>}
-        <Row icon="coin" next disabled={busy} onClick={onToken}>Add token</Row>
-        {card ? <Row icon="info" next disabled={busy} onClick={() => onDetails(card)}>Card details</Row> : null}
+        <Row icon="coin" next primary={tokenOnly} data-autofocus={tokenOnly ? "" : undefined} disabled={busy} onClick={onToken}>Add token</Row>
+        {card && !tokenOnly ? <Row icon="info" next disabled={busy} onClick={() => onDetails(card)}>Card details</Row> : null}
       </div>
       {card?.materials?.length ? <section className={s.zmMats} aria-label="Materials">
         <h3>Materials <b>{card.materials.length}</b></h3>

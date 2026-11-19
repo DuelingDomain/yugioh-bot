@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type ComponentProps, type MouseEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ComponentProps, type ReactNode } from "react";
 import { CircleHelp, Hand, Pencil, RefreshCw, ScanLine } from "lucide-react";
 import { useFieldScan, useMissingPiles, useTapToIdentify } from "@/lib/remote/zone-grid";
 import { Feed, type BoardReading, type FeedHit, type FeedMark, type FeedPoint, type FeedReticle, type FeedStart } from "./feed";
@@ -93,15 +93,7 @@ export function SeatPanel(p: SeatPanelProps) {
     {targeting ? <li className={s.wclab}>{listed.length ? "Attack target:" : "No monsters on this field"}</li> : null}
     {listed.map(({ key, card }) => <li key={card.ref}><button type="button" onClick={() => { if (targeting) p.onActivate(key, card); else p.onInspect(card); }}>{`${ZN[key]}: ${cardName(card, p.info(cardCode(card)))}`}</button></li>)}
   </ul> : null;
-  // A click on the empty field or its frame enlarges it. Cards, zones that hold a card, buttons and a pending attack pick keep their own click.
-  const enlargeFromField = (event: MouseEvent<HTMLElement>) => {
-    if (fieldView || p.picking) return;
-    const target = event.target as HTMLElement;
-    if (target.closest("button, a, input, select, textarea")) return;
-    const zone = target.closest("[data-zone]");
-    if (zone && (zone.querySelector(`.${s.cd}`) || p.you && p.live)) return;
-    setFieldView(true);
-  };
+  // The field never zooms by itself: only the Enlarge field button (and the small camera) changes the view.
   // My Scan field button sits in the tool row under the camera, so the virtual field is centred and the button never covers a zone.
   // Only the large-field view keeps it beside the field.
   const inTools = typeof p.cameraControl === "function" && !fieldView;
@@ -173,7 +165,7 @@ export function SeatPanel(p: SeatPanelProps) {
         {targeting ? null : cardList}
         <div className={s.fboard}>
         {inTools ? null : scan ? scanButton : tapHere ? <span className={s.scanbtn} style={{ visibility: "hidden" }} aria-hidden="true"><ScanLine size={15} strokeWidth={1.8} /><span>Scan field</span></span> : null}
-        <div className={s.fwrap} onClick={enlargeFromField} data-rail={!inTools && (scan || tapHere) ? "" : undefined} data-testid={`fwrap-${p.seat}`}>
+        <div className={s.fwrap} data-rail={!inTools && (scan || tapHere) ? "" : undefined} data-testid={`fwrap-${p.seat}`}>
           <div className={s.holo}>
             <i className={`${s.corner} ${s.a}`} /><i className={`${s.corner} ${s.b}`} /><i className={`${s.corner} ${s.c}`} /><i className={`${s.corner} ${s.d}`} />
             <button type="button" ref={p.plateRef} className={`${s.fplate} ${p.pickPlate ? s.pick : ""}`} tabIndex={p.pickPlate ? 0 : -1} data-plate={p.seat} onClick={p.onPlate}

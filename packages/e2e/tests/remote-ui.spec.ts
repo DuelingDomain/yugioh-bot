@@ -318,8 +318,10 @@ test.describe("remote duels screen, solo", () => {
       await expect(seat0).toHaveAttribute("data-view", "camera");
       await page.keyboard.press("Escape");
       await expect(page.getByTestId("inspector-body")).toBeHidden();
-      // A click on the empty frame enlarges the field and shrinks the camera.
+      // A click on the empty frame never zooms: only the Enlarge field button enlarges the field and shrinks the camera.
       await page.getByTestId("fwrap-0").click({ position: { x: 4, y: 4 } });
+      await expect(seat0).toHaveAttribute("data-view", "camera");
+      await page.getByTestId("view-toggle-0").click();
       await expect(seat0).toHaveAttribute("data-view", "field");
       await expect(seat1).toHaveAttribute("data-view", "camera");
       await expect.poll(() => area("feed-box-0"), { timeout: 3_000 }).toBeLessThan(camBefore * 0.7);
@@ -392,7 +394,7 @@ test.describe("remote duels screen, solo", () => {
     // The grid sits exactly on the video, before and after the camera and the field swap places.
     const gap = async () => { const [g, v] = await Promise.all([grid.boundingBox(), video.boundingBox()]); return Math.abs(g!.x - v!.x) + Math.abs(g!.y - v!.y) + Math.abs(g!.width - v!.width) + Math.abs(g!.height - v!.height); };
     expect(await gap()).toBeLessThan(6); await shot(page, "zone-grid-default");
-    await page.getByTestId("fwrap-0").click({ position: { x: 4, y: 4 } });
+    await page.getByTestId("view-toggle-0").click();
     await expect(page.getByTestId("seat-0")).toHaveAttribute("data-view", "field");
     await expect(grid).toBeVisible();
     await expect.poll(gap, { timeout: 3_000 }).toBeLessThan(6);
