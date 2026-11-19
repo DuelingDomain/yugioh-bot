@@ -34,10 +34,10 @@ export async function GET(request: NextRequest) {
     if (!user) return clearRecoveryCookies(recoveryRedirect("/access"));
     // A repeat recovery uses only this proven Discord row's stored Clerk ID.
     // Never select a Clerk account using email alone.
-    if (user.clerkUserId) return await signInRecovery(request, user.clerkUserId, profile.id);
+    if (user.clerkUserId) return await signInRecovery(request, user.clerkUserId, profile.id, proof.returnTo);
     if (profile.verified !== true || !validEmail(email)) return clearRecoveryCookies(recoveryRedirect("/access"));
     const response = clearRecoveryCookies(recoveryRedirect("/welcome-back"));
-    setRecoveryCookie(response, "identity", { userId: user.id, discordId: profile.id, email,
+    setRecoveryCookie(response, "identity", { userId: user.id, discordId: profile.id, email, returnTo: proof.returnTo,
       discordUsername: typeof profile.username === "string" ? profile.username.slice(0, 128) : "" });
     return response;
   } catch { return clearRecoveryCookies(recoveryRedirect("/sign-in?error=discord_recovery_unavailable")); }

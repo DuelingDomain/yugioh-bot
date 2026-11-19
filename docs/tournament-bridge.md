@@ -64,7 +64,23 @@ with a null Clerk ID. Lookup and search exclude those tombstones.
 
 `GET /api/tournament-bridge/start?return=<relative path>` uses normal Clerk
 protection. Anonymous visitors redirect to `/sign-in?redirect_url=...` with this
-path and query intact; the existing sign-up flow preserves that destination too.
+path and query intact. Sign-in displays tournament invite guidance beside the
+waitlist link. Successful sign-in follows the requested event link.
+
+The anonymous redirect also sets a host-only, Secure, HttpOnly, SameSite=Lax
+cookie for 30 days. If a visitor later opens an approved waitlist invitation
+in the same browser, sign-up uses the marker to return to the tournament
+homepage. An ordinary sign-in with the marker does the same when it would
+otherwise go to the dashboard. Explicit app destinations take precedence, and
+a successful bridge handoff clears the marker.
+
+With the bridge configured, owners can use **Admin → Creators → Invite tournament
+organizer** to email a 30-day Clerk invitation. The ticket opens the app's
+sign-up page and continues to DD Tournaments after account creation, including
+in a different browser. Pending invites stay in place. For an existing account,
+send the tournament link directly. The route shares the creator invitation
+budget and records the actor and outcome in `mod_actions`.
+
 Identity-sync outages remain 503. `return` defaults to `/`; it must start with
 `/`, must not start with `//`, must contain no backslash, and must be at most 512
 characters. Control characters are also rejected to prevent URL-parser redirects.
@@ -162,7 +178,8 @@ and compare the last digit to `(11 - sum % 11) % 10`.
    its offline migration creates the additive table/trigger. Start the separate
    container with host port 3400 reachable by Caddy and its own private data.
 4. Recreate web and Caddy after env/config changes (Caddy restart alone does not
-   refresh the bind mount). Verify anonymous sign-in and sign-up returns, one
+   refresh the bind mount). Verify sign-in from an event link, organizer
+   invitation sign-up and waitlist approval in the same browser. Check one
    successful assertion handoff, signed search/lookup/member-ID updates, conflict
    and deletion behavior, HTTPS headers, body limit and `/robots.txt`.
 5. To disable the identity bridge, clear `TOURNAMENT_URL` and recreate web. Clear
@@ -174,7 +191,8 @@ and compare the last digit to `(11 - sum % 11) % 10`.
   package export, and `packages/shared/tests/tournament-bridge/`.
 - Remove `packages/web/app/api/tournament-bridge/`,
   `packages/web/src/lib/tournament-bridge.ts`, the marked proxy clauses and
-  `packages/web/tests/tournament-bridge*.test.ts`.
+  `packages/web/tests/tournament-bridge*.test.ts`. Remove the console's
+  tournament invitation action and the auth return cookie and navigation code.
 - Remove the marked schema block; separately plan deletion of
   `tournament_bridge_anonymised_user` and `user_profile_ids` from existing databases
   after the owner has handled member-ID retention/export needs. Removing the

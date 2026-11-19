@@ -1,12 +1,14 @@
 // Tournament bridge: the existing Clerk sign-in/sign-up flow returns here.
 import { currentUser } from "@clerk/nextjs/server";
+import type { NextRequest } from "next/server";
 import { createTournamentBridgeUsers, signTournamentAssertion, validTournamentReturn } from "@yugidraft/shared/tournament-bridge";
 import { getDb } from "@/lib/db";
+import { TOURNAMENT_RETURN_COOKIE, tournamentCallbackRedirect, tournamentSignInRedirect } from "@/lib/tournament-auth-return";
 import { requireWebAccess } from "@/lib/web-access";
 import { tournamentBridgeConfig, tournamentJson } from "@/lib/tournament-bridge";
 
 export const runtime = "nodejs";
-export async function GET(request: Request) {
+export async function GET(request: NextRequest) {
   const config = tournamentBridgeConfig();
   if (config instanceof Response) return config;
   const url = new URL(request.url);
@@ -18,9 +20,7 @@ export async function GET(request: Request) {
       access.response.headers.set("Cache-Control", "no-store");
       return access.response;
     }
-    const signIn = new URL("/sign-in", request.url);
-    signIn.searchParams.set("redirect_url", url.pathname + url.search);
-    return new Response(null, { status: 302, headers: { Location: signIn.toString(), "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" } });
+    return tournamentSignInRedirect(url, 302);
   }
   let clerkUser: Awaited<ReturnType<typeof currentUser>> = null;
   try { clerkUser = await currentUser(); } catch { /* Optional Discord refresh may be unavailable. */ }
@@ -39,5 +39,5 @@ export async function GET(request: Request) {
   if (!user) return tournamentJson({ error: "not_found" }, 404);
   const callback = new URL(`${config.url}/auth/callback`);
   callback.searchParams.set("assertion", signTournamentAssertion({ secret: config.secret, return: returnTo, user }));
-  return new Response(null, { status: 302, headers: { Location: callback.toString(), "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" } });
+  return tournamentCallbackRedirect(callback, request.cookies.has(TOURNAMENT_RETURN_COOKIE));
 }

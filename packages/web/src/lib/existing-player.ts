@@ -10,8 +10,8 @@ export const IDENTITY_COOKIE = "__Host-dd_existing_player_identity";
 export const TICKET_COOKIE = "__Host-dd_existing_player_ticket";
 const TTL = 600;
 type Purpose = "oauth" | "identity" | "ticket";
-export type ProvenIdentity = { userId: number; discordId: string; email: string; discordUsername: string };
-export type OAuthProof = { state: string; verifier: string };
+export type ProvenIdentity = { userId: number; discordId: string; email: string; discordUsername: string; returnTo?: string };
+export type OAuthProof = { state: string; verifier: string; returnTo?: string };
 const cookieOptions = { httpOnly: true, secure: true, sameSite: "lax" as const, path: "/" };
 
 export function webOrigin(): string {
@@ -104,7 +104,7 @@ export function recoveryRateLimit(request: NextRequest, stage: string): NextResp
   }
   return null;
 }
-export async function signInRecovery(request: NextRequest, clerkUserId: string, discordId: string): Promise<NextResponse> {
+export async function signInRecovery(request: NextRequest, clerkUserId: string, discordId: string, returnTo?: string): Promise<NextResponse> {
   const client = await clerkClient();
   const refuse = () => clearTicketCookie(clearRecoveryCookies(request.method === "POST" && request.headers.get("accept") === "application/json"
     ? recoveryError("Your account needs help linking. Contact support@duelingdomain.com.", 409)
@@ -131,6 +131,6 @@ export async function signInRecovery(request: NextRequest, clerkUserId: string, 
   const response = request.headers.get("accept") === "application/json"
     ? NextResponse.json({ redirectTo: path }, { headers: { "Cache-Control": "no-store" } }) : recoveryRedirect(path);
   clearRecoveryCookies(response);
-  setRecoveryCookie(response, "ticket", { ticket: token });
+  setRecoveryCookie(response, "ticket", { ticket: token, returnTo });
   return response;
 }

@@ -30,6 +30,8 @@ beforeEach(() => {
     if (method === "POST" && pathname === "/v1/invitations") {
       invitations += 1;
       const sent = JSON.parse(String(init!.body));
+      if (sent.email_address === "pending@example.test") return Response.json({ errors: [{ code: "duplicate_record" }] }, { status: 400 });
+      if (sent.email_address === "member@example.test") return Response.json({ errors: [{ code: "form_identifier_exists" }] }, { status: 422 });
       return Response.json({ id: `inv_${invitations}`, email_address: sent.email_address, status: "pending", url: "https://clerk.example.test/v1/tickets/accept?ticket=x" });
     }
     if (method === "POST" && /^\/v1\/invitations\/[^/]+\/revoke$/.test(pathname)) return Response.json({ id: pathname.split("/")[3], status: "revoked" });
@@ -89,6 +91,42 @@ it("refuses a bad or missing Origin with 403 on mutations", async () => {
   expect(missing.status).toBe(403);
   expect(await missing.json()).toEqual({ error: "invalid_origin" });
   expect(db.prepare("select count(*) as n from creators").get()).toEqual({ n: 0 });
+});
+
+it("lets only an owner send an audited tournament invitation within the shared Clerk budget", async () => {
+  const { POST } = await import("../app/api/admin/console/tournament-invites/route");
+  const invite = (email: string, origin = ORIGIN) => POST(req("/api/admin/console/tournament-invites", "POST", { email }, origin));
+  vi.stubEnv("TOURNAMENT_URL", "");
+  expect((await invite("organizer@example.test")).status).toBe(404);
+  vi.stubEnv("TOURNAMENT_URL", "https://tournament.example.test");
+  vi.stubEnv("TOURNAMENT_BRIDGE_SECRET", "x".repeat(32));
+  auth.mockResolvedValueOnce({ user: { id: "2", name: "Ann" } });
+  expect((await invite("organizer@example.test")).status).toBe(404);
+  expect((await invite("organizer@example.test", "https://outside.example.test")).status).toBe(403);
+  expect(clerk).not.toHaveBeenCalled();
+
+  const sent = await invite(" Organizer@Example.test ");
+  expect(sent.status).toBe(201);
+  expect(await sent.json()).toEqual({ sent: true });
+  const requestBody = JSON.parse(String(clerk.mock.calls[0]?.[1]?.body));
+  expect(requestBody).toMatchObject({ email_address: "organizer@example.test", notify: true, ignore_existing: false });
+  const signUp = new URL(requestBody.redirect_url);
+  expect(signUp.origin + signUp.pathname).toBe(`${ORIGIN}/sign-up`);
+  expect(signUp.searchParams.get("redirect_url")).toBe("/api/tournament-bridge/start");
+  expect(db.prepare("select actor_user_id, action, result, params_json from mod_actions").get()).toMatchObject({
+    actor_user_id: 1, action: "tournament.invite", result: "success", params_json: '{"invitationId":"inv_1"}',
+  });
+
+  const pending = await invite("pending@example.test");
+  expect(pending.status).toBe(409);
+  expect(await pending.json()).toEqual({ error: "invitation_pending" });
+  const member = await invite("member@example.test");
+  expect(member.status).toBe(409);
+  expect(await member.json()).toEqual({ error: "existing_account" });
+  const { reserveOwnerSends } = await import("@/lib/creator-send-limit");
+  expect(reserveOwnerSends(77)).toBeNull();
+  expect((await invite("another@example.test")).status).toBe(429);
+  expect(clerk).toHaveBeenCalledTimes(3);
 });
 
 it("creates a creator with an allowlist email, a link and more emails; the section and the sheet show them", async () => {

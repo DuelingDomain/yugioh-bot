@@ -5,12 +5,12 @@ import { plural } from "@/lib/admin-console/format";
 import { formatDayMonth } from "@/lib/admin-console/time";
 import type { CreatorSummary } from "@/lib/admin-console/creators-types";
 import type { ConsoleActions } from "../admin-console";
-import { AddCreatorSheet, CreatorSheet } from "../creators-sheet";
+import { AddCreatorSheet, CreatorSheet, TournamentInviteSheet } from "../creators-sheet";
 import { okData, type Snapshots } from "../model";
 import { Icon, Notice, StatusIcon } from "../parts";
 import styles from "../admin-console.module.css";
 
-type Sheet = { kind: "add" } | { kind: "creator"; id: number };
+type Sheet = { kind: "add" } | { kind: "tournament-invite" } | { kind: "creator"; id: number };
 
 const day = (ms: number | null) => (ms === null ? "-" : formatDayMonth(ms));
 
@@ -20,7 +20,7 @@ function host(url: string | null): string | null {
 }
 
 /** Creators: who brings people in past the waitlist, with their links, invites and sign-ups. */
-export function CreatorsView({ s, actions }: { s: Snapshots; actions: ConsoleActions }) {
+export function CreatorsView({ s, actions, tournamentInvites }: { s: Snapshots; actions: ConsoleActions; tournamentInvites: boolean }) {
   const result = s.creators.result;
   const data = okData(s.creators);
   const [sheet, setSheet] = useState<Sheet | null>(null);
@@ -46,9 +46,14 @@ export function CreatorsView({ s, actions }: { s: Snapshots; actions: ConsoleAct
         <span className={styles.aside}>
           {data ? `${plural(data.sendBudgetLeft, "invite send", "invite sends")} left this hour` : s.creators.failure ? "Could not load. Retrying." : "Loading"}
         </span>
-        <button type="button" className={`${styles.btn} ${styles.btnPrimary} ${styles.toolbarEnd}`} onClick={(e) => open({ kind: "add" }, e.currentTarget)}>
-          <Icon name="plus" />Add creator
-        </button>
+        <div className={`${styles.crActs} ${styles.toolbarEnd}`}>
+          {tournamentInvites ? (
+            <button type="button" className={styles.btn} onClick={(e) => open({ kind: "tournament-invite" }, e.currentTarget)}>Invite tournament organizer</button>
+          ) : null}
+          <button type="button" className={`${styles.btn} ${styles.btnPrimary}`} onClick={(e) => open({ kind: "add" }, e.currentTarget)}>
+            <Icon name="plus" />Add creator
+          </button>
+        </div>
       </div>
 
       {creators.length === 0 ? (
@@ -73,6 +78,8 @@ export function CreatorsView({ s, actions }: { s: Snapshots; actions: ConsoleAct
 
       {sheet?.kind === "add" ? (
         <AddCreatorSheet actions={actions} onClose={close} onCreated={(creator) => setSheet({ kind: "creator", id: creator.id })} />
+      ) : sheet?.kind === "tournament-invite" ? (
+        <TournamentInviteSheet actions={actions} onClose={close} />
       ) : sheet?.kind === "creator" ? (
         <CreatorSheet key={sheet.id} id={sheet.id} summary={selected} budgetLeft={data?.sendBudgetLeft ?? null} actions={actions} onClose={close} />
       ) : null}

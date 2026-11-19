@@ -40,6 +40,7 @@ it("protects start with the existing sign-in redirect and preserves its query fo
   const response = await run(path);
   const location = new URL(response!.headers.get("location")!);
   expect(location.pathname).toBe("/sign-in"); expect(location.searchParams.get("redirect_url")).toBe(path);
+  expect(response!.headers.get("set-cookie")).toMatch(/^__Host-dd_tournament_return=1;.*Max-Age=2592000;.*Secure;.*HttpOnly;.*SameSite=lax/i);
   expect((await run(`${base}/start`, "POST"))?.status).toBe(401);
   state.auth.mockResolvedValue({ userId: "clerk1" });
   expect((await run(path))?.status).toBe(200);

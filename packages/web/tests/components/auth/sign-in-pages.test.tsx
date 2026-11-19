@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AuthFlowState, AuthStep } from "@/lib/auth-flow";
+import { sealCookie, TICKET_COOKIE } from "@/lib/existing-player";
 
 vi.mock("next/font/local", () => ({
   default: ({ variable }: { variable: string }) => ({ variable, className: "font-class" }),
@@ -26,6 +27,8 @@ vi.mock("@/hooks/use-sign-in-flow", () => ({ useSignInFlow: signInFlow }));
 vi.mock("@/hooks/use-sign-up-flow", () => ({ useSignUpFlow: signUpFlow }));
 vi.mock("@/hooks/use-sso-callback", () => ({ useSsoCallback: ssoFlow }));
 vi.mock("next/navigation", () => ({ redirect, useRouter: () => ({ replace: routerReplace }) }));
+const { readCookie } = vi.hoisted(() => ({ readCookie: vi.fn() }));
+vi.mock("next/headers", () => ({ cookies: async () => ({ get: readCookie }) }));
 vi.mock("@clerk/nextjs", () => ({
   useAuth: (options?: { treatPendingAsSignedOut?: boolean }) => ({ ...authState, isSignedIn: authState.isSignedIn && (!authState.pending || options?.treatPendingAsSignedOut === false) }),
   useUser: () => ({ isLoaded: authState.isLoaded, isSignedIn: authState.isSignedIn, user: authState.isSignedIn ? clerkUser : null }),
@@ -56,6 +59,7 @@ const signInActions = () => ({
 const signUpActions = () => ({ submitAccount: vi.fn(), continueWithDiscord: vi.fn(), submitCode: vi.fn(), resendCode: vi.fn() });
 
 beforeEach(() => {
+  readCookie.mockReset();
   authState.pending = false;
   clerkUser.username = "owner";
   clerkSignOut.mockImplementation(async callback => { callback?.(); });
@@ -96,6 +100,40 @@ async function renderCallback(flowState: AuthFlowState) {
 }
 
 describe("sign-in page", () => {
+  it("returns from waitlist sign-up in the same browser and preserves explicit auth destinations", async () => {
+    const start = "/api/tournament-bridge/start";
+    const event = `${start}?return=%2Fevents%2Fweekly`;
+    vi.stubEnv("TOURNAMENT_URL", "https://tournament.example");
+    const signIn = await renderSignIn(state("signin", { returnTo: event }), { redirect_url: event });
+    expect(signInFlow).toHaveBeenLastCalledWith({ returnTo: event, marketingUrl: MARKETING });
+    expect(screen.getByText("Signing in to DD Tournaments. New here? Ask your tournament organizer for an invite.")).toBeVisible();
+    expect(screen.getByRole("link", { name: "Join the waitlist" })).toBeVisible();
+    signIn.unmount();
+
+    readCookie.mockImplementation((name) => name === "__Host-dd_tournament_return" ? { value: "1" } : undefined);
+    const approval = await renderSignUp(state("invite"), { __clerk_ticket: "waitlist-ticket" });
+    expect(signUpFlow).toHaveBeenLastCalledWith({ ticket: "waitlist-ticket", returnTo: start });
+    approval.unmount();
+    const ordinary = await renderSignIn(state("signin"));
+    expect(signInFlow).toHaveBeenLastCalledWith({ returnTo: start, marketingUrl: MARKETING });
+    ordinary.unmount();
+
+    const explicit = await renderSignIn(state("signin"), { redirect_url: "/cubes" });
+    expect(signInFlow).toHaveBeenLastCalledWith({ returnTo: "/cubes", marketingUrl: MARKETING });
+    explicit.unmount();
+    const unsafe = await renderSignUp(state("invite"), { __clerk_ticket: "another-ticket", redirect_url: "/a%3f/..//outside.example" });
+    expect(signUpFlow).toHaveBeenLastCalledWith({ ticket: "another-ticket", returnTo: "/dashboard" });
+    unsafe.unmount();
+
+    vi.stubEnv("WEB_URL", "https://app.example");
+    vi.stubEnv("CLERK_SECRET_KEY", "fake-clerk-secret");
+    const recovery = sealCookie("ticket", { ticket: "recovery-ticket", returnTo: "/cubes" });
+    const tournamentCookie = readCookie.getMockImplementation();
+    readCookie.mockImplementation((name) => name === TICKET_COOKIE ? { value: recovery } : tournamentCookie?.(name));
+    await renderSignIn(state("signin"), { existing_player: "1" });
+    expect(signInFlow).toHaveBeenLastCalledWith({ returnTo: "/cubes", marketingUrl: MARKETING });
+  });
+
   it.each([
     ["signin", "signin"], ["password", "password"], ["code", "code"], ["newpw", "newpw"], ["signing", "signing"], ["recovering", "recovering"],
     ["success", "success"], ["err-invite", "err-invite"], ["err-signup", "err-signup"], ["err-banned", "err-banned"],

@@ -2,6 +2,8 @@ import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 import { NextResponse, type NextRequest, type NextMiddleware, type NextFetchEvent } from "next/server";
 import { E2E_SESSION_COOKIE, isE2EAuthEnabled, verifyE2ESession } from "@/lib/e2e-auth";
 import { fxLabEnabled, isFxLabPublicPath, visionAssetsEnabled } from "@/lib/fx-lab";
+import { TOURNAMENT_BRIDGE_START } from "@/lib/auth-return";
+import { tournamentSignInRedirect } from "@/lib/tournament-auth-return";
 const PUBLIC = ["/sign-in(.*)", "/sign-up(.*)", "/join/(.*)", "/sso-callback(.*)", "/welcome-back", "/monitoring", "/access", "/login", "/favicon.ico", "/icon.svg", "/apple-icon.png", "/icons/(.*)"];
 const isPublic = createRouteMatcher(PUBLIC);
 function beforeAuth(request: NextRequest): Response | null {
@@ -15,18 +17,14 @@ function beforeAuth(request: NextRequest): Response | null {
   return null;
 }
 function unauthorized(request: NextRequest) {
-  // Tournament bridge: start uses the normal page-style sign-in redirect, including sign-up return.
-  if (request.nextUrl.pathname.startsWith("/api/") && !(request.method === "GET" && request.nextUrl.pathname === "/api/tournament-bridge/start")) return NextResponse.json({ error: "unauthorized" }, { status: 401,
+  if (request.method === "GET" && request.nextUrl.pathname === TOURNAMENT_BRIDGE_START) {
+    return tournamentSignInRedirect(new URL(request.url), 307);
+  }
+  if (request.nextUrl.pathname.startsWith("/api/")) return NextResponse.json({ error: "unauthorized" }, { status: 401,
     headers: { "cache-control": "private, no-store" } });
   const url = new URL("/sign-in", request.url);
   url.searchParams.set("redirect_url", request.nextUrl.pathname + request.nextUrl.search);
-  const response = NextResponse.redirect(url);
-  // Tournament bridge: keep the intermediate sign-in response private too.
-  if (request.nextUrl.pathname === "/api/tournament-bridge/start") {
-    response.headers.set("Cache-Control", "no-store");
-    response.headers.set("Referrer-Policy", "no-referrer");
-  }
-  return response;
+  return NextResponse.redirect(url);
 }
 // Construct Clerk lazily: an E2E request must never initialize its middleware.
 let clerkProxy: NextMiddleware | undefined;

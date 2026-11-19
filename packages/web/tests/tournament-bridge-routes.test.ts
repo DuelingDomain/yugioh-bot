@@ -1,4 +1,5 @@
 import { createHmac } from "node:crypto";
+import { NextRequest } from "next/server";
 import type Database from "better-sqlite3";
 import { openDatabase, migrate } from "@yugidraft/shared/db";
 import { deleteUserAccount } from "@yugidraft/shared/services";
@@ -25,7 +26,8 @@ function signed(path: string, method = "GET", body?: unknown, raw = false): Requ
 }
 const lookupIds = (ids: unknown) => lookup(signed(`${base}/users/lookup`, "POST", { ids }));
 const setMember = (id: string, memberId: unknown) => member(signed(`${base}/users/${id}/member-id`, "PUT", { memberId }), { params: Promise.resolve({ id }) });
-const startRequest = (path = "/events/one?desk=1") => new Request(`https://app.test${base}/start?return=${encodeURIComponent(path)}`);
+const startRequest = (path = "/events/one?desk=1", cookie?: string) =>
+  new NextRequest(`https://app.test${base}/start?return=${encodeURIComponent(path)}`, { headers: cookie ? { cookie } : undefined });
 beforeEach(() => {
   db = openDatabase(":memory:");
   db.exec(`insert into users(id,clerk_user_id,username,display_name,discord_user_id,email) values
@@ -41,10 +43,11 @@ beforeEach(() => {
 afterEach(() => { db.close(); vi.unstubAllEnvs(); vi.restoreAllMocks(); });
 
 it("redirects to the separate callback with a signed identity assertion and refreshes Discord once", async () => {
-  const response = await start(startRequest());
+  const response = await start(startRequest(undefined, "__Host-dd_tournament_return=1"));
   expect(response.status).toBe(302);
   expect(response.headers.get("cache-control")).toBe("no-store");
   expect(response.headers.get("referrer-policy")).toBe("no-referrer");
+  expect(response.headers.get("set-cookie")).toMatch(/^__Host-dd_tournament_return=;.*Max-Age=0;.*Secure;.*HttpOnly;.*SameSite=lax/i);
   const callback = new URL(response.headers.get("location")!);
   expect(callback.origin + callback.pathname).toBe("https://tournament.test/auth/callback");
   const [payload, signature] = callback.searchParams.get("assertion")!.split(".");
@@ -73,7 +76,7 @@ it.each(["//outside.test", "/\\outside.test", "https://outside.test", "", "/\n/o
 });
 it("accepts a 512 character relative return and defaults a missing return to /", async () => {
   expect((await start(startRequest("/" + "x".repeat(511)))) .status).toBe(302);
-  const response = await start(new Request(`https://app.test${base}/start`));
+  const response = await start(new NextRequest(`https://app.test${base}/start`));
   const assertion = new URL(response.headers.get("location")!).searchParams.get("assertion")!;
   expect(JSON.parse(Buffer.from(assertion.split(".")[0]!, "base64url").toString()).return).toBe("/");
 });
