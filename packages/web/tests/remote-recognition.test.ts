@@ -645,13 +645,15 @@ it('field legality: a full row abstains instead of overwriting a twin',async()=>
   expect(result.zone).toBeUndefined();expect(result.reason).toMatch(/no free|full/i);
  }
 });
-it('field legality: Field Spells move to a free Field Spell Zone (hard rule) and otherwise stay with Check zone',async()=>{
+it('field legality: Field Spells use the Field Spell Zone even when it is occupied',async()=>{
  const {projectFieldZone,hardFieldZone}=await import('../src/lib/remote/field-legality');
  for(const facts of [{type:'Field Spell'},{type:'Spell Card',race:'Field'}]){
   expect(projectFieldZone({zone:'M4',facts,twins:[]})).toEqual({zone:'FIELD',label:'Field Spell Zone',moved:'Field Spell → Field Zone'});
   expect(hardFieldZone(facts,'S1',[],'self')).toBe('FIELD');
-  const blocked=projectFieldZone({zone:'S4',facts,twins:[{ref:'field',zone:'field'}]});
-  expect(blocked.zone).toBe('S4');expect(blocked.check).toMatch(/Field Spell Zone/i);
+  const twins=[{ref:'field',zone:'field'}];
+  for(const zone of ['S4','M4','FIELD'] as const){
+   expect(projectFieldZone({zone,facts,twins})).toEqual({zone:'FIELD',label:'Field Spell Zone',...(zone==='FIELD'?{}:{moved:'Field Spell → Field Zone'})});
+  }
  }
  expect(hardFieldZone({type:'Link Monster',frameType:'link'},'S2',[],'self')).toBeUndefined();
  expect(hardFieldZone({type:'Effect Monster'},'S2',[],'self')).toBeUndefined();
@@ -1542,4 +1544,19 @@ it('Set comparison switches default on and query overrides take precedence over 
  vi.unstubAllEnvs();
  vi.stubGlobal('localStorage',{getItem:()=>null});vi.stubGlobal('window',{location:{search:''}});
  expect(readSetGuards()).toEqual({positiveBack:true,prompt:true,ignore:true,startup:true,handRelease:true});
+});
+
+it('only a clean sure read can reveal the settled Set on its own ref immediately', async () => {
+  const {fieldSureSetReveal} = await import('../src/lib/remote/field-proposals');
+  const track = {id:'set-1',zone:'S2',cardId:'17782288',visible:true,faceDown:false,restSince:100,bestMatch:true} as import('@yugidraft/vision').FieldTrack;
+  const card = {ref:'set-1',zone:'spell-trap',slot:2,faceUp:false} as import('@yugidraft/shared/remote').TwinCard;
+  const result = {tier:'sure',quality:{},candidates:[{cardId:'17782288',score:.843}]} as import('@yugidraft/vision').RecognitionResult;
+  const event = {type:'placed',source:'auto',track,result} as const;
+  expect(fieldSureSetReveal(event,track,card)).toBe(true);
+  expect(fieldSureSetReveal(event,track,{...card,ref:'other'})).toBe(false);
+  expect(fieldSureSetReveal(event,track,{...card,slot:3})).toBe(false);
+  expect(fieldSureSetReveal(event,{...track,visible:false},card)).toBe(false);
+  expect(fieldSureSetReveal(event,{...track,cardId:'other'},card)).toBe(false);
+  expect(fieldSureSetReveal({...event,result:{...result,tier:'not sure'}},track,card)).toBe(false);
+  expect(fieldSureSetReveal({...event,result:{...result,quality:{...result.quality,fallback:true}}},track,card)).toBe(false);
 });

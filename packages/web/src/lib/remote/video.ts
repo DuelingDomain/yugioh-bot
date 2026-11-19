@@ -68,12 +68,12 @@ export class RemoteVideo {
       if (!member || this.room.state !== ConnectionState.Connected) throw new Error("That player is not connected");
       await this.room.localParticipant.publishData(new TextEncoder().encode(JSON.stringify(message)), { reliable: true, topic: RESCAN_TOPIC, destinationIdentities: [`remote-user-${member.userId}`] });
     }, from => this.options.onRescan?.(from) ?? "off");
-    // Guard SDK disconnects too. Do not wait for a driver reset before sending leave.
+    // Send leave immediately. The Disconnected handler owns camera stop after resetting its controls.
     const disconnect = this.room.disconnect.bind(this.room);
     this.room.disconnect = stopTracks => {
       const track = this.camera?.mediaStreamTrack;
       if (track) void releaseCameraLock(track);
-      return disconnect(stopTracks);
+      return disconnect(track ? false : stopTracks);
     };
     // beforeunload can be cancelled. Leave only when pagehide confirms the departure.
     if (typeof window !== 'undefined') window.addEventListener('pagehide', this.pagehide);

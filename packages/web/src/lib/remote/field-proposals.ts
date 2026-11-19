@@ -1,6 +1,6 @@
 import {remoteActionError,type RoomMutation} from './room-mutations';
 import {OutageGaveUpError,retryThroughOutage,SKIPPED} from './outage';
-import {REMOTE_TWIN_MOVE_WINDOW_MS,type RemoteActionProposal,type RemoteEvent,type RemoteSummonKind,type TwinCard} from '@yugidraft/shared/remote';
+import {RemoteDuelError,REMOTE_TWIN_MOVE_WINDOW_MS,type RemoteActionProposal,type RemoteEvent,type RemoteSummonKind,type TwinCard} from '@yugidraft/shared/remote';
 import { FIELD_SET_RETURN_MS,fieldZoneLocation, type FieldEvent, type FieldSnapshot, type FieldTrack } from '@yugidraft/vision';
 // A manual read may finish before the watcher's first identity read. Preserve
 // its physical row even when card legality projects it into another virtual row.
@@ -160,6 +160,16 @@ export function recentCommittedSet(track:FieldTrack,at=performance.now()):boolea
 }
 export const fieldSetRebind=(event:FieldEvent)=>event.track.faceDown&&(event.type==='flipped'||event.type==='moved');
 
+/** A sure, settled read can reveal its bound Set through the atomic placement path. */
+export function fieldSureSetReveal(event:FieldEvent,track:FieldTrack,card:Pick<TwinCard,'ref'|'zone'|'slot'|'faceUp'|'ownerSeat'>):boolean {
+  const result=event.result,top=result?.candidates[0];
+  const location=fieldZoneLocation(track.zone);
+  return event.type==='placed'&&event.track.zone===track.zone&&card.ref===track.id&&!card.faceUp&&card.ownerSeat===undefined&&
+    card.zone===location.zone&&card.slot===location.slot&&!!track.visible&&!track.under&&!track.faceDown&&
+    track.restSince!==undefined&&!track.nameCandidates?.length&&result?.tier==='sure'&&!!top&&top.cardId===track.cardId&&top.score>=.84&&
+    !result.quality.fallback&&!result.quality.covered&&!result.quality.partial&&!result.quality.faceDown;
+}
+
 /** An identified track that was seen this recently still has evidence when a slow tick set `visible` false. */
 const VISIBLE_GRACE_MS=1000;
 /** The first reason queued evidence no longer fits the live track (undefined: it fits). For the "identification deferred" log. */
@@ -175,6 +185,8 @@ export function fieldEvidenceMismatch(event:FieldEvent,current:FieldTrack|undefi
   if(!seen)return human?`not seen for ${Math.round(age)} ms`:`not visible (last seen ${Math.round(age)} ms ago)`;
   if((current.revision??0)!==(event.track.revision??0))return `revision ${current.revision??0} is not ${event.track.revision??0}`;
   if(current.faceDown!==event.track.faceDown)return 'face changed';
+  // Glare choices can appear while the automatic reader is still working.
+  if(human&&event.track.glare)return current.glare&&!current.cardId&&current.zone===event.track.zone&&current.position===event.track.position?undefined:'glare choice expired';
   if(event.type==='reading'?current.state!=='candidate':event.type==='prompt'?current.state!=='prompt':current.state!=='identified'||current.cardId!==event.track.cardId)return `state ${current.state}${current.cardId!==event.track.cardId?` name ${current.cardId??'none'} is not ${event.track.cardId??'none'}`:''}`;
   return undefined;
 }
@@ -435,13 +447,14 @@ export async function retryFieldMutation(act:RoomMutation,proposal:RemoteActionP
   const attempts=3;let reason='';
   for(let attempt=0;attempt<attempts;attempt++){
     if(!valid())return null;
-    const before=remoteActionError()?.at;
+    const before=remoteActionError();
     let updated:Awaited<ReturnType<RoomMutation>>=null;
     try{
       const sent=await retryThroughOutage(()=>act(proposal,id),{valid,patient:!options.quiet});
       if(sent===SKIPPED)return null;
       updated=sent;
     }catch(error){
+      if(error instanceof RemoteDuelError&&error.code==='ACTIVATION_LIMIT')throw error;
       if(error instanceof OutageGaveUpError){
         if(options.quiet)throw error;
         throw new Error(`Could not save the field update (${proposal.type}: no connection). Use Retry field update.`);
@@ -449,7 +462,11 @@ export async function retryFieldMutation(act:RoomMutation,proposal:RemoteActionP
       failed(error);reason=error instanceof Error?error.message:String(error);if(attempt===attempts-1)throw error;
     }
     if(updated)return updated;
-    const server=remoteActionError();if(server&&server.at!==before)reason=server.message;
+    const server=remoteActionError();
+    if(server&&server!==before){
+      if(server.code==='ACTIVATION_LIMIT')throw new RemoteDuelError(server.message,409,server.code);
+      reason=server.message;
+    }
     failed(new Error(`Could not save ${proposal.type}${reason?`: ${reason}`:''}. Retrying the field update.`));
     if(attempt<attempts-1)await new Promise(resolve=>setTimeout(resolve,100*(attempt+1)));
   }

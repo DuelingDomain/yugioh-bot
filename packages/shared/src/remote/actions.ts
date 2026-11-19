@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { remoteActionMeta as meta, remoteSeatSchema } from "./action-meta.js";
 import { remoteMatchActionSchemas } from "./match-contract.js";
+import type { RemotePosition } from "./types.js";
 export { remoteSetEvidenceSchema, remoteSeatSchema, remoteCameraStampSchema, type RemoteCameraStamp } from "./action-meta.js";
 
 const id = z.string().min(1).max(100);
@@ -73,6 +74,8 @@ export const remoteActionSchema = z.discriminatedUnion("type", [
     .refine(a => (!!a.keepInstanceId && !!a.removeInstanceId && !a.keepRef && !a.removeRef) ||
       (!!a.keepRef && !!a.removeRef && !a.keepInstanceId && !a.removeInstanceId), "Choose two instance IDs or two twin refs"),
   z.strictObject({ ...meta, type: z.literal("twin.place"), seat: remoteSeatSchema, zone, card: twinCardSchema, source: z.literal("auto").optional(),
+    /** The camera already showed this activation from the hand. */
+    fromActivation: id.optional(),
     /** A camera card that the zone rules put in another row than seen ("Trap → S3"). Log text only. */ zoneRule: z.string().trim().min(1).max(80).optional(),
     /** Same-identity physical cards visible together in one camera frame, in epoch milliseconds. */
     copyProof: z.strictObject({ simultaneousQuads: z.number().int().min(2).max(100), at: z.number().int().nonnegative() }).optional(),
@@ -133,6 +136,20 @@ export type RemoteAction = z.infer<typeof remoteActionSchema>;
 // Distribute over the union so parser proposals retain phase/LP/card-specific fields.
 type Proposal<T> = T extends unknown ? Omit<T, "idempotencyKey" | "at"> : never;
 export type RemoteActionProposal = Proposal<RemoteAction>;
+
+export const remoteActivationKey = (name: string) => `card:${name.normalize("NFKC").trim().replace(/\s+/g, " ").toLowerCase()}`;
+
+/** Only a printed limit on activating this named card counts. */
+export function remoteActivationLimit(name: string, text?: string | null): string | undefined {
+  const clauses = (text ?? "").matchAll(/\bYou can only activate 1\s+["“]([^"”]+)["”]\s+per turn\b/gi);
+  for (const [, named] of clauses) if (remoteActivationKey(named) === remoteActivationKey(name)) return name;
+}
+
+export function remoteActivationNotice(state: RemotePosition, seat: number, name: string | undefined, fromActivation?: string): string | undefined {
+  if (!name) return;
+  const used = state.spellTrapActivations?.[seat]?.[remoteActivationKey(name)];
+  if (used?.turn === state.turn && (!fromActivation || used.awaitingPlacement !== fromActivation)) return `${name}: only 1 activation per turn`;
+}
 export type TwinCard = z.infer<typeof twinCardSchema> & {
   /** A pile held for inspection is not part of the hand until confirmed. */
   inspectionFrom?: 'graveyard' | 'banished';

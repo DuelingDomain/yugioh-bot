@@ -42,6 +42,7 @@ function cardKind(facts:FieldZoneFacts|undefined) {
     spellTrapText:monster&&SPELL_TRAP_TEXT.test(text),
     equip:monster&&(/\bunion\b/i.test(type)||equipsItself(facts?.id)||EQUIP_TEXT.test(text))};
 }
+export const isFieldSpell = (facts:FieldZoneFacts|undefined):boolean => cardKind(facts).field;
 
 /** True when this card's text can equip a monster to its controller's Spell & Trap Zone. */
 export function equipsMonsters(facts:FieldZoneFacts|undefined):boolean {
@@ -147,9 +148,8 @@ export function projectFieldZone({zone,facts,twins,ref,faceDown=false,format='no
   if(!kind.known)return abstain(unknownType);
   const check=(target:FieldZone)=>fieldZoneCheck(facts,target,undefined,{equipSource,equipped});
   const moved=(target:FieldZone)=>target===zone?'':zoneMoveLabel(facts,target);
-  if(kind.field&&!occupied('FIELD'))return accept('FIELD',undefined,moved('FIELD'));
+  if(kind.field)return accept('FIELD',undefined,moved('FIELD'));
   if(zone.startsWith('EMZ')&&!hasExtraMonsterZones(format))return row(kind.monster?'M':'S',check,moved);
-  if(kind.field&&zone!=='FIELD'&&!zone.startsWith('S'))return row('S',check,moved);
   const verdict=zoneVerdict(facts,zone,undefined,{equipSource,equipped});
   if(verdict.legal==='illegal')return row(kind.monster||kind.trapMonster&&zone.startsWith('EMZ')?'M':'S',check,moved);
   // A plain monster in Spell & Trap stays where the camera saw it. `shiftTo` is where it would belong.
@@ -175,7 +175,7 @@ export function freeFieldZones(twins:readonly FieldTwin[],facts?:FieldZoneFacts,
   const row=(prefix:'M'|'S')=>([1,2,3,4,5] as const).map(slot=>`${prefix}${slot}` as FieldZone).filter(zone=>!zoneTaken(twins,zone));
   const kind=cardKind(facts);
   if(faceDown||!kind.known)return [...row('M'),...row('S')];
-  if(kind.field)return zoneTaken(twins,'FIELD')?[]:['FIELD'];
+  if(kind.field)return ['FIELD'];
   if(kind.trapMonster)return [...row('M'),...row('S')];
   return kind.monster?row('M'):row('S');
 }
@@ -193,7 +193,7 @@ export function hardFieldZone(facts:FieldZoneFacts|undefined,zone:FieldZone,twin
   if(!kind.known||piles.has(zone))return;
   if(!(kind.field&&zone!=='FIELD')&&zoneVerdict(facts,zone,undefined,{equipSource}).legal!=='illegal'&&!(zone.startsWith('EMZ')&&!hasExtraMonsterZones(format)))return;
   const target=projectFieldZone({zone,facts,twins,ref,format,equipSource}).zone;
-  return target&&target!==zone&&!(kind.field&&target!=='FIELD'&&zone.startsWith('S'))?target:undefined;
+  return target&&target!==zone?target:undefined;
 }
 
 /** Explicit moves remain available; callers can display a warning alongside the move. */

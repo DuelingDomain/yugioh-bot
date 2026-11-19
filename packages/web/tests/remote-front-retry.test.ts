@@ -1,8 +1,9 @@
 import {expect, test} from 'vitest';
 import {classifyFaceState} from '../../vision/src/face-state';
-import {createFieldWatcher, type FieldEvent} from '../../vision/src/field-watcher';
+import {createFieldWatcher, type FieldEvent, type FieldTrack} from '../../vision/src/field-watcher';
 import {yugioh} from '../../vision/src/games/yugioh';
 import type {DetectedQuad, RecognitionResult} from '../../vision/src/types';
+import {fieldEvidenceMismatch} from '../src/lib/remote/field-proposals';
 
 function frontImage(){
   const width=96,height=140,data=new Uint8ClampedArray(width*height*4);
@@ -17,6 +18,15 @@ function frontImage(){
 }
 const result=(score:number):RecognitionResult=>({candidates:[{cardId:'A',score}],tier:score<.74?'low match':'sure',
     quality:{detected:true,cornersFound:true,framesUsed:1,selectedFrameIndices:[0],sharpness:20,fallback:false},timingsMs:{sharpness:0,detect:0,warp:0,embed:0,search:0,total:0},backend:'wasm'});
+
+test('a glare choice accepts a still-unnamed front and expires when its glare, position or revision changes',()=>{
+  const track:FieldTrack={id:'card',revision:1,zone:'S5',position:'attack',faceDown:false,state:'candidate',removed:false,firstSeen:performance.now()-2500,lastSeen:performance.now(),
+    card:{kind:'face-up',confidence:.95,quad:[],partial:false},glare:{share:.1,candidates:[{cardId:'A',score:.65}]}};
+  const prompt:FieldEvent={type:'prompt',source:'auto',reason:'uncertain',track};
+  expect(fieldEvidenceMismatch(prompt,track,true)).toBeUndefined();
+  for(const changed of [{glare:undefined},{zone:'S4' as const},{position:'defense' as const},{revision:2},{cardId:'other'}])
+    expect(fieldEvidenceMismatch(prompt,{...track,...changed},true)).toBeDefined();
+});
 
 test('a low read made before rest gets a settled crop before asking',async()=>{
   let at=0;

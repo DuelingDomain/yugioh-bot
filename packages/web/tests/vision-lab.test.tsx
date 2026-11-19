@@ -61,7 +61,7 @@ const cards = [
 ];
 const zoneEntries=[
   {cardId:'41420027',passcode:41420027,frameClass:'Trap',name:'Solemn Judgment'},
-  {cardId:'76375913',passcode:76375913,frameClass:'Spell',name:'Mystic Mine'},
+  {cardId:'69299029',passcode:69299029,frameClass:'Spell',name:'Treasures of the Kings'},
   {cardId:'23995346',passcode:23995346,frameClass:'Fusion',name:'Blue-Eyes Ultimate Dragon'},
   {cardId:'16178681',passcode:16178681,frameClass:'Pendulum',name:'Odd-Eyes Pendulum Dragon'},
   {cardId:'900000101',passcode:900000101,frameClass:'Pendulum',name:'Extra Deck Pendulum fixture'},
@@ -69,7 +69,7 @@ const zoneEntries=[
 ];
 const catalogFacts=[
   ...cards.map((card,i)=>({id:card.passcode,name:card.name,type:i<2?(i?'Dragon / Normal Monster':'Spellcaster / Normal Monster'):'Spell Card',frameType:i<2?'normal':'spell',effectText:'Fixture card text'})),
-  ...zoneEntries.slice(0,-1).map((card,i)=>({id:card.passcode,name:card.name,type:['Trap Card','Spell Card','Dragon / Fusion Monster','Dragon / Pendulum Effect Monster','Dragon / Xyz Pendulum Effect Monster'][i],frameType:['trap','spell','fusion','effect_pendulum','xyz_pendulum'][i],...(i===1?{race:'Field'}:{}),effectText:'Fixture card text'})),
+  ...zoneEntries.slice(0,-1).map((card,i)=>({id:card.passcode,name:card.name,type:['Trap Card','Spell Card','Dragon / Fusion Monster','Dragon / Pendulum Effect Monster','Dragon / Xyz Pendulum Effect Monster'][i],frameType:['trap','spell','fusion','effect_pendulum','xyz_pendulum'][i],...(i===1?{race:'Field'}:{}),effectText:i===1?'You can only activate 1 "Treasures of the Kings" per turn.':'Fixture card text'})),
 ];
 const result: RecognitionResult = {
   candidates: cards.map((card, i) => ({ cardId: card.cardId, score: .9 - i * .05 })), tier: "not sure", backend: "wasm", cropJpeg: "test-crop-only",
@@ -731,7 +731,9 @@ async function typedWatcherFixture(entry:{cardId:string;passcode:number;name:str
  const confirm=vi.fn((id:string,cardId?:string,ref?:string)=>Object.assign(track,{id:ref??id,cardId,state:'identified'}));
  const fixture:any={entries:[...cards,...zoneEntries,entry],ready:false,watch:{enabled:true,setEnabled:vi.fn(),setCalibration:vi.fn(),snapshot:{status:'watching',tracks:[track],metrics:{detectorMs:1,dutyPercent:1}},getTrack:(id:string)=>track.id===id?track:undefined,confirm,forget:vi.fn(),isRemoved:()=>false,dismiss:vi.fn()}};state.fieldWatch=fixture;
  let source={local:true};state.feedHub={phones:[],cameraOn:true,sourceFor:()=>source,publishFieldTracks:vi.fn()};
- const post=vi.fn(async(proposal:any)=>{if(await beforePost?.(proposal)===false)return null;const key=`typed-${room.lastSeq+1}`;room={...room,lastSeq:room.lastSeq+1,state:ygoModule.reduce(room.state,{...proposal,idempotencyKey:key}),...(fixture.recordEvents?{events:[...(room.events??[]),{id:key,seq:room.lastSeq+1,actorSeat:proposal.actorSeat,userId:null,at:0,action:{...proposal,idempotencyKey:key}}]}:{})};if(fixture.refreshAfterPosts)flushSync(()=>view.rerender(<AutoFieldWatcher room={room} transaction={queue.transaction} diagnosticsAllowed={diagnosticsAllowed}/>));return room;});
+ const post=vi.fn(async(proposal:any)=>{if(await beforePost?.(proposal)===false)return null;const key=`typed-${room.lastSeq+1}`;
+  const fieldPlay=proposal.type==='twin.place'&&proposal.card.cardId===69299029?{spellTrapPlay:{field:true as const,activationLimit:'Treasures of the Kings'}}:undefined;
+  room={...room,lastSeq:room.lastSeq+1,state:ygoModule.reduce(room.state,{...proposal,idempotencyKey:key},fieldPlay),...(fixture.recordEvents?{events:[...(room.events??[]),{id:key,seq:room.lastSeq+1,actorSeat:proposal.actorSeat,userId:null,at:0,action:{...proposal,idempotencyKey:key}}]}:{})};if(fixture.refreshAfterPosts)flushSync(()=>view.rerender(<AutoFieldWatcher room={room} transaction={queue.transaction} diagnosticsAllowed={diagnosticsAllowed}/>));return room;});
  const queue=createRoomMutationQueue(()=>room,post),host=document.createElement('div');host.dataset.testid='feed-box-0';host.innerHTML='<span data-field-watcher-status-slot></span><div data-feed-toolbar><span data-field-watcher-controls></span></div>';document.body.append(host);
  let view=render(<AutoFieldWatcher room={room} transaction={queue.transaction} diagnosticsAllowed={diagnosticsAllowed}/>);await waitFor(()=>expect(fixture.ready).toBe(true));
  return {addTrack(values:any){const added=Object.assign(Object.create(Object.getPrototypeOf(track),Object.getOwnPropertyDescriptors(track)),values),tracks=fixture.watch.snapshot.tracks;tracks.push(added);fixture.watch.getTrack=(id:string)=>tracks.find((t:any)=>t.id===id);confirm.mockImplementation((id:string,cardId?:string,ref?:string)=>Object.assign(tracks.find((t:any)=>t.id===id)??track,{id:ref??id,cardId,state:'identified'}));view.rerender(<AutoFieldWatcher room={room} transaction={queue.transaction} diagnosticsAllowed={diagnosticsAllowed}/>);return added;},refreshAfterPosts(){fixture.refreshAfterPosts=true;},refresh(){view.rerender(<AutoFieldWatcher room={room} transaction={queue.transaction} diagnosticsAllowed={diagnosticsAllowed}/>);},setTwins(twins:any[]){room={...room,lastSeq:room.lastSeq+1,state:{...room.state,seats:room.state.seats.map((seat:any,i:number)=>i===0?{...seat,twin:twins}:seat)}};view.rerender(<AutoFieldWatcher room={room} transaction={queue.transaction} diagnosticsAllowed={diagnosticsAllowed}/>);},async restart(){view.unmount();fixture.ready=false;view=render(<AutoFieldWatcher room={room} transaction={queue.transaction} diagnosticsAllowed={diagnosticsAllowed}/>);await waitFor(()=>expect(fixture.ready).toBe(true));},switchCamera(){source={local:true};view.rerender(<AutoFieldWatcher room={room} transaction={queue.transaction} diagnosticsAllowed={diagnosticsAllowed}/>);},action:queue.action,known:()=>fixture.config.getKnownCards(),track,post,confirm,room:()=>room,async emit(event:any={}){await act(async()=>fixture.onEvent({type,track:{...track},source:'auto',...(bindRef?{bindRef}:{}),result:{...result,candidates:[{cardId:entry.cardId,score:.99}]},...event}));},dispose(){cleanup();host.remove();state.fieldWatch=null;}};
@@ -903,14 +905,28 @@ async function readRestart(known:()=>any[],outlines:DetectedQuad[],winner:(card:
 describe('typed watcher zone projection',()=>{
  it.each([
   ['Solemn Judgment in monster row',0,'M4','spell-trap',4],
-  ['Field Spell in monster row',1,'M4','field',undefined],
+  ['Field Spell in occupied Field Zone',1,'FIELD','field',undefined],
   ['Fusion monster in Extra Monster Zone',2,'EMZ1','extra-monster',1],
   ['Pendulum at left edge',3,'S1','spell-trap',1],
   ['Pendulum at right edge',3,'S5','spell-trap',5],
   ['Pendulum in middle Spell/Trap Zone (an exception card: kept, Check zone)',3,'S3','spell-trap',3],
   ['Extra Deck Pendulum in Extra Monster Zone',4,'EMZ2','extra-monster',2],
  ] as const)('places %s in its legal row',async(_name,index,observed,zone,slot)=>{
-  const fixture=await typedWatcherFixture(zoneEntries[index],observed);try{await fixture.emit();await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());expect(fixture.room().state.seats[0].twin).toEqual([expect.objectContaining({zone,...(slot?{slot}:{}),cardId:zoneEntries[index].passcode})]);expect(fixture.post).toHaveBeenCalledOnce();}finally{fixture.dispose();}
+  const field=index===1,previous={ref:'previous-field',cardId:76375913,zone:'field',faceUp:true,position:'attack'};
+  const fixture=await typedWatcherFixture(zoneEntries[index],observed,field?[previous]:[]);
+  try{
+   await fixture.emit();await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());
+   expect(fixture.room().state.seats[0].twin).toEqual([
+    ...(field?[{...previous,zone:'graveyard'}]:[]),expect.objectContaining({zone,...(slot?{slot}:{}),cardId:zoneEntries[index].passcode}),
+   ]);
+   expect(fixture.post).toHaveBeenCalledOnce();
+   if(field){
+    await act(async()=>{await fixture.action({type:'twin.move',actorSeat:0,seat:0,cardRef:fixture.track.id,zone:'graveyard'});});
+    Object.assign(fixture.track,{id:'repeat-field',zone:'S3'});
+    await fixture.emit();await screen.findByText('Treasures of the Kings: only 1 activation per turn');
+    expect(fixture.post).toHaveBeenCalledTimes(2);
+   }
+  }finally{fixture.dispose();}
  });
  it.each([['EMZ1',2],['EMZ2',4]] as const)('corrects a main-deck monster at %s to its aligned main column',async(observed,slot)=>{
   const fixture=await typedWatcherFixture(cards[0],observed);try{await fixture.emit();await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());expect(fixture.room().state.seats[0].twin[0]).toMatchObject({zone:'monster',slot});}finally{fixture.dispose();}

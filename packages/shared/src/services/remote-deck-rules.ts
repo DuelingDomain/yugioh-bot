@@ -6,6 +6,7 @@ import type { RemoteState } from '../remote/types.js';
 import type Database from "better-sqlite3";
 import { inspectDeck, remoteDeckCardFacts } from "../deck-legality/index.js";
 import type { DuelDeck, DuelDeckValidation } from "../duels/index.js";
+import { CARD_TYPE_BITS } from "../duels/card-query.js";
 import type { RemoteFormat } from "../remote/deck-checks.js";
 import { createGenesysPointsReader } from "./genesys-points.js";
 import { deckEngineDataDirectory, loadArtworkIdentityCatalog } from "./card-artworks.js";
@@ -13,7 +14,7 @@ import { deckEngineDataDirectory, loadArtworkIdentityCatalog } from "./card-artw
 import { createInsightCatalog } from "./card-insight-catalog.js";
 import { deriveRemoteEffectPlans, remoteEffectMatches, REMOTE_SEARCH_SOURCE_ZONES, type RemoteEffectSource } from "../remote/effect-filters.js";
 import type { TwinCard } from "../remote/actions.js";
-import { remoteAssert } from "../remote/actions.js";
+import { remoteActivationLimit, remoteAssert } from "../remote/actions.js";
 
 // Cache catalog inputs, not results: current state and each seat's deck still filter every request.
 const searchKnowledgeCache=new WeakMap<Database.Database,Map<string,{until:number;knowledge:RemoteSearchKnowledge}>>();
@@ -21,6 +22,18 @@ const searchKnowledgeCache=new WeakMap<Database.Database,Map<string,{until:numbe
 /** Reads the editor validator's sources without starting an engine duel or calling a host. */
 export function createRemoteDeckRules(db: Database.Database, directory = deckEngineDataDirectory(db.name)) {
   return {
+    spellTrapPlay({cardId, name, type}: {cardId?: number; name?: string; type?: number}) {
+      if (type !== undefined && !(type & (CARD_TYPE_BITS.spell | CARD_TYPE_BITS.trap))) return;
+      const catalog = createInsightCatalog(db, directory);
+      try {
+        const card = (cardId ? catalog.candidate(cardId) : name ? catalog.byName(name) : undefined)?.card;
+        if (!card || (card.kind !== 'spell' && card.kind !== 'trap')) return;
+        const field = card.kind === 'spell' && (type !== undefined ? !!(type & CARD_TYPE_BITS.field) :
+          card.subtypes.includes('field') || !!db.prepare("select 1 from card_catalog where ygoprodeck_id=? and lower(trim(race))='field'").get(card.id));
+        const activationLimit = remoteActivationLimit(card.name, card.text);
+        if (field || activationLimit) return { ...(field ? {field:true as const} : {}), ...(activationLimit ? {activationLimit} : {}) };
+      } finally { catalog.close(); }
+    },
     search(state: RemoteState, seat: number, recentCardId: number) {
       const pool=state.deckChecks.registrations[seat]?.deck.main;
       const pileCodes=state.seats[seat]?.twin.filter(c=>['graveyard','banished'].includes(c.zone)||c.inspectionFrom).flatMap(c=>c.cardId??c.passcode??[])??[];

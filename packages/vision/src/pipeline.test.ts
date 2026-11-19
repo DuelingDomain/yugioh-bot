@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {RecognitionPipeline} from './pipeline';
+import {fieldGlareChoices} from './field-glare';
+import {glareMask,precleanCrop} from './preclean';
 import {yugioh} from './games/yugioh';
 import type {LoadedIndex,DetectedQuad} from './types';
 import type {ModelSession} from './runtime';
@@ -40,6 +42,24 @@ test('selected quad skips detector and returns its warp even without full-art re
   assert.equal(diagnostic.warpedCard?.width,10);assert.equal(diagnostic.warpedCard?.height,15);
   assert.deepEqual(diagnostic.candidates,result.candidates);assert.deepEqual(diagnostic.quality,result.quality);
   for(const key of ['feedback','aiWarpedCard','deferredAICrop','aiCandidateNames'])assert.equal(diagnostic[key as keyof typeof diagnostic],undefined);
+});
+
+test('a glare blob is masked for embedding and counted in read diagnostics',async()=>{
+  const image={width:20,height:30,data:frame.data.slice()};
+  for(let y=5;y<15;y++)for(let x=5;x<15;x++)image.data.set([249,247,246,255],(y*20+x)*4);
+  image.data.set([255,255,255,255],(20*20+5)*4);
+  const measured=glareMask(image);
+  assert.equal(measured.blobs,1);
+  assert.equal(measured.share,100/600);
+  const {image:clean}=precleanCrop(image);
+  assert.deepEqual(clean.data.slice((9*20+9)*4,(9*20+9)*4+3),new Uint8ClampedArray([120,120,120]));
+  assert.deepEqual(clean.data.slice(0,4),image.data.slice(0,4));
+  const result=await fixture(false).recognize([image],{card:selected});
+  assert.equal(result.timingsMs.precleanGlareBlobs,1);
+  assert.ok(result.timingsMs.precleanGlare!>2);
+  // Some cameras clip to a lower white level. A broad patch counts, a bright spec does not.
+  for(let y=5;y<15;y++)for(let x=5;x<15;x++)image.data.set([236,234,232,255],(y*20+x)*4);
+  assert.equal(glareMask(image).share,100/600);
 });
 test('upright preference skips a clear reverse view with replay evidence and preserves uncertain reverse rescue',async()=>{
   const baseline={calls:0},fast={calls:0},rescue={calls:0};
@@ -494,6 +514,43 @@ test('a weak deck view cannot hide a stronger off-list card in the reverse view'
   assert.equal(result.candidates[0].cardId,'B');
   assert.equal(result.quality.searchSource,'catalog');
   assert.equal(result.tier,'sure');
+});
+
+test('a field deck rescue needs a clear in-deck lead and preserves a sure catalog name',async()=>{
+  const profile={...yugioh,id:'fixture',card:{...yugioh.card,warpWidth:10,warpHeight:15},embedding:{...yugioh.embedding,dim:2,inputSize:2}};
+  class Tensor {constructor(public type:unknown,public data:unknown,public dims:unknown){}}
+  const model={backend:'wasm',run:async()=>({[profile.embedding.outputName]:{dims:[1,2],data:new Float32Array([1,0])}})} as unknown as ModelSession;
+  const run=(scores:number[],covered=false)=>new RecognitionPipeline(profile,searchIndex(['off-list','deck','deck-2'],scores.flatMap(s=>[s,Math.sqrt(1-s*s)])),model,model,Tensor as unknown as TensorCtor).recognize([frame],{
+    card:{...selected,covered},priors:{decklist:['deck','deck-2']},deckRescue:true,includeRaw:true,preclean:false,
+  });
+  const rescued=await run([.802,.789,.65]);
+  assert.equal(rescued.candidates[0].cardId,'deck');
+  assert.equal(rescued.quality.searchSource,'deck');
+  assert.equal(rescued.tier,'sure');
+  assert.equal(rescued.raw?.visual[0].cardId,'off-list');
+  assert.deepEqual(fieldGlareChoices(rescued).map(c=>c.cardId),['deck','deck-2']);
+  const low=await run([.719,.71,.56]);
+  assert.equal(low.tier,'sure');assert.equal(low.candidates[0].cardId,'deck');
+  assert.notEqual((await run([.802,.789,.75])).tier,'sure');
+  assert.notEqual((await run([.802,.789,.65],true)).tier,'sure');
+  const catalog=await run([.92,.789,.65]);
+  assert.equal(catalog.tier,'sure');assert.equal(catalog.candidates[0].cardId,'off-list');
+
+  const angle=.2, cosine=Math.cos(angle), sine=Math.sin(angle);
+  const rawScores=[.802,.789,.65], maskedScores=[.787,.799,.74];
+  const rows=rawScores.flatMap((raw,i)=>{
+    const second=(maskedScores[i]-raw*cosine)/sine;
+    return [raw,second,Math.sqrt(1-raw*raw-second*second)];
+  });
+  const threeDim={...profile,embedding:{...profile.embedding,dim:3}};
+  const index={meta:{...searchIndex(['off-list','deck','deck-2'],[]).meta,dim:3},vectors:Float32Array.from(rows)};
+  let embeddings=0;
+  const alternating={backend:'wasm',run:async()=>({[profile.embedding.outputName]:{dims:[1,3],data:new Float32Array(embeddings++<2?[1,0,0]:[cosine,sine,0])}})} as unknown as ModelSession;
+  const cleanMiss=await new RecognitionPipeline(threeDim,index,model,alternating,Tensor as unknown as TensorCtor).recognize([frame],{
+    card:selected,priors:{decklist:['deck','deck-2']},deckRescue:true,includeRaw:true,
+  });
+  assert.equal(cleanMiss.candidates[0].cardId,'deck');assert.equal(cleanMiss.tier,'sure');
+  assert.equal(cleanMiss.preclean?.used,'raw');
 });
 
 test('a clear off-list upright card stays fast even when a reverse deck view could score higher',async()=>{

@@ -92,7 +92,7 @@ writeFileSync(join(deckData, "strings.conf"), "");
   catalog.prepare("update texts set desc=? where id=97522863").run('If this card is Normal or Special Summoned: You can take 1 "Temple of the Kings", or 1 Spell/Trap that mentions it, from your Deck and either add it to your hand or send it to the GY. You can only use this effect of "The Man with the Mark" once per turn. While you control "Temple of the Kings", this card and "Apophis" monsters you control cannot be destroyed by battle or card effects. "Temple of the Kings" you control cannot be destroyed by card effects.');
   catalog.prepare("update texts set desc=? where id=69299029").run('When this card is activated: You can Set 1 "Apophis" Trap from your Deck. This card\'s name becomes "Temple of the Kings" while in the Field Zone. Once per turn, if you have 2 or more Set cards on your field, or a Trap in your GY: You can add 1 monster that mentions "Temple of the Kings" from your Deck to your hand. You can only activate 1 "Treasures of the Kings" per turn.');
   catalog.prepare("update texts set desc=? where id=900001").run('Add 1 "Treasures of the Kings" or "Temple of the Kings" from your Deck to your hand.');
-  catalog.prepare("update texts set desc=? where id=900002").run('Add 1 Spell from your GY to your hand.');
+  catalog.prepare("update texts set desc=? where id=900002").run('Add 1 Spell from your GY to your hand. You can only use this effect of "GY Recovery" once per turn.');
   catalog.prepare("update texts set desc=? where id=900003").run('Add 1 Spell from your banishment to your hand.');
   catalog.close();
 }
@@ -115,6 +115,33 @@ function deckSession(format: "normal" | "domain" | "genesys" | "genesys-domain" 
   const wait = (at: number) => { shift = Math.max(shift, at - 2100 - n); service.sweepIdle(at); room = service.get(room.slug, "g", users[0]); };
   return { db, users, service, save, select, start, act, place, wait, get room() { return room; } };
 }
+
+it('limits named Spell/Trap card activations per seat and turn and restores them on Undo', () => {
+  const s = deckSession('normal'); s.start();
+  const play = (ref: string, cardId = 80101899, seat = 0, faceUp = true, fromActivation?: string) => s.act({
+    type: 'twin.place', source: 'auto', actorSeat: seat, seat, zone: 'spell-trap', anotherCopy: true, fromActivation,
+    card: { ref, cardId, slot: 1, faceUp },
+  });
+  const move = (cardRef: string, zone = 'graveyard') => s.act({ type: 'twin.move', seat: 0, cardRef, zone });
+  play('trap-set', 80101899, 0, false); move('trap-set');
+  play('trap-first');
+  s.act({ type: 'undo', targetActionId: s.room.state.undo!.actionId });
+  play('trap-after-undo'); move('trap-after-undo');
+  s.act({ type: 'phase.set', phase: 'main1' });
+  expect(() => play('trap-repeat')).toThrow('Trap Trick: only 1 activation per turn');
+  expect(s.room.state.seats[0].twin.some(card => card.ref === 'trap-repeat')).toBe(false);
+  play('other-seat', 80101899, 1);
+  const show = () => s.act({ type: 'effect.activated', source: { cardId: 70825459 }, fromHand: true });
+  const shown = show().state.undo!.actionId;
+  expect(show).toThrow('Trap Tracks: only 1 activation per turn');
+  play('shown-trap', 70825459, 0, true, shown);
+  move('shown-trap');
+  expect(() => play('shown-repeat', 70825459, 0, true, shown)).toThrow('Trap Tracks: only 1 activation per turn');
+  play('unlimited-first', 900002); move('unlimited-first'); play('unlimited-second', 900002); move('unlimited-second');
+  s.act({ type: 'turn.end' });
+  play('trap-next-turn');
+  expect(s.service.replay(s.room.slug, 'g', s.users[0])).toEqual(s.room.state);
+});
 
 it('requires the seat owner to confirm tournament LP zero and keeps pending results undoable', () => {
   for (const tournament of [undefined, false]) {
@@ -1108,6 +1135,15 @@ describe("B3 physical field slot guard", () => {
     expect(() => s.act({ type: "twin.move", seat: 0, zone: "field", slot, cardRef: "incoming" })).toThrow(/occupied/i);
     s.act({ type: "twin.move", seat: 0, zone: "field", slot, cardRef: "field-a", position: "defense" });
     expect(s.room.state.seats[0].twin[0]).toMatchObject({ ref: "field-a", position: "defense" });
+    s.act({ type: "twin.place", seat: 0, zone: "spell-trap", card: { ref: "field-spell", cardId: 47355498, slot } });
+    expect(s.room.state.seats[0].twin).toEqual(expect.arrayContaining([
+      expect.objectContaining({ ref: "field-spell", zone: "field" }),
+      expect.objectContaining({ ref: "field-a", zone: "graveyard" }),
+    ]));
+    expect(s.room.state.seats[0].twin.filter(card => card.ref !== 'incoming').every(card => card.slot === undefined)).toBe(true);
+    s.act({ type: 'undo', targetActionId: s.room.state.undo!.actionId });
+    expect(s.room.state.seats[0].twin.find(card => card.ref === 'field-a')).toMatchObject({ zone: 'field' });
+    expect(s.service.replay(s.room.slug, "g", s.users[0])).toEqual(s.room.state);
   });
   it.each([
     ["twin.place", "twin.place"], ["twin.place", "twin.move"],

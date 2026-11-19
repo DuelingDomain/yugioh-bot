@@ -7,8 +7,8 @@ import { OutageGaveUpError, writeWaiting, retryThroughOutage, SKIPPED } from './
 export const MANUAL_OUTAGE_CAP_MS=20_000;
 export type RoomMutation = (proposal:RemoteActionProposal,idempotencyKey?:string)=>Promise<RemoteRoom|null>;
 /** The server's last refusal text for a table action, for notices and the Debug view. */
-let lastActionError:{message:string;at:number}|undefined;
-export function noteRemoteActionError(error:unknown){lastActionError={message:error instanceof Error?error.message:String(error),at:Date.now()};}
+let lastActionError:{message:string;at:number;code?:string}|undefined;
+export function noteRemoteActionError(error:unknown){lastActionError={message:error instanceof Error?error.message:String(error),at:Date.now(),code:(error as {code?:string}|null)?.code};}
 export const remoteActionError=()=>lastActionError;
 /**
  * `remote:changed` only says that a table moved. The GET it used to start returns the same room that `remote:private` already carried
