@@ -82,8 +82,13 @@ const changedPile=(snap:FieldSnapshot|undefined,sourceAt:number,twins:readonly T
     if(touched(zone))for(const t of snap?.tracks??[]){
       if(t.zone!==zone||t.removed||t.under||t.state==='dismissed'||!t.visible||t.restSince===undefined&&t.state!=='identified'||t.card.partial||t.card.covered)continue;
       if(t.firstSeen<sourceAt-1000||t.firstSeen>sourceAt+PILE_ACTION_CAP_MS)continue;
-      const twin=twins.find(c=>c.ref===owns(t));
-      if(twin&&!(twin.departedFrom?.auto&&twin.zone===(zone==='GY'?'graveyard':'banished')))continue;
+      const pileZone=zone==='GY'?'graveyard':'banished',twin=twins.find(c=>c.ref===owns(t));
+      // A twin's departure time is server time; the removal time is the watcher clock.
+      const serverSince=serverNow()-(performance.now()-sourceAt)-1000;
+      // Owned: only a card that left the field to this pile around the removal (departedFrom never expires, so old ones do not count).
+      if(twin&&!(twin.departedFrom?.auto&&twin.zone===pileZone&&twin.departedFrom.at!==undefined&&twin.departedFrom.at>=serverSince))continue;
+      // Unowned: not a second outline of a card that already lay in this pile before the removal.
+      if(!twin&&t.cardId&&twins.some(c=>c.zone===pileZone&&String(cardCode(c)??'')===t.cardId&&!(c.departedFrom?.at!==undefined&&c.departedFrom.at>=serverSince)))continue;
       fresh=Math.max(fresh,t.firstSeen);
     }
     const at=Math.max(fresh,contact>=sourceAt-PILE_NEAR_MS?contact:-Infinity);
