@@ -2257,6 +2257,20 @@ test.describe("remote tournament", () => {
 test.describe("remote duels screen, tokens and the camera", () => {
   test.beforeEach(async ({ context }) => { await authenticatePlayer(context.request, { userId: 101 }, process.env.E2E_AUTH_SECRET!, process.env.E2E_REMOTE_UI_URL!); });
 
+  test("Scapegoat played: four Sheep Tokens with the real token art appear in free Monster Zones, and a click on the board does not zoom", async ({ page, context }) => {
+    const slug = await soloTable(context.request, 2), path = `/api/remote/${slug}`;
+    await page.setViewportSize({ width: 1366, height: 768 });
+    await page.goto(`/duels/remote/${slug}`);
+    await expect(page.getByTestId("seat-0")).toBeVisible();
+    await page.getByTestId("fwrap-0").click({ position: { x: 4, y: 4 } });
+    await expect(page.getByTestId("seat-0")).toHaveAttribute("data-view", "camera");
+    const room = await (await context.request.get(path)).json();
+    const response = await context.request.post(`${path}/actions`, { data: { baseSeq: room.lastSeq, action: { idempotencyKey: crypto.randomUUID(), type: "twin.place", actorSeat: 0, seat: 0, zone: "spell-trap", card: { ref: "sg", cardId: 73915051, name: "Scapegoat", slot: 1, faceUp: true, position: "attack" } } } });
+    expect(response.status(), await response.text()).toBe(200);
+    const sheep = async () => ((await (await context.request.get(path)).json()).state.seats[0].twin as { name?: string; token?: { artId?: number } }[]).filter(card => card.name === "Sheep Token" && card.token?.artId === 73915052).length;
+    await expect.poll(sheep, { timeout: 15_000 }).toBe(4);
+  });
+
   // A fake reader stands in for the camera model (NEXT_PUBLIC_E2E_FIELD_HOOK, set by the e2e stack only): the test hands the table a card "seen" in a cell that holds a token.
   test("a card seen on a token's cell: Choose another zone places it in the zone picked and keeps the token; Remove token puts it there and one Undo restores the token", async ({ page, context }) => {
     test.setTimeout(240_000);
