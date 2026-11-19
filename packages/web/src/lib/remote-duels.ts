@@ -32,7 +32,8 @@ export const remoteVoiceDiagnosticsEnabledFor = (userId: number) => remoteVoiceE
 export const remoteUnsureNamesEnabledFor = (userId:number) => remoteDuelsEnabledFor(userId) && listed(process.env.REMOTE_UNSURE_NAMES_USERS,userId);
 export function remoteHybridEnabledFor(userId: number): boolean {
   const list = process.env.REMOTE_HYBRID_USER_IDS;
-  return list === undefined ? process.env.NODE_ENV !== "production" : listed(list, userId);
+  // Unset: every Remote Duels user may pick Hybrid (Remote Duels access is checked first).
+  return list === undefined ? true : listed(list, userId);
 }
 export function remoteRoomForViewer<T extends RemoteTable & { mySeat?: number; spectator?: boolean }>(room: T, userId: number) {
   const voiceEnabled = room.mySeat !== undefined && room.mySeat >= 0 && !room.spectator && remoteVoiceEnabledFor(userId);

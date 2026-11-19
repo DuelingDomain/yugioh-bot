@@ -262,7 +262,7 @@ describe("path safety applies to both roots", () => {
 });
 
 describe("access gate", () => {
-  it("restricts Hybrid to listed Remote Duels viewers, even with the lab on", async () => {
+  it("allows every Remote Duels viewer when unset and restricts Hybrid to a set list", async () => {
     await put(codeDir, "hybrid/bank.bin", "image bank");
     await put(dataDir, "hybrid/bank.bin", "volume bank");
     await put(dataDir, "hybrid/catalog.json", "{}");
@@ -270,7 +270,7 @@ describe("access gate", () => {
     vi.stubEnv("REMOTE_DUELS", "1");
     vi.stubEnv("REMOTE_DUELS_USERS", "17,18");
     vi.stubEnv("REMOTE_HYBRID_USER_IDS", undefined);
-    expect((await get(["hybrid", "bank.bin"])).status).toBe(404);
+    expect(await (await get(["hybrid", "bank.bin"])).text()).toBe("image bank");
     vi.stubEnv("REMOTE_HYBRID_USER_IDS", " 17, 19 ");
     const bank = await get(["hybrid", "bank.bin"]);
     expect(await bank.text()).toBe("image bank");
@@ -284,7 +284,7 @@ describe("access gate", () => {
     expect((await get(["hybrid", "bank.bin"])).status).toBe(404);
   });
 
-  it("defaults to allowing local Remote Duels viewers only when the list is unset", async () => {
+  it("allows Remote Duels viewers when the list is unset", async () => {
     await put(dataDir, "hybrid/bank.bin", "local bank");
     vi.stubEnv("NODE_ENV", "development");
     vi.stubEnv("REMOTE_DUELS", "1");
