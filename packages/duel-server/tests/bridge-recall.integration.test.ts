@@ -12,6 +12,11 @@ import { searchBridgeEngines } from "../src/bridge-multi-search.js";
 import type { BridgeScan } from "../src/deck-suggestion-workers.js";
 import { seedIdentity } from "./helpers/identity.js";
 
+vi.mock("node:fs", async original => {
+  const { withPinnedBridgeObservations } = await import("./helpers/pinned-bridge-observations.js");
+  return withPinnedBridgeObservations(await original<typeof import("node:fs")>());
+});
+
 const ownerDeck = {
   main: [87979586,27204313,27204313,27204313,60411677,60411677,60411677,68304193,68304193,32909498,34926568,63198739,
     97522863,97522863,97522863,42141493,42141493,42141493,14558127,14558127,14558127,59438930,59438930,59438930,

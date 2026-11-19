@@ -19,6 +19,7 @@ Root files:
 | [README.md](../README.md) | Repo front page: features, local setup, environment variables |
 | [CLAUDE.md](../CLAUDE.md) | Agent guide: commands, package map, key rules |
 | [CONTEXT.md](../CONTEXT.md) | Domain glossary. Use its terms in code, issues and docs |
+| [tournament-bridge.md](tournament-bridge.md) | Tournament bridge: signed identity contract, member IDs, deployment and removal |
 | [.impeccable.md](../.impeccable.md) | Design context for the design skill |
 | [packages/web/PRODUCT.md](../packages/web/PRODUCT.md) | Product schema for the design skill |
 

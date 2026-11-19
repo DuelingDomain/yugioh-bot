@@ -15,16 +15,30 @@ function beforeAuth(request: NextRequest): Response | null {
   return null;
 }
 function unauthorized(request: NextRequest) {
-  if (request.nextUrl.pathname.startsWith("/api/")) return NextResponse.json({ error: "unauthorized" }, { status: 401,
+  // Tournament bridge: start uses the normal page-style sign-in redirect, including sign-up return.
+  if (request.nextUrl.pathname.startsWith("/api/") && !(request.method === "GET" && request.nextUrl.pathname === "/api/tournament-bridge/start")) return NextResponse.json({ error: "unauthorized" }, { status: 401,
     headers: { "cache-control": "private, no-store" } });
   const url = new URL("/sign-in", request.url);
   url.searchParams.set("redirect_url", request.nextUrl.pathname + request.nextUrl.search);
-  return NextResponse.redirect(url);
+  const response = NextResponse.redirect(url);
+  // Tournament bridge: keep the intermediate sign-in response private too.
+  if (request.nextUrl.pathname === "/api/tournament-bridge/start") {
+    response.headers.set("Cache-Control", "no-store");
+    response.headers.set("Referrer-Policy", "no-referrer");
+  }
+  return response;
 }
 // Construct Clerk lazily: an E2E request must never initialize its middleware.
 let clerkProxy: NextMiddleware | undefined;
 export default async function proxy(request: NextRequest, event: NextFetchEvent) {
   const path = request.nextUrl.pathname;
+  // Tournament bridge: disabled routes never initialize Clerk. Only these signed API methods bypass it.
+  if (path === "/api/tournament-bridge" || path.startsWith("/api/tournament-bridge/")) {
+    if (!process.env.TOURNAMENT_URL?.trim()) return NextResponse.json({ error: "not_found" }, { status: 404, headers: { "Cache-Control": "no-store" } });
+    if ((request.method === "GET" && path === "/api/tournament-bridge/users/search")
+      || (request.method === "POST" && path === "/api/tournament-bridge/users/lookup")
+      || (request.method === "PUT" && /^\/api\/tournament-bridge\/users\/[1-9]\d*\/member-id$/.test(path))) return NextResponse.next();
+  }
   // Keep local models and the camera lab unavailable even if Clerk cannot initialize.
   if ((path === "/dev/vision-lab" || path === "/dev/voice-check" || path.startsWith("/dev/voice-check/")) && !fxLabEnabled()) return new NextResponse(null, { status: 404 });
   if ((path.startsWith("/dev/vision-lab/assets/") || path === "/dev/vision-assets" || path.startsWith("/dev/vision-assets/")) && !visionAssetsEnabled()) {

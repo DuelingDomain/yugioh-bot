@@ -1614,6 +1614,24 @@ export function migrate(db: Database.Database) {
   migrateWaitlistAdminSource(db);
   migrateReleases(db);
 
+  // Tournament bridge: member IDs belong to the application identity, not the tournament database.
+  db.exec(`
+    create table if not exists user_profile_ids (
+      user_id integer primary key references users(id) on delete cascade,
+      member_id text unique check (member_id is null or (
+        length(member_id) between 1 and 10 and member_id not glob '*[^0-9]*'
+        and (length(member_id)=1 or substr(member_id,1,1)<>'0')
+      )),
+      discord_username text,
+      updated_at text not null
+    );
+    -- Account deletion also anonymises users with shared history, retaining their users row.
+    create trigger if not exists tournament_bridge_anonymised_user
+      after update of username, clerk_user_id, display_name on users
+      when new.username=('deleted-' || new.id) and new.clerk_user_id is null and new.display_name='Deleted player'
+      begin delete from user_profile_ids where user_id=new.id; end;
+  `);
+
   // Draft privacy follows identity migration so grants reference application users.
   // Adding the default also makes every existing draft private; codes stay lazy.
   db.transaction(() => {

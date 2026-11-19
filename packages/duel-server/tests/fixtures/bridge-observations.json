@@ -1,0 +1,109 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-11-16T17:23:15.983Z",
+  "usageVersion": "b151e4c96ceeb282c19144bc7413f261a4a11f081caf289f22d4f2f8cea707c4",
+  "graphVersion": "c439c63ab59fe486df9bc37ee1b71c8c5cf631ab62a5d142c8ef484ef4295061",
+  "formats": {
+    "tcg": {
+      "deckCount": 979,
+      "pairs": [
+        {
+          "a": "Blue-Eyes",
+          "b": "Primite",
+          "decks": 4,
+          "aDecks": 4,
+          "bDecks": 8,
+          "share": 0.0040858018386108275,
+          "aShare": 1,
+          "bShare": 0.5,
+          "lift": 122.375
+        },
+        {
+          "a": "Diabell",
+          "b": "White Forest",
+          "decks": 2,
+          "aDecks": 3,
+          "bDecks": 2,
+          "share": 0.0020429009193054137,
+          "aShare": 0.6666666666666666,
+          "bShare": 1,
+          "lift": 326.3333333333333
+        }
+      ],
+      "engines": {
+        "Ashtra": {
+          "decks": 7,
+          "cards": [
+            {
+              "code": 37839434,
+              "decks": 7,
+              "copies": 9
+            },
+            {
+              "code": 1710647,
+              "decks": 6,
+              "copies": 15
+            },
+            {
+              "code": 2906939,
+              "decks": 6,
+              "copies": 10
+            },
+            {
+              "code": 17020474,
+              "decks": 6,
+              "copies": 11
+            },
+            {
+              "code": 38114652,
+              "decks": 6,
+              "copies": 17
+            },
+            {
+              "code": 38331244,
+              "decks": 6,
+              "copies": 14
+            },
+            {
+              "code": 43419178,
+              "decks": 6,
+              "copies": 11
+            },
+            {
+              "code": 64455720,
+              "decks": 5,
+              "copies": 7
+            },
+            {
+              "code": 91444835,
+              "decks": 4,
+              "copies": 6
+            },
+            {
+              "code": 65325949,
+              "decks": 2,
+              "copies": 2
+            }
+          ]
+        },
+        "Blue-Eyes": {
+          "decks": 4,
+          "cards": []
+        },
+        "Primite": {
+          "decks": 8,
+          "cards": []
+        },
+        "Diabell": {
+          "decks": 3,
+          "cards": []
+        },
+        "White Forest": {
+          "decks": 2,
+          "cards": []
+        }
+      }
+    }
+  },
+  "version": "7e4d073164738b416eb26261d36062985a3d5fccc58dc880d8057f3054578ace"
+}

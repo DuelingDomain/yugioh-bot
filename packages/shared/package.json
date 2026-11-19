@@ -4,6 +4,11 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./tournament-bridge": {
+      "types": "./dist/tournament-bridge/index.d.ts",
+      "source": "./src/tournament-bridge/index.ts",
+      "default": "./dist/tournament-bridge/index.js"
+    },
     "./discord-admin": {
       "types": "./dist/discord-admin/index.d.ts",
       "source": "./src/discord-admin/index.ts",
