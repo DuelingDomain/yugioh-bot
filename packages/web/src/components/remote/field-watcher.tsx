@@ -1,8 +1,8 @@
 "use client";
-import { recognitionPriorsFor } from "@/lib/remote/recognition-priors";
+import { recognitionPriorsFor, registeredDeckPasscodes } from "@/lib/remote/recognition-priors";
 
 import {useCallback,useEffect,useMemo,useRef,useState} from 'react';
-import {catalogCardId,fieldZoneLocation,fieldStackUnder,yugioh,type HeldCardEvent,type HeldUnsureEvent,type FieldEvent,type FieldSnapshot,type FieldTrack,type FieldZone,type KnownFieldCard,type FieldCalibration,fieldPacerDevice,FIELD_ACTIVITY_WINDOW_MS,FIELD_SET_RETURN_MS} from '@yugidraft/vision';
+import {catalogCardId,fieldGlareChoices,fieldZoneLocation,fieldStackUnder,yugioh,type HeldCardEvent,type HeldUnsureEvent,type FieldEvent,type FieldSnapshot,type FieldTrack,type FieldZone,type KnownFieldCard,type FieldCalibration,fieldPacerDevice,FIELD_ACTIVITY_WINDOW_MS,FIELD_SET_RETURN_MS} from '@yugidraft/vision';
 import {useSendHealth} from '@/lib/remote/send-health-store';
 import {markVideoOfferShown,readVideoChoice,VIDEO_OFFER_MS,videoOfferShown} from '@/lib/remote/video-rate';
 import {createSlowWatch,isWeakDevice,markTapOfferShown,readTapChoice,saveTapChoice,tapOfferShown,TAP_OFFER_MS,type TapChoice} from '@/lib/remote/tap-offer';
@@ -357,6 +357,13 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     undoSeq.current=Math.max(undoSeq.current,newest);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[room.events,room.state.undoHistory,seat]);
+  function trackForChoice(event:FieldEvent,track=watch.getTrack(event.track.id)) {
+    if(!event.track.glare)return track;
+    const chosen=event.track.glare.candidates[0]?.cardId,passcode=catalogCardId(chosen?entries.current.get(chosen):undefined);
+    if(!passcode||!registeredDeckPasscodes(current.current.room,seat).includes(passcode)||!track?.glare||(!track.visible&&track.state!=='candidate'))return;
+    const latest=track.glare.candidates.length?track.glare.candidates:fieldGlareChoices(event.result);
+    if(latest.some(c=>c.cardId===chosen))return track;
+  }
   /** `quiet`: a background board re-sync. A failed write is logged only (no notice, no Retry banner); it is tried again next cycle. */
   function queue(work:(act:RoomMutation)=>Promise<void>,event?:FieldEvent,humanChoice=false,quiet=false) {
     console.info('[remote field] queued',event?.type,event?.track.id,event?.track.revision);
@@ -397,7 +404,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
             const observed=watch.getTrack(event.track.id);
             if(!observed||observed.zone!==event.track.zone||slideFor(observed)?.card.ref!==proposal.cardRef)return false;
           }
-          return fieldEvidenceMatches(event,watch.getTrack(event.track.id),humanChoice,!!setReturn);
+          return fieldEvidenceMatches(event,trackForChoice(event),humanChoice,!!setReturn);
         };
         console.info('[remote field] write',proposal.type,actionId);markFieldTiming(event?.timing,'mutation',{actionId});const updated=await retryFieldMutation(act,proposal,actionId,stillValid,error=>{const text=error instanceof Error?error.message:String(error);console.warn('[remote field] save failed',proposal.type,text);lastWriteError.current=`${new Date().toLocaleTimeString()} ${text}`;markFieldTiming(event?.timing,'writeFailed',{type:proposal.type});if(!quiet)setNotice(text);},{quiet});console.info('[remote field] write result',proposal.type,updated?.lastSeq??'not saved');if(!updated)console.info('[remote field] write skipped: the card changed before it was saved',proposal.type);if(updated){current.current.room=updated;prunePhysical();}return updated;};
       await work(apply);console.info('[remote field] flushed',event?.type,event?.track.id,current.current.room.lastSeq);workKeys.current.delete(work);setFailedUpdate(previous=>previous?.work===work?null:previous);
@@ -518,8 +525,8 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     if(givenAway(bindings.current.get(event.track.id)??event.track.id))return;
     console.info('[remote field] identify',event.track.id,chosen??event.track.cardId,event.track.zone,event.type);
     const humanChoice=event.type==='prompt'&&(!!chosen||event.reason==='card-presence');
-    const matchesEvidence=(track:FieldTrack|undefined)=>fieldEvidenceMatches(event,track,humanChoice);
-    const mutate=(proposal:Parameters<typeof applyVerifiedFieldMutation>[3])=>applyVerifiedFieldMutation(event,()=>watch.getTrack(event.track.id),act,proposal,humanChoice);
+    const matchesEvidence=(track:FieldTrack|undefined)=>fieldEvidenceMatches(event,trackForChoice(event,track),humanChoice);
+    const mutate=(proposal:Parameters<typeof applyVerifiedFieldMutation>[3])=>applyVerifiedFieldMutation(event,()=>trackForChoice(event),act,proposal,humanChoice);
     // Nothing is written yet: a card that is moving or covered defers its identification.
     const defer=(observed:FieldTrack|undefined)=>{
       console.warn('[remote field] identification deferred',event.track.id,observed?.state,observed?.visible,observed?.revision,attempt,fieldEvidenceMismatch(event,observed,humanChoice)??'moved or covered');
@@ -1936,11 +1943,35 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   useEffect(()=>{for(const [id,away] of tokenAway.current)if(!tokenInCell(room.state.seats[seat].twin,away.cell))tokenAway.current.delete(id);},[room.state.seats,seat]);
   useEffect(()=>{if(!tokenPrompt)return;if(!room.state.seats[seat].twin.some(c=>c.ref===tokenPrompt.token.ref)||!watch.getTrack(tokenPrompt.event.track.id)||watch.isRemoved(tokenPrompt.event.track.id))setTokenPrompt(null);},[room.state.seats,tokenPrompt,seat,watch]);
   useEffect(()=>{if(!notice)return;const timer=setTimeout(()=>{setNotice('');setDeparture(null);setUndoId('');},5000);return()=>clearTimeout(timer);},[notice,undoId]);
+  const glareTracks=watch.enabled&&!syncHold?watch.snapshot.tracks.filter(track=>track.glare):[];
+  const shownGlare=useRef(new Set<string>());
+  useEffect(()=>{shownGlare.current.clear();},[room.slug]);
+  useEffect(()=>{
+    if(notice||failedUpdate||recovery||leaveChoice||shiftHint||tokenPrompt||rowPrompts.length||heldPick||calibrating)return;
+    const track=glareTracks.find(track=>!shownGlare.current.has(track.id)&&watch.getTrack(track.id)?.glare);
+    if(!track)return;
+    shownGlare.current.add(track.id);
+    setUndoId('');setNotice(`Glare on ${track.zone}: tilt the card or move the light`);
+  },[glareTracks,notice,failedUpdate,recovery,leaveChoice,shiftHint,tokenPrompt,rowPrompts.length,heldPick,calibrating,watch.getTrack]);
   const activePrompts=prompts.filter(event=>{const live=watch.getTrack(event.track.id);return live?.state==='prompt'&&(live.revision??0)===(event.track.revision??0)&&!correctionsFor(current.current.room,seat).blocks([bindings.current.get(live.id)??live.id],fieldZoneLocation(live.zone));});
+  if(glareTracks.length){
+    const registered=new Set(registeredDeckPasscodes(room,seat));
+    for(const track of glareTracks){
+      const live=watch.getTrack(track.id);
+      if(!live?.glare||live.revision!==track.revision||(!live.visible&&live.state!=='candidate'))continue;
+      if(correctionsFor(current.current.room,seat).blocks([bindings.current.get(track.id)??track.id],fieldZoneLocation(track.zone)))continue;
+      const index=activePrompts.findIndex(event=>event.track.id===track.id),existing=activePrompts[index];
+      const scored=live.glare.candidates.length?live.glare.candidates:fieldGlareChoices(existing?.result);
+      const choices=scored.filter(candidate=>{const code=catalogCardId(entries.current.get(candidate.cardId));return code!==undefined&&registered.has(code);});
+      if(!choices.length)continue;
+      const prompt:FieldEvent={...(existing??{type:'prompt',source:'auto',reason:'uncertain'}),track:{...live,glare:{...live.glare,candidates:choices}}};
+      if(existing)activePrompts[index]=prompt;else activePrompts.push(prompt);
+    }
+  }
   const extraIds=current.current.room.seats.find(s=>s.seat===seat)?.deck?.deck.extra??[];
   const promptMaterials=(event:FieldEvent)=>stackUnder(event.track.id).flatMap(ref=>{const card=current.current.room.state.seats[seat].twin.find(c=>c.ref===ref);return card?[card]:[];});
   const promptInfo=useCardInfo(activePrompts.flatMap(event=>[
-    ...(event.result?.candidates??[]).map(candidate=>{const entry=entries.current.get(candidate.cardId);return entry?catalogCardId(entry):undefined;}),
+    ...(event.track.glare?.candidates??event.result?.candidates??[]).map(candidate=>{const entry=entries.current.get(candidate.cardId);return entry?catalogCardId(entry):undefined;}),
     ...(promptMaterials(event).length>=2?[...extraIds,...promptMaterials(event).map(cardCode)]:[]),
   ]));
   const promptViews=activePrompts.filter(event=>{
@@ -1949,13 +1980,14 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     if(watch.getTrack(event.track.id)?.restSince===undefined)return true;
     return !current.current.room.state.seats[seat].twin.some(c=>c.zone===at.zone&&c.slot===at.slot&&publicField(c.zone)&&(cardCode(c)||!c.faceUp||c.token));
   }).map(event=>{
-    const observed=watch.getTrack(event.track.id)!,twins=current.current.room.state.seats[seat].twin;
+    const observed=watch.getTrack(event.track.id)??event.track,twins=current.current.room.state.seats[seat].twin;
     if(event.reason==='card-presence')return {id:event.track.id,revision:event.track.revision,zone:observed.zone,title:'Card here?',presence:true,quad:observed.card.quad,candidates:[{id:'face-down',label:'Set card'}]};
     // Cards that fit the observed zone come first; others stay available (a monster can be an Equip Card).
     const fits=(cardId:string)=>{const entry=entries.current.get(cardId);return fieldCandidateFitsZone(observed.zone,entry?promptInfo(catalogCardId(entry)):undefined);};
-    const prior=fieldStackXyzCandidates({materials:promptMaterials(event),extra:extraIds,facts:promptInfo}).flatMap(id=>{const entry=[...entries.current.values()].find(entry=>catalogCardId(entry)===id);return entry?[{cardId:entry.cardId}]:[];});
+    const glare=event.track.glare?.candidates;
+    const prior=glare?[]:fieldStackXyzCandidates({materials:promptMaterials(event),extra:extraIds,facts:promptInfo}).flatMap(id=>{const entry=[...entries.current.values()].find(entry=>catalogCardId(entry)===id);return entry?[{cardId:entry.cardId}]:[];});
     const ranked=[...prior,...(event.result?.candidates??[])].filter((candidate,index,all)=>all.findIndex(c=>c.cardId===candidate.cardId)===index);
-    const choices=event.reason==='pile'?[]:observed.faceDown?[{cardId:'face-down'}]:ranked.sort((a,b)=>Number(prior.some(c=>c.cardId===b.cardId))-Number(prior.some(c=>c.cardId===a.cardId))||Number(fits(b.cardId))-Number(fits(a.cardId))).slice(0,5);
+    const choices=event.reason==='pile'?[]:observed.faceDown?[{cardId:'face-down'}]:glare??ranked.sort((a,b)=>Number(prior.some(c=>c.cardId===b.cardId))-Number(prior.some(c=>c.cardId===a.cardId))||Number(fits(b.cardId))-Number(fits(a.cardId))).slice(0,5);
     return {id:event.track.id,revision:event.track.revision,zone:observed.zone,title:prior.length?'Xyz Monster on this stack?':event.reason==='changed'?'Card changed?':'New card?',quad:observed.card.quad,emptyMessage:event.reason==='pile'?'Move an existing card to this pile from its popup.':undefined,
       candidates:choices.map(candidate=>{
         const entry=entries.current.get(candidate.cardId),track={...observed,id:bindings.current.get(event.track.id)??event.track.id,cardId:candidate.cardId};
@@ -1990,7 +2022,9 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
         const event=activePrompts.find(p=>p.track.id===id),track=watch.getTrack(id);
         if(!event||!track){console.error('[remote field] expired candidate prompt',id);setNotice('Card prompt expired. Keep the card still for a fresh read.');return;}
         if(event.reason==='card-presence'&&!watch.acceptSet(id)){setNotice('Keep the card still, then choose again.');return;}
-        const selection={...event,track:watch.getTrack(id)??track};setFailedUpdate(null);setPending(true);
+        const glare=event.track.glare;
+        const selection=glare?{...event,track:{...event.track,glare:{...glare,candidates:glare.candidates.filter(c=>c.cardId===cardId)}}}:{...event,track:watch.getTrack(id)??track};
+        setFailedUpdate(null);setPending(true);
         const chosen=cardId==='face-down'?undefined:cardId;
         const save=()=>queue(act=>apply(selection,act,chosen),selection,!!chosen||event.reason==='card-presence');
         const waiting=chosen?fieldFacts(selection,chosen):undefined;

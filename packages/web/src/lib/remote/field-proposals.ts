@@ -175,6 +175,8 @@ export function fieldEvidenceMismatch(event:FieldEvent,current:FieldTrack|undefi
   if(!seen)return human?`not seen for ${Math.round(age)} ms`:`not visible (last seen ${Math.round(age)} ms ago)`;
   if((current.revision??0)!==(event.track.revision??0))return `revision ${current.revision??0} is not ${event.track.revision??0}`;
   if(current.faceDown!==event.track.faceDown)return 'face changed';
+  // Glare choices can appear while the automatic reader is still working.
+  if(human&&event.track.glare)return current.glare&&!current.cardId&&current.zone===event.track.zone&&current.position===event.track.position?undefined:'glare choice expired';
   if(event.type==='reading'?current.state!=='candidate':event.type==='prompt'?current.state!=='prompt':current.state!=='identified'||current.cardId!==event.track.cardId)return `state ${current.state}${current.cardId!==event.track.cardId?` name ${current.cardId??'none'} is not ${event.track.cardId??'none'}`:''}`;
   return undefined;
 }

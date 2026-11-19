@@ -214,3 +214,53 @@ it('keeps the auto picture when a webcam reports stale exposure or delays its ma
     }
   } finally { vi.useRealTimers(); }
 });
+
+it('steps down supported exposure compensation for persistent mat glare and restores it on stop', async () => {
+  vi.useFakeTimers();
+  vi.stubGlobal('window', new EventTarget());
+  vi.stubGlobal('document', Object.assign(new EventTarget(), { hidden: false }));
+  vi.stubGlobal('localStorage', { getItem: () => null });
+  let exposureCompensation = 0, nearClipped = 0, requested = 0;
+  const applied: number[] = [];
+  const track = {
+    readyState: 'live',
+    getCapabilities: () => ({ exposureMode: ['continuous'], exposureCompensation: { min: -2, max: 2, step: .25 } }),
+    getSettings: () => ({ exposureCompensation, exposureMode: 'continuous' }),
+    getConstraints: () => ({ width: { exact: 1920 } }),
+    async applyConstraints(constraints: MediaTrackConstraints) {
+      expect(constraints.width).toEqual({ exact: 1920 });
+      for (const value of constraints.advanced ?? []) {
+        const ev = (value as { exposureCompensation?: number }).exposureCompensation;
+        if (ev !== undefined) {
+          requested = ev;
+          await new Promise(resolve => setTimeout(resolve, 310));
+          exposureCompensation = ev; applied.push(ev);
+        }
+      }
+    },
+  } as unknown as MediaStreamTrack;
+  const lock = new CameraLock(track, 'compensation', () => undefined, () => ({ clipped: 0, nearClipped, mean: 100, sharpness: 100, colour: [1/3, 1/3, 1/3], frameTime: Date.now() }));
+  try {
+    lock.start();
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(applied).toEqual([]);
+    nearClipped = .021;
+    await vi.advanceTimersByTimeAsync(6000);
+    expect(applied).toEqual([-.25, -.5, -.75]);
+    expect(lock.getSnapshot().debug).toContain('-0.75 EV');
+    nearClipped = .013;
+    await vi.advanceTimersByTimeAsync(6500);
+    expect(exposureCompensation).toBe(-.75);
+    nearClipped = 0;
+    for (let i = 0; i < 150 && requested === -.75; i++) await vi.advanceTimersByTimeAsync(50);
+    expect(requested).toBe(-.5);
+    expect(exposureCompensation).toBe(-.75);
+    let finished = false;
+    const stopping = lock.release().then(() => { finished = true; });
+    await vi.advanceTimersByTimeAsync(500);
+    expect(finished).toBe(false);
+    await vi.advanceTimersByTimeAsync(650);
+    await stopping;
+    expect(exposureCompensation).toBe(0);
+  } finally { const stopping = lock.release(); await vi.advanceTimersByTimeAsync(1200); await stopping; vi.useRealTimers(); }
+});

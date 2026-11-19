@@ -2,8 +2,10 @@
 type Mode = 'exposureMode' | 'whiteBalanceMode' | 'focusMode';
 type Value = 'exposureTime' | 'colorTemperature' | 'focusDistance';
 type Range = { min: number; max: number; step?: number };
-type CameraCapabilities = MediaTrackCapabilities & Partial<Record<Mode, string[]>> & Partial<Record<Value, Range>>;
-type CameraSettings = MediaTrackSettings & Partial<Record<Mode, string>> & Partial<Record<Value, number>>;
+type GlareSetting = 'exposureCompensation' | 'brightness';
+type CameraCapabilities = MediaTrackCapabilities & Partial<Record<Mode, string[]>> & Partial<Record<Value | GlareSetting, Range>>;
+type CameraSettings = MediaTrackSettings & Partial<Record<Mode, string>> & Partial<Record<Value | GlareSetting, number>>;
+type GlareControl = { name: GlareSetting; baseline: number; step: number; levels: number };
 type Control = { mode: Mode; value: Value; target: string; current?: number };
 const CONTROLS: { mode: Mode; value: Value }[] = [
   { mode: 'exposureMode', value: 'exposureTime' },
@@ -13,7 +15,7 @@ const CONTROLS: { mode: Mode; value: Value }[] = [
 export type CameraLockSnapshot = { supported: boolean; enabled: boolean; locked: boolean; busy: boolean; note: string; debug?: string };
 export const CAMERA_LOCK_INITIAL: CameraLockSnapshot = { supported: false, enabled: true, locked: false, busy: false, note: '' };
 export type CameraPoint = { x: number; y: number };
-export type CameraLight = { clipped: number; mean: number; sharpness: number; colour: number[]; frameTime?: number };
+export type CameraLight = { clipped: number; nearClipped?: number; mean: number; sharpness: number; colour: number[]; frameTime?: number };
 
 /** Playback currentTime can advance without new camera pixels; count delivered frames instead. */
 export function cameraFrameCounter(video: HTMLVideoElement) {
@@ -35,7 +37,7 @@ export function cameraFrameCounter(video: HTMLVideoElement) {
 export function measureCameraLight({ data, width, height }: Pick<ImageData, 'data' | 'width' | 'height'>, corners?: readonly CameraPoint[]): CameraLight | null {
   const quad = corners?.length === 4 ? corners : [{ x: .15, y: .15 }, { x: .85, y: .15 }, { x: .85, y: .85 }, { x: .15, y: .85 }];
   const luma = (x: number, y: number) => { const i = (y * width + x) * 4; return .2126 * data[i] + .7152 * data[i + 1] + .0722 * data[i + 2]; };
-  let count = 0, clipped = 0, luminance = 0, edges = 0, lapSum = 0, lapSquared = 0;
+  let count = 0, clipped = 0, nearClipped = 0, luminance = 0, edges = 0, lapSum = 0, lapSquared = 0;
   const colour = [0, 0, 0];
   for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
     const px = (x + .5) / width, py = (y + .5) / height;
@@ -48,7 +50,9 @@ export function measureCameraLight({ data, width, height }: Pick<ImageData, 'dat
     }
     if (positive && negative) continue;
     const i = (y * width + x) * 4, r = data[i], g = data[i + 1], b = data[i + 2], mean = luma(x, y);
-    count++; if (r >= 250 && g >= 250 && b >= 250) clipped++;
+    count++;
+    if (r >= 230 && g >= 230 && b >= 230) nearClipped++;
+    if (r >= 250 && g >= 250 && b >= 250) clipped++;
     colour[0] += r; colour[1] += g; colour[2] += b; luminance += mean;
     if (x > 0 && y > 0 && x < width - 1 && y < height - 1) {
       const lap = luma(x - 1, y) + luma(x + 1, y) + luma(x, y - 1) + luma(x, y + 1) - 4 * mean;
@@ -57,7 +61,7 @@ export function measureCameraLight({ data, width, height }: Pick<ImageData, 'dat
   }
   if (!count) return null;
   const total = colour.reduce((sum, value) => sum + value, 0);
-  return { clipped: clipped / count, mean: luminance / count, sharpness: edges ? Math.max(0, lapSquared / edges - (lapSum / edges) ** 2) : 0,
+  return { clipped: clipped / count, nearClipped: nearClipped / count, mean: luminance / count, sharpness: edges ? Math.max(0, lapSquared / edges - (lapSum / edges) ** 2) : 0,
     colour: colour.map(value => total ? value / total : 0) };
 }
 function capabilities(track: MediaStreamTrack): CameraCapabilities {
@@ -65,6 +69,26 @@ function capabilities(track: MediaStreamTrack): CameraCapabilities {
 }
 function settings(track: MediaStreamTrack): CameraSettings {
   try { return track.getSettings?.() ?? {}; } catch { return {}; }
+}
+function glareControl(track: MediaStreamTrack): GlareControl | undefined {
+  if (!track.applyConstraints) return;
+  const caps = capabilities(track), current = settings(track);
+  const names: GlareSetting[] = caps.exposureMode?.includes('continuous') || (!caps.exposureMode && current.exposureMode !== 'manual')
+    ? ['exposureCompensation', 'brightness'] : ['brightness'];
+  for (const name of names) {
+    const range = caps[name], baseline = current[name];
+    if (!range || baseline === undefined || ![range.min, range.max, baseline].every(Number.isFinite) || baseline <= range.min || baseline > range.max) continue;
+    const ev = name === 'exposureCompensation';
+    const floor = Math.max(range.min, ev ? Math.max(-.75, baseline - .75) : baseline - .10 * (range.max - range.min));
+    const target = ev ? .25 : (range.max - range.min) * .035;
+    const quantum = typeof range.step === 'number' && Number.isFinite(range.step) && range.step > 0 ? range.step : target;
+    const step = Math.max(1, Math.round(target / quantum)) * quantum;
+    const levels = Math.floor((baseline - floor) / step + 1e-8);
+    if (levels > 0) return { name, baseline, step, levels };
+  }
+}
+function matchesGlareSetting(actual: number | undefined, expected: number, step: number) {
+  return actual !== undefined && Math.abs(actual - expected) <= Math.min(.01, step / 8);
 }
 function exposureRange(track: MediaStreamTrack): Range | undefined {
   const range = capabilities(track).exposureTime;
@@ -159,6 +183,8 @@ export class CameraLock {
   private closed = false;
   private releasing?: Promise<void>;
   private lateWrites = 0;
+  private glare?: GlareControl;
+  private glareTouched = false;
   private readonly key: string | undefined;
   private readonly lastKey: string;
   constructor(private track: MediaStreamTrack, userKey: string, private changed: (state: CameraLockSnapshot) => void,
@@ -174,11 +200,15 @@ export class CameraLock {
     if (this.closed) return;
     this.snapshot = { ...this.snapshot, ...value }; this.changed(this.snapshot);
   }
-  private apply(values: object[], generation?: number, timeout = 500) {
+  private apply(values: object[], generation?: number, timeout = 500, preserveAdvanced = false) {
     return cameraWork(this.track, async () => {
       if (this.track.readyState !== 'live' || (generation !== undefined && !this.active(generation))) return;
       if (generation !== undefined && (this.lateWrites || pendingCapture.has(this.track))) throw new CameraTimeout('A previous camera setting is still pending');
-      const write = this.track.applyConstraints({ ...this.track.getConstraints(), advanced: values as MediaTrackConstraintSet[] });
+      const constraints = this.track.getConstraints();
+      const changed = new Set(values.flatMap(Object.keys));
+      const prior = preserveAdvanced ? (constraints.advanced ?? []).map(set => Object.fromEntries(Object.entries(set).filter(([key]) => !changed.has(key))))
+        .filter(set => Object.keys(set).length > 0) : [];
+      const write = this.track.applyConstraints({ ...constraints, advanced: [...prior, ...values] as MediaTrackConstraintSet[] });
       try { await bounded(write, timeout); }
       catch (error) {
         if (error instanceof CameraTimeout) {
@@ -189,7 +219,7 @@ export class CameraLock {
             try {
               if (this.track.readyState === 'live') {
                 const caps = capabilities(this.track), current = settings(this.track);
-                if (CONTROLS.some(({mode}) => caps[mode]?.includes('continuous') && current[mode] !== 'continuous')) await this.restore();
+                if (this.glareTouched || CONTROLS.some(({mode}) => caps[mode]?.includes('continuous') && current[mode] !== 'continuous')) await this.restore();
                 restored = true;
               }
             }
@@ -219,6 +249,7 @@ export class CameraLock {
   start() {
     if (!this.live()) return;
     locks.set(this.track, this);
+    this.glare = glareControl(this.track);
     let enabled = true;
     try {
       const exact = this.key ? localStorage.getItem(this.key) : null;
@@ -231,14 +262,14 @@ export class CameraLock {
     this.track.addEventListener?.('ended', this.ended);
     window.addEventListener('pagehide', this.hide); window.addEventListener('pageshow', this.show);
     if (automaticTracks.has(this.track)) enabled = false;
-    this.patch({ enabled, supported: !!this.track.applyConstraints && controls(this.track).length > 0 });
+    this.patch({ enabled, supported: !!this.glare || !!this.track.applyConstraints && controls(this.track).length > 0 });
     // Always start in auto, including a dirty manual value left by a previous tab or UVC open.
     if (enabled) this.settle(); else void this.restore().catch(() => this.restoreFailed());
   }
   private sample() {
     try {
       const light = this.measure?.();
-      return light && [light.mean, light.clipped, light.sharpness, ...light.colour, light.frameTime ?? 0].every(Number.isFinite) ? light : null;
+      return light && [light.mean, light.clipped, light.nearClipped ?? 0, light.sharpness, ...light.colour, light.frameTime ?? 0].every(Number.isFinite) ? light : null;
     } catch { return null; }
   }
   private async stable(generation: number) {
@@ -308,24 +339,57 @@ export class CameraLock {
   private async lock(generation: number) {
     await this.restore();
     if (!this.active(generation)) return;
+    const glare = this.glare;
+    const candidates = controls(this.track).filter(control => glare?.name !== 'exposureCompensation' || control.mode !== 'exposureMode');
+    if (glare && !candidates.length) {
+      this.patch({ busy: false, locked: false, note: 'Automatic glare control' });
+      await this.watchGlareSetting(generation, glare);
+      return;
+    }
     const before = await this.stable(generation);
     if (!this.active(generation)) return;
-    const candidates = controls(this.track);
-    this.patch({ supported: candidates.length > 0 });
-    if (!candidates.length || !before || before.sharpness < 1) { await this.autoKept(generation); return; }
+    this.patch({ supported: candidates.length > 0 || !!glare });
+    if (!candidates.length || !before || before.sharpness < 1) { await this.autoKept(generation); if (glare) await this.watchGlareSetting(generation, glare); return; }
     const deadline = Date.now() + 1500;
     await this.apply(candidates.map(({ mode, value, target, current }) => ({ [mode]: target, ...(current === undefined ? {} : { [value]: current }) })), generation);
     const after = await this.matchBrightness(generation, before, deadline);
     if (!this.active(generation)) return;
     const current = settings(this.track), applied = candidates.filter(control => current[control.mode] === control.target);
-    if (!after || !this.acceptable(before, after) || !applied.length) { await this.autoKept(generation); return; }
+    if (!after || !this.acceptable(before, after) || !applied.length) { await this.autoKept(generation); if (glare) await this.watchGlareSetting(generation, glare); return; }
     this.patch({ locked: true, busy: false, note: `Locked: ${applied.map(control => control.mode.replace('Mode', '')).join(', ')}.` });
-    await this.watchGlare(generation, before);
+    if (glare) await this.watchGlareSetting(generation, glare);
+    else await this.watchGlare(generation, before);
   }
   private async autoKept(generation: number) {
     if (!this.active(generation)) return;
     await this.restore();
-    if (this.active(generation)) this.patch({ busy: false, locked: false, note: 'Camera lock not supported — auto kept' });
+    if (this.active(generation)) this.patch({ busy: false, locked: false, note: this.glare ? 'Automatic glare control' : 'Camera lock not supported — auto kept', ...(this.glare ? { debug: undefined } : {}) });
+  }
+  private async watchGlareSetting(generation: number, control: GlareControl) {
+    let level = 0, high = 0, low = 0, prior: CameraLight | null = null;
+    while (this.active(generation)) {
+      await this.delay(650);
+      if (!this.active(generation)) return;
+      const light = this.sample();
+      if (!light || (prior && sameFrame(prior, light))) continue;
+      prior = light;
+      // Some captures compress a clipped highlight to near-white. Require a sustained patch either way.
+      const near = light.nearClipped ?? 0;
+      high = (light.clipped >= .03 || near >= .018) && light.mean >= 70 ? high + 1 : 0;
+      low = light.clipped <= .01 && near <= .009 ? low + 1 : 0;
+      const next = high >= 2 ? Math.min(control.levels, level + 1) : low >= 10 || light.mean < 50 ? Math.max(0, level - 1) : level;
+      if (next === level) continue;
+      high = low = 0;
+      const value = Number((control.baseline - next * control.step).toPrecision(12));
+      this.glareTouched = true;
+      const ev = control.name === 'exposureCompensation';
+      await this.apply([{ ...(ev && capabilities(this.track).exposureMode?.includes('continuous') ? { exposureMode: 'continuous' } : {}), [control.name]: value }], generation, 500, true);
+      if (!this.active(generation)) return;
+      const actual = settings(this.track)[control.name];
+      if (!matchesGlareSetting(actual, value, control.step)) throw new Error('Camera did not apply glare setting');
+      level = next;
+      this.patch({ debug: `camera: ${ev ? 'exposure compensation' : 'brightness'} ${actual}${ev ? ' EV' : ''}, glare ${(Math.max(light.clipped, near) * 100).toFixed(1)}%` });
+    }
   }
   private async watchGlare(generation: number, before: CameraLight) {
     const first = { exposure: settings(this.track).exposureTime, light: before }, floor = Math.max(50, .75 * before.mean);
@@ -375,7 +439,9 @@ export class CameraLock {
   private async restore() {
     if (this.track.readyState !== 'live' || !this.track.applyConstraints) return;
     const caps = capabilities(this.track);
-    const values = CONTROLS.filter(({ mode }) => caps[mode]?.includes('continuous')).map(({ mode }) => ({ [mode]: 'continuous' }));
+    const values: Record<string, string | number>[] = CONTROLS.filter(({ mode }) => caps[mode]?.includes('continuous')).map(({ mode }) => ({ [mode]: 'continuous' }));
+    const glare = this.glareTouched ? this.glare : undefined;
+    if (glare) values.push({ [glare.name]: glare.baseline });
     if (values.length) {
       // Retry individual controls if a driver rejects the combined request.
       try { await this.apply(values); }
@@ -384,7 +450,8 @@ export class CameraLock {
         await Promise.allSettled(values.map(value => this.apply([value])));
       }
       const after = settings(this.track);
-      if (values.some(value => Object.keys(value).some(mode => after[mode as Mode] !== 'continuous'))) throw new Error('Camera did not restore auto');
+      if (CONTROLS.some(({ mode }) => caps[mode]?.includes('continuous') && after[mode] !== 'continuous') ||
+        (glare && !matchesGlareSetting(after[glare.name], glare.baseline, glare.step))) throw new Error('Camera did not restore auto');
     }
     this.patch({ locked: false });
   }
@@ -408,7 +475,8 @@ export class CameraLock {
     this.track.removeEventListener?.('ended', this.ended);
     window.removeEventListener('pagehide', this.hide); window.removeEventListener('pageshow', this.show);
     this.closed = true;
-    this.releasing = bounded(this.restore(), 500).catch(() => { /* The next capture starts in auto again. */ }).finally(() => { if (locks.get(this.track) === this) locks.delete(this.track); });
+    // The current camera write and the queued restoration each have a 500 ms budget.
+    this.releasing = bounded(this.restore(), this.glareTouched ? 1100 : 500).catch(() => { /* The next capture starts in auto again. */ }).finally(() => { if (locks.get(this.track) === this) locks.delete(this.track); });
     return this.releasing;
   }
   dispose() { void this.release(); }

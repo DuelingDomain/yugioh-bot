@@ -15,6 +15,7 @@ function rig(backgroundReread=true,placeUnsure=false,margin=.15,readCostMs=0) {
     const rgb=u<.06||u>.94||v<.04||v>.96?[25,25,25]:u>.12&&u<.88&&v>.18&&v<.7?[60+140*u,40+130*v,70+80*Math.sin(35*u)*Math.cos(30*v)]:u>.1&&u<.9&&v>.76&&v<.92?(v%.035<.012?[65,55,45]:[220,210,180]):[35,145,120];
     data.set([...rgb,255],(y*width+x)*4);
   }
+  const clear=data.slice();
   const frame:ImageData={width,height,data,colorSpace:'srgb'},events:FieldEvent[]=[],reads:number[]=[];
   const watcher=createFieldWatcher({profile:yugioh,gallery,getKnownCards:()=>known,nameVoting:false,backgroundReread,placeUnsure,now:()=>at,hidden:()=>false,clone:async f=>f,
     buffer:{sample:async()=>({frame,at})},recognizer:{separateDetector:true,detectCards:async()=>visible?[card]:[],recognize:async()=>{
@@ -23,8 +24,27 @@ function rig(backgroundReread=true,placeUnsure=false,margin=.15,readCostMs=0) {
     }},analyze:()=>({motion:()=>motion,sharpness:()=>20,crop:()=>frame,appearance:()=>Array(12).fill(.6),halo:()=>Array(12).fill(.8),touched:()=>hand?.5:0,occluded:()=>hand})});
   watcher.subscribe(e=>events.push(e));
   const tick=async(ms=100)=>{at+=ms;await watcher.tick();await new Promise<void>(r=>setImmediate(r));};
-  return {watcher,gallery,events,reads,tick,set known(value:KnownFieldCard[]){known=value;},set hand(v:boolean){hand=v;},set motion(v:number){motion=v;},set visible(v:boolean){visible=v;},sure(id='A'){tier='sure';identity=id;},weakNamed(){tier='not sure';},delay(p:Promise<void>){pending=p;},async untilPrompt(){for(let i=0;i<30&&!events.some(e=>e.type==='prompt');i++)await tick();assert.ok(events.some(e=>e.type==='prompt'));}};
+  return {watcher,gallery,events,reads,tick,set known(value:KnownFieldCard[]){known=value;},set hand(v:boolean){hand=v;},set motion(v:number){motion=v;},set visible(v:boolean){visible=v;},set glare(on:boolean){
+    data.set(clear);
+    if(on)for(let y=22;y<45;y++)for(let x=27;x<55;x++)data.set([255,255,255,255],(y*width+x)*4);
+  },sure(id='A'){tier='sure';identity=id;},weakNamed(){tier='not sure';},delay(p:Promise<void>){pending=p;},async untilPrompt(){for(let i=0;i<30&&!events.some(e=>e.type==='prompt');i++)await tick();assert.ok(events.some(e=>e.type==='prompt'));}};
 }
+
+test('a resting unnamed front exposes a glare notice after two seconds and clears it with the reflection',async()=>{
+  const r=rig(false);
+  try {
+    r.glare=true;
+    for(let i=0;i<18;i++)await r.tick();
+    assert.equal(r.watcher.getSnapshot().tracks[0]?.glare,undefined);
+    for(let i=0;i<15;i++)await r.tick();
+    const track=r.watcher.getSnapshot().tracks[0];
+    assert.ok(track?.glare?.share&&track.glare.share>.02);
+    assert.equal(track.cardId,undefined);
+    r.glare=false;
+    for(let i=0;i<12;i++)await r.tick();
+    assert.equal(r.watcher.getSnapshot().tracks[0]?.glare,undefined);
+  }finally{r.watcher.dispose();}
+});
 
 test('an unanswered resting name retries with backoff, then a sure read places without another question',async()=>{
   const r=rig();try{

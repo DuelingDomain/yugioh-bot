@@ -21,6 +21,11 @@ export function mentionVoiceCard(room: RemoteRoom, seat: number, passcode: numbe
 }
 export const voiceHintFor = (scope?: string) => ({ cards: scope ? voice.current(scope) : [], expiresAt: scope ? voice.expiresAt(scope) : undefined });
 
+export function registeredDeckPasscodes(room: RemoteRoom, seat: number): number[] {
+  const deck = room.seats.find(s => s.seat === seat)?.deck?.deck;
+  return deck ? [...deck.main, ...deck.extra, ...deck.side, ...(deck.deckMaster ? [deck.deckMaster] : [])] : [];
+}
+
 /** Derive knowledge from one seat and one game; hidden zones do not seed related cards. */
 export function recognitionPriorsFor(room: RemoteRoom, seat: number): Priors {
   const publicCard = (c: {zone?:string;faceUp?:boolean;publicIdentity?:boolean}) => c.zone !== 'hand' && remotePublicCard(c);
@@ -57,7 +62,6 @@ export function recognitionPriorsFor(room: RemoteRoom, seat: number): Priors {
     }
     for (const id of ids) { seen.add(id); recent.push(id); }
   }
-  const deck=room.seats.find(s=>s.seat===seat)?.deck?.deck;
-  return { decklist: deck?[...deck.main,...deck.extra,...deck.side,...(deck.deckMaster?[deck.deckMaster]:[])]:[], seen: [...seen].slice(-512),
+  return { decklist: registeredDeckPasscodes(room, seat), seen: [...seen].slice(-512),
     context: [...new Set([...board, ...recent.slice(-24), ...opposing.slice(-16)])].slice(0, 64), scope: scopeFor(room, seat), forbidden: forbiddenFor(room) };
 }

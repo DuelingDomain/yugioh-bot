@@ -58,16 +58,50 @@ export function shadowLift(img: RGBAImage, gx = 16, gy = 12): RGBAImage {
 /** Glare share above which a read always also tries the pre-cleaned crop. */
 export const GLARE_ALWAYS_TRY = 0.02;
 
-/** Glare = near-white pixels with almost no colour: specular reflections on sleeves and gloss. */
-export function glareMask(img: RGBAImage): { mask: Uint8Array; share: number } {
-  const n = img.width * img.height, mask = new Uint8Array(n), d = img.data;
-  let count = 0;
+/** Tiny bright spots need hard clipping. Large, nearly white patches also catch cameras whose white point is below 240. */
+export function glareMask({ width, height, data }: RGBAImage): { mask: Uint8Array; share: number; blobs: number } {
+  const n = width * height, mask = new Uint8Array(n);
+  const minimum = Math.max(4, Math.ceil(n * .003));
+  const broadPatch = Math.ceil(n * .10);
+  let count = 0, clipped = 0;
   for (let i = 0, p = 0; i < n; i++, p += 4) {
-    const r = d[p], g = d[p + 1], b = d[p + 2];
-    const max = r > g ? (r > b ? r : b) : (g > b ? g : b), min = r < g ? (r < b ? r : b) : (g < b ? g : b);
-    if (max >= 235 && max - min <= 28) { mask[i] = 1; count++; }
+    const r = data[p], g = data[p + 1], b = data[p + 2];
+    if ((r > 240 && g > 240 && b > 240) || r * 77 + g * 150 + b * 29 > 245 * 256) {
+      mask[i] = 2; clipped++; count++;
+    } else if (r >= 230 && g >= 230 && b >= 230) {
+      mask[i] = 1; count++;
+    }
   }
-  return { mask, share: count / n };
+  if (clipped < minimum && count < broadPatch) return { mask: mask.fill(0), share: 0, blobs: 0 };
+  const queue = new Uint32Array(count);
+  let size = 0, clippedInPatch = 0, glare = 0, blobs = 0;
+  const visit = (i: number) => {
+    const pixel = mask[i];
+    if (pixel !== 1 && pixel !== 2) return;
+    if (pixel === 2) clippedInPatch++;
+    mask[i] = pixel + 2;
+    queue[size++] = i;
+  };
+  for (let i = 0; i < n; i++) {
+    if (mask[i] !== 1 && mask[i] !== 2) continue;
+    size = 0; clippedInPatch = 0; visit(i);
+    for (let head = 0; head < size; head++) {
+      const p = queue[head], x = p % width;
+      if (x > 0) visit(p - 1);
+      if (x < width - 1) visit(p + 1);
+      if (p >= width) visit(p - width);
+      if (p < n - width) visit(p + width);
+    }
+    const broad = size >= broadPatch;
+    if (broad || clippedInPatch >= minimum) blobs++;
+    for (let q = 0; q < size; q++) {
+      const p = queue[q], keep = broad || (clippedInPatch >= minimum && mask[p] === 4);
+      mask[p] = keep ? 5 : 0;
+      if (keep) glare++;
+    }
+  }
+  for (let i = 0; i < n; i++) if (mask[i]) mask[i] = 1;
+  return { mask, share: glare / n, blobs };
 }
 
 /** Robust per-channel levels: gains that map each channel's [2%, 98%] range onto a common range. */
@@ -89,6 +123,7 @@ function channelLevels(img: RGBAImage, mask?: Uint8Array) {
 /**
  * Pre-clean one card crop for the embedder:
  * 1. glare pixels are filled with the local mean of nearby non-glare pixels,
+ * Significant glare skips the contrast and colour changes below, preserving the unaffected print.
  * 1b. a shadow over part of the card (or a dim whole card) is lifted locally,
  * 2. per-channel robust levels remove a colour cast and restore washed-out contrast,
  * 3. a mild CLAHE-like local contrast on luminance restores detail in lit or dim areas.
@@ -100,6 +135,7 @@ export function precleanCrop(img: RGBAImage): { image: RGBAImage; stats: Preclea
   const { mask, share } = glareMask(img);
   if (share > 0) fillMasked(out, w, h, mask, Math.max(4, Math.round(Math.min(w, h) / 24)));
   const shadow = darkShare({ data: out, width: w, height: h }, 4, 6);
+  if (share >= GLARE_ALWAYS_TRY) return { image: { data: out, width: w, height: h }, stats: { gains: [1, 1, 1], glare: share, shadow, ms: performance.now() - started } };
   if (shadow > 0) out.set(shadowLift({ data: out, width: w, height: h }, 4, 6).data);
   const levels = channelLevels({ data: out, width: w, height: h });
   // Common target: the mean of the channel ranges, so a cast is removed without global re-exposure.

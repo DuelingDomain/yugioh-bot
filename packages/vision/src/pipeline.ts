@@ -5,7 +5,7 @@ import { fieldEmbeddingSimilarity } from './field-motion';
 // Retains warp -> hypotheses -> staged embedding -> per-card search -> decide flow.
 // Extension-only badge rescues are omitted. See licenses/duel-lens.LICENSE.
 import { filterPhysicalIndex } from './physical-index';
-import { replayTier } from './decision';
+import { deckRescueWinner, replayTier } from './decision';
 import { emptyLearning, indexVersion, learnedTopK, type LearningSnapshot } from './learning';
 import { boardSide, isCovered, validateBoard } from './board';
 import { CARD_DETECTOR } from './detector/spec';
@@ -89,12 +89,12 @@ export class RecognitionPipeline {
    * more confident result. The clean pass never replaces a sure raw read with a weaker one.
    */
   async recognize(frames: RGBAImage[], opts: RecognizeOptions = {}): Promise<RecognitionResult & {deferredAICrop?:DeferredAICrop}> {
-    const probe:{glare?:number;shadow?:number}={};
+    const probe:{glare?:number;blobs?:number;shadow?:number}={};
     const {catalogTier:rawCatalogTier,...raw}=await this.recognizePass(frames,opts,undefined,probe);
     const rawTier=opts.priors?.decklist?.length?rawCatalogTier:raw.tier;
-    if(opts.preclean===false)return {...raw,preclean:{on:false,used:'raw'}};
-    const glare=probe.glare??0,shadow=probe.shadow??0;
-    raw.timingsMs.precleanGlare=glare*100;raw.timingsMs.precleanShadow=shadow*100;raw.timingsMs.precleanUsed=0;
+    const glare=probe.glare??0,blobs=probe.blobs??0,shadow=probe.shadow??0;
+    raw.timingsMs.precleanGlare=glare*100;raw.timingsMs.precleanGlareBlobs=blobs;raw.timingsMs.precleanShadow=shadow*100;raw.timingsMs.precleanUsed=0;
+    if(opts.preclean===false)return {...raw,preclean:{on:false,glare,used:'raw'}};
     // A sure raw read is kept even under a shadow; a read that is not sure tries the
     // pre-cleaned crop, which now also lifts shadowed parts (shadow % is for the debug line).
     if(rawTier==='sure' && glare<GLARE_ALWAYS_TRY || raw.quality.faceDown && rawTier==='sure' || !raw.quality.cornersFound)
@@ -112,15 +112,17 @@ export class RecognitionPipeline {
     // The clean crop may only raise the tier, or confirm the same card with more confidence.
     // A different card at the same tier is not trusted (synthetic glare blobs showed confident wrong swaps).
     const sameCard=clean.candidates[0]?.cardId===raw.candidates[0]?.cardId;
-    const useClean=(tierOf(cleanTier)>tierOf(rawTier) || sameCard && rank(clean,cleanTier)>rank(raw,rawTier)+.005) && !(clean.quality.faceDown && !raw.quality.faceDown);
+    const cleanDeckRescue=opts.deckRescue&&rawTier!=='sure'&&raw.tier!=='sure'&&clean.tier==='sure'&&clean.quality.searchSource==='deck';
+    const improvesSameCard=sameCard&&rank(clean,cleanTier)>rank(raw,rawTier)+.005&&(!opts.deckRescue||raw.tier!=='sure'||clean.tier==='sure');
+    const useClean=(tierOf(cleanTier)>tierOf(rawTier) || improvesSameCard || cleanDeckRescue) && !(clean.quality.faceDown && !raw.quality.faceDown);
     const info={on:true,glare,shadow,gains:stats.value?.gains,ms:stats.value?.ms,used:useClean?'clean' as const:'raw' as const,rawScore:raw.candidates[0]?.score,cleanScore:clean.candidates[0]?.score};
     const chosen=useClean?clean:raw,g=stats.value?.gains;
-    Object.assign(chosen.timingsMs,{precleanGlare:glare*100,precleanShadow:shadow*100,precleanUsed:useClean?1:0,precleanMs:stats.value?.ms,precleanGainR:g?.[0],precleanGainG:g?.[1],precleanGainB:g?.[2]});
+    Object.assign(chosen.timingsMs,{precleanGlare:glare*100,precleanGlareBlobs:blobs,precleanShadow:shadow*100,precleanUsed:useClean?1:0,precleanMs:stats.value?.ms,precleanGainR:g?.[0],precleanGainG:g?.[1],precleanGainB:g?.[2]});
     chosen.timingsMs.total=raw.timingsMs.total+clean.timingsMs.total;
     chosen.timingsMs.embed=raw.timingsMs.embed+clean.timingsMs.embed;
     return {...chosen,preclean:info};
   }
-  private async recognizePass(frames: RGBAImage[], opts: RecognizeOptions, precleanStats?:{value?:PrecleanStats}, probe?:{glare?:number;shadow?:number}): Promise<RecognitionResult & {deferredAICrop?:DeferredAICrop;catalogTier:RecognitionResult['tier']}> {
+  private async recognizePass(frames: RGBAImage[], opts: RecognizeOptions, precleanStats?:{value?:PrecleanStats}, probe?:{glare?:number;blobs?:number;shadow?:number}): Promise<RecognitionResult & {deferredAICrop?:DeferredAICrop;catalogTier:RecognitionResult['tier']}> {
     validateOptions(opts);
     if (!frames.length || frames.length > 12 || frames.some(f => f.width < 3 || f.height < 3 || f.width * f.height > 16_000_000 || f.data.length !== f.width * f.height * 4)) throw new Error('Supply 1–12 valid frames, each at most 16 MP');
     const start = performance.now();
@@ -239,7 +241,11 @@ export class RecognitionPipeline {
       const mask = warpQuadMasked(frame, found ? corners as Quad : fallback, this.profile.card.warpWidth, this.profile.card.warpHeight);
       if (!mask) {frameEvidence.push({frameIndex,clean:[],ranked:[],deck:[],faceDown:(selected?.kind??card?.kind)==='face-down',eligible:false});continue;}
       let warped = mask.seenShare<1 ? fillUnseen(mask,'art-mean',this.profile.artWindow) : mask.image;
-      if(probe && probe.glare===undefined){probe.glare=glareMask(warped).share;probe.shadow=darkShare(warped,4,6,{dim:false,factor:.5});}
+      if(probe) {
+        const glare=glareMask(warped);
+        if(probe.glare===undefined||glare.share>probe.glare){probe.glare=glare.share;probe.blobs=glare.blobs;}
+        probe.shadow??=darkShare(warped,4,6,{dim:false,factor:.5});
+      }
       if(precleanStats) { const cleaned=precleanCrop(warped);warped=cleaned.image;precleanStats.value??=cleaned.stats; }
       const partial = Boolean(selected?.partial) || Boolean(roi && card && card.pts.some(([x,y])=>x<=roiX+2 || y<=roiY+2 || x>=roiX+roi.width-2 || y>=roiY+roi.height-2)) || found && (mask.seenShare<.995 || corners.some(p=>p.x<0 || p.y<0 || p.x>frame.width || p.y>frame.height));
       const fullArt = detectFullArtLayout(warped, this.profile);
@@ -346,7 +352,10 @@ export class RecognitionPipeline {
       const clean=mergeCandidates(cleanLists,10);
       if(opts.priors?.decklist?.length)merged=preferDeck(merged.filter(c=>opts.priors!.decklist!.includes(c.cardId)),merged,thresholds,clean);
       const eligible=found && !partial && !selected?.partial && !covered && (!fullArt || Boolean(this.fullArtIndex?.meta.count)) && independentlyClear && (!faceDown || merged[0]?.cardId===this.profile.cardBack.cardId);
-      const deck=deckSearch(winningVector,winningIndex);
+      const deck=opts.deckRescue&&!fastMatch?mergeCandidates([
+        ...vectors.map(vector=>deckSearch(vector,this.index)),
+        ...wholeHypotheses.flatMap(({image})=>{const vector=embedded.get(image);return vector? [deckSearch(vector,this.fullArtIndex!)]:[];}),
+      ],10):deckSearch(winningVector,winningIndex);
       frameEvidence.push({frameIndex,hypotheses:cleanLists,clean,ranked:merged,deck,faceDown,eligible});
       usedIndices.push(frameIndex);
       // This source warp retains text detail; it never passes through the 295px embedding warp.
@@ -383,11 +392,11 @@ export class RecognitionPipeline {
         const query=group.length===1?group[0].vector:normalize(average),clean=cleanSearch(query,index);
         visualLists.push(clean);
         rankedLists.push(this.search(query,index,Math.max(k,10),opts.priors,index===this.index?frameClass:undefined,clean,deckSearch(query,index)));
-        if(opts.priors?.decklist?.length)deckLists.push(deckSearch(query,index).slice(0,2));
+        if(deckIds)deckLists.push(deckSearch(query,index));
       }
       visual=mergeCandidates(visualLists,Math.max(k,10));
       candidates=mergeCandidates(rankedLists,Math.max(k,10));
-      deckSuggestions=mergeCandidates(deckLists,2);
+      deckSuggestions=mergeCandidates(deckLists,10);
       if(opts.priors?.decklist?.length)candidates=preferDeck(candidates.filter(c=>opts.priors!.decklist!.includes(c.cardId)),candidates,thresholds,visual);
       if (fallback) {
         visual = visual.map(c => ({ ...c, score: c.score * .85 }));
@@ -410,6 +419,16 @@ export class RecognitionPipeline {
     if(this.confused(visual) && (visual[0].score-(visual[1]?.score??0)<.06 || !views.every(v=>v.confusionChecked)))blocked.push('confusion');
     const raw:RecognitionEvidence={visual,ranked:candidates,winnerId:candidates[0]?.cardId,cardBackId:this.profile.cardBack.cardId,blocked,frames:frameEvidence,
       thresholds,modelId:this.profile.embedding.id,modelSha256:this.profile.embedding.sha256,indexVersion:indexVersion(this.index.meta),layoutKey:this.index.meta.layoutKey??'',learningVersion:this.learning.version,priors:opts.priors,earlyExit,...(searchSource==='deck'||searchSource==='dynamic'||searchSource==='likely'?{closedSet:searchSource}:{})};
+    const catalogTier=replayTier({...raw,priors:undefined,closedSet:undefined},thresholds);
+    if(opts.deckRescue&&deckFirst&&!shortlistExit&&replayTier(raw,thresholds)!=='sure') {
+      const deckRescue=deckSuggestions;
+      const best=deckRescueWinner({...raw,deckRescue},thresholds);
+      if(best&&!this.confused([best])&&(!opts.priors?.frameClasses?.length||opts.priors.frameClasses.includes(this.catalog.get(best.cardId)?.frameClass??''))) {
+        candidates=[best,...candidates.filter(c=>c.cardId!==best.cardId)];
+        Object.assign(raw,{deckRescue,ranked:candidates,winnerId:best.cardId});
+        searchSource='deck';
+      }
+    }
     const tier=replayTier(raw,thresholds);
     timings.search += performance.now() - t; timings.total = performance.now() - start;
     const evidence=views[0];
@@ -417,7 +436,6 @@ export class RecognitionPipeline {
     const collect=opts.includeFeedback && safeEvidence;
     const feedback=collect?{embedding:Array.from(evidence.vector),gameId:this.profile.id,modelId:this.profile.embedding.id,modelSha256:this.profile.embedding.sha256,indexVersion:indexVersion(evidence.index.meta),layoutKey:evidence.index.meta.layoutKey??'',space:evidence.index===this.fullArtIndex?'whole-card' as const:'art-box' as const,deltaVersion:this.learning.version}:undefined;
     const identityEmbedding=opts.includeIdentityEmbedding && safeEvidence && !opts.card?.partial && evidence.vector.every(Number.isFinite)?{values:Array.from(evidence.vector),space:evidence.index===this.fullArtIndex?'whole-card' as const:'art-box' as const,...(this.profile.embedding.referenceTag?{modelId:this.profile.embedding.referenceTag}:{})}:undefined;
-    const catalogTier=replayTier({...raw,priors:undefined,closedSet:undefined},thresholds);
     return { catalogTier, ...(identityEmbedding?{identityEmbedding}:{}), ...(opts.includeRaw?{raw}:{}), ...(views[0]?.deferredAICrop?{deferredAICrop:views[0].deferredAICrop}:{}), ...(opts.includeCrop?{aiCandidateNames:visual.map(c=>this.catalog.get(c.cardId)?.name).filter((name):name is string=>Boolean(name)).slice(0,10)}:{}), ...(opts.includeCrop && views[0]?.aiCrop?{aiWarpedCard:views[0].aiCrop}:{}), prior:candidates[0]?.prior, candidates: withDeckSuggestions(deckSuggestions,candidates,k), detectedCard, feedback, ...((opts.includeCrop || opts.includeDiagnosticCrop || collect) && views[0] ? {warpedCard: views[0].crop} : {}), tier, quality: { searchSource, faceDown:views.some(v=>v.faceDown) || candidates[0]?.cardId===this.profile.cardBack.cardId, framesAgree:frameEvidence.length>0 && frameEvidence.every(f=>f.clean[0]?.cardId===visual[0]?.cardId),notInDecklist:Boolean(opts.priors?.decklist?.length && candidates[0] && candidates[0].cardId!==this.profile.cardBack.cardId && !opts.priors.decklist.includes(candidates[0].cardId)), confusionChecked:views.some(v=>v.confusionChecked), sharpness: ranked[0]?.sharpness ?? 0, detected: views.some(v => v.detected), cornersFound: views.some(v => v.corners), framesUsed: views.length, selectedFrameIndices: usedIndices, fallback, frameClass, covered, fullArt:views.some(v=>v.fullArt), fullArtReferences:this.fullArtIndex?.meta.count ?? 0, partial:views.some(v=>v.partial), hypothesis:views[0]?.index===this.fullArtIndex?'whole-card':'art-box' }, timingsMs: timings, backend: this.detector.backend === 'webgpu' && this.embedder.backend === 'webgpu' ? 'webgpu' : 'wasm' };
   }
 }
