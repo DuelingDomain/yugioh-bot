@@ -81,7 +81,7 @@ export function CreateAccountStep({ lockedEmail, errors, banner, pending, onSubm
           hint={errors.username ? undefined : "Other players see this. Letters, numbers, underscores and hyphens."}
         />
         {!passwordOptional && (
-          <PasswordField id="f-cp" name="password" label="Create password" autoComplete="new-password" error={errors.password} hint="At least 8 characters." />
+          <PasswordField id="f-cp" name="password" label="Create password" autoComplete="new-password" error={errors.password} breachWarning hint="At least 8 characters." />
         )}
         {!hideHeardFrom && <HeardFromSelect />}
         <ConsentCheckbox name="legal" error={errors.legal} />
