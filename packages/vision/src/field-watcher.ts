@@ -7,7 +7,7 @@ import {createFieldIdentityGallery, type FieldIdentityGallery} from './field-gal
 import type { Recognizer } from './client';
 import { createFieldPacer, fieldPacerDevice } from './field-pacer';
 import { canZoomCell, detectZoomedCell } from './field-set-zoom';
-import type { DetectedQuad, FractionalBox, GameProfile, RecognitionPriors, RecognitionResult } from './types';
+import type { DetectedQuad, FractionalBox, GameProfile, RecognitionPriors, RecognitionResult, FieldActionEvidence } from './types';
 import { boundsOf, quadMap, type Quad } from './geometry';
 import { CARD_DETECTOR } from './detector/spec';
 import {DEFAULT_SET_GUARDS, newSetCardMemory, measureSetEvidence, findFlatSleeve, rememberSetBack, ignoreSetRegion, sameSetRegion, setMatQuad, setLookDistance, setCropLook, type SetGuards, type SetEvidence, type SetDecision, type SetCardMemory} from './set-card-evidence';
@@ -130,14 +130,18 @@ export interface FieldTrack {
 /** Epoch origin crosses browser/worker/HTTP boundaries; stages are offsets, never mixed clocks. */
 /** Per card trace for the Debug panel and clips: `stagesMs` (stable, embedStart, searchDone, commit), `durationsMs` (`hold.<reason>` ms waited, embedCount, readMs) and `notes` (search source, tier). */
 export interface FieldTiming { id:string; originAt:number; stagesMs:Record<string,number>; durationsMs:Record<string,number>; notes?:Record<string,string>; reader?:RecognitionResult['reader'] }
-export type FieldEvent = { type:'reading'|'placed'|'moved'|'flipped'|'removed'|'prompt'|'covered'; /** covered: the track now on top of this card. */ coverRef?:string; /** Removed: the known bottom revealed by this card leaving a waiting stack. */ uncoveredRef?:string; track:FieldTrack; bindRef?:string; fromRef?:string; previousId?:string; result?:RecognitionResult; latencyMs?:number; reason?:'card-presence'|'uncertain'|'recognition-error'|'reappeared'|'changed'|'restart'|'pile'|'spread'|'suppressed'|'empty'|/** No plausible card box ever backed this track (an arm, a held card): the board card it placed is taken back, not sent to the hand. */'phantom'; source:'auto'; /** A watcher-placed Set ref that this event's pile ref replaces: the card left the pile face-up. */ replacesRef?:string; destination?:'DECK'|'EXTRA'; /** First removal of a field track, also on its Set return (watcher clock). */ removedAt?:number; timing?:FieldTiming };
+export type FieldEvent = { type:'reading'|'placed'|'moved'|'flipped'|'removed'|'prompt'|'covered'; /** covered: the track now on top of this card. */ coverRef?:string; /** Removed: the known bottom revealed by this card leaving a waiting stack. */ uncoveredRef?:string; track:FieldTrack; bindRef?:string; fromRef?:string; previousId?:string; result?:RecognitionResult; latencyMs?:number; reason?:'card-presence'|'uncertain'|'recognition-error'|'reappeared'|'changed'|'restart'|'pile'|'spread'|'suppressed'|'empty'|/** No plausible card box ever backed this track (an arm, a held card): the board card it placed is taken back, not sent to the hand. */'phantom'; source:'auto'; evidence?:FieldActionEvidence; /** A watcher-placed Set ref that this event's pile ref replaces: the card left the pile face-up. */ replacesRef?:string; destination?:'DECK'|'EXTRA'; /** First removal of a field track, also on its Set return (watcher clock). */ removedAt?:number; timing?:FieldTiming };
 export interface FieldMetrics { detectorMs:number; /** Wall time of the latest priority Set pass, included in detector duty. */ priorityPassMs?:number; /** Wall time of the latest tick that checked one or more zoomed cells. */ zoomMs?:number; recognitionMs:number; dutyPercent:number; intervalMs:number; samples:number; skipped:number; placements:number; latencyMs:number; errors:number; event?:FieldTiming }
 /** What the watcher saw on its last sample, for the owner's debug overlay. Local only, never sent. */
 export interface FieldDebug { at:number; path:string; full:boolean; region?:FractionalBox; detections:{quad:DetectedQuad['quad'];kind:DetectedQuad['kind'];confidence:number;zone:FieldZone;use:string; /** The box centre lies between two zone cells (zone shown is the nearest). */ gap?:boolean}[]; reasons:Record<string,string>; /** Best raw detector score inside the calibrated Deck/Extra cell this full pass (null: no outline at or above the decode floor .2). */ pileScores?:Partial<Record<'DECK'|'EXTRA',number|null>> }
 export interface FieldSnapshot {
   /** Latest motion over each field slot and public pile, on the watcher clock. */
   lastFieldActivityAtByZone?:Partial<Record<FieldZone,number>>;
-  /** Field or public pile motion within the last 300 ms. */
+  /** Latest valid learned-empty proof by calibrated cell, on the watcher clock. */
+  emptyProofAt?:Partial<Record<FieldZone,number>>;
+  /** Activity horizon calculated from the camera sample interval. */
+  fieldActivityWindowMs?:number;
+  /** Recent field or public pile motion. */
   fieldActive?:boolean;
   /** Live Set tracks currently covered or whose own pixels have changed. */
   missingSetLooks?:string[];
@@ -992,6 +996,8 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
   };
   /** Work that a still frame cannot finish: it keeps detector passes coming (in budget). A stuck candidate or flip counts for some seconds only. */
   const pacingPending=(at:number)=>settlingNow()||heldReader.hasVisibleCard()||tracks.some(t=>!t.view.removed&&t.view.state!=='dismissed'&&(t.needsRead||!!t.read||(t.fullMisses??0)>0||t.view.state==='candidate'&&at-t.view.firstSeen<8000||(t.face?.pendingAt!==undefined&&at-t.face.pendingAt<8000)||t.view.state==='identified'&&at-lastSceneChangeAt<8000&&(t.view.faceDown!==(t.view.card.kind==='face-down')||!!t.rest&&!t.rest.ok)))||[...pilePresence.values()].some(p=>p.present&&p.misses>0&&p.misses<3)||[...twinMisses.values()].some(m=>m.misses<2);
+  let sampleIntervalMs=0;
+  const fieldActivityWindow=()=>Math.max(FIELD_ACTIVITY_WINDOW_MS,1.5*sampleIntervalMs);
   async function tick() {
     if(disposed||inFlight)return;
     if(hidden()){status='hidden';metrics.skipped++;interruptWindow();notify();return;}
@@ -1010,7 +1016,9 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       if(sample.at<=lastFrameAt){metrics.skipped++;return;}
       lastFrameAt=sample.at;
       const maxGap=Math.max(1000,metrics.intervalMs*1.8),gap=sample.at-previousAt;
-      if(gap>maxGap){interruptWindow(light,true);zoomDeckContactSince=undefined;}previousAt=sample.at;
+      if(gap>maxGap){interruptWindow(light,true);zoomDeckContactSince=undefined;}
+      if(gap>0&&gap<=maxGap&&Number.isFinite(gap))sampleIntervalMs=gap;
+      previousAt=sample.at;
       const evidence=analyze(current,sample.at);latestEvidence=evidence;latestEvidenceFrame=current;
       // Keep only the small startup appearance sampler. A late detector box on
       // unchanged mat print is still startup background, not a new arrival.
@@ -2721,7 +2729,8 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       });
       return {
       lastFieldActivityAtByZone:{...lastFieldActivityAtByZone},
-      fieldActive:Object.values(lastFieldActivityAtByZone).some(at=>now()-at<=FIELD_ACTIVITY_WINDOW_MS),
+      fieldActivityWindowMs:fieldActivityWindow(),
+      fieldActive:Object.values(lastFieldActivityAtByZone).some(at=>now()-at<=fieldActivityWindow()),
       ...(zoomCheckedAt.size?{zoomCheckedAt:Object.fromEntries(zoomCheckedAt)}:{}),
       ...(zoomDeparturePending.size?{zoomDeparturePending:[...zoomDeparturePending]}:{}),
       ...(includeMissingSetLooks?{missingSetLooks:tracks.flatMap(t=>{

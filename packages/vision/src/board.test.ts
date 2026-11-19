@@ -149,6 +149,13 @@ test('field activity expires on a stalled camera and still skin cannot renew it'
     motion=0;
     for(let i=0;i<8;i++){at+=100;await watcher.tick();}
     assert.equal(watcher.getSnapshot().fieldActive,false,'still skin does not count as activity');
+    motion=.1;at+=400;await watcher.tick();
+    assert.equal(watcher.getSnapshot().fieldActivityWindowMs,600);
+    at+=599;
+    assert.equal(watcher.getSnapshot().fieldActive,true,'a slow tick extends the activity horizon');
+    at+=2;
+    assert.equal(watcher.getSnapshot().fieldActive,false);
+
   } finally {watcher.dispose();}
 });
 test('conflicting front pixels use the reader and dismissal cannot bypass positive Set evidence',async context=>{

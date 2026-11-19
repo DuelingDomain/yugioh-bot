@@ -1,5 +1,12 @@
 import type {FieldIdentityEntry} from './field-gallery';
 /** Data-only contracts: another game can supply these without changing the engine. */
+/** Independent evidence for a calibrated field action. Times use the watcher clock. */
+export interface FieldActionEvidence {
+  basis: 'zoom' | 'pixel';
+  settledAt?: number;
+  emptyProofAt?: number;
+  destinationHint?: 'GY' | 'BANISHED' | 'DECK' | 'EXTRA';
+}
 export interface Point { x: number; y: number }
 export interface FractionalBox { x: number; y: number; w: number; h: number }
 export interface ConfidenceThresholds {
