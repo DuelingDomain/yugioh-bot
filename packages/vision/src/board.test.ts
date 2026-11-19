@@ -541,19 +541,13 @@ test('a flat plain sleeve the detector never boxes is placed as a Set from its p
   await zoomed.tick(100);
   assert.equal(zoomed.detectOptions.filter(o=>o.zoom).length,1,'the settled Set does not spend another crop');
   zoomed.appearanceAt=()=>Array(288).fill(.2);
-  const forcedAttempts:number[]=[];
-  zoomed.zoom=()=>{
-    forcedAttempts.push(zoomed.at);
-    if(forcedAttempts.length===1)throw new Error('temporary zoom failure');
-    return [];
-  };
+  zoomed.zoom=()=>[];
   for(let i=0;i<14;i++)await zoomed.tick(100);
+  assert.equal(zoomed.detectOptions.filter(o=>o.zoom).length,1,'clear mat does not need a departure zoom');
   const departure=zoomed.events.find(e=>e.type==='removed');
   assert.ok(departure,'the Set leaving clear mat is removed');
-  assert.equal(forcedAttempts.length,2);
-  assert.ok(forcedAttempts[1]-forcedAttempts[0]>=500,'a failing forced zoom waits before retrying');
   const checked=zoomed.watcher.getSnapshot().zoomCheckedAt?.S4;
-  assert.ok(checked!==undefined&&checked>departure.removedAt!&&checked-departure.removedAt!<=1000,'departure forces a fresh zoom even on clear mat');
+  assert.ok(checked!==undefined&&checked>departure.removedAt!&&checked-departure.removedAt!<=1000,'clean pixels resolve the departure check');
   zoomed.watcher.dispose();
 
   const pending=fieldRig('sure',20,undefined,{width:1600,height:900},{zoomSets:true});
@@ -580,16 +574,38 @@ test('a flat plain sleeve the detector never boxes is placed as a Set from its p
   const still=fieldRig('sure',20,undefined,{width:1600,height:900},{zoomSets:true});
   still.outlines=[];still.watcher.setCalibration(zones.createFieldCalibration([{x:0,y:0},{x:1,y:1}]));
   still.appearanceAt=()=>Array(288).fill(.25);still.cropAt=()=>barePadded;
+  still.detectorCost=220;
   for(let i=0;i<8;i++){still.watcher.scanNow();await still.tick(300);}
   await still.tick(300);
   still.appearanceAt=c=>Array(288).fill(inCell(c)?.65:.25);
+  const attempts:number[]=[];
+  still.zoom=()=>{
+    attempts.push(still.at);
+    if(attempts.length===1)throw new Error('temporary zoom failure');
+    return [];
+  };
+  still.scene={moving:0,sinceMark:1,mark(){}};
+  still.detectorCost=120;
+  const beforeRest=still.detects;
+  await still.tick(150);
+  assert.equal(still.detects,beforeRest,'a slow full pass yields while the new sleeve settles');
+  for(let i=0;i<20;i++){
+    const before=still.detects;
+    await still.tick(150);
+    const calls=still.detectOptions.slice(before);
+    if(calls.some(o=>o.zoom))assert.equal(calls.length,1,'zoom ticks leave other detector passes for a later tick');
+  }
+  assert.equal(attempts.length,2,'a successful empty zoom suppresses retries of the same look');
+  assert.ok(attempts[1]-attempts[0]>=500,'a failing zoom waits before retrying');
+  still.appearanceAt=c=>Array(288).fill(inCell(c)?.53:.25);
   const undecided={width:16,height:16,data:Uint8ClampedArray.from({length:16*16*4},(_,i)=>i%4===3?255:i%8<4?55:180)};
   still.cropAt=c=>c.kind==='face-down'?undecided:barePadded;
-  still.zoom=()=>[{...card(.30,.36,.40,.50),kind:'face-down',confidence:.85}];
-  still.detectorCost=120;
-  await still.tick(100);await still.tick(100);
-  for(let i=0;i<12;i++)await still.tick(750);
-  assert.equal(still.detectOptions.filter(o=>o.zoom).length,2,'long detector gaps do not renew the zoom budget for an unchanged cell');
+  still.zoom=()=>{
+    attempts.push(still.at);
+    return [{...card(.30,.36,.40,.50),kind:'face-down',confidence:.85}];
+  };
+  for(let i=0;i<8;i++)await still.tick(150);
+  assert.equal(attempts.length,3,'a changed look can request another zoom');
   assert.equal(still.events.filter(e=>e.type==='placed').length,0,'a zoom box with undecided pixels cannot place a Set');
   still.watcher.dispose();
 
