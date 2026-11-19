@@ -833,6 +833,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
           if(!canonical)throw new Error('Camera placement was not returned in its slot');
           if(canonical.ref!==track.id){existing=twins.find(c=>c.ref===canonical.ref)??canonical;track={...track,id:canonical.ref};}
           bindings.current.set(event.track.id,canonical.ref);
+          if(proposal.zone==='graveyard'||proposal.zone==='banished')pileWrites.current.set(canonical.ref,performance.now());
           // Count only the materials the server took (it skips cards that changed since the read).
           const after=updated.state.seats[seat].twin,usedRefs=(summon?.materialRefs??[]).filter(ref=>{const c=after.find(t=>t.ref===ref);return summon!.kind==='xyz'?c?.materialOf===canonical.ref:c?.zone==='graveyard';});
           if(slowFacts&&!cardInfo(code!)&&code)lateSummons.current.set(canonical.ref,{code,name:entry?.name??'Card',at:performance.now(),trackId:event.track.id});
@@ -1122,7 +1123,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
             if(updated&&!grew)updated=await place(false)??updated;
           }
           if(updated){
-            bindings.current.set(event.track.id,ref);
+            bindings.current.set(event.track.id,ref);pileWrites.current.set(ref,performance.now());
             const pileId=updated.state.undo?.actionId;
             if(linked&&pileId){handActivation.current=undefined;undoChain.current={after:pileId,ids:[shown.actionId]};setNotice(`${cardInfo(shown.cardId)?.name??'Card'} activated from hand, then sent to the ${zone==='graveyard'?'GY':'banished pile'} · auto`);}
             else if(updated.state.seats[seat].twin.some(c=>c.ref===ref&&c.zone===zone))setNotice(`Unknown card added to the ${zone==='graveyard'?'GY':'banished pile'} · name it`);
