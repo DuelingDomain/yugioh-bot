@@ -262,6 +262,7 @@ const publicPile=(zone:string):zone is 'GY'|'BANISHED'=>zone==='GY'||zone==='BAN
 const fieldSlot=(zone:string)=>/^(M[1-5]|S[1-5]|EMZ[12]|FIELD)$/.test(zone);
 const setFollowUpZone=(zone:string):zone is Extract<FieldZone,`${'M'|'S'}${number}`>=>/^[MS][1-5]$/.test(zone);
 const ZOOM_RETRY_MS=500,ZOOM_DECK_HOLD_MS=1500,ZOOM_SLOW_MS=200;
+const ZOOM_FULL_WAIT_MS=800,ZOOM_MISS_WINDOW_MS=10_000,ZOOM_MISS_LIMIT=2;
 /** A sleeve can reflect light unevenly, so only require a flat patch across half the cell centre. */
 const zoomSleeveLook=(centre:number[])=>{
   const median=medianColour(centre);
@@ -535,7 +536,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
   const blindZones=new Set<FieldZone>(),handZones=new Set<FieldZone>(),blindCountAt=new Map<string,number>();
   const blindSleevesSeen=new Map<FieldZone,{at:number;look:number[]}>(),setFollowUpAt=new Map<FieldZone,number>();
   const zoomPendingZones=new Set<FieldZone>(),zoomDeparturePending=new Set<FieldZone>(),zoomCheckedAt=new Map<FieldZone,number>();
-  const zoomCells=new Map<FieldZone,{look?:number[];missedLook?:number[];stableAt?:number;waitingAt?:number;attemptedAt?:number;retryAt?:number;handAt?:number;motionAt?:number}>();
+  const zoomCells=new Map<FieldZone,{look?:number[];missedLook?:number[];emptyZooms?:number[];stableAt?:number;waitingAt?:number;attemptedAt?:number;retryAt?:number;handAt?:number;motionAt?:number}>();
   const completeCellCheck=(zone:FieldZone)=>{
     zoomCheckedAt.set(zone,now());
     zoomPendingZones.delete(zone);
@@ -731,6 +732,8 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
     note(t,`${type}${extra.reason?` (${extra.reason})`:''}`);
     // The last detector sighting can predate removal by several seconds. Retries keep the original removal time.
     if(type==='removed'&&fieldSlot(t.view.zone)){
+      const cell=zoomCells.get(t.view.zone);
+      if(cell&&t.view.removedAt===undefined)cell.emptyZooms=cell.missedLook=undefined;
       t.view.removedAt??=now();
       t.view.removedFrameAt??=Number.isFinite(lastFrameAt)?lastFrameAt:t.view.removedAt;
     }
@@ -1097,7 +1100,10 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
           known.some(k=>k.zone===zone&&!departed.some(t=>t.view.id===k.id||t.binding?.id===k.id));
         const forced=!front&&!occupied&&departed.some(t=>t.view.removedAt!==undefined&&(zoomCheckedAt.get(zone)??-Infinity)<=t.view.removedAt);
         if(forced){zoomPendingZones.add(zone);zoomDeparturePending.add(zone);}
-        if(handContact(evidence,box))state.handAt=at;
+        if(handContact(evidence,box)){
+          state.handAt=at;
+          state.emptyZooms=state.missedLook=undefined;
+        }
         if(moving)state.motionAt=at;
         if(busy||near||moving||removalHold(box)){state.stableAt=state.waitingAt=undefined;continue;}
         const look=evidence.appearance?.(box),halo=evidence.halo?.(box),base=emptyLooks.get(zone);
@@ -1140,6 +1146,8 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         if(!changed||!departed.length&&!zoomSleeveLook(centre)||stackStillThere(zone,evidence,box)){
           state.waitingAt=undefined;continue;
         }
+        // Drifting pixels can keep requesting new zooms from the same object.
+        if(state.emptyZooms?.length===ZOOM_MISS_LIMIT&&at-state.emptyZooms[0]<ZOOM_MISS_WINDOW_MS)continue;
         if(departed.length)zoomPendingZones.add(zone);
         if(scanRequested||scanSweep>0||at<(state.retryAt??-Infinity)||!forced&&at-zoomDeckAt<ZOOM_DECK_HOLD_MS)continue;
         state.waitingAt??=at;
@@ -1171,12 +1179,17 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         }
       }
       const setFollowUp=setFollowUps.size>0;
-      const regularFullDue=!busy&&(scanRequested||scanFollowUp&&followUpDue||periodicFullDue&&pacingDecision==='ready');
+      // Give an overdue full scan the next available detector slot when
+      // it competes with a cell zoom. Keep the regular detector budget.
+      const zoomWork=zoomSettling||zoomCandidates.length>0;
+      const fullBeforeZoom=slowZoomDevice&&zoomWork&&
+        sample.at-lastFullDetectionAt>ZOOM_FULL_WAIT_MS&&pacingDecision==='ready';
+      const regularFullDue=!busy&&(scanRequested||scanFollowUp&&followUpDue||fullBeforeZoom||periodicFullDue&&pacingDecision==='ready');
       const fullDue=regularFullDue||setFollowUp;
       // A clear footprint with no motion elsewhere is a departure, not a
       // transfer. Sample it at camera cadence even on a slow CPU. Motion outside
       // the old quad still runs detection so field/pile transfers keep their ref.
-      const checkingCells=zoomSettling||zoomCandidates.length>0||localFlipCandidates.length>0;
+      const checkingCells=zoomWork||localFlipCandidates.length>0;
       if(zoomSettling) pacedStill=false;
       if(!checkingCells&&!fullDue&&!reading&&tracks.some(t=>!t.view.removed&&t.clearCandidate&&sample.at-(t.clearCandidateAt??sample.at)<650&&(evidence.motionOutside?.(t.view.card)??1)<=.004&&(!recentMotion||sample.at-recentMotion.at>650||(()=>{const b=boundsOf(t.view.card.quad),r=recentMotion.region;return r.x>=b.x-b.w*.2&&r.y>=b.y-b.h*.2&&r.x+r.w<=b.x+b.w*1.2&&r.y+r.h<=b.y+b.h*1.2;})()))&&
         !tracks.some(t=>!t.view.removed&&t.view.state==='candidate')){status='watching';debugPath('clear-mat check',sample.at);return;}
@@ -1292,7 +1305,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       }
       zoomCandidates.sort((a,b)=>a.priority-b.priority||a.attemptedAt-b.attemptedAt||a.since-b.since);
       let zoomRan=false;
-      const nextZoom=zoomCandidates[0];
+      const nextZoom=fullBeforeZoom?undefined:zoomCandidates[0];
       if(nextZoom&&!pacer.canSpendPriority(now()))budgetWaitAt=sample.at;
       else if(nextZoom){
         const {zone,box,since,centre}=nextZoom;
@@ -1345,6 +1358,11 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
           state.missedLook=undefined;
           checkedBacks.set(c,{zone,since,crop,observation,measured});break;
         }
+        if(backs&&state.missedLook){
+          const misses=state.emptyZooms??=[];
+          if(misses.length===ZOOM_MISS_LIMIT)misses.shift();
+          misses.push(sample.at);
+        }
       }
       const unsampledBacks=new Set<InternalTrack>();
       // A sure read on a held outline commits now; a due full pass waits one tick.
@@ -1368,9 +1386,9 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
           debug={at:sample.at,path:debugTick,full:false,detections:[],reasons:{},...(lastPileScores?{pileScores:lastPileScores}:{})};
         }
       }else{
-      // A cell check owns this detector tick, even if it found no usable back.
-      if(zoomRan||zoomSettling||slowZoomDevice&&nextZoom){
-        status='watching';debugPath(zoomRan?'detector (zoom miss)':nextZoom?'zoom budget wait':'cell settling',sample.at);return;
+      // An actual zoom owns its tick. A refused zoom leaves the detector free.
+      if(zoomRan||zoomSettling&&!nextZoom&&!fullBeforeZoom){
+        status='watching';debugPath(zoomRan?'detector (zoom miss)':'cell settling',sample.at);return;
       }
       // A requested second pass must actually be a separate sample window.
       // Otherwise a 170 ms pass spends the follow-up before the 250 ms minimum.
@@ -1725,12 +1743,14 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
             known.some(k=>k.zone===zone)||deckZone(zone as FieldZone)&&piles.has(zone as 'DECK'|'EXTRA');
           // A Deck/Extra baseline is learned only while the cell looks like the mat ring around it: a stack the detector never boxed must not become the "empty mat" (it would then read as an empty cell the moment it leaves).
           if(occupied||!look?.length||blurHold||evidence.motion(box)>.01||removalHold(box)||handNear(evidence,box)||deckZone(zone as FieldZone)&&sleeveOnMat(look,evidence.halo?.(box))){if(e){e.pending=undefined;e.passes=0;}continue;}
-          // A learned Spell/Trap, Deck or Extra baseline stays while the cell shows something far from it: a flat sleeve the detector cannot see must not become the new "empty mat".
-          // It lets go once the cell has stayed unlike the mat for more full scans than a sleeve needs to be outlined without being found: then it was a light change, not a sleeve.
-          if(e?.look.length&&/^(S[1-5]|DECK|EXTRA)$/.test(zone)&&unlikeMat(e,look,evidence.halo?.(box))&&(blindShape.has(zone)||(blindScans.get(zone)??0)<SET_STEADY_SCANS+2)){e.pending=undefined;e.passes=0;continue;}
+          // A stationary arm can outlast the blind scans without yielding a
+          // sleeve outline. Preserve learned mat if a zoom cell still contrasts with its ring.
+          const ring=evidence.halo?.(box);
+          if(e?.look.length&&/^(S[1-5]|DECK|EXTRA)$/.test(zone)&&unlikeMat(e,look,ring)&&
+            (blindShape.has(zone)||(blindScans.get(zone)??0)<SET_STEADY_SCANS+2||options.zoomSets&&setFollowUpZone(zone)&&sleeveOnMat(look,ring))){e.pending=undefined;e.passes=0;continue;}
           const next:NonNullable<ReturnType<typeof emptyLooks.get>>=e??{look:[],passes:0};
           if(next.pending&&sameFieldAppearance(next.pending,look))next.passes++;else{next.pending=look;next.passes=1;}
-          if(next.passes>=3){next.look=look;const ring=evidence.halo?.(box);next.halo=ring?.length&&ring.length%3===0?medianColour(ring):undefined;if(sameFieldAppearance(evidence.settledAppearance?.(box),look))next.appearance=evidence.appearance;}
+          if(next.passes>=3){next.look=look;next.halo=ring?.length&&ring.length%3===0?medianColour(ring):undefined;if(sameFieldAppearance(evidence.settledAppearance?.(box),look))next.appearance=evidence.appearance;}
           emptyLooks.set(zone,next);
         }
       }
