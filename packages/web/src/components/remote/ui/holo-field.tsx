@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { createPortal } from "react-dom";
+import { DEFAULT_TOKEN_ART } from "./token-makers";
 import { cardArt, hasBattleStats, isMonsterInfo, type CardInfo } from "./catalog";
 import { BK, cardCode, cardName, cellsFor, EK, EXTRA_ZONES, frameOf, hueOf, isMonsterZone, isPendulumCell, isPile, mirrorEmz, ZK, ZN, zoneLabel, type FrameKind, type TwinCard, type ZoneKey } from "./model";
 import type { Verdict } from "./placement";
@@ -35,8 +36,8 @@ function ratingOf(kind: FrameKind, info: CardInfo | undefined): string | null {
 export function CardFace({ card, info, stats = "inline" }: { card: TwinCard; info?: CardInfo; /** "none": the field draws the numbers itself, upright (StatPlate), so the card carries none. */ stats?: "inline" | "none" }) {
   const [state, setState] = useState<"loading" | "ok" | "broken">("loading");
   const token = card.token;
-  // A token borrows the art of its catalog card; a generic token has none.
-  const code = cardCode(card) ?? token?.artId;
+  // A token shows the art of its token card; one without art of its own shows the default token card.
+  const code = cardCode(card) ?? (token ? token.artId ?? DEFAULT_TOKEN_ART : undefined);
   const kind: FrameKind = token ? "token" : frameOf(info);
   const monster = !!token || isMonsterInfo(info);
   const link = kind === "link";

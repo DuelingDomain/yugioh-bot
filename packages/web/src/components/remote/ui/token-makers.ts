@@ -21,3 +21,6 @@ export const TOKEN_MAKERS: Record<string, TokenMaker> = {
 
 /** Real art by lower-case token name, for tokens made by hand (a generic token whose name is a known one). */
 export const TOKEN_ART: Record<string, number> = Object.fromEntries(Object.values(TOKEN_MAKERS).map(maker => [maker.token.toLowerCase(), maker.id]));
+
+/** The real token card shown when a token has no art of its own: the Sheep Token, the best known official token. A token never shows a drawn stand-in. */
+export const DEFAULT_TOKEN_ART = 73915052;

@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyEvent, type ReactNode } from "react";
 import type { RemoteActionProposal, RemoteEvent, RemoteRoom } from "@yugidraft/shared/remote";
-import { cardInfo, loadCards, searchCards, type CardInfo } from "./catalog";
-import { TOKEN_ART, TOKEN_MAKERS, type TokenMaker } from "./token-makers";
+import { cardArt, cardInfo, loadCards, searchCards, type CardInfo } from "./catalog";
+import { DEFAULT_TOKEN_ART, TOKEN_ART, TOKEN_MAKERS, type TokenMaker } from "./token-makers";
+import { TOKEN_CARDS } from "./token-cards";
 import { serverNow } from "./api";
 import { cardCode, cardName, cellsFor, type TwinCard, type ZoneKey } from "./model";
 import { BigArt, PopupFrame } from "./popup";
@@ -241,8 +242,8 @@ export function useTokens({ act, room, live, extraZones, layers, info, toast }: 
   const close = () => { layers.close("token"); setView(null); };
 
   const send = async (seat: number, draft: { name: string; atk: number; def: number; artId?: number; position: Position; key: ZoneKey }) => {
-    // A generic token with a known name (Sheep Token) gets that token's art, too.
-    const artId = draft.artId ?? await artFor(draft.name);
+    // A generic token with a known name (Sheep Token) gets that token's art, too; with no match it gets the default token card.
+    const artId = draft.artId ?? await artFor(draft.name) ?? DEFAULT_TOKEN_ART;
     return act({ type: "twin.place", actorSeat: actor(seat), seat, zone: "monster", card: { ref: crypto.randomUUID(), name: draft.name, slot: Number(draft.key[1]), faceUp: true, position: draft.position,
       token: { atk: draft.atk, def: draft.def, ...(artId ? { artId } : {}) } } });
   };
@@ -324,6 +325,12 @@ function TokenDialog({ free, start, zoneless, initial, onCreate, onClose }: {
   const [query, setQuery] = useState(""); const [found, setFound] = useState<CardInfo[] | null>(null); const [chosen, setChosen] = useState<CardInfo | null>(null);
   const [name, setName] = useState(initial?.name ?? "Token"); const [atk, setAtk] = useState(initial?.ask && !initial.prefilled ? "" : String(initial?.atk ?? 0)); const [def, setDef] = useState(initial?.ask && !initial.prefilled ? "" : String(initial?.def ?? 0));
   const [position, setPosition] = useState<Position>(initial?.position ?? "attack");
+  /** The token card whose art the generic token shows; none picked means the default token card. */
+  const [art, setArt] = useState<number | undefined>(initial?.artId); const [artQuery, setArtQuery] = useState("");
+  const artHits = useMemo(() => {
+    const text = artQuery.trim().toLowerCase(); if (text.length < 1) return [];
+    return TOKEN_CARDS.filter(([, label]) => label.toLowerCase().includes(text)).slice(0, 8);
+  }, [artQuery]);
   const [key, setKey] = useState<ZoneKey | "">(start && free.includes(start) ? start : free[0] ?? "");
   useEffect(() => {
     const text = query.trim(); if (text.length < 2) { setFound(null); return; }
@@ -335,8 +342,8 @@ function TokenDialog({ free, start, zoneless, initial, onCreate, onClose }: {
     const at = key ? { key } : {};
     if (mode === "common") return chosen ? { name: chosen.name, atk: chosen.atk ?? 0, def: chosen.def ?? 0, artId: chosen.id, position, ...at } : null;
     const a = points(atk), d = points(def), label = name.trim().slice(0, 200);
-    return label && a !== null && d !== null ? { name: label, atk: a, def: d, position, ...at } : null;
-  }, [mode, chosen, atk, def, name, position, key, zoneless]);
+    return label && a !== null && d !== null ? { name: label, atk: a, def: d, ...(art ? { artId: art } : {}), position, ...at } : null;
+  }, [mode, chosen, atk, def, name, art, position, key, zoneless]);
   const typing = { onKeyDown: (event: React.KeyboardEvent) => { if (event.key !== "Escape") event.stopPropagation(); } };
   return <PopupFrame at={CENTER} layer="token" label="Create a token" testid="token-dialog">
     <form className={t.dialog} onSubmit={event => { event.preventDefault(); if (draft) onCreate(draft); }}>
@@ -357,6 +364,16 @@ function TokenDialog({ free, start, zoneless, initial, onCreate, onClose }: {
         <label className={t.field}>Name<input className={t.num} style={{ width: 150 }} type="text" maxLength={200} value={name} data-autofocus data-testid="token-name" {...typing} onChange={event => setName(event.target.value)} /></label>
         <label className={t.field}>ATK<input className={t.num} inputMode="numeric" value={atk} aria-invalid={points(atk) === null} data-testid="token-atk" {...typing} onChange={event => setAtk(event.target.value)} /></label>
         <label className={t.field}>DEF<input className={t.num} inputMode="numeric" value={def} aria-invalid={points(def) === null} data-testid="token-def" {...typing} onChange={event => setDef(event.target.value)} /></label>
+        <div className={t.artPick} data-testid="token-art">
+          <img className={t.artThumb} src={cardArt(art ?? DEFAULT_TOKEN_ART, "small")} alt="" width={40} height={58} draggable={false} data-testid="token-art-preview" />
+          <label className={t.field}>Token art
+            <input className={t.num} style={{ width: 150 }} type="text" autoComplete="off" placeholder="Search token cards" value={artQuery} data-testid="token-art-search" {...typing} onChange={event => setArtQuery(event.target.value)} /></label>
+          {art ? <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} onClick={() => setArt(undefined)} data-testid="token-art-reset">Default art</button> : null}
+        </div>
+        {artHits.length ? <div className={t.pick} style={{ flexBasis: "100%" }} data-testid="token-art-hits">
+          {artHits.map(([id, label]) => <button key={id} type="button" className={`${s.btn} ${s.sm} ${s.q} ${t.artHit}`} onClick={() => { setArt(id); setName(label); setArtQuery(""); }} data-testid="token-art-pick">
+            <img src={cardArt(id, "small")} alt="" width={20} height={29} loading="lazy" draggable={false} />{label}</button>)}
+        </div> : null}
         {initial?.prefilled ? <p className={t.note} data-testid="token-suggested">Suggested from the Tributed monsters (original ATK/DEF).{initial.unknown ? ` ${initial.unknown} ${initial.unknown === 1 ? "monster is" : "monsters are"} unknown and not counted.` : ""} Change it if it is wrong.</p> : initial?.unknown ? <p className={t.note} data-testid="token-suggested">{initial.unknown} {initial.unknown === 1 ? "monster is" : "monsters are"} unknown. Type the ATK and DEF.</p> : null}
       </div>}
       <div className={t.row}>
@@ -388,7 +405,7 @@ function TokenPopover({ card, editable, free, art, onTurn, onStats, onMove, onRe
   const changed = next.atk !== null && next.def !== null && (next.atk !== token.atk || next.def !== token.def);
   return <PopupFrame at={CENTER} layer="token" label={`${cardName(card, art)} token`} testid="token-popover">
     <div className={t.dialog}>
-      {token.artId ? <BigArt id={token.artId} label={card.name} /> : null}
+      <BigArt id={token.artId ?? DEFAULT_TOKEN_ART} label={card.name} />
       <h3 data-testid="token-title">{cardName(card, art)}</h3>
       <p className={t.chosen}>Token · {defense ? "Defense" : "Attack"} position · ATK {token.atk} / DEF {token.def}</p>
       {editable ? <>
