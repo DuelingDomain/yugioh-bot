@@ -58,8 +58,17 @@ const pileActivity=(snap:FieldSnapshot|undefined)=>({
 });
 const pileNear=(activity:Partial<ReturnType<typeof pileActivity>>|undefined,since:number)=>
   Object.values(activity??{}).some(at=>at!==undefined&&at>=since-PILE_NEAR_MS);
-/** The pile a hand worked most recently (GY unless only the banished pile moved). */
-const busiestPile=(snap:FieldSnapshot|undefined):'GY'|'BANISHED'=>{const a=fieldSetSlidePileActivity(snap);return a.BANISHED>a.GY?'BANISHED':'GY';};
+/** The pile that really changed around a removal: a hand in contact with it, or a new track on it (a hand merely passing over it is not a change). GY unless only the banished pile changed. */
+const changedPile=(snap:FieldSnapshot|undefined,sourceAt:number):'GY'|'BANISHED'|undefined=>{
+  let best:{zone:'GY'|'BANISHED';at:number}|undefined;
+  for(const zone of ['GY','BANISHED'] as const){
+    const contact=snap?.pileContactAt?.[zone]??-Infinity;
+    const fresh=Math.max(-Infinity,...(snap?.tracks??[]).filter(t=>t.zone===zone&&!t.removed&&!t.under&&t.state!=='dismissed'&&t.firstSeen>=sourceAt-1000).map(t=>t.firstSeen));
+    const at=Math.max(fresh,contact>=sourceAt-PILE_NEAR_MS?contact:-Infinity);
+    if(at>-Infinity&&(!best||at>best.at))best={zone,at};
+  }
+  return best?.zone;
+};
 const fieldActivityWindow=(snap:FieldSnapshot|undefined)=>Math.max(FIELD_ACTIVITY_WINDOW_MS,1.5*(snap?.metrics?.intervalMs??0));
 const FLIP_POLL_MS=250;
 const publicField=(zone:string)=>['monster','extra-monster','spell-trap','field','pendulum'].includes(zone);
@@ -1016,7 +1025,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
         const sourceQuietAt=now-activityAt<=activityWindow?Math.max(sourceAt,activityAt):sourceAt;
         const waitUntil=Math.min(hardEnd,sourceQuietAt+DEPARTURE_WAIT_MS);
         const pileNow=activeDeparturePile(snap,sourceAt,now,activityWindow);
-        if(pileNow)pending.pile=busiestPile(snap);
+        pending.pile=changedPile(snap,sourceAt)??pending.pile;
         pending.pileWorked=pileNow||pending.pileWorked&&
           Object.values(fieldSetSlidePileActivity(snap)).some(at=>at>=sourceAt-Math.min(activityWindow,PILE_NEAR_MS));
         // A hand still working a pile settles the card first (several cards can go in one carry): wait for the hand, never prompt.
@@ -1156,7 +1165,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
         // The candidate may have appeared since the departure entered the write queue.
         if(slideWait(event)>0){settlingDepartures.current.delete(event.track.id);handle(event);return;}
         // The owner just fixed the pile order: the camera top rule must not take cards out of the pile.
-        if(['graveyard','banished'].includes(card.zone)&&current.current.room.events.some(e=>e.action.type==='pile.order'&&e.action.seat===seat&&e.action.zone===card.zone&&serverNow()-e.at<3000)){forget();return;}
+        if(['graveyard','banished'].includes(card.zone)&&current.current.room.events.some(e=>e.action.type==='pile.order'&&e.action.source!=='auto'&&e.action.seat===seat&&e.action.zone===card.zone&&serverNow()-e.at<3000)){forget();return;}
         const monster=card.faceUp&&['monster','extra-monster'].includes(card.zone);
         // A unique receiving top settles the destination before the first write.
         const wasPublic=publicField(card.zone);
@@ -1168,10 +1177,10 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
         const pending=pendingDepartures.current.get(event.track.id);
         // A pile changed while this card left and the camera does not show it elsewhere: it is in that pile (GY unless only the banished pile moved), not in the hand.
         const slidSet=!card.faceUp&&linkedSlide(event,snap,true);
-        const pileWorked=!seen&&!slidSet&&defaultProposal.zone==='hand'&&event.removedAt!==undefined&&(pending?.pileWorked||activeDeparturePile(snap,sourceAt,now,fieldActivityWindow(snap)));
-        const pileZone=pileWorked?(pending?.pile??busiestPile(snap)):undefined;
+        const handDefault=!seen&&defaultProposal.zone==='hand'&&event.removedAt!==undefined;
+        const pileZone=handDefault&&!slidSet?changedPile(snap,sourceAt)??pending?.pile:undefined;
         const proposal=pileZone?fieldPileDepartureProposal(defaultProposal,pileZone):defaultProposal;
-        if(!seen&&slidSet&&proposal.zone==='hand'&&event.removedAt!==undefined){
+        if(handDefault&&!pileZone&&(slidSet||pending?.pileWorked||activeDeparturePile(snap,sourceAt,now,fieldActivityWindow(snap)))){
           if(pending)pending.unresolved=true;
           settlingDepartures.current.delete(event.track.id);pendingLeft.current.delete(event.track.id);
           setDeparture({ref:card.ref,name,zone:'pending'});setNotice(`${name} left the field · choose destination`);return;
@@ -1186,7 +1195,10 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
           const top=watch.getTracks().filter(t=>t.zone===pileZone&&t.visible&&!t.removed&&t.state==='identified'&&t.cardId).sort((x,y)=>y.firstSeen-x.firstSeen)[0],topRef=top&&(bindings.current.get(top.id)??top.id);
           const cardRefs=topRef?fieldPileUnderTop(order,card.ref,topRef):undefined;
           if(cardRefs){
-            await act({type:'pile.order',actorSeat:seat,seat,zone:proposal.zone as 'graveyard'|'banished',cardRefs});
+            const ordered=await act({type:'pile.order',source:'auto',actorSeat:seat,seat,zone:proposal.zone as 'graveyard'|'banished',cardRefs});
+            const orderId=ordered?.state.undo?.actionId;
+            // One Undo reverts the order, then the move (and any chain the move already had).
+            if(orderId&&undoTarget){undoChain.current={after:orderId,ids:[undoTarget,...(undoChain.current.after===undoTarget?undoChain.current.ids:[])]};undoTarget=orderId;}
           }
         }
         if(!live()||!watch.isRemoved(card.ref))return;
