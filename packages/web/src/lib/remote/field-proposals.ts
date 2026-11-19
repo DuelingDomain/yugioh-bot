@@ -204,19 +204,18 @@ const MAIN_FIELD_SLOT=/^[MS][1-5]$/;
 type RemovedFieldTrack=FieldTrack&{removedAt:number};
 export const FIELD_SET_SLIDE_MS=1800;
 export const FIELD_FLIP_SETTLE_MS=2000;
+const FIELD_DEPARTURE_MAX_MS=6000;
 const SET_SLIDE_MATCH_MS=3000;
 
-/** Begin the departure window at the first frame of confirmed removal evidence. */
-export function fieldDepartureDeadline(event:FieldEvent,removedAt:number):number {
-  return Math.min(event.track.removedFrameAt??removedAt,removedAt)+FIELD_FLIP_SETTLE_MS;
+/** Give the action time to finish, with a fixed limit for continuous motion. */
+export function fieldDepartureDeadline(event:FieldEvent,removedAt:number,lastFieldActivityAt?:number,settleMs=FIELD_FLIP_SETTLE_MS):number {
+  const firstMiss=Math.min(event.track.removedFrameAt??removedAt,removedAt);
+  return Math.min(firstMiss+FIELD_DEPARTURE_MAX_MS,Math.max(firstMiss,lastFieldActivityAt??firstMiss)+settleMs);
 }
 
 /** A confirmed Set can wait for slide evidence up to the departure deadline. */
-export function fieldSetSlideDeadline(event:FieldEvent,removedAt:number,otherSleeve=false):number {
-  const firstMiss=event.track.removedFrameAt??removedAt;
-  const deadline=fieldDepartureDeadline(event,removedAt);
-  if(committedSet(event.track)||otherSleeve)return deadline;
-  return Math.min(firstMiss+FIELD_SET_SLIDE_MS,deadline);
+export function fieldSetSlideDeadline(event:FieldEvent,removedAt:number,otherSleeve=false,lastFieldActivityAt?:number):number {
+  return fieldDepartureDeadline(event,removedAt,lastFieldActivityAt,committedSet(event.track)||otherSleeve?FIELD_FLIP_SETTLE_MS:FIELD_SET_SLIDE_MS);
 }
 
 /** A still-observed pile top can disprove a touch while the hand sweeps past it. */
@@ -241,10 +240,13 @@ export const fieldBackCandidate=(track:FieldTrack)=>!track.removed&&track.state!
 /** Time left for a zoom check or a pending back to settle in the vacated slot. */
 export function fieldFlipDepartureWait(event:FieldEvent,snap:FieldSnapshot|undefined,removedAt:number,now:number,faceUp=!event.track.faceDown):number {
   const {id,zone,lastSeen,removedFrameAt}=event.track;
-  const left=fieldDepartureDeadline(event,removedAt)-now;
+  const left=fieldDepartureDeadline(event,removedAt,snap?.lastFieldActivityAt)-now;
   if(left<=0||!snap||!MAIN_FIELD_SLOT.test(zone))return 0;
   const looked=(snap.zoomCheckedAt?.[zone]??-Infinity)>removedAt;
-  const fullAt=snap.lastFullAt,hand=!looked&&snap.handZones?.includes(zone),blind=snap.blindZones?.includes(zone);
+  const fullAt=snap.lastFullAt,blind=snap.blindZones?.includes(zone);
+  // Pixel-only removal can prove the cell clear between full scans.
+  const hand=!looked&&snap.handZones?.includes(zone)&&
+    (event.reason!=='empty'||(fullAt??-Infinity)>(removedFrameAt??removedAt));
   const replacements=snap.tracks.filter(t=>t.id!==id&&!t.removed&&t.zone===zone);
   const freshBack=replacements.some(t=>fieldBackCandidate(t)&&t.firstSeen>=lastSeen-1000||
     t.card.kind==='face-down'&&t.state==='identified'&&!t.card.partial&&!t.card.covered&&t.lastSeen>=Math.max(removedAt,fullAt??-Infinity));

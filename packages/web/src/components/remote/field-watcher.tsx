@@ -170,7 +170,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   const [tokenPrompt,setTokenPrompt]=useState<{event:FieldEvent;token:TwinCard;zone:FieldZone;name:string;facts?:ReturnType<typeof cardInfo>;choosing?:boolean}|null>(null);
   const [notice,setNotice]=useState(''),[undoId,setUndoId]=useState(''),[pending,setPending]=useState(false),[recovery,setRecovery]=useState<StaleFieldPlacementError|null>(null);
   const heldTimers=useRef(new Map<string,ReturnType<typeof setInterval>>()),departureTimers=useRef(new Map<string,ReturnType<typeof setTimeout>>());
-  /** Monsters out of view during the 2 s departure wait (track id): an Extra Deck summon in that window takes them as materials. */
+  /** Monsters out of view during the departure wait (track id): an Extra Deck summon in that window takes them as materials. */
   const pendingLeft=useRef(new Map<string,FieldVanish>()),leaveStarted=useRef(new Map<string,number>()),pendingDepartures=useRef(new Map<string,{event:FieldEvent;origin:Pick<TwinCard,'ref'|'zone'|'slot'>}>()),settlingDepartures=useRef(new Set<string>()),lateDefaults=useRef(new Map<string,{at:number;lastSeen:number;cardId?:string;/** The default rule sent it to the Graveyard: it waits for its own pile track, or a Banished one. */pile?:true}>()),lateBusy=useRef(false);
   useEffect(()=>()=>{heldSetSightings.current.clear();pendingDepartures.current.clear();settlingDepartures.current.clear();lateDefaults.current.clear();for(const timer of heldTimers.current.values())clearInterval(timer);heldTimers.current.clear();for(const timer of departureTimers.current.values())clearTimeout(timer);departureTimers.current.clear();pendingLeft.current.clear();},[room.slug,seat,source]);
   const choiceClosed=useRef(new Set<string>());
@@ -235,10 +235,10 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   const slideWait=(event:FieldEvent,snap=watch.getSnapshot?.(),now=performance.now())=>{
     const removedAt=event.removedAt;
     if(!snap||removedAt===undefined)return 0;
-    if(now>=fieldDepartureDeadline(event,removedAt))return 0;
+    if(now>=fieldDepartureDeadline(event,removedAt,snap.lastFieldActivityAt))return 0;
     const linked=snap.tracks.find(t=>slideFor(t,snap)?.from.id===event.track.id);
     if(!linked)return 0;
-    const until=fieldSetSlideDeadline(event,removedAt,linked.card.blind&&snap.blindSleeveSince?.[linked.zone]!==undefined);
+    const until=fieldSetSlideDeadline(event,removedAt,linked.card.blind&&snap.blindSleeveSince?.[linked.zone]!==undefined,snap.lastFieldActivityAt);
     return Math.max(0,until-now);
   };
   const departurePileEvidence=(event:FieldEvent,observed=watch.getTracks())=>{
@@ -876,32 +876,38 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       leaveStarted.current.set(id,started);pendingDepartures.current.set(id,{event,origin});
       const zone=event.track.zone,removedAt=event.removedAt??started;
       const firstMiss=event.track.removedFrameAt??removedAt;
-      const deadline=fieldDepartureDeadline(event,removedAt);
+      const emptyLift=card.faceUp&&event.reason==='empty';
       let pileWaitUntil:number|undefined;
       const arm=(wait:number)=>departureTimers.current.set(id,setTimeout(()=>{
         if(!live()||!watch.isRemoved(id)){cancelDeparture(id);return;}
         const snap=watch.getSnapshot?.(),now=performance.now();
+        const deadline=fieldDepartureDeadline(event,removedAt,snap?.lastFieldActivityAt);
         // A linked back cancels the flip hold. Wait for its placement event to
         // commit the move, or resume departure if that candidate goes away.
         const linkedWait=slideWait(event,snap,now);
         if(linkedWait>0){arm(Math.min(FLIP_POLL_MS,linkedWait));return;}
         const otherSleeve=Object.entries(snap?.blindSleeveAt??{}).some(([cell,at])=>cell!==zone&&cell[0]===zone[0]&&mainSlotPattern.test(cell)&&at>=firstMiss);
-        const slideUntil=fieldSetSlideDeadline(event,removedAt,otherSleeve);
+        const slideUntil=fieldSetSlideDeadline(event,removedAt,otherSleeve,snap?.lastFieldActivityAt);
         const slideLeft=card.faceUp===false&&event.removedAt!==undefined&&snap&&mainSlotPattern.test(zone)&&
           !pileNear(fieldSetSlidePileActivity(snap),firstMiss)&&(!snap.blindZones?.includes(zone)||otherSleeve)?slideUntil-now:0;
         const pileTouched=pileNear(pileActivity(snap),removedAt);
-        const flipLeft=pileTouched&&departurePileEvidence(event,snap?.tracks)?0:fieldFlipDepartureWait(event,snap,removedAt,now,card.faceUp);
-        const waitLeft=Math.max(slideLeft,flipLeft);
+        const pileSeen=pileTouched&&departurePileEvidence(event,snap?.tracks);
+        const flipLeft=pileSeen?0:fieldFlipDepartureWait(event,snap,removedAt,now,card.faceUp);
+        // A clear lift has already passed the hand check at its source.
+        const motionOnly=emptyLift&&!pileNear(snap?.pileContactAt,firstMiss);
+        const activityLeft=snap?.fieldActive&&!pileSeen&&(!motionOnly||flipLeft>0)?deadline-now:0;
+        const waitLeft=Math.max(slideLeft,flipLeft,activityLeft);
         if(waitLeft>0){arm(Math.min(FLIP_POLL_MS,waitLeft));return;}
         // Give a pile read one short wait, while still checking for a Set in another slot.
         if(pileTouched){
-          const motionOnly=card.faceUp&&event.reason==='empty'&&!pileNear(snap?.pileContactAt,firstMiss);
-          pileWaitUntil??=Math.min(now+PILE_HOLD_MS,motionOnly?firstMiss+PILE_HOLD_MS:deadline);
+          pileWaitUntil??=motionOnly?firstMiss+PILE_HOLD_MS:now+PILE_HOLD_MS;
         }
-        if(pileWaitUntil!==undefined&&now<pileWaitUntil){arm(Math.min(FLIP_POLL_MS,pileWaitUntil-now));return;}
+        const pileLeft=Math.min(pileWaitUntil??now,deadline)-now;
+        if(!pileSeen&&pileLeft>0){arm(Math.min(FLIP_POLL_MS,pileLeft));return;}
         fire();
       },wait));
-      arm(Math.max(0,Math.min(removedAt+DEPARTURE_WAIT_MS,deadline)-started));
+      const firstCheck=removedAt+(emptyLift?FLIP_POLL_MS:DEPARTURE_WAIT_MS);
+      arm(Math.max(0,Math.min(firstCheck,fieldDepartureDeadline(event,removedAt))-started));
       return;
     }
     console.info('[remote field] evidence',event.type,event.track.id,event.track.zone,event.track.revision,event.result?.tier,JSON.stringify(event.result?.quality),event.reason);

@@ -1266,6 +1266,32 @@ describe('typed watcher zone projection',()=>{
    }),expect.anything());
   }finally{fixture.dispose();vi.useRealTimers();}
  });
+ it('keeps the Set ref when row activity extends the departure deadline',async()=>{
+  const old={ref:'sliding-set',zone:'spell-trap',slot:4,faceUp:false,position:'attack'};
+  const fixture=await typedWatcherFixture(zoneEntries[0],'S4',[old],'moved');
+  vi.useFakeTimers({toFake:['setTimeout','clearTimeout','performance']});
+  try{
+   const watch=state.fieldWatch.watch,removedAt=performance.now();
+   Object.assign(fixture.track,{faceDown:true,removed:true,visible:false,removedAt,removedFrameAt:removedAt,setEvidence:committedBack});
+   watch.getSnapshot=()=>watch.snapshot;
+   watch.isRemoved=()=>fixture.track.removed;
+   watch.snapshot.lastFullAt=removedAt;
+   fixture.refresh();
+   await fixture.emit({type:'removed',removedAt,reason:'empty'});
+   await act(async()=>{await vi.advanceTimersByTimeAsync(1700);});
+   watch.snapshot.lastFieldActivityAt=performance.now();
+   await act(async()=>{await vi.advanceTimersByTimeAsync(1000);});
+   expect(fixture.post).not.toHaveBeenCalled();
+   const now=performance.now();
+   const back=fixture.addTrack({id:'slide-back',zone:'S2',faceDown:true,removed:false,visible:true,cardId:undefined,
+    firstSeen:now,lastSeen:now,restSince:now,card:{...fixture.track.card,kind:'face-down'},setEvidence:committedBack});
+   await fixture.emit({type:'placed',track:{...back}});
+   await act(async()=>{await vi.advanceTimersByTimeAsync(6000);});
+   expect(fixture.post).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+    type:'twin.move',cardRef:old.ref,zone:'spell-trap',slot:2,
+   }),expect.anything());
+  }finally{fixture.dispose();vi.useRealTimers();}
+ });
  it('places a late cross-slot Set independently after the visible Hand action',async()=>{
   const old={ref:'sliding-set',zone:'spell-trap',slot:4,faceUp:false,position:'attack'};
   const fixture=await typedWatcherFixture(zoneEntries[0],'S4',[old],'moved');
