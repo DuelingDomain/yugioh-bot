@@ -202,7 +202,9 @@ export function useTokens({ act, room, live, extraZones, layers, info, toast }: 
       if (action.type === "effect.activated") { ref = action.source.cardRef; id = action.source.cardId; label = action.source.name; }
       else if (action.type === "twin.place") {
         // A card shown during its activation is counted by that activation. One that returned from the Graveyard, banishment, Deck or Extra Deck, or only moved on the field, is not played from the hand.
-        if (!action.card.faceUp || action.card.token || !onFieldZone(action.zone) || action.give || action.fromActivation) continue;
+        if (!action.card.faceUp || action.card.token || !onFieldZone(action.zone) || action.give) continue;
+        // The activation already gave the tokens (it may have had no card ref): this ref is done, too.
+        if (action.fromActivation) { given.current.set(action.fromRef ?? action.card.ref, Date.now()); continue; }
         ref = action.fromRef ?? action.card.ref;
         const from = was.get(ref)?.zone;
         if (action.fromRef ? from !== "hand" : from !== undefined && from !== "hand") continue;
@@ -225,12 +227,11 @@ export function useTokens({ act, room, live, extraZones, layers, info, toast }: 
         const name = (label ?? cardInfo(id)?.name ?? (card ? cardName(card, cardInfo(cardCode(card))) : "")).toLowerCase();
         const maker = TOKEN_MAKERS[name];
         if (!maker?.auto) return;
-        if (ref) { if (given.current.has(ref)) return; given.current.set(ref, Date.now()); }
-        else {
-          const key = `${seat}:${name}`;
-          if (Date.now() - (madeAt.current.get(key) ?? 0) < REPEAT_MS) return;
-          madeAt.current.set(key, Date.now());
-        }
+        // An activation read from the hand has no card ref, so the seat and name window covers it for every source.
+        const key = `${seat}:${name}`;
+        if (ref && given.current.has(ref) || Date.now() - (madeAt.current.get(key) ?? 0) < REPEAT_MS) return;
+        if (ref) given.current.set(ref, Date.now());
+        madeAt.current.set(key, Date.now());
         await giveRef.current(maker, seat);
       })();
     }
