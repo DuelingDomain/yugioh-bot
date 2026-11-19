@@ -90,6 +90,9 @@ export const remoteActionSchema = z.discriminatedUnion("type", [
     summon: summon.optional() }),
   /** The camera saw a whole GY/banished pile leave the mat: its cards go to the hand in one undoable action. */
   z.strictObject({ ...meta, type: z.literal("pile.lift"), seat: remoteSeatSchema, zone: z.enum(["graveyard", "banished"]), cardRefs: z.array(id).min(1).max(120), source: z.literal("auto").optional() }),
+  /** One tap sends the listed monsters (any field, tokens included) to their owners' Graveyards. A token just leaves the table. One Undo restores them all. */
+  z.strictObject({ ...meta, type: z.literal("monsters.tribute"), seat: remoteSeatSchema,
+    targets: z.array(z.strictObject({ seat: remoteSeatSchema, cardRef: id })).min(1).max(60) }),
   /** The owner fixes the order of a GY/banished pile (oldest first). The list must hold every card of the pile once. */
   z.strictObject({ ...meta, type: z.literal("pile.order"), seat: remoteSeatSchema, zone: z.enum(["graveyard", "banished"]), cardRefs: z.array(id).min(1).max(120)
     .refine(refs => new Set(refs).size === refs.length, "Duplicate pile card") }),

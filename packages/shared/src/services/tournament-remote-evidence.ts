@@ -9,7 +9,7 @@ const DAY = 86_400_000;
 const modeSeconds = {auto:'autoSeconds',tap:'tapSeconds',manual:'manualSeconds'} as const;
 const publicZones = new Set(['monster', 'extra-monster', 'spell-trap', 'field', 'pendulum', 'graveyard', 'banished']);
 const manualActions = new Set(['twin.place', 'twin.move', 'twin.flip', 'twin.remove', 'twin.attach', 'twin.detach',
-  'twin.equip', 'pile.lift', 'pile.order', 'twin.merge', 'deck.flag.dismiss']);
+  'twin.equip', 'monsters.tribute', 'pile.lift', 'pile.order', 'twin.merge', 'deck.flag.dismiss']);
 const tokenActions = new Set(['twin.place', 'twin.move', 'twin.flip', 'twin.remove']);
 type EventRow = { seq:number; created_at:number; user_id:number|null; actor_seat:number|null;
   action_json:string; effects_json:string|null; facts_hash:string|null };

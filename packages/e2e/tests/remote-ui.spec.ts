@@ -2271,6 +2271,43 @@ test.describe("remote duels screen, tokens and the camera", () => {
     await expect.poll(sheep, { timeout: 15_000 }).toBe(4);
   });
 
+  test("Nibiru played: both fields' monsters go to the Graveyard in one Undo step, then the zone is picked, then a modal dialog holds the combined ATK/DEF", async ({ page, context }) => {
+    test.setTimeout(120_000);
+    const slug = await soloTable(context.request, 2), path = `/api/remote/${slug}`;
+    await page.setViewportSize({ width: 1366, height: 768 });
+    const act = async (action: Record<string, unknown>) => {
+      const room = await (await context.request.get(path)).json();
+      const response = await context.request.post(`${path}/actions`, { data: { baseSeq: room.lastSeq, action: { idempotencyKey: crypto.randomUUID(), ...action } } });
+      expect(response.status(), await response.text()).toBe(200);
+    };
+    const twins = async (seat: number) => ((await (await context.request.get(path)).json()).state.seats[seat].twin as { name?: string; zone: string }[]).map(c => `${c.name}:${c.zone}`);
+    await act({ type: "twin.place", actorSeat: 0, seat: 0, zone: "monster", card: { ref: "a", name: "Sheep Token", slot: 1, faceUp: true, position: "defense", token: { atk: 100, def: 200 } } });
+    await act({ type: "twin.place", actorSeat: 1, seat: 1, zone: "monster", card: { ref: "b", name: "Lamb Token", slot: 2, faceUp: true, position: "defense", token: { atk: 300, def: 400 } } });
+    await page.goto(`/duels/remote/${slug}`);
+    await expect(page.getByTestId("seat-0")).toBeVisible();
+    await act({ type: "twin.place", actorSeat: 0, seat: 0, zone: "monster", card: { ref: "nib", cardId: 27204311, name: "Nibiru, the Primal Being", slot: 3, faceUp: true, position: "attack" } });
+    // Both tokens leave in one step; Nibiru stays.
+    await expect.poll(async () => [...await twins(0), ...await twins(1)], { timeout: 15_000 }).toEqual(["Nibiru, the Primal Being:monster"]);
+    await expect(page.getByTestId("token-bar")).toBeVisible();
+    // The zone comes first; the dialog is modal and holds exactly the Tributed tokens' ATK/DEF (100+300 / 200+400).
+    await page.locator('[data-testid="seat-1"] [data-token-slot]').first().click();
+    await expect(page.getByTestId("token-dialog")).toBeVisible();
+    await expect(page.getByTestId("token-atk")).toHaveValue("400");
+    await expect(page.getByTestId("token-def")).toHaveValue("600");
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("token-dialog")).toBeVisible();
+    await page.getByTestId("token-change-zone").click();
+    await expect(page.getByTestId("token-dialog")).toHaveCount(0);
+    await expect(page.getByTestId("token-bar")).toBeVisible();
+    // One Undo brings both tokens back.
+    await page.getByTestId("token-cancel").click();
+    const room = await (await context.request.get(path)).json();
+    const tribute = (room.state.undoHistory as { actionId: string; action: { type: string } }[]).find(entry => entry.action.type === "monsters.tribute");
+    expect(tribute).toBeTruthy();
+    await act({ type: "undo", actorSeat: 0, targetActionId: tribute!.actionId });
+    await expect.poll(async () => [...await twins(0), ...await twins(1)].sort(), { timeout: 10_000 }).toEqual(["Lamb Token:monster", "Nibiru, the Primal Being:monster", "Sheep Token:monster"]);
+  });
+
   // A fake reader stands in for the camera model (NEXT_PUBLIC_E2E_FIELD_HOOK, set by the e2e stack only): the test hands the table a card "seen" in a cell that holds a token.
   test("a card seen on a token's cell: Choose another zone places it in the zone picked and keeps the token; Remove token puts it there and one Undo restores the token", async ({ page, context }) => {
     test.setTimeout(240_000);

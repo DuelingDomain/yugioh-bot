@@ -589,6 +589,21 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
       returnToOwner(next.seats, s, material, givenCardsOn);
       break;
     }
+    case "monsters.tribute": {
+      // Any seated player may send monsters from any field (Nibiru, the Tuning Tribute): each goes to its owner's Graveyard, a token just leaves.
+      remoteAssert(action.seat === action.actorSeat, "A tribute is made by its own player", 403);
+      let sent = 0;
+      for (const target of action.targets) {
+        const holder = seat(target.seat), card = holder.twin.find(c => c.ref === target.cardRef);
+        // A card that left the field since the list was read is skipped.
+        if (!card || !MONSTER_ZONES.has(card.zone) || card.faceUp === false) continue;
+        delete card.slot; delete card.trapZone; delete card.equippedTo; delete card.departedFrom;
+        sendToGrave(next.seats, holder, card, givenCardsOn);
+        sent++;
+      }
+      remoteAssert(sent > 0, "No monster was left to send", 409);
+      break;
+    }
     case "pile.order": {
       const s = ownField(action.seat); const pile = s.twin.filter(c => c.zone === action.zone);
       remoteAssert(pile.length === action.cardRefs.length && action.cardRefs.every(ref => pile.some(c => c.ref === ref)), "The order must list every card of the pile", 409);

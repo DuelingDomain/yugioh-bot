@@ -44,6 +44,7 @@ export function describeEvent(event: RemoteEvent, name: (seat: number) => string
       return { kind: "CD", text: `A card was removed from ${name(a.seat)}'s field`, undoable: true };
     case "twin.equip": return { kind: "CD", text: a.target ? `An Equip Card on ${name(a.seat)}'s field is linked to ${name(a.target.seat)}'s monster` : `An Equip link on ${name(a.seat)}'s field was cleared`, undoable: true };
     case "twin.control": return { kind: "CD", text: `${refName(a.seat, a.cardRef) ?? "A card"} changed control: ${name(a.seat)} to ${name(a.toSeat)}`, undoable: true };
+    case "monsters.tribute": return { kind: "CD", text: `${who} sent ${a.targets.length} monster${a.targets.length === 1 ? "" : "s"} to the Graveyard (Tribute)`, undoable: true };
     case "pile.lift": return { kind: "CD", text: `${a.zone === "graveyard" ? "Graveyard" : "Banished"} picked up (${a.cardRefs.length} card${a.cardRefs.length === 1 ? "" : "s"}) · auto`, undoable: true };
     case "twin.merge": return { kind: "CD", text: a.reason.startsWith(MERGED) ? `${a.reason} on ${name(a.seat)}'s field` : "Duplicate cards merged", undoable: true };
     case "log.note": return { kind: "CD", text: a.text, undoable: false };
