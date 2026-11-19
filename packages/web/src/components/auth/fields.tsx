@@ -33,13 +33,17 @@ export interface FieldAria {
   "aria-describedby"?: string;
 }
 
-/** Amber, non-blocking notice: `role="status"` (polite), never the red error style. */
-export function FieldWarning({ id, children }: { id: string; children: ReactNode }) {
+/**
+ * Amber, non-blocking notice, never the red error style. The `role="status"` node holds only the text and is rendered
+ * even when empty (`children` null), so a screen reader that registered it earlier announces the text when it arrives.
+ */
+export function FieldWarning({ id, children }: { id: string; children?: ReactNode }) {
+  const idle = !children;
   return (
-    <p className={styles.fwarn} id={id} role="status">
-      {WARN_ICON}
-      <span>{children}</span>
-    </p>
+    <div className={cx(styles.fwarn, idle && styles.idle)}>
+      {!idle && WARN_ICON}
+      <span id={id} role="status">{children}</span>
+    </div>
   );
 }
 
@@ -47,8 +51,8 @@ interface FieldProps {
   id: string;
   label: ReactNode;
   error?: string;
-  /** Shown only when there is no error. It never sets `aria-invalid`. */
-  warning?: ReactNode;
+  /** Shown only when there is no error. It never sets `aria-invalid`. `null` keeps the empty live region mounted. */
+  warning?: ReactNode | null;
   hint?: ReactNode;
   children: (aria: FieldAria) => ReactNode;
 }
@@ -65,7 +69,7 @@ export function Field({ id, label, error, warning, hint, children }: FieldProps)
       <label htmlFor={id}>{label}</label>
       {children({ "aria-invalid": error ? true : undefined, "aria-describedby": describedBy })}
       {error && <FieldError id={`${id}-err`}>{error}</FieldError>}
-      {warn && <FieldWarning id={`${id}-warn`}>{warn}</FieldWarning>}
+      {warn !== undefined && <FieldWarning id={`${id}-warn`}>{warn}</FieldWarning>}
       {hint && <p className={styles.hint} id={`${id}-hint`}>{hint}</p>}
     </div>
   );
@@ -131,7 +135,7 @@ export function PasswordField({ id, name, label, autoComplete, error, hint, auto
   const [typed, setTyped] = useState("");
   const breached = useBreachedPassword(typed, breachWarning);
   return (
-    <Field id={id} label={label} error={error} warning={breached ? BREACH_WARNING : undefined} hint={hint}>
+    <Field id={id} label={label} error={error} warning={breachWarning ? (breached ? BREACH_WARNING : null) : undefined} hint={hint}>
       {(aria) => (
         <div className={cx(styles["input-wrap"], styles["has-btn"])}>
           <input

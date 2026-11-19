@@ -29,6 +29,7 @@
 .ferr svg, .fwarn svg { flex: none; width: 16px; height: 16px; margin-top: 2px; }
 .fwarn { display: flex; gap: 7px; align-items: flex-start; font-size: 14px; line-height: 1.4; color: var(--gold-hi); }
 .fwarn svg { color: var(--gold); }
+.fwarn.idle { margin-top: -7px; } /* empty live region: cancel the .field gap */
 .input-wrap.locked input { padding-right: 44px; color: #C9D0E4; background: #0B0F1E; border-style: dashed; border-color: rgba(201, 164, 92, .45); }
 .input-wrap .lockic { position: absolute; right: 14px; top: 0; height: 52px; display: grid; place-items: center; color: var(--gold-soft); }
 .input-wrap .lockic svg { width: 18px; height: 18px; }
