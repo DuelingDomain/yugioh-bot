@@ -16,9 +16,10 @@ export interface IdentifierStepProps {
   onDiscord(): void;
   /** Feeds the "Join the waitlist" foot line; the line is left out without it. */
   marketingUrl?: string;
+  tournamentReturn?: boolean;
 }
 
-export function IdentifierStep({ identifier, error, banner, pending, onSubmit, onDiscord, marketingUrl }: IdentifierStepProps) {
+export function IdentifierStep({ identifier, error, banner, pending, onSubmit, onDiscord, marketingUrl, tournamentReturn }: IdentifierStepProps) {
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (pending) return;
@@ -31,7 +32,10 @@ export function IdentifierStep({ identifier, error, banner, pending, onSubmit, o
       title={<>Welcome <em>back</em></>}
       lede="Sign in to your drafts, decks and duels."
       screen={banner ? "err-service" : "signin"}
-      foot={<SignInFootLinks marketingUrl={marketingUrl} />}
+      foot={<>
+        {tournamentReturn ? <p>Signing in to DD Tournaments. New here? Ask your tournament organizer for an invite.</p> : null}
+        <SignInFootLinks marketingUrl={marketingUrl} />
+      </>}
     >
       <form className={shell.form} data-clerk="sign-in-start" noValidate aria-busy={pending} onSubmit={handleSubmit}>
         {banner && <SignInBanner tone={banner.tone} code={banner.code}>{banner.body}</SignInBanner>}

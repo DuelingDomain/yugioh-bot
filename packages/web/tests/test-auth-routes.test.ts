@@ -1,10 +1,12 @@
 import Database from "better-sqlite3";
+import { NextRequest } from "next/server";
 import { migrate } from "@yugidraft/shared/db";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 const state = vi.hoisted(() => ({ db: null as Database.Database | null }));
 vi.mock("@/lib/db", () => ({ getDb: () => state.db! }));
 import { POST } from "../app/api/test-auth/session/route";
 import { POST as signOut } from "../app/api/test-auth/sign-out/route";
+import { POST as clearTournamentReturn } from "../app/api/auth/tournament-return/clear/route";
 import { verifyE2ESession } from "../src/lib/e2e-auth";
 const secret = "x".repeat(32);
 const req = (body: unknown, url = "https://example.com/api/test-auth/session") => new Request(url, { method: "POST", body: JSON.stringify(body) });
@@ -22,6 +24,21 @@ it("checks secret and rejects missing users and malformed numeric IDs", async ()
  expect((await POST(req({ userId: 43, secret }))).status).toBe(404);
 });
 it("disables both endpoints per request and clears the cookie on sign-out", async () => {
- const res = await signOut(); expect(res.status).toBe(204); expect(res.headers.get("set-cookie")).toContain("Max-Age=0");
+ const res = await signOut(); expect(res.status).toBe(204); expect(res.headers.getSetCookie()).toEqual(expect.arrayContaining([
+   expect.stringContaining("dd_e2e_session=; Path=/; Max-Age=0"),
+   expect.stringMatching(/^__Host-dd_tournament_return=;.*Max-Age=0;.*Secure;.*HttpOnly;.*SameSite=lax/i),
+ ]));
  vi.stubEnv("E2E_AUTH", "0"); expect((await POST(req({ userId: 42, secret }))).status).toBe(404); expect((await signOut()).status).toBe(404);
+});
+
+it("expires the tournament return cookie for the app's sign-out request", () => {
+ const origin = "https://example.com";
+ vi.stubEnv("WEB_URL", origin);
+ const request = (from: string) => new NextRequest(`${origin}/api/auth/tournament-return/clear`, {
+   method: "POST", headers: { origin: from },
+ });
+ const res = clearTournamentReturn(request(origin));
+ expect(res.status).toBe(204);
+ expect(res.headers.get("set-cookie")).toMatch(/^__Host-dd_tournament_return=;.*Max-Age=0;.*Secure;.*HttpOnly;.*SameSite=lax/i);
+ expect(clearTournamentReturn(request("https://outside.example")).status).toBe(403);
 });

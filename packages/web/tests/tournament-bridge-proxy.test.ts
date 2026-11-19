@@ -8,7 +8,8 @@ vi.mock("@clerk/nextjs/server", () => ({
 }));
 import proxy from "../proxy";
 const base = "/api/tournament-bridge";
-const run = (path: string, method = "GET") => proxy(new NextRequest(`https://app.test${path}`, { method }), {} as never);
+const run = (path: string, method = "GET", cookie?: string) =>
+  proxy(new NextRequest(`https://app.test${path}`, { method, headers: cookie ? { cookie } : undefined }), {} as never);
 beforeEach(() => {
   vi.clearAllMocks(); state.auth.mockResolvedValue({ userId: null });
   vi.stubEnv("E2E_AUTH", "0"); vi.stubEnv("TOURNAMENT_URL", "https://tournament.test");
@@ -32,6 +33,11 @@ it("404s every disabled bridge path before initializing Clerk", async () => {
   for (const path of [base, `${base}/start`, `${base}/users/search`, `${base}/users/lookup`, `${base}/users/1/member-id`, `${base}/other`]) {
     expect((await run(path))?.status).toBe(404);
   }
+  state.auth.mockResolvedValue({ userId: "clerk1" });
+  const marked = await run(`${base}/start`, "GET", "__Host-dd_tournament_return=1");
+  expect(marked?.status).toBe(302);
+  expect(marked?.headers.get("location")).toBe("https://app.test/dashboard");
+  expect(marked?.headers.get("set-cookie")).toMatch(/^__Host-dd_tournament_return=;.*Max-Age=0;.*Secure;.*HttpOnly;.*SameSite=lax/i);
   expect(state.invoke).not.toHaveBeenCalled();
 });
 
@@ -40,6 +46,7 @@ it("protects start with the existing sign-in redirect and preserves its query fo
   const response = await run(path);
   const location = new URL(response!.headers.get("location")!);
   expect(location.pathname).toBe("/sign-in"); expect(location.searchParams.get("redirect_url")).toBe(path);
+  expect(response!.headers.get("set-cookie")).toMatch(/^__Host-dd_tournament_return=1;.*Max-Age=604800;.*Secure;.*HttpOnly;.*SameSite=lax/i);
   expect((await run(`${base}/start`, "POST"))?.status).toBe(401);
   state.auth.mockResolvedValue({ userId: "clerk1" });
   expect((await run(path))?.status).toBe(200);

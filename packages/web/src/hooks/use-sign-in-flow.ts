@@ -5,6 +5,7 @@ import { useSignIn } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
 import { afterPaint, initialAuthState, reduceAuth, signInStatusEvent, successHoldMs, type AuthFlowState } from "../lib/auth-flow";
 import { isWaitlistRefusal, mapClerkError } from "../lib/auth-errors";
+import { existingPlayerStartPath, isTournamentBridgeReturn, ssoCallbackPath } from "../lib/auth-return";
 import { hardNavigate } from "../components/auth/navigate";
 import { useRecoveryReload } from "./use-recovery-reload";
 
@@ -57,11 +58,13 @@ export function useSignInFlow(opts: { returnTo: string; marketingUrl: string | n
   }, [pending]);
   useEffect(() => {
     if (state.step !== "success") return;
+    // The bridge sends an HTTP redirect with a single-use assertion. Navigate as a document.
+    const clientNavigation = destination.current.startsWith("/") && !isTournamentBridgeReturn(destination.current);
     // Warm the destination while the pack opens so the switch after the hold is instant.
-    if (destination.current.startsWith("/")) router.prefetch(destination.current);
+    if (clientNavigation) router.prefetch(destination.current);
     const timer = setTimeout(() => {
-      if (destination.current.startsWith("/")) router.push(destination.current);
-      else window.location.assign(destination.current); // Clerk's Safari cookie-refresh decoration.
+      if (clientNavigation) router.push(destination.current);
+      else hardNavigate(destination.current); // Also handles Clerk's Safari cookie-refresh decoration.
     }, successHoldMs());
     return () => clearTimeout(timer);
   }, [state.step, router]);
@@ -79,7 +82,7 @@ export function useSignInFlow(opts: { returnTo: string; marketingUrl: string | n
         recovering.current = true;
         // Explain the second Discord trip before it starts; leave once the card has painted.
         if (mounted.current) dispatch({ type: "recovering" });
-        afterPaint(() => hardNavigate("/api/auth/existing-player/start"));
+        afterPaint(() => hardNavigate(existingPlayerStartPath(state.returnTo)));
       }
       return;
     }
@@ -180,7 +183,7 @@ export function useSignInFlow(opts: { returnTo: string; marketingUrl: string | n
             if (!fresh) { fail({ code: "network_error" }, "sso"); return; }
             signIn = fresh;
           }
-          await call(() => signIn.sso({ strategy: "oauth_discord", redirectUrl: state.returnTo, redirectCallbackUrl: "/sso-callback" }), "sso");
+          await call(() => signIn.sso({ strategy: "oauth_discord", redirectUrl: state.returnTo, redirectCallbackUrl: ssoCallbackPath(state.returnTo) }), "sso");
         });
       },
       submitPassword: async (password) => {

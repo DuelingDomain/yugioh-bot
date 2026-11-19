@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import type { useSignInFlow } from "@/hooks/use-sign-in-flow";
 import type { useSignUpFlow } from "@/hooks/use-sign-up-flow";
 import type { AuthFlowState } from "@/lib/auth-flow";
+import { isTournamentBridgeReturn } from "@/lib/auth-return";
 import { AuthFlowShell } from "./flow-shell";
 import { hardNavigate } from "./navigate";
 import { signInHref, waitlistHref } from "./marketing-links";
@@ -58,7 +59,7 @@ export function SignInView({ flow: { state, actions }, marketingUrl }: ViewProps
           case "err-banned":
             return <AccountUnavailableStep onBack={restart} />;
           default:
-            return <IdentifierStep identifier={state.identifier ?? undefined} error={fieldErrors.identifier} banner={banner} pending={pending} onSubmit={actions.submitIdentifier} onDiscord={actions.continueWithDiscord} marketingUrl={marketingUrl ?? undefined} />;
+            return <IdentifierStep identifier={state.identifier ?? undefined} error={fieldErrors.identifier} banner={banner} pending={pending} onSubmit={actions.submitIdentifier} onDiscord={actions.continueWithDiscord} marketingUrl={marketingUrl ?? undefined} tournamentReturn={isTournamentBridgeReturn(state.returnTo)} />;
         }
       })()}
     </AuthFlowShell>

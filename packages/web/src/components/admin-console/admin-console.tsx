@@ -82,7 +82,7 @@ function LiveChip({ s, label }: { s: Snapshots; label?: boolean }) {
 
 /** The /admin console: a left menu with eight views, one large view at a time. */
 /** `vision`: the Vision view belongs to Remote Duels and exists only for a viewer with that access. */
-export function AdminConsole({ vision = false }: { vision?: boolean }) {
+export function AdminConsole({ vision = false, tournamentInvites = false }: { vision?: boolean; tournamentInvites?: boolean }) {
   const views = useMemo(() => VIEWS.filter((v) => vision || v !== "vision"), [vision]);
   const s = useSnapshots();
   const [view, setView] = useState<View>("overview");
@@ -223,7 +223,7 @@ export function AdminConsole({ vision = false }: { vision?: boolean }) {
               : view === "people" ? <PeopleView s={s} actions={actions} selected={person} sheetOpen={sheetOpen} onCloseSheet={() => setSheetOpen(false)} filterRef={filterRef} />
               : view === "duels" ? <DuelsView s={s} actions={actions} />
               : view === "waitlist" ? <WaitlistView s={s} actions={actions} />
-              : view === "creators" ? <CreatorsView s={s} actions={actions} />
+              : view === "creators" ? <CreatorsView s={s} actions={actions} tournamentInvites={tournamentInvites} />
               : view === "updates" ? <UpdatesView actions={actions} />
               : view === "health" ? <HealthView s={s} />
               : view === "vision" && vision ? <VisionView />

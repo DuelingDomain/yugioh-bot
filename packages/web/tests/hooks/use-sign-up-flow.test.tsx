@@ -5,15 +5,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useSignUpFlow } from "../../src/hooks/use-sign-up-flow";
 
 import { SUCCESS_HOLD_MS } from "../../src/lib/auth-flow";
-const mock = vi.hoisted(() => ({ signal: {} as any, push: vi.fn(), prefetch: vi.fn() }));
+const mock = vi.hoisted(() => ({ signal: {} as any, push: vi.fn(), prefetch: vi.fn(), hardNavigate: vi.fn() }));
 vi.mock("@clerk/nextjs", () => ({ useSignUp: () => mock.signal }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mock.push, prefetch: mock.prefetch }) }));
+vi.mock("@/components/auth/navigate", () => ({ hardNavigate: mock.hardNavigate }));
 const ok = () => Promise.resolve({ error: null });
 const account = { username: "duelist", password: "secret", legalAccepted: true };
-const setup = (ticket: string | null = "invitation") => renderHook(() => useSignUpFlow({ ticket, returnTo: "/drafts?join=1#seat" }));
+const setup = (ticket: string | null = "invitation", returnTo = "/drafts?join=1#seat") => renderHook(() => useSignUpFlow({ ticket, returnTo }));
 const mount = async () => { const view = setup(); await act(async () => {}); return view; };
 beforeEach(() => {
-  vi.useFakeTimers(); vi.setSystemTime(1000); mock.push.mockReset(); mock.prefetch.mockReset(); sessionStorage.clear();
+  vi.useFakeTimers(); vi.setSystemTime(1000); mock.push.mockReset(); mock.prefetch.mockReset(); mock.hardNavigate.mockReset(); sessionStorage.clear();
   mock.signal = { fetchStatus: "idle", errors: { fields: {}, raw: null, global: null }, signUp: {
     id: "sua_invited", status: "missing_requirements", emailAddress: "invited@test.dev", username: null, legalAcceptedAt: null,
     missingFields: ["username", "password", "legal_accepted"], unverifiedFields: [],
@@ -122,12 +123,18 @@ describe("invited sign-up flow", () => {
     expect(mock.signal.signUp.password).not.toHaveBeenCalled();
     expect(mock.signal.signUp.sso).not.toHaveBeenCalled();
   });
-  it("stores username and consent before password, verifies email, then shows success after finalize clears the sign-up", async () => {
-    mock.signal.signUp.finalize.mockImplementation(async () => { mock.signal.signUp.status = null; return { error: null }; });
+  it("verifies an invited account and returns to the tournament bridge after Clerk activates the session", async () => {
+    const destination = "/api/tournament-bridge/start";
+    mock.signal.signUp.finalize.mockImplementation(async ({ navigate }: { navigate(options: { decorateUrl(path: string): string }): void }) => {
+      navigate({ decorateUrl: (path: string) => path });
+      mock.signal.signUp.status = null;
+      return { error: null };
+    });
     mock.signal.signUp.password.mockImplementation(async () => {
       mock.signal.signUp.missingFields = []; mock.signal.signUp.unverifiedFields = ["email_address"]; return { error: null };
     });
-    const { result } = await mount();
+    const { result } = setup("organizer-ticket", destination);
+    await act(async () => {});
     await act(() => result.current.actions.submitAccount(account));
     expect(mock.signal.signUp.update).toHaveBeenCalledWith({ username: "duelist", legalAccepted: true });
     expect(mock.signal.signUp.password).toHaveBeenCalledWith({ password: "secret" });
@@ -144,12 +151,12 @@ describe("invited sign-up flow", () => {
     expect(mock.signal.signUp.verifications.verifyEmailCode).toHaveBeenCalledWith({ code: "123456" });
     expect(result.current.state).toMatchObject({ step: "success", banner: null });
     expect(result.current.state.fieldErrors).toEqual({});
-    expect(mock.prefetch).toHaveBeenCalledWith("/drafts?join=1#seat");
-    expect(mock.push).not.toHaveBeenCalled();
     act(() => vi.advanceTimersByTime(SUCCESS_HOLD_MS - 1));
-    expect(mock.push).not.toHaveBeenCalled();
+    expect(mock.hardNavigate).not.toHaveBeenCalled();
     act(() => vi.advanceTimersByTime(1));
-    expect(mock.push).toHaveBeenCalledWith("/drafts?join=1#seat");
+    expect(mock.hardNavigate).toHaveBeenCalledExactlyOnceWith(destination);
+    expect(mock.prefetch).not.toHaveBeenCalled();
+    expect(mock.push).not.toHaveBeenCalled();
   });
   it("keeps the ticket attempt for Discord and saves consent before redirect", async () => {
     const { result } = await mount();

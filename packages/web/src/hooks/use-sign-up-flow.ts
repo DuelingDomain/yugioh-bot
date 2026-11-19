@@ -7,7 +7,7 @@ import { parseHeardFrom } from "@yugidraft/shared/util/heard-from";
 import { afterPaint, initialAuthState, reduceAuth, signUpRequirementsEvent, successHoldMs, type AuthFlowState } from "../lib/auth-flow";
 import { isWaitlistRefusal, mapClerkError } from "../lib/auth-errors";
 import { hardNavigate } from "../components/auth/navigate";
-import { DEFAULT_RETURN, safeReturnPath } from "../lib/auth-return";
+import { DEFAULT_RETURN, existingPlayerStartPath, isTournamentBridgeReturn, safeReturnPath, ssoCallbackPath } from "../lib/auth-return";
 import { useRecoveryReload } from "./use-recovery-reload";
 
 /** Optional survey answer from the create-account card ("How did you hear about us?"). */
@@ -60,12 +60,13 @@ function useAccountFlow(opts: { ticket: string | null; returnTo: string; callbac
   }, [pending]);
   useEffect(() => {
     if (state.step !== "success") return;
+    const clientNavigation = destination.current.startsWith("/") && !isTournamentBridgeReturn(destination.current);
     // Warm the destination while the pack opens so the switch after the hold is instant.
-    if (destination.current.startsWith("/")) router.prefetch(destination.current);
+    if (clientNavigation) router.prefetch(destination.current);
     const timer = setTimeout(() => {
       try { sessionStorage.removeItem("dd_auth_resume"); } catch { /* Storage may be disabled. */ }
-      if (destination.current.startsWith("/")) router.push(destination.current);
-      else window.location.assign(destination.current);
+      if (clientNavigation) router.push(destination.current);
+      else hardNavigate(destination.current);
     }, successHoldMs());
     return () => clearTimeout(timer);
   }, [state.step, router]);
@@ -90,7 +91,7 @@ function useAccountFlow(opts: { ticket: string | null; returnTo: string; callbac
     recovering.current = true;
     // Explain the second Discord trip before it starts; leave once the card has painted.
     if (mounted.current) dispatch({ type: "recovering" });
-    afterPaint(() => hardNavigate("/api/auth/existing-player/start"));
+    afterPaint(() => hardNavigate(existingPlayerStartPath(state.returnTo)));
   };
   const signalError = (context: Parameters<typeof mapClerkError>[1], kind: Exclude<ResumeKind, null> = "sign-up") => {
     const errors = kind === "sign-in" ? latest.current.signInSignal?.errors : latest.current.signUpSignal.errors;
@@ -197,7 +198,7 @@ function useAccountFlow(opts: { ticket: string | null; returnTo: string; callbac
           if (!await updateAccount(input)) return;
           const signUp = latest.current.signUpSignal.signUp!;
           try { sessionStorage.setItem("dd_auth_resume", JSON.stringify({ kind: "sign-up", returnTo: state.returnTo, attemptId: signUp.id })); } catch { /* Clerk preserves the accepted attempt even without storage. */ }
-          await call(() => signUp.sso({ strategy: "oauth_discord", redirectUrl: state.returnTo, redirectCallbackUrl: "/sso-callback" }), "sso");
+          await call(() => signUp.sso({ strategy: "oauth_discord", redirectUrl: state.returnTo, redirectCallbackUrl: ssoCallbackPath(state.returnTo) }), "sso");
         });
       },
       submitCode: async (code) => {

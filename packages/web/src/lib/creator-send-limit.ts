@@ -2,7 +2,7 @@ import { clientIpKey, createRateLimiter } from "./rate-limit";
 
 /**
  * Send limits for the creator fast-track (plan section 8). Clerk allows 100 invitations per hour per instance; we keep
- * 80 for links, allowlist emails and resends together, and leave the rest for waitlist approvals.
+ * 80 for links, allowlist emails, resends and tournament invites together, and leave the rest for waitlist approvals.
  *
  * State lives on globalThis (Symbol.for key) so every route bundle in this process shares one budget. It is in memory:
  * correct for one web process (if we run more, move the counters to SQLite).

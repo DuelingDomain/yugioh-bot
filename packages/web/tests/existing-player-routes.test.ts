@@ -30,13 +30,14 @@ function request(path: string, options: { cookie?: string; method?: string; body
     ...(method === "POST" ? { "content-type": "application/json", ...(options.origin !== null ? { origin: options.origin ?? ORIGIN } : {}) } : {}),
   }, ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }) });
 }
-async function proof() {
-  const res = await start(request("/api/auth/existing-player/start"));
+async function proof(returnTo?: string) {
+  const query = returnTo === undefined ? "" : `?${new URLSearchParams({ redirect_url: returnTo })}`;
+  const res = await start(request(`/api/auth/existing-player/start${query}`));
   const url = new URL(res.headers.get("location")!);
   return { state: url.searchParams.get("state")!, cookie: `${OAUTH_COOKIE}=${res.cookies.get(OAUTH_COOKIE)!.value}` };
 }
-async function verifiedCallback(profile: Record<string, unknown> = {}) {
-  const p = await proof();
+async function verifiedCallback(profile: Record<string, unknown> = {}, returnTo?: string) {
+  const p = await proof(returnTo);
   fetcher.mockResolvedValueOnce(Response.json({ access_token: "fake-discord-token", token_type: "Bearer" }))
     .mockResolvedValueOnce(Response.json({ id: discordId, username: "discord_yugi", email: "YUGI@test.dev", verified: true, ...profile }));
   return callback(request(`/api/auth/callback/discord?state=${p.state}&code=test-code`, { cookie: p.cookie }));
@@ -155,7 +156,9 @@ describe("Discord recovery callback", () => {
   });
   it("signs a proven, already-linked Discord row into its stored Clerk ID", async () => {
     createUserService(mock.db).claimExistingDiscordUser(player.id, discordId, "user_stored");
-    const res = await verifiedCallback(); expect(res.headers.get("location")).toBe(`${ORIGIN}/sign-in?existing_player=1`);
+    const res = await verifiedCallback({}, "/cubes");
+    expect(res.headers.get("location")).toBe(`${ORIGIN}/sign-in?existing_player=1`);
+    expect(openCookie("ticket", res.cookies.get(TICKET_COOKIE)?.value)).toEqual({ ticket: "fake-clerk-ticket", returnTo: "/cubes" });
     expect(mock.token).toHaveBeenCalledWith({ userId: "user_stored", expiresInSeconds: 120 });
     expect(mock.list).not.toHaveBeenCalled(); expect(mock.create).not.toHaveBeenCalled(); expectCleared(res);
   });
@@ -320,7 +323,10 @@ describe("recovery completion", () => {
     expect(mock.create).not.toHaveBeenCalled(); expect(mock.token).not.toHaveBeenCalled(); expectCleared(res);
   });
   it("creates with legal acceptance, claims the original row and returns a cookie ticket", async () => {
-    const res = await complete(request("/api/auth/existing-player/complete", { method: "POST", cookie: completionCookie(), body: { consent: true } }));
+    const returnTo = "/api/tournament-bridge/start?return=%2Fevents%2Fweekly";
+    const callbackResponse = await verifiedCallback({}, returnTo);
+    const cookie = `${IDENTITY_COOKIE}=${callbackResponse.cookies.get(IDENTITY_COOKIE)?.value}`;
+    const res = await complete(request("/api/auth/existing-player/complete", { method: "POST", cookie, body: { consent: true } }));
     expect(mock.list).toHaveBeenCalledWith({ emailAddress: ["yugi@test.dev"], limit: 1 });
     expect(mock.create).toHaveBeenCalledWith({ emailAddress: ["yugi@test.dev"], username: player.username, skipPasswordRequirement: true, legalAcceptedAt: expect.any(Date), externalId: String(player.id), privateMetadata: { existingPlayerDiscordId: discordId } });
     expect(createUserService(mock.db).findById(player.id)?.clerkUserId).toBe("user_created");
@@ -328,6 +334,7 @@ describe("recovery completion", () => {
     expect(mock.token).toHaveBeenCalledWith({ userId: "user_created", expiresInSeconds: 120 });
     expect(res.status).toBe(303); expect(res.headers.get("location")).toBe(`${ORIGIN}/sign-in?existing_player=1`); expectCleared(res);
     expect(res.cookies.get(TICKET_COOKIE)).toMatchObject({ httpOnly: true, secure: true, sameSite: "lax", maxAge: 120 });
+    expect(openCookie("ticket", res.cookies.get(TICKET_COOKIE)?.value)).toEqual({ ticket: "fake-clerk-ticket", returnTo });
     expect(res.headers.get("location")).not.toContain("fake-clerk-ticket");
     expect(console.info).toHaveBeenCalledWith(`[existing-player] users.id=${player.id} linked clerk user`);
   });

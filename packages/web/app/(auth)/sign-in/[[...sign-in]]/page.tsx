@@ -12,5 +12,5 @@ export const dynamic = "force-dynamic";
 
 export default async function SignInPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const params = await searchParams;
-  return <SignInCard returnTo={returnToFromParams(params)} marketingUrl={marketingUrlFromEnv()} />;
+  return <SignInCard returnTo={await returnToFromParams(params)} marketingUrl={marketingUrlFromEnv()} />;
 }
