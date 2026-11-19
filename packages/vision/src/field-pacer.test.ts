@@ -30,6 +30,16 @@ test('a fresh hand waits briefly for landing, and repeated wake credits stay wit
  for(;at<120_000;at+=10){if(at%2000===0)p.changed(at);if(p.check(at)==='ready'){at+=100;p.spend(100,at);busy+=100;}}
  assert.ok(busy/at<=.25,`duty with repeated wakes ${busy/at}`);
 });
+test('a zoom can spend only the tokens currently available and still counts toward duty',()=>{
+ const p=createFieldPacer({cores:2},0);
+ p.spend(2480,0);
+ p.spendPriority(270,0);
+ assert.equal(p.canSpendPriority(90,0),false);
+ assert.equal(p.canSpendPriority(90,450),true);
+ p.spendPriority(90,450);
+ assert.equal(p.canSpendPriority(90,450),false);
+ assert.equal(p.duty(450),28.4);
+});
 test('slow detectors repay wake borrowing even when inference separates motion samples',()=>{
  for(const cost of [100,300,600,1200,2400]){
   const p=createFieldPacer({cores:8},0,()=> 'wasm');let at=0,busy=0;

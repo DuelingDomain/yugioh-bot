@@ -438,6 +438,7 @@ export async function ownFieldResources(getPriors: () => Priors) {
       return sample;
     } },
     getPriors: () => priorsFor(found, getPriors()),
+    zoomSets: true, // The own-feed ring supplies native ImageBitmaps.
     cpuBusy: (urgent?: boolean) => (urgent ? pendingDetectJobs : pendingJobs) > 0,
     entries: found.entries,
   };

@@ -202,26 +202,65 @@ export async function applyFieldFaceFlip(track:FieldTrack,current:()=>FieldTrack
 
 const MAIN_FIELD_SLOT=/^[MS][1-5]$/;
 type RemovedFieldTrack=FieldTrack&{removedAt:number};
-export const FIELD_SET_SLIDE_MS=3000;
+export const FIELD_SET_SLIDE_MS=1800;
+export const FIELD_FLIP_SETTLE_MS=2000;
+// The candidate can correlate with an earlier physical lift while the source
+// is still on the board. This window does not hold its departure timer open.
+const SET_SLIDE_MATCH_MS=3000;
 export const fieldBackCandidate=(track:FieldTrack)=>!track.removed&&track.state!=='dismissed'&&
   (track.faceDown||track.state==='candidate'&&track.card.kind==='face-down')&&!track.card.partial&&!track.card.covered;
 
-/** A Set can follow one new back in its row while the departure is still pending. */
-export function fieldSetSlide({track,twins,tracks,owns,zoneOf,now,pileTouched,blindSleeveSince,seenOffField}:{
+/** Time left for a zoom check or a pending back to settle in the vacated slot. */
+export function fieldFlipDepartureWait(event:FieldEvent,snap:FieldSnapshot|undefined,removedAt:number,now:number,faceUp=!event.track.faceDown):number {
+  const {id,zone,lastSeen,removedFrameAt}=event.track;
+  const left=removedAt+FIELD_FLIP_SETTLE_MS-now;
+  if(left<=0||!snap||!MAIN_FIELD_SLOT.test(zone))return 0;
+  const looked=(snap.zoomCheckedAt?.[zone]??-Infinity)>removedAt;
+  const fullAt=snap.lastFullAt,hand=!looked&&snap.handZones?.includes(zone),blind=snap.blindZones?.includes(zone);
+  const replacements=snap.tracks.filter(t=>t.id!==id&&!t.removed&&t.zone===zone);
+  const freshBack=replacements.some(t=>fieldBackCandidate(t)&&t.firstSeen>=lastSeen-1000||
+    t.card.kind==='face-down'&&t.state==='identified'&&!t.card.partial&&!t.card.covered&&t.lastSeen>=Math.max(removedAt,fullAt??-Infinity));
+  const occupied=blind||hand||replacements.length>0;
+  if(freshBack||(snap.blindSleeveAt?.[zone]??-Infinity)>=removedAt)return left;
+  const emptyAtRemoval=!occupied&&(event.reason==='empty'||faceUp&&zone.startsWith('M')&&
+    removedFrameAt!==undefined&&fullAt!==undefined&&fullAt>=removedFrameAt);
+  if(emptyAtRemoval)return 0;
+  if(!looked&&(snap.zoomPendingZones?.includes(zone)||snap.zoomDeparturePending?.includes(zone)))return left;
+  if(!looked&&event.removedAt!==undefined&&(fullAt===undefined||fullAt<=removedAt))return left;
+  if(fullAt!==undefined&&replacements.some(t=>t.firstSeen>=lastSeen-1000&&t.visible&&!t.faceDown&&t.card.kind==='face-up'&&t.lastSeen>=fullAt))return 0;
+  return hand||faceUp&&occupied&&event.removedAt!==undefined?left:0;
+}
+
+type SetSlideInput={
   track:FieldTrack;twins:readonly TwinCard[];tracks:readonly FieldTrack[];owns:(track:FieldTrack)=>string;
   zoneOf:(card:TwinCard)=>FieldTrack['zone']|undefined;now:number;pileTouched?:Partial<Record<'GY'|'BANISHED',number>>;
   blindSleeveSince?:FieldSnapshot['blindSleeveSince'];
   seenOffField:(card:TwinCard,removedAt:number)=>boolean;
-}):{card:TwinCard;from:RemovedFieldTrack}|undefined {
-  if(!fieldBackCandidate(track)||!MAIN_FIELD_SLOT.test(track.zone))return;
+};
+function setSlideSources({track,twins,tracks,owns,zoneOf}:SetSlideInput) {
+  if(!fieldBackCandidate(track)||!MAIN_FIELD_SLOT.test(track.zone)||twins.some(c=>c.ref===owns(track)))return [];
   const {zone:destination,slot}=fieldZoneLocation(track.zone);
-  if(twins.some(c=>c.ref===owns(track)))return;
-  const occupant=twins.find(c=>c.zone===destination&&c.slot===slot);
-  const sources=twins.flatMap(card=>{
+  if(twins.some(c=>c.zone===destination&&c.slot===slot))return [];
+  return twins.flatMap(card=>{
     const zone=zoneOf(card);
-    if(card.faceUp!==false||occupant&&occupant!==card||card.token||card.ownerSeat!==undefined||card.materials?.length||
+    if(card.faceUp!==false||card.token||card.ownerSeat!==undefined||card.materials?.length||
       !zone||zone===track.zone||zone[0]!==track.zone[0]||!MAIN_FIELD_SLOT.test(zone))return [];
-    const owned=tracks.filter(t=>owns(t)===card.ref);
+    return [{card,zone,owned:tracks.filter(t=>owns(t)===card.ref)}];
+  });
+}
+
+/** A destination back can be admitted before the source's absence is confirmed. */
+export function fieldSetSlidePending(input:SetSlideInput,snap:FieldSnapshot|undefined):boolean {
+  const since=input.track.restSince??input.track.firstSeen;
+  if(Object.values(input.pileTouched??{}).some(at=>at>=since-1500))return false;
+  return setSlideSources(input).some(({card,zone,owned})=>!input.seenOffField(card,since)&&owned.some(t=>
+    !t.removed&&t.zone===zone&&(!t.visible||snap?.handZones?.includes(zone)||snap?.missingSetLooks?.includes(t.id))));
+}
+
+/** A Set can follow one new back in its row while the departure is still pending. */
+export function fieldSetSlide(input:SetSlideInput):{card:TwinCard;from:RemovedFieldTrack}|undefined {
+  const {track,twins,tracks,owns,now,pileTouched,blindSleeveSince,seenOffField}=input;
+  const sources=setSlideSources(input).flatMap(({card,zone,owned})=>{
     if(owned.some(t=>!t.removed))return [];
     const from=owned.find((t):t is RemovedFieldTrack=>t.removed&&t.zone===zone&&t.removedAt!==undefined);
     if(!from)return [];
@@ -230,7 +269,7 @@ export function fieldSetSlide({track,twins,tracks,owns,zoneOf,now,pileTouched,bl
     const inSlideWindow=(back:FieldTrack)=>{
       const sleeveAt=back.card.blind?blindSleeveSince?.[back.zone]:undefined;
       const arrivedAt=sleeveAt!==undefined&&sleeveAt>=since&&sleeveAt<=back.firstSeen?sleeveAt:back.firstSeen;
-      return arrivedAt>=since&&arrivedAt-since<=FIELD_SET_SLIDE_MS;
+      return arrivedAt>=since-1000&&arrivedAt-since<=SET_SLIDE_MATCH_MS;
     };
     if(!inSlideWindow(track)||
       now-from.removedAt>FIELD_SET_RETURN_MS||seenOffField(card,since))return [];

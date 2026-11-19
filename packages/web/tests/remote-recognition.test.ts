@@ -1217,6 +1217,10 @@ it('a Set card slid to another zone keeps its ref unless the transfer is ambiguo
     expect(fieldSetSlide({...delayed,blindSleeveSince:{[lateBlind.zone]:firstMiss+3100}})).toBeUndefined();
     expect(fieldSetSlide({...delayed,now:removedAt+FIELD_SET_RETURN_MS+1,blindSleeveSince:{[lateBlind.zone]:firstMiss+2900}})).toBeUndefined();
     expect(fieldSetSlide({...slide,pileTouched:{GY:g.removal.removedAt!}})).toBeUndefined();
+    const earlyBack=samePass.map(t=>t.id===g.first.track.id?{...t,removedFrameAt:g.back.firstSeen+800}:t);
+    expect(fieldSetSlide({...slide,tracks:earlyBack})?.card.ref).toBe(g.first.track.id);
+    const slowerSlide=samePass.map(t=>t.id===g.first.track.id?{...t,removedFrameAt:g.back.firstSeen-2100}:t);
+    expect(fieldSetSlide({...slide,tracks:slowerSlide})?.card.ref).toBe(g.first.track.id);
     const lateBack=samePass.map(t=>t.id===g.first.track.id?{...t,removedFrameAt:g.back.firstSeen-3001}:t);
     expect(fieldSetSlide({...slide,tracks:lateBack})).toBeUndefined();
     expect(fieldSetSlide({...slide,tracks:samePass,now:g.back.firstSeen+200+FIELD_SET_RETURN_MS+1})).toBeUndefined();

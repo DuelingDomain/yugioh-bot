@@ -6,7 +6,7 @@ import type { DetectedQuad, RecognitionResult } from './types';
 import { createClipRecorder } from './clip-recorder';
 import { parseClip } from './clip-format';
 import { createFieldCalibration, mapFieldZone } from './field-zones';
-import { draftTruth, gateAgainstBaseline, replayClip, scoreReplay, formatMetricsTable } from './clip-replay';
+import { draftTruth, gateAgainstBaseline, recordedRecognizer, replayClip, scoreReplay, formatMetricsTable } from './clip-replay';
 
 // One synthetic 6 s session: a calibrated mat seen by a wider camera, an empty board, then one card placed and read as A.
 // The recorder saves frames cropped to the mat as a .ddclip; the replay feeds them through a fresh watcher with the
@@ -45,6 +45,9 @@ test('a saved clip replays deterministically through the field watcher and score
   assert.ok(bundle.events.some(e=>e.kind==='timing'&&e.timing.notes?.source==='deck'&&e.timing.durationsMs['hold.publish']!==undefined),'clip timing holds the read trace');
   assert.deepEqual(bundle.session.decklist,['A','B']);
   assert.deepEqual(bundle.session.frame.crop,crop); assert.ok(bundle.session.frameCalibration,'clip carries the frame-based calibration');
+  const recorded=recordedRecognizer(bundle.events,()=>4000,crop);
+  assert.ok((await recorded.detectCards(face as ImageData)).length);
+  assert.deepEqual(await recorded.detectCards(face as ImageData,{zoom:true}),[]);
   // The recorded outline is still in camera fractions: against the frame calibration it would land in another zone.
   assert.notEqual(mapFieldZone(placed,bundle.session.frameCalibration).zone,liveZone,'the test crop moves the raw outline to another zone');
   const truth=draftTruth(bundle,'synthetic');
