@@ -694,9 +694,15 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       let updated:RemoteRoom|null=null;
       const originReturn=!!existing&&['deck','hand','extra','graveyard','banished'].includes(existing.zone)&&existing.zone!==location.zone;
       const atomicReveal=!!existing&&!originReturn&&!existing.faceUp&&!track.faceDown&&!!entry;
+      const matchingMove=existing?.faceUp&&!track.faceDown&&entry&&(publicField(existing.zone)||!summon&&['graveyard','banished'].includes(existing.zone))&&
+        sameObservedCard(existing,{cardId:code,name:entry.name})&&(existing.zone!==location.zone||existing.slot!==location.slot);
       const setMove=existing&&!originReturn&&(existing.faceUp||existing.publicIdentity)
         ?fieldSetMove(existing,track,seat,physicalAtSave.zone!==knownZone(existing)):undefined;
-      if(existing&&!originReturn&&existing.faceUp===track.faceDown){
+      if(matchingMove&&existing){
+        if(!humanChoice&&keepsManual(existing.ref,location,track.position))return;
+        updated=await mutate({type:'twin.move',source:'auto',actorSeat:seat,seat,cardRef:existing.ref,...location,
+          position:fieldTwinPosition(track),...(piles.has(track.zone)?{faceUp:true,confirmed:true}:{})});if(!updated)return;
+      }else if(existing&&!originReturn&&existing.faceUp===track.faceDown){
         // No write now: the player holds this face, the card is in its quiet time, or an Xyz Monster has no clear back. The face check comes back to it.
         if(!chosen&&(face.current.held(existing.ref)||!face.current.allows(existing.ref,performance.now()))||track.faceDown&&existing.materials?.length&&!fieldStrongBack(track))return;
         updated=await mutate(setMove ?? {type:'twin.flip',source:'auto',actorSeat:seat,seat,cardRef:existing.ref,faceUp:!track.faceDown,position:fieldTwinPosition(track),...(atomicReveal?{cardId:catalogCardId(entry!),name:entry!.name,bestMatch:track.bestMatch}:{})});if(!updated)return;
@@ -711,7 +717,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       const copyProof=!existing&&copyCount?{simultaneousQuads:copyCount+1,at:Math.floor(serverNow()-999-Math.max(0,performance.now()-track.lastSeen))}:undefined;
       const choices=track.nameCandidates?.map(candidate=>{const named=entries.current.get(candidate.cardId);if(!named)throw new Error('Candidate names are still loading. Retry the field update.');const code=catalogCardId(named);if(!code)throw new Error('Candidate identity is unavailable. Retry the field update.');return {cardId:code,name:named.name,score:candidate.score};});
       const nameCandidates=choices??(existing?.nameCandidates?null:undefined);
-      for(const proposal of atomicReveal?[]:fieldPlacementProposals({track,seat,nameCandidates,cardId:entry?catalogCardId(entry):undefined,name:entry?.name,existing:!!existing&&!originReturn,fromRef:originReturn?existing!.ref:undefined,copyProof,summon})){
+      for(const proposal of atomicReveal||matchingMove?[]:fieldPlacementProposals({track,seat,nameCandidates,cardId:entry?catalogCardId(entry):undefined,name:entry?.name,existing:!!existing&&!originReturn,fromRef:originReturn?existing!.ref:undefined,copyProof,summon})){
         // The camera row was not legal for this card type: the log line says so ("Trap → S3"). No prompt.
         updated=await mutate(proposal.type==='twin.place'?{...proposal,...(projected.moved?{zoneRule:projected.moved}:{}),
           ...(!existing&&track.faceDown&&publicField(proposal.zone)?{anotherCopy:true}:{})}:proposal);if(!updated){if(matchesEvidence(watch.getTrack(event.track.id)))offer({...event,type:'prompt',reason:'recognition-error'});return;}

@@ -652,7 +652,7 @@ it.each(['face-down restart','face-down restart needs flip','different-card rest
   const target=room.state.seats[0].twin.find((c:any)=>c.ref===old.ref);
   expect(target.faceUp).toBe(!faceDown);if(!faceDown)expect(target.cardId).toBe(Number(chosen.cardId));
   expect(confirm).toHaveBeenCalledWith(faceDown?old.ref:'candidate',faceDown?undefined:chosen.cardId,old.ref,!automatic&&!faceDown);
-  expect(post.mock.calls.map(([p])=>p.type)).toEqual([...(faceDown?(old.faceUp?['twin.flip']:[]):['card.identified']),...((faceDown&&!old.faceUp)||moved||secondCopy?['twin.move']:[])]);
+  expect(post.mock.calls.map(([p])=>p.type)).toEqual([...(faceDown?(old.faceUp?['twin.flip']:[]):secondCopy?[]:['card.identified']),...((faceDown&&!old.faceUp)||moved||secondCopy?['twin.move']:[])]);
   if(moved)expect(target.slot).toBe(3);
   if(secondCopy)expect(target.slot).toBe(3);
  }finally{cleanup();host.remove();state.fieldWatch=null;}
