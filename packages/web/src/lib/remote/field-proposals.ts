@@ -116,6 +116,11 @@ export function fieldDepartureProposal(card:TwinCard,seat:number,destination?:'d
   return {type:'twin.move',actorSeat:seat,seat,cardRef:card.ref,zone:to.zone,...(faceUp!==undefined?{faceUp}:{}),...(to.zone==='extra'&&faceUp===true?{pendulum:true}:{}),...(destination!==undefined?{confirmed:true}:{}),source:'auto',...(card.faceUp&&card.name?{name:card.name}:{}),...(card.position==='defense'?{position:'attack' as const}:{})};
 }
 
+/** A card that left the field while a hand worked a pile, with no sign of it elsewhere, is in that pile (GY unless only the banished pile moved), not in the hand. Several cards of one carry all go there. */
+export function fieldPileDepartureProposal(proposal:Extract<RemoteActionProposal,{type:'twin.move'}>,pile:'GY'|'BANISHED'):Extract<RemoteActionProposal,{type:'twin.move'}> {
+  return proposal.zone==='hand'?{...proposal,zone:pile==='GY'?'graveyard':'banished',faceUp:true}:proposal;
+}
+
 /**
  * Camera evidence for a card that left the field: a pile card the camera placed within a second before the removal (or after it)
  * and has not named (an unread face-up top, or a face-down card on the banished pile). Exactly one such pile card is evidence; two
