@@ -222,10 +222,13 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     const ref=setRefs.current.get(event)??`fw-${crypto.randomUUID()}`;
     setRefs.current.set(event,ref);return ref;
   };
-  const setBackFor=(track:FieldTrack,id=track.id)=>{
+  const freshZoomBack=(event:FieldEvent,track:FieldTrack)=>track.zone===event.track.zone&&track.faceDown&&track.visible&&
+    !track.under&&track.restSince!==undefined&&!track.card.partial&&!track.card.covered&&
+    (fieldCellEvidence(event)?.basis==='zoom'||track.setEvidence?.basis==='zoom'&&track.setEvidence.decision==='committed');
+  const setBackFor=(track:FieldTrack,id=track.id,zoomBack=false)=>{
     const returned=fieldSetReturn({track:{...track,id},twins:current.current.room.state.seats[seat].twin,tracks:watch.getTracks(),
       owns:t=>bindings.current.get(t.id)??t.id,events:current.current.room.events??[],seat,at:serverNow(),now:performance.now(),
-      pileTouched:pileActivity(watch.getSnapshot?.()),seenOffField});
+      pileTouched:pileActivity(watch.getSnapshot?.()),seenOffField,zoomBack,zoneOf:card=>publicField(card.zone)?knownZone(card):undefined});
     // A published Hand action is visible. A later cross-slot back starts its own ref.
     return returned?.kind==='move'?undefined:returned;
   };
@@ -372,6 +375,11 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
           if(!event)return true;
           if(event.type==='removed')return watch.isRemoved(event.track.id)&&
             (proposal.type!=='twin.move'||proposal.zone!=='hand'||!linkedSlide(event,watch.getSnapshot?.()));
+          if(event.type==='placed'&&proposal.type==='twin.flip'&&!proposal.faceUp&&
+            proposal.cardRef!==(bindings.current.get(event.track.id)??event.track.id)){
+            const observed=watch.getTrack(event.track.id);
+            if(!observed||observed.zone!==event.track.zone||setBackFor(observed,event.track.id,freshZoomBack(event,observed))?.card.ref!==proposal.cardRef)return false;
+          }
           if(setReturn){
             const card=current.current.room.state.seats[seat].twin.find(c=>c.ref===setReturn.cardRef),origin=reboundSetOrigin(card,event);
             if(!origin||origin.zone!==setReturn.zone||origin.slot!==setReturn.slot)return false;
@@ -588,11 +596,11 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
         return;
       }
     }
-    const setBack=slide?{kind:'move' as const,card:slide.card}:canReturn?setBackFor(track,event.track.id):undefined;
+    const setBack=slide?{kind:'move' as const,card:slide.card}:canReturn?setBackFor(track,event.track.id,freshZoomBack(event,track)):undefined;
     if(setBack){
       const card=setBack.card;
       // A rule-projected card can hold the virtual cell while the camera sees that card elsewhere.
-      const target=slide?projectObserved(track,twins,card,undefined).zone:track.zone;
+      const target=slide?projectObserved(track,twins,card,undefined).zone:setBack.kind==='flip'?toZone(card.zone,card.slot):track.zone;
       if(!target)return;
       const cell=fieldZoneLocation(target);
       // The same guards as the face check and a placement: a held card, a quiet card, an Undo'd or hand-corrected card is left alone.

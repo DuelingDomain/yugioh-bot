@@ -1085,6 +1085,23 @@ describe('typed watcher zone projection',()=>{
    expect(fixture.room().state.seats[0].twin).toEqual([expect.objectContaining({ref:old.ref,zone:'hand'})]);
   }finally{fixture.dispose();vi.useRealTimers();}
  });
+ it.each([false,true])('flips a settled zoom back before the old front track is removed (projected: %s)',async projected=>{
+  const old={ref:'zoom-flip',zone:'spell-trap',slot:4,cardId:41420027,name:'Solemn Judgment',faceUp:true,position:'attack'};
+  const zone=projected?'M4':'S4';
+  if(projected)sessionStorage.setItem(physicalHintsKey,JSON.stringify({[old.ref]:zone}));
+  const fixture=await typedWatcherFixture(zoneEntries[0],zone,[old],'moved');
+  vi.useFakeTimers({toFake:['setTimeout','clearTimeout','performance']});
+  try{
+   await act(async()=>{await vi.advanceTimersByTimeAsync(5000);});
+   const now=performance.now();
+   Object.assign(fixture.track,{visible:false,lastSeen:now-300});
+   const back=fixture.addTrack({id:'fresh-zoom-back',cardId:undefined,faceDown:true,visible:true,firstSeen:now-100,lastSeen:now,restSince:now-100,
+    card:{...fixture.track.card,kind:'face-down'},setEvidence:{...committedBack,basis:'zoom'}});
+   await fixture.emit({type:'placed',track:{...back},evidence:{basis:'zoom',settledAt:now-100}});
+   expect(fixture.post).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({type:'twin.flip',cardRef:old.ref,faceUp:false}),expect.anything());
+   expect(fixture.room().state.seats[0].twin).toEqual([expect.objectContaining({...old,faceUp:false})]);
+  }finally{fixture.dispose();vi.useRealTimers();sessionStorage.removeItem(physicalHintsKey);}
+ });
  it.each(['earlier GY touch','hand over the slot','an unread candidate before the back appears','a blind cell before the back appears','no full scan during CPU guard','a back candidate','pixels only','zoom pending'] as const)('holds a slow in-place Set after removal with %s',async scenario=>{
   const old={ref:'slow-set',zone:'spell-trap',slot:4,cardId:41420027,name:'Solemn Judgment',faceUp:true,position:'attack'};
   const fixture=await typedWatcherFixture(zoneEntries[0],'S4',[old],'moved');
