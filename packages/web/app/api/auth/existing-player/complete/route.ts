@@ -69,6 +69,6 @@ export async function POST(request: NextRequest) {
     }
     if (!claimed) return clearRecoveryCookies(recoveryError(SUPPORT, 409));
     console.info(`[existing-player] users.id=${user.id} linked clerk user`);
-    return await signInRecovery(request, createdId, proof.discordId);
+    return await signInRecovery(request, createdId, proof.discordId, proof.returnTo);
   } catch { return clearRecoveryCookies(recoveryError("Sign-in is having trouble. Return to sign in and try again.", 503)); }
 }

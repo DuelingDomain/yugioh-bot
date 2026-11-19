@@ -16,7 +16,7 @@ export default async function AdminConsolePage() {
 
   return (
     <div className={`${sans.variable} ${mono.variable}`}>
-      <AdminConsole vision={await remoteDuelsForViewer()} />
+      <AdminConsole vision={await remoteDuelsForViewer()} tournamentInvites={Boolean(process.env.TOURNAMENT_URL?.trim())} />
     </div>
   );
 }

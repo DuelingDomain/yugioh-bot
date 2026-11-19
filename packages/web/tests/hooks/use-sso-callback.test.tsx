@@ -104,7 +104,7 @@ describe("SSO callback", () => {
     expect(mock.hardNavigate).not.toHaveBeenCalled();
     act(() => vi.advanceTimersByTime(RECOVERY_PAINT_FALLBACK_MS));
     expect(mock.hardNavigate).toHaveBeenCalledTimes(1);
-    expect(mock.hardNavigate).toHaveBeenCalledWith("/api/auth/existing-player/start");
+    expect(mock.hardNavigate).toHaveBeenCalledWith("/api/auth/existing-player/start?redirect_url=%2Fdrafts");
     expect(mock.signUpSignal.signUp.finalize).not.toHaveBeenCalled();
   });
   it.each(["needs_identifier", "needs_first_factor", "needs_second_factor"])("rejects a resumed sign-in at %s without a refusal or transfer", async status => {
@@ -129,7 +129,7 @@ describe("SSO callback", () => {
     const { result } = await mount();
     expect(result.current.state.step).toBe("recovering");
     act(() => vi.advanceTimersByTime(RECOVERY_PAINT_FALLBACK_MS));
-    expect(mock.hardNavigate).toHaveBeenCalledWith("/api/auth/existing-player/start");
+    expect(mock.hardNavigate).toHaveBeenCalledWith("/api/auth/existing-player/start?redirect_url=%2Fdashboard");
   });
   it("recovers a waitlist refusal on the first-factor verification without signal errors", async () => {
     sessionStorage.setItem("dd_auth_resume", JSON.stringify({ kind: "sign-in" }));
@@ -137,7 +137,7 @@ describe("SSO callback", () => {
     const { result } = await mount();
     expect(result.current.state.step).toBe("recovering");
     act(() => vi.advanceTimersByTime(RECOVERY_PAINT_FALLBACK_MS));
-    expect(mock.hardNavigate).toHaveBeenCalledWith("/api/auth/existing-player/start");
+    expect(mock.hardNavigate).toHaveBeenCalledWith("/api/auth/existing-player/start?redirect_url=%2Fdashboard");
   });
   it("reloads a recovering callback restored from bfcache and removes the pageshow listener on unmount", async () => {
     const reload = vi.fn();
@@ -164,7 +164,7 @@ describe("SSO callback", () => {
     expect(mock.hardNavigate).not.toHaveBeenCalled();
     act(() => vi.advanceTimersByTime(RECOVERY_PAINT_FALLBACK_MS));
     expect(mock.hardNavigate).toHaveBeenCalledTimes(1);
-    expect(mock.hardNavigate).toHaveBeenCalledWith("/api/auth/existing-player/start");
+    expect(mock.hardNavigate).toHaveBeenCalledWith("/api/auth/existing-player/start?redirect_url=%2Fdashboard");
   });
   it("rejects a callback without any usable attempt", async () => {
     mock.signUpSignal.signUp.emailAddress = null;

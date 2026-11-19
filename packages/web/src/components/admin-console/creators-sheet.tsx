@@ -195,6 +195,54 @@ export function AddCreatorSheet({ onClose, onCreated, actions }: { onClose: () =
   );
 }
 
+const TOURNAMENT_INVITE_ERRORS: Record<string, string> = {
+  invalid_email: "Enter a valid email address.",
+  invitation_pending: "This email already has a pending invitation.",
+  existing_account: "This person already has an account. Send them the tournament link.",
+  bridge_unavailable: "Tournament sign-in is currently unavailable.",
+  clerk_unavailable: "Clerk did not answer. Try again in a minute.",
+  clerk_not_configured: "Clerk is not set up here, so no invite can go out.",
+  not_found: "Tournament invitations are unavailable. Refresh the console.",
+};
+
+export function TournamentInviteSheet({ actions, onClose }: { actions: ConsoleActions; onClose: () => void }) {
+  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (pending) return;
+    const email = new FormData(event.currentTarget).get("email");
+    setPending(true);
+    setError(null);
+    const result = await api<{ sent: true }>("/api/admin/console/tournament-invites", "POST", { email });
+    setPending(false);
+    refreshSection("creators");
+    if (!result.ok) {
+      const message = result.error && TOURNAMENT_INVITE_ERRORS[result.error];
+      setError(message || failText(result, "The invite could not be confirmed. Try again."));
+      return;
+    }
+    actions.toast("Tournament invitation sent.");
+    onClose();
+  }
+
+  return (
+    <SheetFrame label="Invite tournament organizer" onClose={onClose}>
+      <div className={styles.crHead}><h2>Invite tournament organizer</h2></div>
+      <form className={`${styles.crForm} ${styles.crBlock}`} onSubmit={submit} aria-busy={pending}>
+        <CrField label="Organizer’s email" id="tournament-invite-email">
+          {(aria) => <input id="tournament-invite-email" name="email" type="email" maxLength={254} autoComplete="off" className={styles.crInput} required {...aria} />}
+        </CrField>
+        {error ? <p className={styles.crErr} role="alert">{error}</p> : null}
+        <div className={styles.crActs}>
+          <button type="submit" className={`${styles.btn} ${styles.btnPrimary}`} disabled={pending}>{pending ? "Sending" : "Send invite"}</button>
+        </div>
+      </form>
+    </SheetFrame>
+  );
+}
+
 function CrField({ id, label, optional, error, hint, children }: {
   id: string; label: string; optional?: boolean; error?: string; hint?: string;
   children: (aria: { "aria-invalid"?: true; "aria-describedby"?: string }) => ReactNode;

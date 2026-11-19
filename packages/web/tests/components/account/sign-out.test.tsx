@@ -28,11 +28,12 @@ afterEach(() => {
 });
 
 describe("SignOutProvider", () => {
-  it("ends the Clerk session in the browser and lands on /sign-in", async () => {
+  it("clears the tournament return before ending the Clerk session and landing on /sign-in", async () => {
     render(<SignOutProvider e2e={false}><Button /></SignOutProvider>);
     fireEvent.click(screen.getByRole("button", { name: "Out" }));
     await waitFor(() => expect(clerkSignOut).toHaveBeenCalledWith({ redirectUrl: "/sign-in" }));
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledWith("/api/auth/tournament-return/clear", { method: "POST" });
+    expect(fetchMock.mock.invocationCallOrder[0]).toBeLessThan(clerkSignOut.mock.invocationCallOrder[0]!);
   });
 
   it("in E2E mode clears the test cookie on the server, then navigates to /sign-in without touching Clerk", async () => {

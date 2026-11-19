@@ -94,7 +94,7 @@ describe("sign-in flow", () => {
     expect(mock.hardNavigate).not.toHaveBeenCalled();
     act(() => vi.advanceTimersByTime(RECOVERY_PAINT_FALLBACK_MS));
     expect(mock.hardNavigate).toHaveBeenCalledTimes(1);
-    expect(mock.hardNavigate).toHaveBeenCalledWith("/api/auth/existing-player/start");
+    expect(mock.hardNavigate).toHaveBeenCalledWith("/api/auth/existing-player/start?redirect_url=%2Fdrafts%3Fjoin%3D1%23seat");
     act(() => vi.advanceTimersByTime(1000));
     expect(mock.hardNavigate).toHaveBeenCalledTimes(1);
     expect(result.current.state.step).toBe("recovering");

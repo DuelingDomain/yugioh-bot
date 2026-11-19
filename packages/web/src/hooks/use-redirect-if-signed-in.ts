@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
-import { safeReturnPath } from "@/lib/auth-return";
+import { hardNavigate } from "@/components/auth/navigate";
+import { isTournamentBridgeReturn, safeReturnPath } from "@/lib/auth-return";
 
 /**
  * Someone with an active session who opens /sign-in or /sign-up goes straight to their return path, so they
@@ -21,7 +22,9 @@ export function useRedirectIfSignedIn(returnTo: string): boolean {
     decided.current = true;
     if (!isSignedIn) return;
     setRedirecting(true);
-    router.replace(safeReturnPath(returnTo));
+    const destination = safeReturnPath(returnTo);
+    if (isTournamentBridgeReturn(destination)) hardNavigate(destination);
+    else router.replace(destination);
   }, [isLoaded, isSignedIn, returnTo, router]);
 
   return redirecting;
