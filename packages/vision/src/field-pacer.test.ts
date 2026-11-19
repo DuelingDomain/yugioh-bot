@@ -32,13 +32,19 @@ test('a fresh hand waits briefly for landing, and repeated wake credits stay wit
 });
 test('a zoom can spend only the tokens currently available and still counts toward duty',()=>{
  const p=createFieldPacer({cores:2},0);
- p.spend(2480,0);
- p.spendPriority(270,0);
- assert.equal(p.canSpendPriority(90,0),false);
- assert.equal(p.canSpendPriority(90,450),true);
- p.spendPriority(90,450);
- assert.equal(p.canSpendPriority(90,450),false);
- assert.equal(p.duty(450),28.4);
+ for(let i=0;i<4;i++){
+  assert.equal(p.canSpendPriority(0),true);
+  p.spendPriority(240,0);
+ }
+ assert.equal(p.priorityCost,240);
+ assert.equal(p.canSpendPriority(0),false);
+ assert.equal(p.duty(0),9.6);
+ assert.equal(p.check(0),'ready','zooms leave the whole-frame budget available');
+ p.spend(2500,0);
+ assert.equal(p.canSpendPriority(680),false);
+ assert.equal(p.canSpendPriority(690),true,'a low-end zoom refills in under a second');
+ p.spendPriority(240,690);
+ assert.equal(p.canSpendPriority(690),false);
 });
 test('slow detectors repay wake borrowing even when inference separates motion samples',()=>{
  for(const cost of [100,300,600,1200,2400]){

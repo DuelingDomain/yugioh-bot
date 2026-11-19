@@ -39,7 +39,7 @@ import {FieldWatcherUI} from './field-watcher-ui';
 import {serverNow} from './ui/api';
 import {cardFailed,cardInfo,loadCards,useCardInfo} from './ui/catalog';
 import {fieldSummonKind,fieldSummonMaterials,fieldSummonMinimum,fieldSummonNotice,heldStackStillStacked,fieldKeepsMonsterStack,fieldStackXyzCandidates,SUMMON_WINDOW_MS,SUMMON_RECENT_MS,type FieldVanish} from '@/lib/remote/field-summons';
-import {distinctFieldQuads,FIELD_FLIP_SETTLE_MS,fieldFlipDepartureWait,fieldEvidenceMismatch,fieldSetRebind,fieldSetReturn,fieldSetSlide,fieldSetSlideDeadline,fieldSetSlidePending,fieldSetSlidePileActivity,recentCommittedSet,xyzAttachTargets} from '@/lib/remote/field-proposals';
+import {distinctFieldQuads,fieldDepartureDeadline,fieldFlipDepartureWait,fieldEvidenceMismatch,fieldSetRebind,fieldSetReturn,fieldSetSlide,fieldSetSlideDeadline,fieldSetSlidePending,fieldSetSlidePileActivity,recentCommittedSet,xyzAttachTargets} from '@/lib/remote/field-proposals';
 
 const toZone=(zone:string,slot?:number):FieldZone|undefined=>zone==='monster'?`M${slot??1}` as FieldZone:zone==='spell-trap'?`S${slot??1}` as FieldZone:zone==='extra-monster'?`EMZ${slot??1}` as FieldZone:({field:'FIELD',graveyard:'GY',banished:'BANISHED',deck:'DECK',extra:'EXTRA'} as Record<string,FieldZone>)[zone];
 /** A removed field card goes to the hand this long after the watcher's removal (it may still flip back or be a material). */
@@ -221,9 +221,13 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     const ref=setRefs.current.get(event)??`fw-${crypto.randomUUID()}`;
     setRefs.current.set(event,ref);return ref;
   };
-  const setBackFor=(track:FieldTrack,id=track.id)=>fieldSetReturn({track:{...track,id},twins:current.current.room.state.seats[seat].twin,tracks:watch.getTracks(),
-    owns:t=>bindings.current.get(t.id)??t.id,events:current.current.room.events??[],seat,at:serverNow(),now:performance.now(),
-    pileTouched:pileActivity(watch.getSnapshot?.()),seenOffField});
+  const setBackFor=(track:FieldTrack,id=track.id)=>{
+    const returned=fieldSetReturn({track:{...track,id},twins:current.current.room.state.seats[seat].twin,tracks:watch.getTracks(),
+      owns:t=>bindings.current.get(t.id)??t.id,events:current.current.room.events??[],seat,at:serverNow(),now:performance.now(),
+      pileTouched:pileActivity(watch.getSnapshot?.()),seenOffField});
+    // A published Hand action is visible. A later cross-slot back starts its own ref.
+    return returned?.kind==='move'?undefined:returned;
+  };
   const slideInput=(track:FieldTrack,snap=watch.getSnapshot?.())=>({track,twins:current.current.room.state.seats[seat].twin,tracks:snap?.tracks??watch.getTracks(),
     owns:(t:FieldTrack)=>bindings.current.get(t.id)??t.id,zoneOf:(card:TwinCard)=>publicField(card.zone)?knownZone(card):undefined,now:performance.now(),
     pileTouched:fieldSetSlidePileActivity(snap),blindSleeveSince:snap?.blindSleeveSince,seenOffField});
@@ -231,9 +235,10 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   const slideWait=(event:FieldEvent,snap=watch.getSnapshot?.(),now=performance.now())=>{
     const removedAt=event.removedAt;
     if(!snap||removedAt===undefined)return 0;
+    if(now>=fieldDepartureDeadline(event,removedAt))return 0;
     const linked=snap.tracks.find(t=>slideFor(t,snap)?.from.id===event.track.id);
     if(!linked)return 0;
-    const until=fieldSetSlideDeadline(event,removedAt,linked.card.blind&&snap.blindSleeveSince?.[linked.zone]!==undefined,linked);
+    const until=fieldSetSlideDeadline(event,removedAt,linked.card.blind&&snap.blindSleeveSince?.[linked.zone]!==undefined);
     return Math.max(0,until-now);
   };
   const departurePileEvidence=(event:FieldEvent,observed=watch.getTracks())=>{
@@ -564,7 +569,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     existing=freshBinding.existing??pileExit(track,entry,twins);
     // A back that settles where a known card just left is that card Set again: turned over in place, back from the hand, or slid to another zone.
     const canReturn=!existing&&track.faceDown&&event.type==='placed'&&!chosen&&!humanChoice&&!piles.has(track.zone);
-    const snap=canReturn?watch.getSnapshot?.():undefined;
+    const snap=canReturn?watch.getSnapshot?.({includeMissingSetLooks:true}):undefined;
     const slideInputNow=canReturn?slideInput(latest!,snap):undefined;
     const slide=slideInputNow?fieldSetSlide(slideInputNow):undefined;
     if(slideInputNow&&!slide&&fieldSetSlidePending(slideInputNow,snap)){
@@ -871,6 +876,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       leaveStarted.current.set(id,started);pendingDepartures.current.set(id,{event,origin});
       const zone=event.track.zone,removedAt=event.removedAt??started;
       const firstMiss=event.track.removedFrameAt??removedAt;
+      const deadline=fieldDepartureDeadline(event,removedAt);
       let pileWaitUntil:number|undefined;
       const arm=(wait:number)=>departureTimers.current.set(id,setTimeout(()=>{
         if(!live()||!watch.isRemoved(id)){cancelDeparture(id);return;}
@@ -890,12 +896,12 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
         // Give a pile read one short wait, while still checking for a Set in another slot.
         if(pileTouched){
           const motionOnly=card.faceUp&&event.reason==='empty'&&!pileNear(snap?.pileContactAt,firstMiss);
-          pileWaitUntil??=Math.min(now+PILE_HOLD_MS,motionOnly?firstMiss+PILE_HOLD_MS:removedAt+FIELD_FLIP_SETTLE_MS);
+          pileWaitUntil??=Math.min(now+PILE_HOLD_MS,motionOnly?firstMiss+PILE_HOLD_MS:deadline);
         }
         if(pileWaitUntil!==undefined&&now<pileWaitUntil){arm(Math.min(FLIP_POLL_MS,pileWaitUntil-now));return;}
         fire();
       },wait));
-      arm(Math.max(0,removedAt+DEPARTURE_WAIT_MS-started));
+      arm(Math.max(0,Math.min(removedAt+DEPARTURE_WAIT_MS,deadline)-started));
       return;
     }
     console.info('[remote field] evidence',event.type,event.track.id,event.track.zone,event.track.revision,event.result?.tier,JSON.stringify(event.result?.quality),event.reason);

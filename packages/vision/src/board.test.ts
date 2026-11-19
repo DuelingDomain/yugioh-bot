@@ -541,10 +541,17 @@ test('a flat plain sleeve the detector never boxes is placed as a Set from its p
   await zoomed.tick(100);
   assert.equal(zoomed.detectOptions.filter(o=>o.zoom).length,1,'the settled Set does not spend another crop');
   zoomed.appearanceAt=()=>Array(288).fill(.2);
-  zoomed.zoom=()=>[];
-  for(let i=0;i<10;i++)await zoomed.tick(150);
+  const forcedAttempts:number[]=[];
+  zoomed.zoom=()=>{
+    forcedAttempts.push(zoomed.at);
+    if(forcedAttempts.length===1)throw new Error('temporary zoom failure');
+    return [];
+  };
+  for(let i=0;i<14;i++)await zoomed.tick(100);
   const departure=zoomed.events.find(e=>e.type==='removed');
   assert.ok(departure,'the Set leaving clear mat is removed');
+  assert.equal(forcedAttempts.length,2);
+  assert.ok(forcedAttempts[1]-forcedAttempts[0]>=500,'a failing forced zoom waits before retrying');
   const checked=zoomed.watcher.getSnapshot().zoomCheckedAt?.S4;
   assert.ok(checked!==undefined&&checked>departure.removedAt!&&checked-departure.removedAt!<=1000,'departure forces a fresh zoom even on clear mat');
   zoomed.watcher.dispose();
@@ -1656,6 +1663,7 @@ test('owner Fenrir: M3 -> GY -> back to M3 face-up with a white Set in M2 and an
   for(let k=0;k<30&&!e.events.some(x=>x.type==='removed'&&x.track.id==='s3-set');k++)await e.tick(100);
   const gone=e.events.find(x=>x.type==='removed'&&x.track.id==='s3-set');
   assert.ok(gone,'the face-down S3 twin with no live track leaves the empty mat');assert.ok(e.at-emptyFrom<=1500,`S3 removed after ${e.at-emptyFrom} ms`);assert.equal(gone.track.faceDown,true);
+  assert.ok(gone.removedAt!-gone.track.removedFrameAt!>=250,'the first missing scan dates the departure window');
   assert.deepEqual(e.watcher.getSnapshot().missingTwins,['s3-set'],'the re-sync gets the missing twin');
   for(let k=0;k<25;k++)await e.tick(100);
   assert.equal(e.watcher.getSnapshot().tracks.some(t=>t.state==='candidate'&&!t.removed),false,'the stale candidate expired');
@@ -2338,7 +2346,9 @@ test('a material lifted off the waiting stack is removed when the original botto
   s.show('P');for(let i=0;i<35;i++)await s.r.tick(100);
   assert.equal(s.track(s.bottom)?.under,undefined);assert.equal(s.track(s.bottom)?.removed,false);
   assert.equal(s.track(s.incoming)?.removed,true,'the lifted material leaves, it is not covered by the original bottom');
-  assert.equal(s.r.events.find(e=>e.type==='removed'&&e.track.id===s.incoming)?.uncoveredRef,s.bottom,'the glue receives positive separation evidence');
+  const gone=s.r.events.find(e=>e.type==='removed'&&e.track.id===s.incoming);
+  assert.equal(gone?.uncoveredRef,s.bottom,'the glue receives positive separation evidence');
+  assert.ok(gone!.removedAt!-gone!.track.removedFrameAt!>=250,'the first uncovered frame dates the departure window');
   s.show('X');for(let i=0;i<25;i++)await s.r.tick(100);
   const xyz=s.r.events.find(e=>e.type==='placed'&&e.track.cardId==='X');assert.ok(xyz);
   const {fieldStackUnder}=await import('./field-stack-memory');
