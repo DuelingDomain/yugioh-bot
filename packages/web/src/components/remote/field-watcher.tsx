@@ -563,7 +563,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     existing=freshBinding.existing??pileExit(track,entry,twins);
     // A back that settles where a known card just left is that card Set again: turned over in place, back from the hand, or slid to another zone.
     const canReturn=!existing&&track.faceDown&&event.type==='placed'&&!chosen&&!humanChoice&&!piles.has(track.zone);
-    const snap=canReturn?watch.getSnapshot?.():undefined;
+    const snap=canReturn?watch.getSnapshot?.({includeMissingSetLooks:true}):undefined;
     const slideInputNow=canReturn?slideInput(latest!,snap):undefined;
     const slide=slideInputNow?fieldSetSlide(slideInputNow):undefined;
     if(slideInputNow&&!slide&&fieldSetSlidePending(slideInputNow,snap)){

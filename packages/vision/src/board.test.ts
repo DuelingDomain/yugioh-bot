@@ -541,10 +541,17 @@ test('a flat plain sleeve the detector never boxes is placed as a Set from its p
   await zoomed.tick(100);
   assert.equal(zoomed.detectOptions.filter(o=>o.zoom).length,1,'the settled Set does not spend another crop');
   zoomed.appearanceAt=()=>Array(288).fill(.2);
-  zoomed.zoom=()=>[];
-  for(let i=0;i<10;i++)await zoomed.tick(150);
+  const forcedAttempts:number[]=[];
+  zoomed.zoom=()=>{
+    forcedAttempts.push(zoomed.at);
+    if(forcedAttempts.length===1)throw new Error('temporary zoom failure');
+    return [];
+  };
+  for(let i=0;i<14;i++)await zoomed.tick(100);
   const departure=zoomed.events.find(e=>e.type==='removed');
   assert.ok(departure,'the Set leaving clear mat is removed');
+  assert.equal(forcedAttempts.length,2);
+  assert.ok(forcedAttempts[1]-forcedAttempts[0]>=500,'a failing forced zoom waits before retrying');
   const checked=zoomed.watcher.getSnapshot().zoomCheckedAt?.S4;
   assert.ok(checked!==undefined&&checked>departure.removedAt!&&checked-departure.removedAt!<=1000,'departure forces a fresh zoom even on clear mat');
   zoomed.watcher.dispose();

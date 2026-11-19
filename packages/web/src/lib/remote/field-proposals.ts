@@ -194,12 +194,10 @@ export const fieldBackCandidate=(track:FieldTrack)=>!track.removed&&track.state!
 export function fieldFlipDepartureWait(event:FieldEvent,snap:FieldSnapshot|undefined,removedAt:number,now:number):number {
   const {id,zone,lastSeen}=event.track;
   const left=removedAt+FIELD_FLIP_SETTLE_MS-now;
-  if(!snap||!MAIN_FIELD_SLOT.test(zone))return 0;
+  if(left<=0||!snap||!MAIN_FIELD_SLOT.test(zone))return 0;
   const looked=(snap.zoomCheckedAt?.[zone]??-Infinity)>removedAt;
   const fullAt=snap.lastFullAt,hand=!looked&&snap.handZones?.includes(zone);
-  const cleanFull=(fullAt??-Infinity)>removedAt&&!hand&&!snap.blur?.hold&&!snap.shadow?.hold;
-  if(!looked&&snap.zoomDeparturePending?.includes(zone)&&(left>0||!cleanFull))return Math.max(250,left);
-  if(left<=0)return 0;
+  if(!looked&&snap.zoomDeparturePending?.includes(zone))return left;
   const replacements=snap.tracks.filter(t=>t.id!==id&&!t.removed&&t.zone===zone);
   const freshBack=replacements.some(t=>fieldBackCandidate(t)&&t.firstSeen>=lastSeen-1000||
     t.card.kind==='face-down'&&t.state==='identified'&&!t.card.partial&&!t.card.covered&&t.lastSeen>=Math.max(removedAt,fullAt??-Infinity));

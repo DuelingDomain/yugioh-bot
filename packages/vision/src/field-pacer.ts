@@ -2,11 +2,12 @@
  * Detector budget for the field watcher on WASM and WebGPU. A still scene costs almost nothing; a change wakes the detector.
  * All numbers come from scripts/vision/benchmark-cpu.ts.
  *
- * Detector passes spend from a bucket of wall milliseconds. The bucket allows a short burst for one placement and
- * then refills at `sustain`, so a hand that moves for a long time never holds the detector at 100%.
+ * Whole-frame passes and zooms have separate allowances in wall milliseconds.
  */
 export interface FieldPacerDevice { cores:number; memoryGb?:number }
 export interface FieldPacer {
+  /** Measured wall time for one zoom, or the startup estimate before sampling. */
+  readonly priorityCost:number;
   /** A pass may start unless it is resting or out of detector time. Moving hands wait longer to save time for when the card lands. */
   check(at:number,moving?:boolean,sceneMoving?:boolean):'ready'|'rest'|'budget';
   /** Every detector pass records wall time and rest. Priority passes can spend available tokens without adding debt. */
@@ -14,7 +15,7 @@ export interface FieldPacer {
   /** Charge the actual cell check, including any overrun beyond the preflight estimate. */
   spendPriority(wallMs:number,at:number):void;
   /** Estimated cost of a cell check must fit the current burst budget. */
-  canSpendPriority(wallMs:number,at:number):boolean;
+  canSpendPriority(at:number):boolean;
   /** The scene changed at `at`: retries after a change come sooner than the slow timer. */
   changed(at:number):void;
   /** Slow timer for a full pass on a still scene. It does not back off: a dark card can fall under the scene check. */
@@ -29,7 +30,7 @@ export interface FieldPacer {
   gap(at:number):number;
 }
 const WINDOW_MS=10_000,STILL_CARDS_MS=4000,STILL_EMPTY_MS=15_000,RETRY_MS=2000,RETRY_FOR_MS=6000;
-const PRIORITY_CAPACITY=250,PRIORITY_REFILL=.04;
+const PRIORITY_BURST=4,PRIORITY_REFILL=.35,INITIAL_PRIORITY_COST=90;
 /** CPU bursts rest 1:1; GPU bursts keep the shorter rest for quick placement. */
 const BURST_REST=.5,MOVING_REST=2,MOVING_REST_MS=400;
 export const fieldPacerDevice=():FieldPacerDevice=>{
@@ -38,18 +39,21 @@ export const fieldPacerDevice=():FieldPacerDevice=>{
 };
 export function createFieldPacer(device:FieldPacerDevice,start:number,backend:()=>string|undefined=()=> 'wasm'):FieldPacer {
   const sustain=()=>backend()==='webgpu'?.25:.2;
-  let tokens=2500,priorityTokens=PRIORITY_CAPACITY,last=start,passMs=0,lastEnd=-Infinity,changedAt=-Infinity,movingSince=-Infinity,wakeAt=-Infinity,wakePermit=false,lateEma=0,backoff=1;
+  let tokens=2500,prioritySpent=0,priorityCost=0;
+  let last=start,passMs=0,lastEnd=-Infinity,changedAt=-Infinity,movingSince=-Infinity,wakeAt=-Infinity,wakePermit=false,lateEma=0,backoff=1;
   const passes:{end:number;wall:number}[]=[];
   const capacity=()=>Math.max(2500,passMs*6);
+  const estimatedPriorityCost=()=>priorityCost||INITIAL_PRIORITY_COST;
   const refill=(at:number)=>{
     const elapsed=Math.max(0,at-last)/backoff;
-    // Keep enough of the same CPU allowance for a cell check when full scans are in debt.
-    const priority=Math.min(PRIORITY_CAPACITY-priorityTokens,elapsed*PRIORITY_REFILL);
-    priorityTokens+=priority;tokens=Math.min(capacity(),tokens+elapsed*sustain()-priority);last=Math.max(last,at);
+    // Zooms have their own allowance so a burst leaves time for whole-frame scans.
+    prioritySpent=Math.max(0,prioritySpent-elapsed*PRIORITY_REFILL);
+    tokens=Math.min(capacity(),tokens+elapsed*sustain());last=Math.max(last,at);
   };
   const prune=(at:number)=>{while(passes.length&&at-passes[0].end>WINDOW_MS)passes.shift();};
   const record=(wall:number,end:number)=>{passes.push({end,wall});prune(end);};
   return {
+    get priorityCost(){return estimatedPriorityCost();},
     check(at,moving=false,sceneMoving=moving){
       refill(at);
       const rest=moving?Math.max(MOVING_REST_MS,passMs*MOVING_REST):passMs*(backend()==='webgpu'?BURST_REST:1);
@@ -63,12 +67,11 @@ export function createFieldPacer(device:FieldPacerDevice,start:number,backend:()
     },
     spendPriority(wallMs,at){
       refill(at);
-      const regular=Math.min(Math.max(tokens,0),wallMs);
-      const priority=Math.min(priorityTokens,wallMs-regular);
-      priorityTokens-=priority;tokens-=wallMs-priority;
+      if(wallMs>0)priorityCost=priorityCost?priorityCost+(wallMs-priorityCost)*.2:wallMs;
+      prioritySpent+=wallMs;
       record(wallMs,at);
     },
-    canSpendPriority(wallMs,at){refill(at);return Math.max(0,tokens)+priorityTokens>=wallMs;},
+    canSpendPriority(at){refill(at);return prioritySpent<=(PRIORITY_BURST-1)*estimatedPriorityCost();},
     changed(at){
       if(at-changedAt>1000+passMs){
         movingSince=at;
