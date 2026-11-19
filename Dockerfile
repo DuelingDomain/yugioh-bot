@@ -200,9 +200,9 @@ RUN mkdir -p /stage/app \
 # Prepare pinned Hybrid models and indexes. Only the checked output, including
 # notices, is copied into the runtime image.
 FROM deps AS vision-hybrid
-COPY scripts/vision/prepare-hybrid.ts scripts/vision/
+COPY scripts/vision/prepare-hybrid.ts scripts/vision/prepare-hybrid.mts
 COPY packages/vision/src packages/vision/src
-RUN VISION_DATA_DIR=/tmp/vision node --import tsx scripts/vision/prepare-hybrid.ts \
+RUN VISION_DATA_DIR=/tmp/vision node --import tsx scripts/vision/prepare-hybrid.mts \
     && mkdir -p /stage/app/vision-code \
     && mv /tmp/vision/hybrid /stage/app/vision-code/ \
     && chmod -R a+rX,go-w /stage/app \
