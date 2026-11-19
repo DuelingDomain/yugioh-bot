@@ -1192,6 +1192,7 @@ describe('typed watcher zone projection',()=>{
     if(unsettled){
      await advance(299);
      expect(fixture.post).not.toHaveBeenCalled();
+     back.removed=true;
      await advance(1);
      expect(fixture.post).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({type:'twin.move',cardRef:old.ref,zone:'hand'}),expect.anything());
      return;
@@ -1292,7 +1293,7 @@ describe('typed watcher zone projection',()=>{
    expect(fixture.post).toHaveBeenCalledTimes(1);
   }finally{fixture.dispose();vi.useRealTimers();}
  });
- it('keeps the Set ref when row activity extends the departure deadline',async()=>{
+ it.each([false,true])('keeps the Set ref when row activity extends the departure deadline (empty proof: %s)',async emptyProof=>{
   const old={ref:'sliding-set',zone:'spell-trap',slot:4,faceUp:false,position:'attack'};
   const fixture=await typedWatcherFixture(zoneEntries[0],'S4',[old],'moved');
   vi.useFakeTimers({toFake:['setTimeout','clearTimeout','performance']});
@@ -1301,13 +1302,14 @@ describe('typed watcher zone projection',()=>{
    Object.assign(fixture.track,{faceDown:true,removed:true,visible:false,removedAt,removedFrameAt:removedAt,setEvidence:committedBack});
    watch.getSnapshot=()=>watch.snapshot;
    watch.isRemoved=()=>fixture.track.removed;
-   watch.snapshot.lastFullAt=removedAt;
+   Object.assign(watch.snapshot,{lastFullAt:removedAt+100,pileTouchedAt:{GY:removedAt-800}});
    fixture.refresh();
-   await fixture.emit({type:'removed',removedAt,reason:'empty'});
-   await act(async()=>{await vi.advanceTimersByTimeAsync(1700);});
-   watch.snapshot.lastFieldActivityAtByZone={S3:performance.now()};
-   await act(async()=>{await vi.advanceTimersByTimeAsync(1000);});
+   await fixture.emit({type:'removed',removedAt,reason:'empty',...(emptyProof?{evidence:{basis:'pixel',emptyProofAt:removedAt}}:{})});
+   await act(async()=>{await vi.advanceTimersByTimeAsync(500);});
+   watch.snapshot.lastFieldActivityAtByZone={S2:performance.now()};
+   await act(async()=>{await vi.advanceTimersByTimeAsync(1600);});
    expect(fixture.post).not.toHaveBeenCalled();
+   watch.snapshot.pileTouchedAt={};
    const now=performance.now();
    const back=fixture.addTrack({id:'slide-back',zone:'S2',faceDown:true,removed:false,visible:true,cardId:undefined,
     firstSeen:now,lastSeen:now,restSince:now,card:{...fixture.track.card,kind:'face-down'},setEvidence:committedBack});

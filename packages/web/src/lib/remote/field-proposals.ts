@@ -303,12 +303,12 @@ type SetSlideInput={
   track:FieldTrack;twins:readonly TwinCard[];tracks:readonly FieldTrack[];owns:(track:FieldTrack)=>string;
   zoneOf:(card:TwinCard)=>FieldTrack['zone']|undefined;now:number;pileTouched?:Partial<Record<'GY'|'BANISHED',number>>;
   blindSleeveSince?:FieldSnapshot['blindSleeveSince'];
+  lastFieldActivityAtByZone?:FieldSnapshot['lastFieldActivityAtByZone'];
   seenOffField:(card:TwinCard,removedAt:number)=>boolean;
 };
 function setSlideSources({track,twins,tracks,owns,zoneOf}:SetSlideInput) {
   if(!fieldBackCandidate(track)||!MAIN_FIELD_SLOT.test(track.zone)||twins.some(c=>c.ref===owns(track)))return [];
-  const {zone:destination,slot}=fieldZoneLocation(track.zone);
-  if(twins.some(c=>c.zone===destination&&c.slot===slot))return [];
+  if(twins.some(card=>zoneOf(card)===track.zone))return [];
   return twins.flatMap(card=>{
     const zone=zoneOf(card);
     if(card.faceUp!==false||card.token||card.ownerSeat!==undefined||card.materials?.length||
@@ -327,7 +327,7 @@ export function fieldSetSlidePending(input:SetSlideInput,snap:FieldSnapshot|unde
 
 /** A Set can follow one new back in its row while the departure is still pending. */
 export function fieldSetSlide(input:SetSlideInput):{card:TwinCard;from:RemovedFieldTrack}|undefined {
-  const {track,twins,tracks,owns,now,pileTouched,blindSleeveSince,seenOffField}=input;
+  const {track,twins,tracks,owns,now,pileTouched,blindSleeveSince,lastFieldActivityAtByZone,seenOffField}=input;
   const sources=setSlideSources(input).flatMap(({card,zone,owned})=>{
     if(owned.some(t=>!t.removed))return [];
     const from=owned.find((t):t is RemovedFieldTrack=>t.removed&&t.zone===zone&&t.removedAt!==undefined);
@@ -336,10 +336,12 @@ export function fieldSetSlide(input:SetSlideInput):{card:TwinCard;from:RemovedFi
     // Date the arrival from the first stable sleeve witness, even if the
     // full scans or the zoom detector confirm the outline later.
     const inSlideWindow=(back:FieldTrack)=>{
-      const sleeveAt=back.card.blind?blindSleeveSince?.[back.zone]:
-        back.setEvidence?.basis==='zoom'?back.restSince:undefined;
+      const sleeveAt=blindSleeveSince?.[back.zone]??(back.setEvidence?.basis==='zoom'?back.restSince:undefined);
       const arrivedAt=sleeveAt!==undefined&&sleeveAt>=since&&sleeveAt<=back.firstSeen?sleeveAt:back.firstSeen;
-      return arrivedAt>=since-1000&&arrivedAt-since<=SET_SLIDE_MATCH_MS;
+      const motionAt=lastFieldActivityAtByZone?.[back.zone];
+      const continued=sleeveAt!==undefined&&motionAt!==undefined&&motionAt>=since&&motionAt<=sleeveAt&&sleeveAt-motionAt<=1000;
+      const startedAt=continued?Math.min(motionAt,arrivedAt):arrivedAt;
+      return startedAt>=since-1000&&startedAt-since<=SET_SLIDE_MATCH_MS;
     };
     if(!inSlideWindow(track)||
       now-from.removedAt>FIELD_SET_RETURN_MS||seenOffField(card,since))return [];
