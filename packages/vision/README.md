@@ -65,24 +65,26 @@ downloading models; rerun it after worker changes.
 
 ### Deploying: code in the web image, data in the volume
 
-Two kinds of files sit behind `/dev/vision-assets/`:
+The recognition asset route is `/dev/vision-assets/`.
 
 | Kind | Files | Where in production | Changes with |
 | --- | --- | --- | --- |
 | Code | `worker.js`, `ort/` (ONNX Runtime WASM, version-locked to the bundle in `worker.js`), `NOTICE` | The `web` image, `/app/vision-code`, root-owned | Every deploy of a `packages/vision` change |
 | Data | `models/`, `yugioh-index.*`, `related-cards.json`, `yugioh-thresholds.json`, `yugioh-full-art.*` | The data volume, `data/vision` | A model or index change, copied by hand (`docs/deployment/vm-runbook.md`, Remote Duels step 5) |
+| Hybrid | `hybrid/` models, bank, index, catalog and notices | The `web` image, `/app/vision-code/hybrid` | When the pinned Hybrid inputs change |
 
 The Dockerfile `vision-code` stage runs `npx tsx scripts/vision/prepare.ts --code-only`. That mode needs no network,
 no models and no Python: it only bundles `worker.js` with esbuild and copies the runtime files and notices.
 It sets every mtime to the epoch, so an unchanged runtime keeps its layer digest between images and the
 ~41 MB of WASM is not pulled again on each deploy.
 
-The route serves `worker.js`, `ort/*` and `NOTICE` from `VISION_CODE_DIR` (default `/app/vision-code` when that
+The route serves `worker.js`, `ort/*`, `NOTICE` and the pinned voice and Hybrid assets from `VISION_CODE_DIR` (default `/app/vision-code` when that
 directory exists) and falls back to `VISION_DATA_DIR` when the image has no such file, which is the local
 development case. Every other path reads only from `VISION_DATA_DIR`. Code files carry
 `Cache-Control: private, no-cache` and a strong ETag from the file contents, so browsers revalidate on each load
 and get a 304 until the image changes. No `?v=` bump is needed. Data files keep `max-age=3600` with a size and
-mtime ETag. An image rollback rolls the worker and the WASM back with the web bundle.
+mtime ETag. Hybrid requests require both Remote Duels and Hybrid access and use `private, no-store`.
+An image rollback rolls the worker and the WASM back with the web bundle.
 
 ## API
 

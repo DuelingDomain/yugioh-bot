@@ -18,7 +18,9 @@ function rig() {
     recognizer:{detectCards:async()=>structuredClone(outlines),recognize},
     buffer:{sample:async()=>({frame,at})},clone:async f=>f,
     analyze:()=>({motion:()=>motion,touched:()=>touched,occluded:()=>touched>0,
-      sharpness:()=>20,crop:()=>crop,appearance:()=>Array(12).fill(.06),halo:()=>Array(12).fill(.3)}),
+      // An empty spot interrupts confirmation. A detector miss while the
+      // sleeve's pixels are still visible can intentionally retain evidence.
+      sharpness:()=>20,crop:()=>crop,appearance:()=>Array(12).fill(outlines.length?.06:.3),halo:()=>Array(12).fill(.3)}),
   });
   disposals.push(()=>watcher.dispose());
   watcher.subscribe(e=>events.push(e));

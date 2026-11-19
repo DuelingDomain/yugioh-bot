@@ -137,7 +137,7 @@ it('several departures remain separately correctable after the toast window, wit
   vi.useFakeTimers();let room=tapRoom();room.state.seats[0].twin=[monster('one'),{...monster('two'),slot:2}];
   for(const ref of ['one','two'])room=applyTap(room,{type:'twin.move',actorSeat:0,seat:0,cardRef:ref,zone:'hand',source:'auto'});
   const action=vi.fn();render(<RecentDepartures room={room} seat={0} onAction={action}/>);act(()=>vi.advanceTimersByTime(6000));
-  fireEvent.click(screen.getByText('Recent departures (2)'));const rows=screen.getAllByRole('group',{name:/Departure:/});expect(rows).toHaveLength(2);
+  fireEvent.click(screen.getByText('Departures (2)'));const rows=screen.getAllByRole('group',{name:/Departure:/});expect(rows).toHaveLength(2);
   fireEvent.click(within(rows[1]).getByRole('button',{name:'GY'}));expect(action).toHaveBeenLastCalledWith(expect.objectContaining({type:'twin.move',cardRef:'one',zone:'graveyard',confirmed:true,cam:expect.objectContaining({by:'player'})}));
   fireEvent.click(within(rows[0]).getByRole('button',{name:'Undo'}));expect(action).toHaveBeenLastCalledWith(expect.objectContaining({type:'undo',targetActionId:'action-2'}));
 });
@@ -270,9 +270,9 @@ it.each(['generic','named'] as const)('the existing token dialog creates a %s to
     const [queue]=useState(()=>createRoomMutationQueue(()=>current.current,async a=>{const next=applyTap(current.current,a);current.current=next;setRoom(next);return next;}));
     const layers=useLayers();
     const tokens=useTokens({room,act:queue.action,live:true,extraZones:false,layers,info:()=>undefined});
-    return <>{tokens.trigger(0)}{tokens.node}<output data-testid="token-board">{JSON.stringify(room.state.seats[0].twin)}</output></>;
+    return <><button type="button" onClick={()=>tokens.create(0)}>Zone menu token</button>{tokens.node}<output data-testid="token-board">{JSON.stringify(room.state.seats[0].twin)}</output></>;
   }
-  render(<Tokens/>);fireEvent.click(screen.getByRole('button',{name:'Token'}));
+  render(<Tokens/>);fireEvent.click(screen.getByRole('button',{name:'Zone menu token'}));
   if(kind==='generic'){
     fireEvent.click(screen.getByRole('button',{name:'Generic token'}));fireEvent.click(screen.getByRole('button',{name:'Defense'}));
   }else{

@@ -1,4 +1,5 @@
 import {markFieldAction} from '@/lib/remote/field-timing';
+import {isGatewayStatus,isTransientError,noteOutage,noteReachable} from '@/lib/remote/outage';
 /** Server clock minus browser clock, from the HTTP Date header (whole seconds, so it leans to the later second). */
 let clockSkew = 0;
 /** Best guess of the server time now. Used for the undo window, which the server measures with its own clock. */
@@ -7,21 +8,28 @@ export const serverNow = () => Date.now() + clockSkew;
 /** Names this browser tab to the server, so a spectator who closes one tab keeps the slot of the others. */
 export const tabId = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `t${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
 
-export async function remoteApi<T>(path: string, body?: unknown): Promise<T> {
-  const signal=AbortSignal.timeout(10_000);
+export async function remoteApi<T>(path: string, body?: unknown, stop?: AbortSignal): Promise<T> {
+  const timeout = AbortSignal.timeout(10_000);
+  const signal = stop ? AbortSignal.any([timeout, stop]) : timeout;
   try {
+    const actionId=(body as {action?:{idempotencyKey?:string}}|undefined)?.action?.idempotencyKey;
+    if(actionId)markFieldAction(actionId,'httpStart');
     const response = await fetch(`/api/remote${path}`, { cache: "no-store", signal, ...(body === undefined ? {} : {
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
     }) });
-    const actionId=(body as {action?:{idempotencyKey?:string}}|undefined)?.action?.idempotencyKey;
     if(actionId)markFieldAction(actionId,'httpResponse',{serverTiming:response.headers.get('server-timing')});
+    // A restarting server answers 502/503/504 with a gateway page, not JSON: treat it like a lost connection. The app's own JSON 503s (recording busy, LiveKit, Discord check) keep their message.
+    if(isGatewayStatus(response.status)&&!/application\/json/i.test(response.headers.get('content-type')??''))throw Object.assign(new Error(`Server not reachable (${response.status})`),{status:response.status,transient:true});
     const date = Date.parse(response.headers.get("date") ?? "");
     if (Number.isFinite(date)) clockSkew = date + 999 - Date.now();
+    noteReachable();
     const data = await response.json();
     if (!response.ok) throw Object.assign(new Error(data.error ?? "Could not update the table"), { status: response.status, code: data.code as string | undefined });
     return data;
   } catch(error) {
-    if(signal.aborted)throw new Error('Table request timed out after 10 seconds. Try again.');
+    if (stop?.aborted) throw error;
+    if(timeout.aborted){noteOutage(error);throw Object.assign(new Error('Table request timed out after 10 seconds. Try again.'),{transient:true});}
+    if(isTransientError(error))noteOutage(error);
     throw error;
   }
 }

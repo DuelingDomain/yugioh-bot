@@ -94,7 +94,7 @@ export function saveFieldCalibration(seatKey:string,grid:FieldCalibration,camera
   }catch{/* Memory-only fallback. */}
 }
 /** A snapshot without what changes on every tick (timings, noise in the debug numbers). Debug always re-renders. */
-export const fieldSnapshotKey=(s:FieldSnapshot)=>JSON.stringify({...s,metrics:undefined,debug:undefined,blur:s.blur?.hold,shadow:s.shadow?.hold});
+export const fieldSnapshotKey=(s:FieldSnapshot)=>JSON.stringify({...s,metrics:undefined,debug:undefined,lastFieldActivityAtByZone:undefined,fieldActive:undefined,blur:s.blur?.hold,shadow:s.shadow?.hold});
 /** Owner only. Preferences/calibration survive sessions; frames stay local; the caller may share identified public tracks. */
 export function useFieldWatcher(options:UseFieldWatcherOptions) {
   const latest=useRef(options);latest.current=options;
@@ -191,6 +191,6 @@ export function useFieldWatcher(options:UseFieldWatcherOptions) {
     forget:useCallback((id:string)=>{clipAction('forget',{trackId:id});return watcher.current?.forget(id);},[]),
     resetBaselines:useCallback(()=>watcher.current?.resetBaselines(),[]),
     /** Live watcher snapshot (the React `snapshot` can be one render behind). */
-    getSnapshot:useCallback(()=>watcher.current?.getSnapshot(),[]),
+    getSnapshot:useCallback((options?:Parameters<FieldWatcher['getSnapshot']>[0])=>watcher.current?.getSnapshot(options),[]),
     scanNow:useCallback((options?:{gentle?:boolean})=>watcher.current?.scanNow(options),[])};
 }

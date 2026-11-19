@@ -1,5 +1,5 @@
 import { cloneRemoteCurrent } from "../position.js";
-import { applyRemoteHand, moveRemoteCardToHand, reduceRemoteHandAction } from "../hand.js";
+import { applyRemoteGive, applyRemoteHand, moveRemoteCardToHand, reduceRemoteHandAction, restoreOwnerIdentity, sendGivenCardsHome } from "../hand.js";
 import { rememberRemoteAction, undoRemoteAction } from "../undo.js";
 import { ensureRemoteMatch, finishRemoteGame, initialRemoteMatch, reduceRemoteMatch, remoteOpeningPending, syncRemoteSideStart } from "../match.js";
 import { remoteActionSchema, remoteAssert, remoteSummonKinds, type RemoteAction, type TwinCard } from "../actions.js";
@@ -45,29 +45,27 @@ function takeMaterial(seat: RemoteSeatState, top: TwinCard, ref: string, at: num
 }
 const cardKnown = (card: TwinCard) => !!(card.cardId || card.passcode || card.name);
 /** A card another player controls goes back to its owner's twin when it leaves the field: the owner gets it and its identity. */
-function returnToOwner(seats: readonly RemoteSeatState[], holder: RemoteSeatState, card: TwinCard) {
+function returnToOwner(seats: readonly RemoteSeatState[], holder: RemoteSeatState, card: TwinCard, dropIfOwnerOut = false) {
   if (card.ownerSeat === undefined) return;
   const owner = card.ownerSeat !== holder.seat ? seats[card.ownerSeat] : undefined;
   delete card.ownerSeat;
   if (owner && !owner.eliminated && !owner.twin.some(c => c.ref === card.ref)) {
     const i = holder.twin.indexOf(card); if (i >= 0) holder.twin.splice(i, 1);
     owner.twin.push(card); restoreOwnerIdentity(card);
+  } else if (dropIfOwnerOut && owner?.eliminated) {
+    // The owner is out and has no pile any more: the card just leaves the board, never into the holder's Graveyard.
+    const i = holder.twin.indexOf(card); if (i >= 0) holder.twin.splice(i, 1);
   }
 }
-/** A face-down card keeps its identity for its owner while another player controls it (the controller never sees it). */
-function restoreOwnerIdentity(card: TwinCard) {
-  const kept = card.ownerIdentity; delete card.ownerIdentity;
-  if (kept && !card.cardId && !card.passcode && !card.name) Object.assign(card, kept);
-}
 /** Send a card to the Graveyard (end of the pile). A controlled card goes to its owner's Graveyard. */
-function sendToGrave(seats: readonly RemoteSeatState[], holder: RemoteSeatState, card: TwinCard) {
+function sendToGrave(seats: readonly RemoteSeatState[], holder: RemoteSeatState, card: TwinCard, dropIfOwnerOut = false) {
   delete card.materialOf;
   const i = holder.twin.indexOf(card); if (i >= 0) holder.twin.splice(i, 1);
   holder.twin.push(card); card.zone = "graveyard";
-  returnToOwner(seats, holder, card);
+  returnToOwner(seats, holder, card, dropIfOwnerOut);
 }
 /** Xyz: the materials go under the card (an Xyz material brings its own: rank-up). Others: the materials go to the GY. */
-function applySummon(seats: readonly RemoteSeatState[], seat: RemoteSeatState, top: TwinCard, kind: (typeof remoteSummonKinds)[number], refs: readonly string[], at: number, strict: boolean) {
+function applySummon(seats: readonly RemoteSeatState[], seat: RemoteSeatState, top: TwinCard, kind: (typeof remoteSummonKinds)[number], refs: readonly string[], at: number, strict: boolean, dropIfOwnerOut = false) {
   if (kind === "xyz") remoteAssert(MONSTER_ZONES.has(top.zone) && top.faceUp, "Xyz materials need a face-up Xyz Monster on the field", 409);
   // A camera placement keeps a good read: a material that changed since the read (moved to the GY …) is skipped, not fatal.
   const usable = refs.filter(ref => validMaterial(seat.twin.find(c => c.ref === ref), top, at));
@@ -75,7 +73,7 @@ function applySummon(seats: readonly RemoteSeatState[], seat: RemoteSeatState, t
   for (const ref of usable) {
     const card = takeMaterial(seat, top, ref, at);
     if (kind !== "xyz") {
-      sendToGrave(seats, seat, card); continue;
+      sendToGrave(seats, seat, card, dropIfOwnerOut); continue;
     }
     const carried = card.materials ?? [];delete card.materials;
     top.materials = [...(top.materials ?? []).filter(m => m !== card.ref && !carried.includes(m)), ...carried, card.ref];
@@ -84,7 +82,7 @@ function applySummon(seats: readonly RemoteSeatState[], seat: RemoteSeatState, t
   }
 }
 /** Trap Monster zones and Equip links last only while the cards are on the field. */
-function clearZoneLinks(state: RemoteState, at: number) {
+function clearZoneLinks(state: RemoteState, at: number, dropIfOwnerOut = false) {
   // Xyz materials stay only under a face-up Xyz Monster on the field; else they go to the GY (bottom first).
   // A camera lift to the hand (the default for a card out of view) holds them for 30 s: the Xyz may come back.
   for (const seat of state.seats) {
@@ -94,14 +92,15 @@ function clearZoneLinks(state: RemoteState, at: number) {
     for (const card of [...seat.twin]) if (card.materials) {
       const keep = MONSTER_ZONES.has(card.zone) && card.faceUp || !!card.departedFrom?.auto && lifted(card, at, true, card.zone === "hand" ? SUMMON_DEPARTURE_MS : PILE_HOLD_MS);
       const live = card.materials.map(ref => seat.twin.find(c => c.ref === ref)).filter((m): m is TwinCard => !!m && m.zone === "material" && m.materialOf === card.ref);
-      if (!keep) for (const m of live) sendToGrave(state.seats, seat, m);
+      if (!keep) for (const m of live) sendToGrave(state.seats, seat, m, dropIfOwnerOut);
       if (keep && live.length) card.materials = live.map(m => m.ref); else delete card.materials;
     }
     for (const card of [...seat.twin]) if (card.zone === "material" && !seat.twin.some(c => c.ref === card.materialOf && c.materials?.includes(card.ref))) {
-      sendToGrave(state.seats, seat, card);
+      sendToGrave(state.seats, seat, card, dropIfOwnerOut);
     }
   }
   for (const seat of state.seats) for (const card of seat.twin) {
+    if (card.knownFaceDown && (!card.publicIdentity || card.faceUp || !remoteFieldZone(card.zone))) delete card.knownFaceDown;
     if (card.trapZone !== undefined && !MONSTER_ZONES.has(card.zone)) delete card.trapZone;
     if (card.equippedTo && (!FIELD_ZONES.has(card.zone) || !state.seats[card.equippedTo.seat]?.twin.some(c => c.ref === card.equippedTo!.ref && MONSTER_ZONES.has(c.zone)))) delete card.equippedTo;
   }
@@ -157,7 +156,7 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
   const matchResult = reduceRemoteMatch(state, action, ygoModule.initialState, context);
   if (matchResult) {
     if (action.type === "match.confirm" && action.accept && state.match.pendingResult?.lpSeat !== undefined) {
-      clearZoneLinks(matchResult, at);
+      clearZoneLinks(matchResult, at, !context?.replay || context.givenCards === 1);
       rememberRemoteAction(state, matchResult, action);
       // Admission is undoable by the owner. Its LP declaration cannot be undone
       // underneath it; undoing the admission first restores the pending request.
@@ -178,7 +177,10 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
   remoteAssert(!state.ended, "Game has ended", 409);
   remoteAssert(!state.seats[action.actorSeat].eliminated, "Actor seat is eliminated", 403);
   let next: RemoteState = { ...cloneRemoteCurrent(state), updatedAt: at };
+  const fieldFaceVersion = context?.replay ? context.fieldFaceState : 2;
   next.deckChecks ??= initialDeckChecks();
+  // Given cards (control proxies): replays recorded without the flag keep the older rules.
+  const givenCardsOn = !context?.replay || context.givenCards === 1;
   if (!context?.replay || (context.twinPlacementGuard ?? 0) >= 3) { delete next.twinConfirmation; delete next.twinConfirmationQueue; }
   else if (context.twinPlacementGuard !== 2 && action.type !== "log.note") delete next.twinConfirmation;
   const ownTurn = () => remoteAssert(action.actorSeat === state.turnSeat || state.seats[state.turnSeat].eliminated, "Only the turn player can advance", 403);
@@ -186,6 +188,12 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
     const s = next.seats[n]; remoteAssert(s && !s.eliminated, "Target seat is unavailable", 409); return s;
   };
   const ownField = (n: number) => { remoteAssert(n === action.actorSeat, "Only the field owner can edit their twin", 403); return seat(n); };
+  /** A token may sit on any living seat's field. Only the live reducer (or a replay that recorded the rule) allows a foreign one. */
+  const tokenField = (n: number) => {
+    if (n === action.actorSeat) return ownField(n);
+    remoteAssert(!context?.replay || context.foreignTokens === 1, "Only the field owner can edit their twin", 403);
+    return seat(n);
+  };
   const validZone = (z: string) => remoteAssert(zones.some(item => item.id === z), "Unknown zone");
   const freeSlot = (s: RemoteSeatState, zone: string, slot?: number, exceptRef?: string, materials: readonly string[] = []) => {
     const shape = zones.find(item => item.id === zone)?.shape;
@@ -282,7 +290,33 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
     case "deck.flag.dismiss": break;
     case "twin.merge": ownField(action.seat); break;
     case "twin.place": {
-      const s = ownField(action.seat); validZone(action.zone);
+      if (action.give) {
+        // A card given from the hand (a Kaiju, Lava Golem): it appears on the opponent's field as a proxy that the giver owns. Nothing physical backs it there.
+        remoteAssert(!context?.replay || context.givenCards === 1, "Invalid remote action");
+        const card = action.card, to = seat(action.seat);
+        remoteAssert(action.seat !== action.actorSeat && action.source !== "auto" && !card.token && !card.nameCandidates && (action.zone === "monster" || action.zone === "spell-trap") &&
+          card.slot !== undefined && card.slot >= 1 && card.slot <= 5, "A given card goes into a free Main Monster or Spell & Trap Zone of an opponent", 409);
+        const giver = seat(action.actorSeat);
+        remoteAssert(!next.seats.some(o => o.twin.some(c => c.ref === card.ref && !(o === giver && c.zone === "hand"))) && to.twin.length < 100, "Duplicate card ref or field is full", 409);
+        giver.twin = giver.twin.filter(c => c.ref !== card.ref);
+        freeSlot(to, action.zone, card.slot);
+        // Only the card's own fields cross: nothing a client adds (publicIdentity, bestMatch, a hold) is kept.
+        const given: TwinCard = { ref: card.ref, slot: card.slot, faceUp: card.faceUp, position: card.position, zone: action.zone, ownerSeat: action.actorSeat };
+        for (const key of ["cardId", "passcode", "name", "race"] as const) if (card[key] !== undefined) (given as Record<string, unknown>)[key] = card[key];
+        // A face-down card keeps its identity for its owner only, as with any control change.
+        if (!remotePublicCard(given)) {
+          const kept: NonNullable<TwinCard["ownerIdentity"]> = {};
+          for (const key of ["cardId", "passcode", "name", "race"] as const) if (given[key] !== undefined) (kept as Record<string, unknown>)[key] = given[key];
+          if (Object.keys(kept).length) given.ownerIdentity = kept;
+          for (const key of ["cardId", "passcode", "name", "race"] as const) delete given[key];
+        }
+        to.twin.push(given);
+        // The card leaves the giver's hand and is checked against the giver's decklist. Effects and the receiver's hand are not touched.
+        next = applyLiveDeckChecks(next, action, context);
+        applyRemoteGive(next, action.actorSeat, card.cardId ?? card.passcode, context);
+        tokenAction = true; break;
+      }
+      const s = action.card.token ? tokenField(action.seat) : ownField(action.seat); validZone(action.zone);
       if(action.card.nameCandidates)remoteAssert(action.source==='auto'&&action.card.faceUp&&remoteFieldZone(action.zone)&&!action.card.token&&action.card.nameCandidates[0]?.cardId===(action.card.cardId??action.card.passcode),'Unsure names require a named public field placement',409);
       if (action.card.token) {
         const token = action.card;
@@ -290,7 +324,9 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
           "A token goes face-up into a Main Monster Zone", 409);
         remoteAssert(s.twin.length < 100 && !s.twin.some(c => c.ref === token.ref), "Duplicate card ref or field is full", 409);
         freeSlot(s, "monster", token.slot);
-        s.twin.push({ ...token, zone: "monster" });
+        // The creator is recorded by the reducer, never taken from the client.
+        const { by: _by, ...stats } = token.token!;
+        s.twin.push({ ...token, token: action.seat === action.actorSeat ? stats : { ...stats, by: action.actorSeat }, zone: "monster" });
         tokenAction = true; break;
       }
       const reuse = !context?.replay || context.twinPlacementGuard !== undefined ? guardTwinPlacement(next, action, context) : undefined;
@@ -305,16 +341,31 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
       if (card.zone !== "extra") delete card.pendulumUp;
       if(!card.faceUp&&!reuse?.card?.publicIdentity || ["hand","deck","extra"].includes(card.zone)) delete card.publicIdentity;
       if (action.card.slot === undefined) delete card.slot;
+      // Reusing a ref during placement does not establish a tracked face-down move.
+      if (fieldFaceVersion === 2 && !card.faceUp && (reuse?.card?.zone !== card.zone || reuse.card.slot !== card.slot)) delete card.publicIdentity;
       if (reuse?.card && enteringPile(reuse.card.zone, action.zone)) { s.twin.splice(s.twin.indexOf(reuse.card), 1); s.twin.push(card); }
       else if (reuse?.card) s.twin[s.twin.indexOf(reuse.card)] = card;
       else s.twin.push(card);
-      if (action.summon) applySummon(next.seats, s, card, action.summon.kind, action.summon.materialRefs, at, false);
+      if (action.summon) applySummon(next.seats, s, card, action.summon.kind, action.summon.materialRefs, at, false, givenCardsOn);
       deckAction = { ...action, card };
       break;
     }
     case "twin.move": case "twin.flip": case "twin.remove": {
-      const s = ownField(action.seat); const card = s.twin.find(c => c.ref === action.cardRef);
+      // A token belongs to the field it sits on and to the seat that placed it there.
+      const tokenHere = action.seat !== action.actorSeat ? next.seats[action.seat]?.twin.find(c => c.ref === action.cardRef) : undefined;
+      // A card that another seat controls stays editable by its owner too (a given proxy).
+      const ownerEdit = !!tokenHere && !tokenHere.token && tokenHere.ownerSeat === action.actorSeat && tokenHere.zone !== "material" && (!context?.replay || context.givenCards === 1);
+      const s = tokenHere?.token && tokenHere.token.by === action.actorSeat ? tokenField(action.seat) : ownerEdit ? seat(action.seat) : ownField(action.seat);
+      const card = s.twin.find(c => c.ref === action.cardRef);
       remoteAssert(card, "Unknown twin card", 409);
+      if(action.type==="twin.move" && action.setRef)remoteAssert(action.source==="auto" && action.faceUp===false && !card.token && card.ownerSeat===undefined && card.zone==="hand" && card.departedFrom?.auto &&
+        FIELD_ZONES.has(card.departedFrom.zone) && FIELD_ZONES.has(action.zone) && !s.twin.some(c=>c.ref===action.setRef),
+        "A face-down return needs a departed hand card and a fresh ref",409);
+      // The camera never moves a card that another seat controls: its paper card is not in that zone.
+      if (card.ownerSeat !== undefined && "source" in action && action.source === "auto" && (!context?.replay || context.givenCards === 1)) return state;
+      // A face-up flip by anyone shows the card the owner kept hidden.
+      if (action.type === "twin.flip" && action.faceUp && card.ownerIdentity && (!context?.replay || context.givenCards === 1)) restoreOwnerIdentity(card);
+      remoteAssert(card.token || action.type !== "twin.flip" || !action.tokenStats, "Only a token has ATK/DEF to set", 409);
       if (card.token) {
         // The camera never touches a token: nothing physical backs it.
         if ("source" in action && action.source === "auto") return state;
@@ -324,6 +375,7 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
         if (action.type === "twin.flip") {
           remoteAssert(action.faceUp, "A token stays face-up", 409);
           if (action.position !== undefined) card.position = action.position;
+          if (action.tokenStats) card.token = { ...card.token, ...action.tokenStats };
           break;
         }
         validZone(action.zone);
@@ -338,24 +390,38 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
         if (action.position !== undefined) card.position = action.position;
         break;
       }
-      const fieldFaceState=!context?.replay||context.fieldFaceState===1;
-      // A player who turns over the same field card by hand does not erase its publicly shown identity.
-      // The camera seeing a card turned face-down makes it a plain Set for the opponent. Earlier face-down flips carry no source, so replays stay the same.
+      // Recorded v1 camera flips hid the card, while manual Sets kept it public to players.
       const cameraSet = action.type === "twin.flip" && !action.faceUp && action.source === "auto";
-      const settingInPlace = action.type === "twin.flip" ? !action.faceUp : action.type === "twin.move" &&
-        action.faceUp === false && action.zone === card.zone && (action.slot ?? card.slot) === card.slot;
-      if (fieldFaceState && settingInPlace && !cameraSet && remoteFieldZone(card.zone) && remotePublicCard(card) && (card.cardId || card.passcode)) card.publicIdentity = true;
+      const settingInPlace = action.type === "twin.flip" ? !action.faceUp && !action.identityUncertain : action.type === "twin.move" &&
+        action.faceUp === false && action.zone === card.zone && (action.slot ?? card.slot) === card.slot && !action.physicalZoneChanged;
+      if (settingInPlace && remoteFieldZone(card.zone)) {
+        if (fieldFaceVersion === 2 && card.faceUp && cardKnown(card)) {
+          card.publicIdentity = true;
+          card.knownFaceDown = true;
+        } else if (fieldFaceVersion === 1 && !cameraSet && remotePublicCard(card) && (card.cardId || card.passcode)) {
+          card.publicIdentity = true;
+        }
+      }
       if (action.type === "twin.move") {
         validZone(action.zone);
         const slot = action.slot ?? (card.zone === action.zone ? card.slot : undefined);
         freeSlot(s, action.zone, slot, card.ref);
+        const origin = card.departedFrom;
+        const knownSetReturn = fieldFaceVersion === 2 && action.setRef && origin?.wasKnownFaceUp &&
+          origin.at !== undefined && action.at !== undefined && action.at - origin.at <= 3000 &&
+          action.zone === origin.zone && slot === origin.slot && !action.physicalZoneChanged && cardKnown(card);
+        if (fieldFaceVersion === 2 && (card.zone !== action.zone || card.slot !== slot || action.physicalZoneChanged)) {
+          if ((action.faceUp ?? card.faceUp) === false || (card.knownFaceDown && !remoteFieldZone(action.zone))) delete card.publicIdentity;
+        }
         // Guard 6: a card the camera sends from the field to a pile or the Extra Deck keeps its field origin too, so a card put back
         // (or taken as a summon material) is the same copy, not a duplicate.
         // Guard 8: a face-up Pendulum the camera lifted to the hand and the tag then sends to the Extra Deck still leaves the field (stays face-up, public).
         const handLift = (!context?.replay || (context.twinPlacementGuard ?? 0) >= 8) && card.zone === "hand" && !!card.departedFrom?.auto && FIELD_ZONES.has(card.departedFrom.zone);
         const leavesField = FIELD_ZONES.has(card.zone), guardSix = !context?.replay || (context.twinPlacementGuard ?? 0) >= 6;
+        const wasKnownFaceUp = (!context?.replay || context.setReturnFaceState === 1) && action.zone === "hand" &&
+          action.source === "auto" && card.faceUp && cardKnown(card);
         if ((!context?.replay || (context.twinPlacementGuard ?? 0) >= 2) && leavesField && (action.zone === "hand" || guardSix && action.source === "auto" && !action.confirmed && (action.zone === "graveyard" || action.zone === "banished" || action.zone === "extra")))
-          card.departedFrom = { zone: card.zone, ...(card.slot ? { slot: card.slot } : {}), ...(!context?.replay || (context.twinPlacementGuard ?? 0) >= 3 ? {at} : {}), ...(action.source === "auto" ? { auto: true } : {}) };
+          card.departedFrom = { zone: card.zone, ...(card.slot ? { slot: card.slot } : {}), ...(!context?.replay || (context.twinPlacementGuard ?? 0) >= 3 ? {at} : {}), ...(action.source === "auto" ? { auto: true } : {}), ...(wasKnownFaceUp ? {wasKnownFaceUp:true} : {}) };
         else if (action.zone !== "hand" || guardSix && card.zone !== "hand") delete card.departedFrom;
         // A Trap Monster still occupies the Spell & Trap Zone it was activated in.
         if (action.trapMonster && card.zone === "spell-trap" && remotePhysicalSlot(card.zone, card.slot) !== undefined && MONSTER_ZONES.has(action.zone)) card.trapZone = card.slot;
@@ -364,22 +430,27 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
         // GY and banished keep their order in the twin list (oldest first), so a card that enters goes to the end.
         if (enteringPile(card.zone, action.zone)) { s.twin = s.twin.filter(c => c !== card); s.twin.push(card); }
         card.zone = action.zone;
-        if((fieldFaceState?["hand","deck","extra"]:["deck","extra"]).includes(card.zone)) delete card.publicIdentity;
+        if(action.setRef || action.physicalZoneChanged && (action.faceUp ?? card.faceUp) === false ||
+          (fieldFaceVersion?["hand","deck","extra"]:["deck","extra"]).includes(card.zone)) delete card.publicIdentity;
+        if(action.setRef)delete card.setBy;
+        if(knownSetReturn){card.publicIdentity=true;card.knownFaceDown=true;}
         if (action.position !== undefined) card.position = action.position;
         const faceUpBefore = card.faceUp !== false;
         if (action.faceUp !== undefined) card.faceUp = action.faceUp;
         if (card.zone === "extra" && card.faceUp === true && action.pendulum && (leavesField || handLift) && faceUpBefore) card.pendulumUp = true; else delete card.pendulumUp;
       }
       if (action.type === "twin.flip") {
+        const clearsIdentity = !fieldFaceVersion || (fieldFaceVersion === 1 && cameraSet) ||
+          (action.identityUncertain && (card.faceUp || !card.setBy));
         card.faceUp = action.faceUp;
-        if((!fieldFaceState||cameraSet)&&!action.faceUp)delete card.publicIdentity;
+        if (!action.faceUp && clearsIdentity) delete card.publicIdentity;
         if(action.position!==undefined)card.position=action.position;
         if(action.faceUp&&action.cardId){remoteAssert(remoteFieldZone(card.zone)||['graveyard','banished','hand-reveal'].includes(card.zone),'Reveal identity requires a public card zone',409);deckAction={type:'card.identified',idempotencyKey:action.idempotencyKey,actorSeat:action.actorSeat,seat:action.seat,at:action.at,cardRef:card.ref,cardId:action.cardId,name:action.name,bestMatch:action.bestMatch,zone:card.zone,slot:card.slot,source:action.source??'click'};}
       }
       if(!card.faceUp)delete card.nameCandidates;
       if (action.type === "twin.remove") s.twin = s.twin.filter(c => c.ref !== action.cardRef);
       // A controlled card that leaves the field goes to its owner's side (their Graveyard, hand, Deck…).
-      if (action.type !== "twin.remove" && card.ownerSeat !== undefined && !FIELD_ZONES.has(card.zone)) returnToOwner(next.seats, s, card);
+      if (action.type !== "twin.remove" && card.ownerSeat !== undefined && !FIELD_ZONES.has(card.zone)) returnToOwner(next.seats, s, card, givenCardsOn);
       break;
     }
     case "twin.equip": {
@@ -403,8 +474,13 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
       const owner = card.ownerSeat ?? from.seat;
       // A Graveyard or banished pile belongs to the owner of the card: control never puts a card in the other player's pile.
       remoteAssert(!pile || owner === to.seat, "A card goes to its owner's Graveyard or banished pile only", 409);
+      // A face-down card on the field stays face-down whatever the client sends: flipping is twin.flip's job, and a flip here would reveal it.
+      const stayDown = !card.faceUp && (MONSTER_ZONES.has(card.zone) || card.zone === "spell-trap");
+      const faceUp = pile ? true : stayDown ? false : action.faceUp ?? card.faceUp;
+      const hiddenTransfer = fieldFaceVersion === 2 && !faceUp;
+      if (hiddenTransfer) delete card.publicIdentity;
       // The controller sees only what the table already showed: a face-down card keeps its identity for its owner only.
-      if (!remotePublicCard(card)) {
+      if ((hiddenTransfer || !remotePublicCard(card)) && !(hiddenTransfer && owner === to.seat)) {
         const kept: NonNullable<TwinCard["ownerIdentity"]> = {};
         for (const key of ["cardId", "passcode", "name", "race"] as const) if (card[key] !== undefined) (kept as Record<string, unknown>)[key] = card[key];
         if (Object.keys(kept).length && !card.ownerIdentity && owner !== to.seat) card.ownerIdentity = kept;
@@ -422,13 +498,11 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
       for (const other of next.seats) for (const item of other.twin) if (item.equippedTo?.seat === from.seat && item.equippedTo.ref === card.ref) item.equippedTo = { seat: to.seat, ref: card.ref };
       if (under.length) card.materials = under.map(m => m.ref); else delete card.materials;
       if (owner === to.seat) { delete card.ownerSeat; restoreOwnerIdentity(card); } else card.ownerSeat = owner;
-      // A face-down card on the field stays face-down whatever the client sends: flipping is twin.flip's job, and a flip here would reveal it.
-      const stayDown = !card.faceUp && (MONSTER_ZONES.has(card.zone) || card.zone === "spell-trap");
       card.zone = action.zone;
       if (action.slot !== undefined && !pile) card.slot = action.slot;
       if (action.position !== undefined) card.position = action.position;
       // A card taken from or returned to the field keeps its face; only a card sent to a pile shows face up.
-      card.faceUp = pile ? true : stayDown ? false : action.faceUp ?? card.faceUp;
+      card.faceUp = faceUp;
       to.twin.push(card);
       break;
     }
@@ -450,7 +524,7 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
           s.twin.push(material);
         }
       }
-      applySummon(next.seats, s, card, action.kind, action.materialRefs, at, true);
+      applySummon(next.seats, s, card, action.kind, action.materialRefs, at, true, givenCardsOn);
       break;
     }
     case "twin.detach": {
@@ -464,7 +538,7 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
       material.zone = action.zone;
       if (["hand", "deck", "extra"].includes(action.zone)) { delete material.publicIdentity; if (action.zone !== "hand") material.faceUp = false; delete material.pendulumUp; }
       // A material that another player owns goes to its owner, wherever it was sent.
-      returnToOwner(next.seats, s, material);
+      returnToOwner(next.seats, s, material, givenCardsOn);
       break;
     }
     case "pile.order": {
@@ -493,7 +567,10 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
   }
   for(const origin of next.effectTracking?.origins ?? []) if(origin.pool)
     origin.candidates=availableEffectCandidates(next,origin.pool,origin.seat,origin.minimumCopies,origin.searchSource);
-  for (const s of next.seats) if (s.eliminated) s.twin = [];
+  for (const s of next.seats) if (s.eliminated) {
+    if (givenCardsOn) sendGivenCardsHome(next, s);
+    s.twin = [];
+  }
   if (next.attack && (next.seats[next.attack.attackerSeat].eliminated || next.seats[next.attack.targetSeat].eliminated)) next.attack = null;
   const living = next.seats.filter(s => !s.eliminated);
   if (living.length <= 1) finishRemoteGame(next, living[0]?.seat ?? null, action.type === "player.concede" ? "concede" : "lp", at);
@@ -502,7 +579,17 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
     if (next.match.pendingResult?.lpSeat === undefined || next.match.pendingResult.lpSeat === eliminatedSeat) delete next.match.pendingResult;
   }
   // After merges and eliminations, so no hold or link points to a card that is gone.
-  clearZoneLinks(next, at);
+  clearZoneLinks(next, at, givenCardsOn);
+  // Apply the ordinary hand and deck accounting first, then retire the ref visible in the hand.
+  if(action.type==="twin.move" && action.setRef){
+    const {seat,cardRef,setRef}=action;
+    const card=next.seats[seat].twin.find(c=>c.ref===cardRef);
+    if(card){
+      card.ref=setRef;
+      for(const instance of next.deckChecks.instances)if(instance.seat===seat)instance.refs=instance.refs.map(ref=>ref===cardRef?setRef:ref);
+      for(const origin of next.effectTracking?.origins??[])if(origin.id===action.idempotencyKey+":set")origin.ref=setRef;
+    }
+  }
   // Camera placements may retain an existing physical ref. History must point to the card actually placed.
   const remembered = action.type === "twin.place" && deckAction.type === "twin.place"
     ? { ...action, card: { ...action.card, ref: deckAction.card.ref } } : action;

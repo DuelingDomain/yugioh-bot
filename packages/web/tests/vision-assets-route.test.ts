@@ -1,11 +1,15 @@
-import { mkdir, mkdtemp, readFile, rm, symlink, utimes, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rename, rm, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const state = vi.hoisted(() => ({ listed: vi.fn() }));
-vi.mock("@/lib/remote-duels", () => ({ remoteDuelsForViewer: state.listed }));
+const state = vi.hoisted(() => ({ listed: vi.fn(), access: vi.fn() }));
+vi.mock("@/lib/remote-duels", async importOriginal => ({
+  ...await importOriginal<typeof import("@/lib/remote-duels")>(),
+  remoteDuelsForViewer: state.listed,
+}));
+vi.mock("@/lib/web-access", () => ({ requireWebAccess: state.access }));
 
 let root: string;
 let codeDir: string;
@@ -35,6 +39,7 @@ beforeEach(async () => {
   vi.stubEnv("VISION_CODE_DIR", codeDir);
   vi.stubEnv("VISION_DATA_DIR", dataDir);
   state.listed.mockReset().mockResolvedValue(true);
+  state.access.mockReset().mockResolvedValue({ ok: true, userId: 17 });
 });
 afterEach(async () => {
   vi.unstubAllEnvs();
@@ -116,15 +121,19 @@ describe("code files from the web image", () => {
   it("derives the ETag from the contents, not from size or mtime", async () => {
     const first = await put(codeDir, "worker.js", "one");
     await utimes(first, 0, 0);
-    const a = (await get(["worker.js"])).headers.get("etag");
-    const second = await put(codeDir, "worker.js", "two");
+    const head = () => get(["worker.js"], { method: "HEAD" });
+    const a = (await head()).headers.get("etag");
+    // A new image replaces the file, including when both images use epoch mtimes.
+    const second = await put(codeDir, "worker.next.js", "two");
     await utimes(second, 0, 0);
-    const b = (await get(["worker.js"])).headers.get("etag");
+    await rename(second, first);
+    const b = (await head()).headers.get("etag");
     expect(b).not.toBe(a);
     // The same bytes with another mtime (a rebuilt image) keep the ETag, so browsers still get a 304.
     await writeFile(second, "one");
     await utimes(second, 1_700_000_000, 1_700_000_000);
-    expect((await get(["worker.js"])).headers.get("etag")).toBe(a);
+    await rename(second, first);
+    expect((await head()).headers.get("etag")).toBe(a);
   });
 
   it("answers HEAD with headers and no body", async () => {
@@ -253,6 +262,51 @@ describe("path safety applies to both roots", () => {
 });
 
 describe("access gate", () => {
+  it("restricts Hybrid to listed Remote Duels viewers, even with the lab on", async () => {
+    await put(codeDir, "hybrid/bank.bin", "image bank");
+    await put(dataDir, "hybrid/bank.bin", "volume bank");
+    await put(dataDir, "hybrid/catalog.json", "{}");
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("REMOTE_DUELS", "1");
+    vi.stubEnv("REMOTE_DUELS_USERS", "17,18");
+    vi.stubEnv("REMOTE_HYBRID_USER_IDS", undefined);
+    expect((await get(["hybrid", "bank.bin"])).status).toBe(404);
+    vi.stubEnv("REMOTE_HYBRID_USER_IDS", " 17, 19 ");
+    const bank = await get(["hybrid", "bank.bin"]);
+    expect(await bank.text()).toBe("image bank");
+    expect(bank.headers.get("cache-control")).toBe("private, no-store");
+    expect(await (await get(["hybrid", "catalog.json"])).text()).toBe("{}");
+    for (const userId of [18, 19]) {
+      state.access.mockResolvedValue({ ok: true, userId });
+      expect((await get(["hybrid", "bank.bin"], { method: "HEAD" })).status).toBe(404);
+    }
+    state.access.mockResolvedValue({ ok: false });
+    expect((await get(["hybrid", "bank.bin"])).status).toBe(404);
+  });
+
+  it("defaults to allowing local Remote Duels viewers only when the list is unset", async () => {
+    await put(dataDir, "hybrid/bank.bin", "local bank");
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("REMOTE_DUELS", "1");
+    vi.stubEnv("REMOTE_DUELS_USERS", "17");
+    vi.stubEnv("REMOTE_HYBRID_USER_IDS", undefined);
+    expect(await (await get(["hybrid", "bank.bin"])).text()).toBe("local bank");
+    for (const list of ["", "*", "170"]) {
+      vi.stubEnv("REMOTE_HYBRID_USER_IDS", list);
+      expect((await get(["hybrid", "bank.bin"])).status).toBe(404);
+    }
+  });
+
+  it("does not expose Hybrid via data symlinks or the preparation cache", async () => {
+    const bank = await put(dataDir, "hybrid/bank.bin", "bank");
+    const source = await put(dataDir, "hybrid-sources/sight-bank.bin", "source");
+    await symlink(bank, join(dataDir, "bank.bin"));
+    await symlink(source, join(dataDir, "source.bin"));
+    for (const path of [["bank.bin"], ["source.bin"], ["hybrid-sources", "sight-bank.bin"]]) {
+      expect((await get(path)).status).toBe(404);
+    }
+  });
+
   it("still hides code files unless the lab is on or the viewer is listed", async () => {
     await put(codeDir, "worker.js", "export {}");
     vi.stubEnv("DUEL_FX_LAB", "0");

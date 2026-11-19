@@ -10,6 +10,7 @@ const modeSeconds = {auto:'autoSeconds',tap:'tapSeconds',manual:'manualSeconds'}
 const publicZones = new Set(['monster', 'extra-monster', 'spell-trap', 'field', 'pendulum', 'graveyard', 'banished']);
 const manualActions = new Set(['twin.place', 'twin.move', 'twin.flip', 'twin.remove', 'twin.attach', 'twin.detach',
   'twin.equip', 'pile.lift', 'pile.order', 'twin.merge', 'deck.flag.dismiss']);
+const tokenActions = new Set(['twin.place', 'twin.move', 'twin.flip', 'twin.remove']);
 type EventRow = { seq:number; created_at:number; user_id:number|null; actor_seat:number|null;
   action_json:string; effects_json:string|null; facts_hash:string|null };
 
@@ -103,7 +104,8 @@ function captureEvidence(db: Database.Database, tableId: number, now: number): v
         if (seat && action.source === 'typed') seat.identifiedByTyped+=count;
       }
       if (manualActions.has(action.type) && (!('source' in action) || action.source !== 'auto')) {
-        const seat='seat' in action ? action.seat : event.actor_seat;
+        // A token may sit on another player's field. The one who placed or changed it is charged, not the field owner. Older events always had both equal.
+        const seat=tokenActions.has(action.type) && 'actorSeat' in action ? action.actorSeat : 'seat' in action ? action.seat : event.actor_seat;
         if (seat !== null && summary[seat]) summary[seat].manualCorrections++;
       }
       if (remoteActionSchema.safeParse(action).success) {

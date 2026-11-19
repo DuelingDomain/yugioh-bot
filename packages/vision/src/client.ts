@@ -1,8 +1,23 @@
 import { yugioh } from './games/yugioh';
 import { validateOptions } from './options';
 import { validateBoard } from './board';
-import type { GameProfile, RecognitionResult, RecognizeOptions, DetectedQuad, DetectOptions, PeekOptions, PeekResult, ReadAllOptions, BoardResult, PrepareOptions, BackendStatus } from './types';
+import type { CardReader, GameProfile, RecognitionResult, RecognizeOptions, DetectedQuad, DetectOptions, PeekOptions, PeekResult, ReadAllOptions, BoardResult, PrepareOptions, BackendStatus } from './types';
 import type {MatFitOptions, MatFitResult} from './mat-fit';
+
+/** Names for the app tray. Only an explicitly selected Hybrid reader calls this. */
+export async function loadHybridCatalog():Promise<{entries:import('./types').IndexEntry[]}> {
+  const controller=new AbortController();let timer:ReturnType<typeof setTimeout>|undefined;
+  try {
+    return await Promise.race([
+      (async()=>{
+        const [{HYBRID_ASSETS},{fetchModelChecked}]=await Promise.all([import('./hybrid-models'),import('./model-cache')]);
+        const asset=HYBRID_ASSETS.catalog,reply=await fetchModelChecked(asset.url,asset.sha256,{signal:controller.signal});
+        if(!reply.ok)throw new Error(`Hybrid catalog HTTP ${reply.status}`);return reply.json();
+      })(),
+      new Promise<never>((_,reject)=>{timer=setTimeout(()=>{controller.abort();reject(new Error('Hybrid catalog timed out'));},8_000);}),
+    ]);
+  }finally{clearTimeout(timer);}
+}
 
 /** One CPU request in an isolated vision worker. No model/index warmup or per-frame inference. */
 export function fitToMat(frame:ImageData|ImageBitmap, options:MatFitOptions&{signal?:AbortSignal;workerUrl?:string}={}):Promise<MatFitResult> {
@@ -30,6 +45,7 @@ export function fitToMat(frame:ImageData|ImageBitmap, options:MatFitOptions&{sig
 export type FeedbackSource='pick'|'search'|'voice'|'ai';
 export interface AIReading { name: string | null; setCode?: string; passcode?: number; match: {passcode: number; name: string} | null }
 export interface RecognizerConfig {
+  reader?: CardReader;
   game?: 'yugioh';
   /** Override the built-in game profile (including model/index URLs). */
   profile?: GameProfile;
@@ -102,6 +118,8 @@ interface Lane {
   worker?: Worker; initial?: Promise<unknown>; inFlight: boolean; status?: BackendStatus;
   pending: Map<number, { resolve(value: unknown): void; reject(error: Error): void }>;
 }
+class HybridWorkerFailed extends Error {}
+const HYBRID_WORKER_WAIT_MS = 15_000;
 export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
   if (config.game !== undefined && config.game !== 'yugioh') throw new Error(`Unsupported game: ${config.game}`);
   const profile = config.profile ?? yugioh;
@@ -109,6 +127,7 @@ export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
   let backendStatus: BackendStatus | undefined, detectorBackend: Recognizer['detectorBackend'];
   let detectorTimingsMs:Record<string,number>|undefined;
   let prepared:Promise<{backend:'webgpu'|'wasm'}>|undefined;
+  let selectedReader=config.reader, readerNote:string|undefined, lastPrepare:PrepareOptions|undefined;
   let layout: Promise<{ split: boolean; threads?: number; readThreads?: number }> | undefined;
   const single: Lane = { role: 'both', inFlight: false, pending: new Map() };
   let scene = single, read = single;
@@ -116,20 +135,41 @@ export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
   const failAll = (lane: Lane, error: Error) => { for (const value of lane.pending.values()) value.reject(error); lane.pending.clear(); };
   /** Detector from the worker that runs outline passes, embedder from the read worker. */
   function mergeStatus() {
-    const models = [...(scene.status?.models.filter(m => m.model === 'detector') ?? []), ...(read.status?.models.filter(m => m.model === 'embedder') ?? [])];
+    const models = [...(scene.status?.models.filter(m => m.model === 'detector') ?? []), ...(read.status?.models.filter(m => m.model !== 'detector') ?? [])];
     if (!models.length) return;
     const failed = models.filter(m => m.backend === 'wasm' && m.fallbackReason);
     const reasons = failed.length > 1 && new Set(failed.map(m => m.fallbackReason)).size === 1 ? [failed[0].fallbackReason!] : failed.map(m => `${m.model}: ${m.fallbackReason}`);
-    backendStatus = { backend: models.every(m => m.backend === 'webgpu') ? 'webgpu' : 'wasm', fallbackReason: reasons.length ? reasons.join('; ') : undefined, models };
+    const note=readerNote??read.status?.readerNote;
+    backendStatus = { backend: models.every(m => m.backend === 'webgpu') ? 'webgpu' : 'wasm', fallbackReason: reasons.length ? reasons.join('; ') : undefined, models, ...(note?{readerNote:note}:{}) };
+    config.onBackendChange?.(backendStatus);
+  }
+  function fallbackReader(lane:Lane) {
+    selectedReader='current';
+    readerNote='Hybrid reader stopped responding. Using the current reader. Switch readers to retry.';
+    reset(lane);lane.status=undefined;
+    failAll(lane,new HybridWorkerFailed(readerNote));
+    backendStatus={backend:backendStatus?.backend??'wasm',models:[],readerNote};
     config.onBackendChange?.(backendStatus);
   }
   function request(lane: Lane, message: object, transfers: Transferable[] = []): Promise<unknown> {
     const id = ++serial;
-    return new Promise((resolve, reject) => {
+    const hybrid=selectedReader==='hybrid'&&lane.role!=='scene';
+    const timer=hybrid?setTimeout(()=>fallbackReader(lane),HYBRID_WORKER_WAIT_MS):undefined;
+    const pending=new Promise((resolve, reject) => {
       lane.pending.set(id, { resolve, reject });
-      try { lane.worker!.postMessage({ ...message, id }, transfers); }
+      // Keep the originals until Hybrid answers: a terminated worker cannot return transferred pixels.
+      try { lane.worker!.postMessage({ ...message, id }, hybrid?[]:transfers); }
       catch (error) { lane.pending.delete(id); reject(error); }
     });
+    if(!hybrid)return pending;
+    return pending.catch(async error => {
+      if(!(error instanceof HybridWorkerFailed)||disposed)throw error;
+      clearTimeout(timer);
+      const initialized=await startLane(lane,threadsOf(lane));
+      if('type' in message&&message.type==='init')return initialized;
+      if(lastPrepare&&'type' in message&&message.type!=='init'&&message.type!=='prepare')await request(lane,{type:'prepare',opts:lastPrepare});
+      return await request(lane,message,transfers);
+    }).finally(()=>clearTimeout(timer));
   }
   function reset(lane: Lane) {
     lane.worker?.terminate(); lane.worker = undefined; lane.initial = undefined;
@@ -149,9 +189,9 @@ export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
         }
         if (error) value.reject(new Error(error)); else value.resolve(result);
       };
-      worker.onerror = event => { failAll(lane, new Error(event.message || 'Recognition worker failed')); reset(lane); useOneWorker(lane); };
-      worker.onmessageerror = () => failAll(lane, new Error('Recognition worker message failed'));
-      lane.initial = request(lane, { type: 'init', profile, backend: config.backend ?? 'auto', runtimeBase: config.runtimeBase ?? '/dev/vision-lab/assets/ort/', role: lane.role, threads }).catch(error => { reset(lane); useOneWorker(lane); throw error; });
+      worker.onerror = event => { if(selectedReader==='hybrid'&&lane.role!=='scene'){fallbackReader(lane);return;}failAll(lane, new Error(event.message || 'Recognition worker failed')); reset(lane); useOneWorker(lane); };
+      worker.onmessageerror = () => {if(selectedReader==='hybrid'&&lane.role!=='scene')fallbackReader(lane);else failAll(lane, new Error('Recognition worker message failed'));};
+      lane.initial = request(lane, { type: 'init', profile, backend: config.backend ?? 'auto', runtimeBase: config.runtimeBase ?? '/dev/vision-lab/assets/ort/', role: lane.role, threads, ...(selectedReader==='hybrid'&&lane.role!=='scene'?{reader:'hybrid'}:{}) }).catch(error => { reset(lane); useOneWorker(lane); throw error; });
     }
     return lane.initial;
   }
@@ -201,6 +241,7 @@ export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
   // The worker's init now loads only the detector so outlines can survive index failures.
   function prepare(opts?:PrepareOptions): Promise<{backend:'webgpu'|'wasm'}> {
     if(disposed)return Promise.reject(new Error('Recognizer is disposed'));
+    if(opts)lastPrepare=opts;
     // A split scene worker loads (and warms) its detector alongside the read worker.
     const warmScene=()=>{if(scene!==read)void initialize('scene').catch(()=>undefined);};
     if(opts)return initialize('read').then(async()=>{if(disposed)throw new Error('Recognizer is disposed');warmScene();return await request(read,{type:'prepare',opts}) as {backend:'webgpu'|'wasm'};});
@@ -235,6 +276,10 @@ export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
         const transfers:Transferable[] = frames.flatMap(f => typeof ImageBitmap !== 'undefined' && f instanceof ImageBitmap ? [f] as Transferable[] : opts.transferFrames ? [(f as ImageData).data.buffer as ArrayBuffer] : []);
         const start=performance.now();
         const result=await request(lane, { type: 'recognize', frames, opts }, [...new Set(transfers)]) as RecognitionResult;
+        if(config.reader==='hybrid'&&selectedReader==='current'&&readerNote&&!result.reader){
+          const [a,b]=result.raw?.visual??result.candidates,score=a?.score??0,runnerUp=b?.score??0;
+          result.reader={selected:'hybrid',stage:'fallback',model:'current',second:{score,runnerUp,margin:Math.max(0,score-runnerUp),ms:result.timingsMs.total},ms:performance.now()-start};
+        }
         if(result.timingsMs){result.timingsMs.roundTrip=performance.now()-start;result.timingsMs.transfer=Math.max(0,result.timingsMs.roundTrip-(result.timingsMs.worker??0)-(result.timingsMs.queue??0));}return result;
       } finally { lane.inFlight = false; }
     },

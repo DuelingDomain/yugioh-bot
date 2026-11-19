@@ -72,6 +72,7 @@ button.chip{cursor:pointer;font-family:inherit}
 .zonePanel p{margin:0 0 8px;color:var(--ink2);font-size:13px;line-height:1.35}
 .zonePanel p b{color:var(--ink)}
 .zoneActions{display:flex;gap:6px}
+.zoneActions+.zoneActions{margin-top:6px}
 .zoneActions button{flex:1 1 0;min-width:0;min-height:38px;padding:0 6px;white-space:normal;line-height:1.15}
 /* Phones and touch: 44 px targets, also for the docked prompt and the Unresolved list. */
 @media(pointer:coarse),(max-width:900px){

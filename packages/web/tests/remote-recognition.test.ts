@@ -35,7 +35,7 @@ it.each(['fetch','response body'] as const)('a hung catalog %s releases the shar
     const metadata=queue.transaction(async(_room,act)=>{await loadCards([id]);finished=true;if(cardInfo(id))await act({type:'phase.advance',actorSeat:0});});
     const manual=queue.action({type:'phase.advance',actorSeat:0});
     await vi.advanceTimersByTimeAsync(9_999);expect(fetcher).toHaveBeenCalledOnce();expect(finished).toBe(false);expect(post).not.toHaveBeenCalled();
-    await vi.advanceTimersByTimeAsync(1);expect(finished).toBe(true);expect(post).toHaveBeenCalledExactlyOnceWith({type:'phase.advance',actorSeat:0},undefined);await Promise.all([metadata,manual]);expect(signal?.aborted).toBe(true);expect(cardInfo(id)).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(1);expect(finished).toBe(true);expect(post).toHaveBeenCalledExactlyOnceWith({type:'phase.advance',actorSeat:0},expect.any(String));await Promise.all([metadata,manual]);expect(signal?.aborted).toBe(true);expect(cardInfo(id)).toBeUndefined();
     fetcher.mockResolvedValueOnce(Response.json({cards:[{id,name:'Recovered catalog fixture',type:'Trap Card',frameType:'trap',effectText:''}]}));await loadCards([id]);expect(cardInfo(id)).toMatchObject({id,type:'Trap Card'});expect(fetcher).toHaveBeenCalledTimes(2);
   }finally{vi.useRealTimers();}
 });
@@ -584,6 +584,14 @@ it('queued evidence cannot apply or confirm an old name over replacement pixels'
  for(const track of [undefined,{...event.track,visible:false},{...event.track,removed:true},{...event.track,revision:1},{...event.track,cardId:'B'}])expect(fieldEvidenceMatches(event,track)).toBe(false);
  expect(fieldEvidenceMatches(event,{...event.track,zone:'M4'})).toBe(true);
  expect(fieldEvidenceMatches({...event,type:'prompt'},{...event.track,state:'prompt'})).toBe(true);
+ const now=vi.spyOn(performance,'now').mockReturnValue(5000);
+ try{
+   const back={...event.track,cardId:undefined,faceDown:true,visible:false,lastSeen:2000,setEvidence:{decision:'committed'}};
+   const placed={...event,track:back};
+   expect(fieldEvidenceMatches(placed,back)).toBe(true);
+   for(const stale of [{lastSeen:1999},{removed:true},{setEvidence:{decision:'waiting'}}])
+     expect(fieldEvidenceMatches(placed,{...back,...stale})).toBe(false);
+ }finally{now.mockRestore();}
 });
 
 it('a replacement during the placement HTTP request rolls back the new twin and never confirms its name',async()=>{
@@ -824,14 +832,18 @@ it('the board follows a resting track of the other face with one flip; a weak or
 });
 it('the face check waits on still frames, limits repeated flips, keeps the player\'s hold and binds by ref only',async()=>{
  const {createFieldFaceCheck,FIELD_FACE_RELEASE_MS,FIELD_FACE_QUIET_MS,FIELD_FACE_CALM_MS}=await import('../src/lib/remote/field-face');
- const {fieldFaceProposal,applyFieldFaceFlip}=await import('../src/lib/remote/field-proposals');
+ const {fieldFaceProposal,fieldSetMove,applyFieldFaceFlip}=await import('../src/lib/remote/field-proposals');
  const track=(over:object={})=>({id:'c',state:'identified',zone:'S4',faceDown:true,position:'attack',removed:false,visible:false,lastSeen:0,restSince:0,revision:1,card:{confidence:.2},...over}) as any;
- const run=(check:ReturnType<typeof createFieldFaceCheck>,t:any,card:any,at:number,scan=false)=>check.due({at,seat:0,scan,tracks:[{...t,lastSeen:at}],twins:[card],refOf:x=>x.id,identity:x=>x.cardId?{cardId:89194033,name:'Apophis'}:undefined});
+ const run=(check:ReturnType<typeof createFieldFaceCheck>,t:any,card:any,at:number,scan=false,freshZoom=false)=>check.due({at,seat:0,scan,tracks:[{...t,lastSeen:at}],twins:[card],refOf:x=>x.id,freshZoom:()=>freshZoom,identity:x=>x.cardId?{cardId:89194033,name:'Apophis'}:undefined});
  const up={ref:'c',zone:'spell-trap',faceUp:true} as any,down={...up,faceUp:false};
  // 600 ms of still frames, and a rest that starts later counts from there.
  let check=createFieldFaceCheck();
  expect(run(check,track({restSince:1000}),up,1000)).toEqual([]);expect(run(check,track({restSince:1000}),up,1500)).toEqual([]);
  expect(run(check,track({restSince:1000}),up,1650)[0].proposal).toMatchObject({type:'twin.flip',faceUp:false,source:'auto'});
+ const zoomFront=track({visible:true,faceDown:false,cardId:'a',restSince:1000});
+ expect(run(createFieldFaceCheck(),zoomFront,down,1000,false,true)[0]?.proposal).toMatchObject({type:'twin.flip',cardRef:'c',faceUp:true,cardId:89194033});
+ const manuallySet=createFieldFaceCheck();manuallySet.hold('c',false);
+ expect(run(manuallySet,zoomFront,down,1000,false,true)).toEqual([]);
  // Glare: a down and an up, then quiet. The level check picks the card up again after the quiet time; Scan field does not wait.
  check=createFieldFaceCheck();check.flipped('c',0);check.flipped('c',1300);
  expect(run(check,track(),up,5000)).toEqual([]);expect(run(check,track(),up,1300+FIELD_FACE_QUIET_MS-1)).toEqual([]);
@@ -855,11 +867,24 @@ it('the face check waits on still frames, limits repeated flips, keeps the playe
  // Failed writes wait, then stop until Scan field.
  check=createFieldFaceCheck();run(check,track(),up,5000);check.failed('c',5000);expect(run(check,track(),up,6000)).toEqual([]);expect(run(check,track(),up,7100)).toHaveLength(1);
  check.failed('c',7100);check.failed('c',7100);expect(run(check,track(),up,99_000)).toEqual([]);expect(run(check,track(),up,99_000,true)).toHaveLength(1);
- // An Xyz Monster needs a clear back. An old Revealed clears on a camera back; a card Set by an effect keeps its public identity.
+ // An Xyz Monster needs a clear back. A tracked back clears an old Revealed and preserves an in-place Set or effect Set.
  const xyz={ref:'x',zone:'monster',faceUp:true,materials:['m']} as any;
  expect(fieldFaceProposal(xyz,track(),0)).toBeUndefined();expect(fieldFaceProposal(xyz,track({card:{confidence:.6}}),0)).toBeUndefined();
  expect(fieldFaceProposal(xyz,track({card:{confidence:.6},pixelsDown:true}),0)?.faceUp).toBe(false);
- expect(fieldFaceProposal({...down,publicIdentity:true},track(),0)?.faceUp).toBe(false);expect(fieldFaceProposal({...down,publicIdentity:true,setBy:{name:'Trap Tracks'}},track(),0)).toBeUndefined();
+ expect(fieldFaceProposal(down,track(),0)).toBeUndefined();
+ const revealed={...down,publicIdentity:true},known={...revealed,knownFaceDown:true};
+ const scanBack={faceDown:true,position:'attack',identityUncertain:true} as const;
+ expect(fieldFaceProposal(revealed,track(),0)).toMatchObject({faceUp:false,identityUncertain:true});
+ expect(run(createFieldFaceCheck(),track(),revealed,5000,true)[0]?.proposal).toMatchObject({faceUp:false,identityUncertain:true});
+ expect(run(createFieldFaceCheck(),track(),known,5000,true)).toEqual([]);
+ expect(fieldFaceProposal(known,scanBack,0)).toMatchObject({faceUp:false,identityUncertain:true});
+ const effectSet={...revealed,setBy:{name:'Trap Tracks'}};
+ expect(fieldFaceProposal(effectSet,track(),0)).toBeUndefined();
+ expect(fieldFaceProposal(effectSet,scanBack,0)).toBeUndefined();
+ expect(fieldFaceProposal({...up,ownerSeat:1},track(),0)).toBeUndefined();
+ expect(fieldSetMove({...up,slot:4},track(),0)).toBeUndefined();
+ expect(fieldSetMove({...up,slot:2},track(),0)).toMatchObject({type:'twin.move',zone:'spell-trap',slot:4,faceUp:false,source:'auto'});
+ expect(fieldSetMove({...up,slot:4},track(),0,true)).toMatchObject({type:'twin.move',slot:4,faceUp:false,physicalZoneChanged:true});
  // The write checks its evidence: a card that turned during the save gets no confirm, and a stale reveal is undone.
  const reveal=fieldFaceProposal(down,front,0,{cardId:89194033,name:'Apophis'})!;let now=front;
  const act=vi.fn(async(p:any,id?:string)=>{if(p.type==='twin.flip'){now={...front,revision:2};return {state:{undo:{actionId:id}}} as any;}return {state:{undo:null}} as any;});
@@ -1092,7 +1117,7 @@ it('the Attach to tag lists face-up Xyz Monsters of both sides, those that attac
 
 it('camera evidence for a departed card: an unread GY top or a face-down banished card is where it went; two candidates are a guess',async()=>{
   const {fieldPileEvidence}=await import('../src/lib/remote/field-proposals');
-  const track=(id:string,zone:string,firstSeen=1000)=>({id,zone,visible:true,removed:false,firstSeen}) as any;
+  const track=(id:string,zone:string,firstSeen=1000)=>({id,zone,visible:true,removed:false,firstSeen,card:{kind:'face-up'}}) as any;
   const stand=(ref:string,zone:string,faceUp:boolean)=>({ref,zone,faceUp,position:'attack'}) as any;
   const base={lastSeen:900,owns:(t:any)=>t.id};
   expect(fieldPileEvidence({...base,twins:[stand('fw-1','graveyard',true)],tracks:[track('fw-1','GY')]})).toMatchObject({zone:'graveyard',faceUp:true});
@@ -1102,6 +1127,127 @@ it('camera evidence for a departed card: an unread GY top or a face-down banishe
   expect(fieldPileEvidence({...base,twins:[{...stand('fw-1','graveyard',true),name:'Known'}],tracks:[track('fw-1','GY')]})).toBeUndefined();
   expect(fieldPileEvidence({...base,twins:[stand('fw-1','graveyard',true)],tracks:[track('fw-1','GY',-20000)]})).toBeUndefined();
   expect(fieldPileEvidence({...base,twins:[stand('fw-1','graveyard',true),stand('fw-2','banished',false)],tracks:[track('fw-1','GY'),track('fw-2','BANISHED')]})).toBeUndefined();
+  // A slow reader has not named the pile card yet, so the board has no card for it: one resting GY box is the evidence; a Normal Spell defaults to the GY, not the hand.
+  const {fieldPileTrackEvidence,fieldDefaultDestination}=await import('../src/lib/remote/field-proposals');
+  const resting=(id:string,zone:string,firstSeen=1000)=>({...track(id,zone,firstSeen),state:'candidate',faceDown:false,restSince:firstSeen+300}) as any;
+  expect(fieldPileTrackEvidence({...base,twins:[],tracks:[resting('t-1','GY')]})).toMatchObject({zone:'graveyard',faceUp:true});
+  expect(fieldPileTrackEvidence({...base,twins:[],tracks:[resting('t-1','GY'),resting('t-2','BANISHED')]})).toBeUndefined();
+  expect(fieldPileTrackEvidence({...base,twins:[],tracks:[{...resting('t-1','GY'),restSince:undefined}]})).toBeUndefined();
+  expect(fieldPileTrackEvidence({...base,twins:[],tracks:[resting('t-1','GY',-20000)]})).toBeUndefined();
+  const waitingTop={...resting('next','GY'),visible:false},oldTop={...resting('old','GY',100),lastSeen:950,removed:true};
+  const replacement={...base,twins:[{...stand('old','graveyard',true),cardId:1}],tracks:[oldTop,waitingTop],pileContactAt:{GY:975}};
+  expect(fieldPileTrackEvidence(replacement)).toMatchObject({track:waitingTop,zone:'graveyard'});
+  expect(fieldPileTrackEvidence({...replacement,pileContactAt:{GY:1400}})).toBeUndefined();
+  // A pile track the reader already named as another card is that card's, not the leaving one's.
+  expect(fieldPileTrackEvidence({...base,cardId:'7',twins:[],tracks:[{...resting('t-1','GY'),cardId:'8'}]})).toBeUndefined();
+  expect(fieldPileTrackEvidence({...base,cardId:'7',twins:[],tracks:[{...resting('t-1','GY'),cardId:'7'}]})).toMatchObject({zone:'graveyard'});
+  // A Spell the default rule put in the GY that is banished instead: the later named Banished read is the same card, not a second copy.
+  const {ygoModule}=await import('../../shared/src/remote/games/ygo');
+  const {remoteActionSchema}=await import('../../shared/src/remote/actions');
+  let game=ygoModule.initialState({seatCount:2}),serial=0;
+  const act=(input:Record<string,unknown>,at:number)=>game=ygoModule.reduce(game,remoteActionSchema.parse({actorSeat:0,seat:0,at,idempotencyKey:`late-${++serial}`,...input}));
+  const spell={cardId:100,name:'Terraforming',faceUp:true};
+  act({type:'twin.place',zone:'spell-trap',card:{...spell,ref:'sp',slot:2}},1000);
+  act({type:'twin.move',source:'auto',cardRef:'sp',zone:'graveyard',faceUp:true},2000);
+  act({type:'twin.place',source:'auto',zone:'banished',card:{...spell,ref:'read'}},12_000);
+  expect(game.seats[0].twin.map(c=>[c.ref,c.zone])).toEqual([['sp','banished']]);
+  // A replay of the same events gives the same state at guard 9; older guards keep the old result (a second copy).
+  const before=ygoModule.reduce(ygoModule.reduce(ygoModule.initialState({seatCount:2}),remoteActionSchema.parse({actorSeat:0,seat:0,at:1000,idempotencyKey:'r-1',type:'twin.place',zone:'spell-trap',card:{...spell,ref:'sp',slot:2}})),remoteActionSchema.parse({actorSeat:0,seat:0,at:2000,idempotencyKey:'r-2',type:'twin.move',source:'auto',cardRef:'sp',zone:'graveyard',faceUp:true}));
+  const read=remoteActionSchema.parse({actorSeat:0,seat:0,at:12_000,idempotencyKey:'r-3',type:'twin.place',source:'auto',zone:'banished',card:{...spell,ref:'read'}});
+  expect(ygoModule.reduce(before,read,{replay:true,twinPlacementGuard:9}).seats[0].twin.map(c=>[c.ref,c.zone])).toEqual([['sp','banished']]);
+  expect(ygoModule.reduce(before,read,{replay:true,twinPlacementGuard:8}).seats[0].twin).toHaveLength(2);
+  expect(fieldDefaultDestination({faceUp:true,zone:'spell-trap'},{type:'Spell Card',race:'Normal'})).toEqual({zone:'graveyard'});
+  expect(fieldDefaultDestination({faceUp:true,zone:'spell-trap'},{type:'Spell Card',race:'Continuous'})).toEqual({zone:'hand'});
+  expect(fieldDefaultDestination({faceUp:true,zone:'monster'},{type:'Effect Monster'})).toEqual({zone:'hand'});
+});
+
+/** The camera rig sees a card at M3 vanish and a back settle (at M3, or at M4 for a slid Set); the board holds the twin the way the watcher component sees it. */
+async function setBackRig(slide:boolean,named:boolean){
+  const r=await ownerFieldRig();
+  const {ygoModule}=await import('../../shared/src/remote/games/ygo');
+  const {remoteActionSchema}=await import('../../shared/src/remote/actions');
+  r.state.down=slide;r.state.outlines=[r.quad(.47,.30,slide)];await r.tick(8);
+  const first=r.state.events.find(e=>e.type==='placed')!;
+  r.state.absent=true;r.state.outlines=[];r.state.halo=.2;
+  for(let i=0;i<35&&!r.state.events.some(e=>e.type==='removed');i++)await r.tick();
+  const removal=r.state.events.find(e=>e.type==='removed')!;expect(removal.removedAt).toBeTypeOf('number');
+  r.state.absent=false;r.state.down=true;r.state.halo=.45;r.state.outlines=[r.quad(slide?.634:.47,.30,true)];await r.tick(15);
+  const back=r.watcher.getSnapshot().tracks.find(t=>t.faceDown&&t.visible&&!t.removed)!;
+  let game=ygoModule.initialState({seatCount:2}),serial=0;
+  const act=(input:Record<string,unknown>,at:number)=>game=ygoModule.reduce(game,remoteActionSchema.parse({actorSeat:0,seat:0,at,idempotencyKey:`rig-${++serial}`,...input}));
+  act({type:'twin.place',zone:'monster',card:{ref:first.track.id,slot:3,faceUp:!slide,position:slide?'defense':'attack',...(named?{cardId:100,name:'Terraforming'}:{})}},1000);
+  return {r,first,back,removal,act,game:()=>game,owns:(t:{id:string})=>t.id,tracks:()=>r.watcher.getSnapshot().tracks};
+}
+it('a Set back where a known card just left is that card, never a duplicate; a pile read or a draw in between keeps the old result',async()=>{
+  const {fieldSetReturn}=await import('../src/lib/remote/field-proposals');
+  const g=await setBackRig(false,true);
+  try{
+    // Order one: the back shows before the hand move was written: the card turns over where it lies.
+    const soon={now:g.r.state.at,at:20_000};
+    expect(fieldSetReturn({track:g.back,twins:g.game().seats[0].twin,tracks:g.tracks(),owns:g.owns,events:[],seat:0,...soon})).toMatchObject({kind:'flip',card:{ref:g.first.track.id}});
+    // Order two: the hand move went first and the late back brings the same card back as a Set, once, with an exact hand count.
+    const handBefore=g.game().seats[0].handCount;
+    g.act({type:'twin.move',source:'auto',cardRef:g.first.track.id,zone:'hand'},100_000);
+    const {now,at}={now:g.r.state.at,at:103_000};
+    const found=fieldSetReturn({track:g.back,twins:g.game().seats[0].twin,tracks:g.tracks(),owns:g.owns,events:[],seat:0,now,at});
+    expect(found).toMatchObject({kind:'return',card:{ref:g.first.track.id}});
+    expect(fieldSetReturn({track:g.back,twins:g.game().seats[0].twin,tracks:g.tracks(),owns:g.owns,events:[],seat:0,now:g.removal.removedAt!+10_001,at})).toBeUndefined();
+    // A GY read after the card left, or a draw since, is not a turn-over.
+    expect(fieldSetReturn({track:g.back,twins:g.game().seats[0].twin,tracks:g.tracks(),owns:g.owns,events:[],seat:0,now,at,pileTouched:{GY:g.removal.removedAt!}})).toBeUndefined();
+    expect(fieldSetReturn({track:g.back,twins:g.game().seats[0].twin,tracks:g.tracks(),owns:g.owns,events:[{at:101_000,action:{type:'hand.draw',actorSeat:0,count:1,idempotencyKey:'draw'}}],seat:0,now,at})).toBeUndefined();
+    g.act({type:'twin.move',source:'auto',cardRef:found!.card.ref,zone:'monster',slot:3,faceUp:false,position:'defense'},at);
+    expect(g.game().seats[0].twin.map(c=>[c.ref,c.zone,c.slot,c.faceUp,c.cardId,!!c.publicIdentity])).toEqual([[g.first.track.id,'monster',3,false,100,false]]);
+    expect(g.game().seats[0].handCount).toBe(handBefore);
+  }finally{g.r.dispose();}
+});
+
+it('a Set card slid to another zone keeps its ref unless the transfer is ambiguous or another destination was seen',async()=>{
+  const {fieldSetReturn,fieldSetSlide}=await import('../src/lib/remote/field-proposals');
+  const {FIELD_SET_RETURN_MS}=await import('@yugidraft/vision');
+  const g=await setBackRig(true,false);
+  try{
+    const before=g.game().seats[0];
+    const {now,at}={now:g.r.state.at,at:103_000};
+    const evidence={track:g.back,tracks:g.tracks(),owns:g.owns,events:[],seat:0,now,at};
+    const slide={...evidence,twins:before.twin.map(c=>({...c,faceUp:false,name:'Terraforming',cardId:100})),
+      zoneOf:()=> 'M3' as const,seenOffField:()=>false};
+    expect(fieldSetSlide(slide)).toMatchObject({card:{ref:g.first.track.id,name:'Terraforming'}});
+    expect(fieldSetSlide({...slide,twins:slide.twins.map(c=>({...c,faceUp:true}))})).toBeUndefined();
+    expect(fieldSetSlide({...slide,track:{...g.back,zone:'S4'}})).toBeUndefined();
+    const samePass=slide.tracks.map(t=>t.id===g.first.track.id?{...t,removedAt:g.back.firstSeen+200,removedFrameAt:g.back.firstSeen}:t);
+    expect(fieldSetSlide({...slide,tracks:samePass})?.card.ref).toBe(g.first.track.id);
+    const removedAt=g.removal.removedAt!;
+    const firstMiss=g.removal.track.removedFrameAt??removedAt;
+    const lateBlind={...g.back,firstSeen:removedAt+3400,card:{...g.back.card,blind:true}};
+    const delayed={...slide,track:lateBlind,tracks:slide.tracks.map(t=>t.id===lateBlind.id?lateBlind:t),now:removedAt+3800};
+    expect(fieldSetSlide(delayed)).toBeUndefined();
+    expect(fieldSetSlide({...delayed,blindSleeveSince:{[lateBlind.zone]:firstMiss+2900}})?.card.ref).toBe(g.first.track.id);
+    expect(fieldSetSlide({...delayed,blindSleeveSince:{[lateBlind.zone]:firstMiss+3100}})).toBeUndefined();
+    expect(fieldSetSlide({...delayed,blindSleeveSince:{[lateBlind.zone]:firstMiss+3100},
+      lastFieldActivityAtByZone:{[lateBlind.zone]:firstMiss+2800}})?.card.ref).toBe(g.first.track.id);
+    expect(fieldSetSlide({...delayed,now:removedAt+FIELD_SET_RETURN_MS+1,blindSleeveSince:{[lateBlind.zone]:firstMiss+2900}})).toBeUndefined();
+    expect(fieldSetSlide({...slide,pileTouched:{GY:g.removal.removedAt!}})).toBeUndefined();
+    const earlyBack=samePass.map(t=>t.id===g.first.track.id?{...t,removedFrameAt:g.back.firstSeen+800}:t);
+    expect(fieldSetSlide({...slide,tracks:earlyBack})?.card.ref).toBe(g.first.track.id);
+    const slowerSlide=samePass.map(t=>t.id===g.first.track.id?{...t,removedFrameAt:g.back.firstSeen-2100}:t);
+    expect(fieldSetSlide({...slide,tracks:slowerSlide})?.card.ref).toBe(g.first.track.id);
+    const lateBack=samePass.map(t=>t.id===g.first.track.id?{...t,removedFrameAt:g.back.firstSeen-3001}:t);
+    expect(fieldSetSlide({...slide,tracks:lateBack})).toBeUndefined();
+    expect(fieldSetSlide({...slide,tracks:samePass,now:g.back.firstSeen+200+FIELD_SET_RETURN_MS+1})).toBeUndefined();
+    expect(fieldSetSlide({...slide,tracks:samePass,pileTouched:{GY:g.back.firstSeen-1500}})).toBeUndefined();
+    expect(fieldSetSlide({...slide,seenOffField:()=>true})).toBeUndefined();
+    expect(fieldSetSlide({...slide,tracks:[...slide.tracks,{...g.back,id:'other',zone:'M5'}]})).toBeUndefined();
+    expect(fieldSetSlide({...slide,tracks:[...slide.tracks,{...g.back,id:'other-row',zone:'S5'}]})?.card.ref).toBe(g.first.track.id);
+    g.act({type:'twin.move',source:'auto',cardRef:g.first.track.id,zone:'hand'},100_000);
+    const input={...evidence,twins:g.game().seats[0].twin};
+    const found=fieldSetReturn(input);
+    expect(found).toMatchObject({kind:'move',card:{ref:g.first.track.id}});
+    expect(fieldSetReturn({...input,twins:input.twins.map(c=>({...c,name:'Terraforming',cardId:100}))})).toBeUndefined();
+    expect(fieldSetReturn({...input,tracks:[...input.tracks,{...g.back,id:'other',zone:'M5'}]})).toBeUndefined();
+    g.act({type:'twin.move',source:'auto',cardRef:found!.card.ref,zone:'monster',slot:4,faceUp:false,position:'defense'},at);
+    expect(g.game().seats[0].twin.map(c=>[c.ref,c.zone,c.slot,c.faceUp,c.cardId])).toEqual([[g.first.track.id,'monster',4,false,undefined]]);
+    expect(g.game().seats[0].handCount).toBe(before.handCount);
+  }finally{g.r.dispose();}
 });
 
 it.each(['DECK','HAND'] as const)('a known card returns from %s to M4 after the move window without a new identity guess',async zone=>{

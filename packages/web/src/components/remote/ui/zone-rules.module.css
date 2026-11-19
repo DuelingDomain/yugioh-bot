@@ -16,7 +16,7 @@
   font:700 10px/1.15 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;letter-spacing:.03em;padding:2px;overflow:hidden}
 .held b{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px;color:#f3dcf7}
 .held small{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:9px;color:#c9a0d2;letter-spacing:.06em}
-[data-rotated] .check,[data-rotated] .link,[data-rotated] .held{transform:rotate(180deg)}
+[data-rotated] .check,[data-rotated] .link,[data-rotated] .held,[data-rotated] .owner{transform:rotate(180deg)}
 /* Narrow cells (phones, 4-seat tables): an icon-only chip in the bottom corner; the reason is in the card popup. */
 @container (max-width:72px){
   .check{left:auto;right:2px;bottom:2px;width:18px;min-height:18px;padding:0;border-radius:50%}
@@ -29,3 +29,10 @@
 .reason b{color:var(--warn,#f0b24f);margin-right:4px}
 .equipPick{display:flex;align-items:center;gap:6px;font:600 11px/1.2 var(--font-duel-ui),system-ui,sans-serif;color:#cfc4f2}
 .equipPick select{background:#120c22;color:#ece6ff;border:1px solid #4b3f78;border-radius:6px;padding:3px 6px;font:inherit;max-width:220px}
+
+/* The owner mark of a given card (proxy) on the field it sits on. It hugs the top-left corner, clear of the ATK/DEF plate at the bottom. */
+.owner{position:absolute;left:2px;top:2px;z-index:4;max-width:64%;display:inline-flex;align-items:center;gap:3px;padding:0 4px 0 3px;border-radius:9px;background:rgb(5 8 16/.92);box-shadow:0 0 0 1px var(--oc,#e8b94f);color:#f1ecff;font:700 9px/13px var(--font-duel-ui),system-ui,sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none}
+/* Below the Equip pill and the not-in-decklist mark, which keep the top edge. */
+.ownerLow{top:18px}
+.owner i{flex:none;width:6px;height:6px;border-radius:50%;background:var(--oc,#e8b94f)}
+@media (max-width:700px){.owner{font-size:8px;line-height:11px;gap:2px;padding:0 3px 0 2px;max-width:70%}}

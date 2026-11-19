@@ -5,14 +5,14 @@ import { isAbsolute, relative, resolve, sep } from "node:path";
 
 /**
  * Where the web image keeps the recognition worker and the ONNX Runtime files (see the vision-code stage in the
- * Dockerfile). Card-recognition models and indexes stay in VISION_DATA_DIR;
- * the pinned voice models and runtimes ship together under asr/ and kws/.
+ * Dockerfile). Current models and indexes stay in VISION_DATA_DIR.
+ * Pinned voice and Hybrid data ship with the image under asr/, kws/ and hybrid/.
  */
 export const VISION_CODE_DIR_DEFAULT = "/app/vision-code";
 
-/** Image assets must match the web bundle. Voice subtrees include their pinned models and licences. */
+/** Image assets are versioned with the web bundle. */
 export function isVisionCodeAsset(path: string[]): boolean {
-  return (path.length === 1 && (path[0] === "worker.js" || path[0] === "NOTICE")) || (path.length > 1 && ["ort", "asr", "kws"].includes(path[0]));
+  return (path.length === 1 && (path[0] === "worker.js" || path[0] === "NOTICE")) || (path.length > 1 && ["ort", "asr", "kws", "hybrid"].includes(path[0]));
 }
 
 export interface VisionAsset {
@@ -42,6 +42,9 @@ async function openInside(directory: string, path: string[]): Promise<{ file: Fi
     if (!inside(root, target)) return undefined;
     // Owner diagnostic crops share DATA, but are never public model/lab assets.
     if (inside(resolve(root, "diagnostics"), target)) return undefined;
+    if (inside(resolve(root, "hybrid-sources"), target)) return undefined;
+    // Prevent alternate paths from bypassing the Hybrid route's allow list.
+    if ((path[0] === "hybrid") !== inside(resolve(root, "hybrid"), target)) return undefined;
     // Refuse a final-component symlink introduced between realpath and open, too.
     file = await open(target, constants.O_RDONLY | constants.O_NOFOLLOW);
     const stat = await file.stat();
@@ -56,8 +59,8 @@ async function openInside(directory: string, path: string[]): Promise<{ file: Fi
 
 /**
  * Code files come from the image first, so a deploy updates them with the web bundle that loads them. When the image
- * has no such file (local development, where only data/vision exists) the data directory answers. Data files never
- * read from the code directory, except the pinned voice models in asr/ and kws/.
+ * has no such file (local development, where only data/vision exists) the data directory answers.
+ * The pinned voice and Hybrid data also prefer the image.
  */
 export async function openVisionAsset(path: string[]): Promise<VisionAsset | undefined> {
   if (isVisionCodeAsset(path)) {

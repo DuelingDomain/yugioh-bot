@@ -29,7 +29,7 @@ export const twinCardSchema = z.strictObject({
   bestMatch: z.boolean().optional(),
   nameCandidates: nameCandidates.optional(),
   /** A token: table state with no physical card. Its name is the token name; ATK/DEF are the values shown to everyone. `artId` is the catalog card whose art it borrows. */
-  token: z.strictObject({ atk: z.number().int().min(0).max(999999), def: z.number().int().min(0).max(999999), artId: cardId.optional() }).optional(),
+  token: z.strictObject({ atk: z.number().int().min(0).max(999999), def: z.number().int().min(0).max(999999), artId: cardId.optional(), /** The seat that placed it on another player's field. Set by the reducer; absent when the owner placed it. */ by: remoteSeatSchema.optional() }).optional(),
 });
 const effectSource = z.strictObject({ cardId: cardId.optional(), cardRef: id.optional(), name: z.string().trim().min(1).max(200).optional() })
   .refine(source=>!!(source.cardId || source.cardRef || source.name), "Identify the effect source");
@@ -78,6 +78,8 @@ export const remoteActionSchema = z.discriminatedUnion("type", [
     copyProof: z.strictObject({ simultaneousQuads: z.number().int().min(2).max(100), at: z.number().int().nonnegative() }).optional(),
     /** Explicit origin answer; independent of recognition source. */
     fromRef: id.optional(),
+    /** The actor gives this card to the seat's field: it shows there as a proxy owned by the actor. */
+    give: z.literal(true).optional(),
     originRequestRef: id.optional(),
     /** Explicit copy override, also retained for recorded origin answers. */
     anotherCopy: z.boolean().optional(),
@@ -89,6 +91,10 @@ export const remoteActionSchema = z.discriminatedUnion("type", [
   z.strictObject({ ...meta, type: z.literal("pile.order"), seat: remoteSeatSchema, zone: z.enum(["graveyard", "banished"]), cardRefs: z.array(id).min(1).max(120)
     .refine(refs => new Set(refs).size === refs.length, "Duplicate pile card") }),
   z.strictObject({ ...meta, type: z.literal("twin.move"), seat: remoteSeatSchema, zone, cardRef: id, slot: slot.optional(), position: z.enum(["attack", "defense"]).optional(), faceUp: z.boolean().optional(), source: z.literal("auto").optional(), name: z.string().trim().min(1).max(200).optional(),
+    /** Fresh public ref for a camera-confirmed face-down return from the hand. */
+    setRef: id.optional(),
+    /** The card moved between physical cells, even if its virtual slot stays the same. */
+    physicalZoneChanged: z.literal(true).optional(),
     /** A face-up Pendulum Monster in the Extra Deck is public information (only that card; every other Extra card stays hidden). */
     pendulum: z.boolean().optional(),
     /** The camera or the player chose this destination (not a rule default): the card keeps no field origin. */
@@ -109,8 +115,13 @@ export const remoteActionSchema = z.discriminatedUnion("type", [
   z.strictObject({ ...meta, type: z.literal("twin.detach"), seat: remoteSeatSchema, cardRef: id, materialRef: id,
     zone: z.enum(["graveyard", "banished", "hand", "deck", "extra"]).default("graveyard") }),
   z.strictObject({ ...meta, type: z.literal("twin.flip"), seat: remoteSeatSchema, cardRef: id, faceUp: z.boolean(),
-    cardId:cardId.optional(),name:sighting.name,bestMatch:z.boolean().optional(),position:z.enum(['attack','defense']).optional(),source:z.literal('auto').optional() })
-    .refine(a=>a.faceUp||a.cardId===undefined&&a.name===undefined&&a.bestMatch===undefined,'Only a reveal can carry identity'),
+    cardId:cardId.optional(),name:sighting.name,bestMatch:z.boolean().optional(),position:z.enum(['attack','defense']).optional(),source:z.literal('auto').optional(),
+    /** A token's new ATK/DEF, set by its controller or creator. Only a face-up token takes it. */
+    tokenStats:z.strictObject({atk:z.number().int().min(0).max(999999),def:z.number().int().min(0).max(999999)}).optional(),
+    /** A camera back does not establish that the previously public identity still applies. */
+    identityUncertain: z.literal(true).optional() })
+    .refine(a=>a.faceUp||a.cardId===undefined&&a.name===undefined&&a.bestMatch===undefined,'Only a reveal can carry identity')
+    .refine(a=>!a.identityUncertain||a.source==='auto'&&!a.faceUp,'Uncertain identity requires a camera Set'),
   z.strictObject({ ...meta, type: z.literal("twin.remove"), seat: remoteSeatSchema, cardRef: id, source: z.literal("auto").optional() }),
   z.strictObject({ ...meta, type: z.literal("log.note"), text: z.string().trim().min(1).max(500) }),
   z.strictObject({ ...meta, type: z.literal("undo"), targetActionId: id }),
@@ -125,7 +136,7 @@ export type RemoteActionProposal = Proposal<RemoteAction>;
 export type TwinCard = z.infer<typeof twinCardSchema> & {
   /** A pile held for inspection is not part of the hand until confirmed. */
   inspectionFrom?: 'graveyard' | 'banished';
-  zone: string; departedFrom?: { zone: string; slot?: number; at?: number; /** The camera moved it (default for a card out of view). */ auto?: boolean }; setBy?: import("./effect-filters.js").RemoteEffectSource;
+  zone: string; departedFrom?: { zone: string; slot?: number; at?: number; /** The camera moved it (default for a card out of view). */ auto?: boolean; /** A known face-up field card before the camera moved it to Hand. */ wasKnownFaceUp?: true }; setBy?: import("./effect-filters.js").RemoteEffectSource;
   /** Server-authored: the Spell & Trap Zone a Trap Monster still occupies. Cleared when it leaves the Monster Zones. */
   trapZone?: number;
   /** A face-up Pendulum Monster in the Extra Deck: the one Extra card the opponent sees. */
@@ -142,6 +153,8 @@ export type TwinCard = z.infer<typeof twinCardSchema> & {
   materialOf?: string;
   /** Server-authored knowledge; independent of the physical face-up/down state. */
   publicIdentity?: boolean;
+  /** Server-authored: a face-down field card whose identity was already public on the field, including to spectators. */
+  knownFaceDown?: true;
 };
 export class RemoteDuelError extends Error {
   constructor(message: string, public readonly status = 400, public readonly code = "REMOTE_INVALID") { super(message); this.name = "RemoteDuelError"; }

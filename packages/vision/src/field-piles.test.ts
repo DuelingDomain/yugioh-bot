@@ -78,6 +78,37 @@ test('a low-score Extra Deck stack in its calibrated cell is a pile; an empty ma
   } finally { watcher.dispose(); }
 });
 
+test('a verified Deck survives a covered outline and detector misses until its footprint shows empty mat', async () => {
+  const calibration=createFieldCalibration([{x:0,y:0},{x:1,y:1}]);
+  const deck:DetectedQuad={kind:'face-down',confidence:.85,partial:false,
+    quad:[{x:.876,y:.71},{x:.966,y:.71},{x:.966,y:.945},{x:.876,y:.945}]};
+  const covered={...deck,covered:true,quad:deck.quad.map(p=>({...p,x:p.x+.01}))};
+  const back={width:320,height:180,data:new Uint8ClampedArray(320*180*4).fill(240)};
+  const mat=Array(288).fill(.18),sleeve=Array.from({length:288},(_,i)=>[.36,.69,.57][i%3]);
+  let at=0,look=sleeve,outlines=[deck];
+  const watcher=createFieldWatcher({profile:yugioh,calibration,zoomSets:true,now:()=>at,hidden:()=>false,clone:async f=>f,
+    buffer:{sample:async()=>({frame:back as ImageData,at})},
+    recognizer:{detectCards:async()=>structuredClone(outlines),recognize:async()=>{throw new Error('piles are never read');}},
+    analyze:()=>({motion:()=>0,sharpness:()=>20,crop:()=>back,appearance:()=>look,halo:()=>mat}),
+  });
+  const tick=async(count:number)=>{for(let i=0;i<count;i++){at+=250;await watcher.tick();}};
+  try {
+    await tick(6);
+    assert.equal(watcher.getSnapshot().piles?.[0]?.zone,'DECK');
+    outlines=[covered];await tick(3);
+    assert.deepEqual(watcher.getSnapshot().piles?.[0]?.card.quad,deck.quad);
+    outlines=[];
+    look=Array.from({length:288},(_,i)=>sleeve[i]*(i<144?.45:1.05));
+    await tick(28);
+    assert.equal(watcher.getSnapshot().piles?.[0]?.zone,'DECK');
+    assert.ok(!watcher.getSnapshot().missingPiles?.includes('DECK'));
+    look=mat;
+    await tick(26);
+    assert.equal(watcher.getSnapshot().piles?.length??0,0);
+    assert.ok(watcher.getSnapshot().missingPiles?.includes('DECK'));
+  } finally { watcher.dispose(); }
+});
+
 // Owner 2026-11-04: the white-sleeve Deck was on the mat but missing from the board, and Scan field changed nothing.
 // Scan field is authoritative: after its two fresh full passes a decoded stack outline (here .22, under the .25 pile
 // floor) with a sleeve unlike the mat puts the Deck on the board, and an empty Deck cell takes it off at once.

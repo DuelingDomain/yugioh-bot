@@ -183,8 +183,8 @@ RUN mkdir /web-effects && cp -a packages/shared/data/effects/. /web-effects/ \
 
 # Remote Duels card recognition runs in a browser Web Worker. Its code (worker.js)
 # and the ONNX Runtime WASM files it loads are version-locked to each other and to
-# the web bundle, so they ship in this image, not in the data volume. Models and
-# indexes stay in the volume. prepare.ts --code-only is offline: esbuild + file copies.
+# the web bundle, so they ship in this image. Current's models and indexes stay
+# in the volume. prepare.ts --code-only is offline: esbuild + file copies.
 # The files are staged as /stage/app/vision-code with every mtime fixed at the epoch,
 # and the web stage copies /stage/app over /app. That gives the layer the same digest
 # on every build while the runtime is unchanged, so deploys do not pull ~41 MB of
@@ -194,6 +194,17 @@ FROM build AS vision-code
 RUN mkdir -p /stage/app \
     && VISION_DATA_DIR=/stage/app/vision-code npx tsx scripts/vision/prepare.ts --code-only \
     && test -s /stage/app/vision-code/worker.js && test -s /stage/app/vision-code/ort/ort-wasm-simd-threaded.wasm \
+    && chmod -R a+rX,go-w /stage/app \
+    && find /stage/app -exec touch -h -d @0 {} +
+
+# Prepare pinned Hybrid models and indexes. Only the checked output, including
+# notices, is copied into the runtime image.
+FROM deps AS vision-hybrid
+COPY scripts/vision/prepare-hybrid.ts scripts/vision/
+COPY packages/vision/src packages/vision/src
+RUN VISION_DATA_DIR=/tmp/vision node --import tsx scripts/vision/prepare-hybrid.ts \
+    && mkdir -p /stage/app/vision-code \
+    && mv /tmp/vision/hybrid /stage/app/vision-code/ \
     && chmod -R a+rX,go-w /stage/app \
     && find /stage/app -exec touch -h -d @0 {} +
 
@@ -229,6 +240,7 @@ COPY --from=web-runtime-data /web-effects packages/shared/data/effects
 COPY --from=build /app/packages/shared/data/staples/usage.json packages/shared/data/staples/usage.json
 # Root-owned and read-only to the node user. The vision-assets route reads it first (VISION_CODE_DIR).
 COPY --from=vision-code /stage/app /app
+COPY --from=vision-hybrid /stage/app /app
 COPY --from=voice-assets /stage/app /app
 RUN mkdir -p /app/data /app/packages/web/.next/cache && \
     chown node:node /app/data && chown -R node:node /app/packages/web/.next/cache

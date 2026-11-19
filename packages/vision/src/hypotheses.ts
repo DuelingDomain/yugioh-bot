@@ -105,10 +105,10 @@ export function userBox(sel: RGBAImage, inner?: Rect | null): Rect {
 }
 
 /** Cut `box` (fractions of a card) from `card` (a pixel rectangle of the image turned by `rotation`). */
-function cutBox(img: RGBAImage, rotation: Rotation, card: Rect, box: CardBox): RGBAImage {
+function cutBox(img: RGBAImage, rotation: Rotation, card: Rect, box: CardBox, sizeRounding=false): RGBAImage {
   const { w, h } = turnedSize(img, rotation);
   const rect = { x: card.x + box.x * card.w, y: card.y + box.y * card.h, w: box.w * card.w, h: box.h * card.h };
-  return cropRotated(img, rotation, toPixels(rect, w, h));
+  return cropRotated(img, rotation, sizeRounding?{x:Math.round(rect.x),y:Math.round(rect.y),w:Math.max(1,Math.round(rect.w)),h:Math.max(1,Math.round(rect.h))}:toPixels(rect, w, h));
 }
 
 /**
@@ -197,7 +197,7 @@ export function buildHypotheses(
     for (const warpedCard of cards) {
       const card = { x: 0, y: 0, w: warpedCard.width, h: warpedCard.height };
       let image:RGBAImage|undefined;
-      out.push({ id: 'quad', rotation, get image(){return image??=cutBox(warpedCard, rotation, card, ART_BOX);} });
+      out.push({ id: 'quad', rotation, get image(){return image??=cutBox(warpedCard, rotation, card, ART_BOX,profile.embedding.cropSizeRounding);} });
     }
   }
 

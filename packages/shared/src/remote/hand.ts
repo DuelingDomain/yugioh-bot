@@ -5,6 +5,23 @@ import {searchCandidates} from './search-candidates.js';
 import { remoteFieldZone } from './twin-placement.js';
 import type { RemoteKnownHandCard, RemoteState } from './types.js';
 
+/** A face-down card keeps its identity for its owner while another player controls it (the controller never sees it). */
+export function restoreOwnerIdentity(card: TwinCard): void {
+  const kept = card.ownerIdentity; delete card.ownerIdentity;
+  if (kept && !card.cardId && !card.passcode && !card.name) Object.assign(card, kept);
+}
+/** A player is out: the cards their living owners gave them go home to the owner's Graveyard with their identity. The caller then clears the field. */
+export function sendGivenCardsHome(state: RemoteState, out: RemoteState["seats"][number]): void {
+  for (const card of out.twin) {
+    const owner = card.ownerSeat !== undefined && card.ownerSeat !== out.seat && !card.token ? state.seats[card.ownerSeat] : undefined;
+    if (!owner || owner.eliminated || owner.twin.some(c => c.ref === card.ref)) continue;
+    delete card.ownerSeat; restoreOwnerIdentity(card);
+    for (const key of ["slot", "trapZone", "equippedTo", "departedFrom", "materialOf", "materials", "position", "publicIdentity", "pendulumUp"] as const) delete card[key];
+    card.zone = "graveyard"; card.faceUp = true;
+    owner.twin.push(card);
+  }
+}
+
 /** Shared physical exit for hand.add and pile.lift. */
 export function moveRemoteCardToHand(card: TwinCard): void {
   delete card.slot; delete card.departedFrom; delete card.publicIdentity;
@@ -120,6 +137,13 @@ export function reduceRemoteHandAction(state: RemoteState, action: Extract<Remot
   if(!reviewed||!privateField) remember(state, seat, action.cardId, action.source, action.idempotencyKey, action.by ?
     reviewed?{cardId:action.by.cardId,name:context?.facts?.[action.by.cardId]?.name??state.effectTracking?.origins.find(o=>o.source.cardId===action.by!.cardId)?.source.name??'Card '+action.by.cardId}:action.by:undefined);
   return true;
+}
+/** A card given to an opponent leaves the giver's hand: one less in the count, and its known copy is forgotten. */
+export function applyRemoteGive(next: RemoteState, giverSeat: number, code: number | undefined, context?: RemoteReductionContext): void {
+  if (context?.replay && context.handKnowledge !== 1) return;
+  const s = counts(next, giverSeat, !context?.replay || context.handReview === 1);
+  forgetCopy(next, giverSeat, code);
+  s.handCount = Math.max(0, s.handCount! - 1);
 }
 /** Compare physical exits once, after the board and deck checks have updated. */
 export function applyRemoteHand(next: RemoteState, before: RemoteState, action: RemoteAction, context?: RemoteReductionContext): void {

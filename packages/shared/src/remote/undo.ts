@@ -261,7 +261,7 @@ export function remoteUndoLabel(action: RemoteAction, position?: RemotePosition)
     case "twin.place": return action.summon ? `${summonName(action.summon.kind)}: ${name} (${action.summon.materialRefs.length} material${action.summon.materialRefs.length === 1 ? "" : "s"})` : `${name} placed → ${zone(action.zone, action.card.slot)}`;
     case "twin.attach": return `${summonName(action.kind)}: ${name} (${action.materialRefs.length} material${action.materialRefs.length === 1 ? "" : "s"})`;
     case "twin.detach": return `${name}: material detached`;
-    case "twin.flip": return `${name} flipped ${action.faceUp ? "up" : "down"}`;
+    case "twin.flip": return action.tokenStats ? `${name} ATK/DEF set` : `${name} flipped ${action.faceUp ? "up" : "down"}`;
     case "twin.remove": return `${name} removed`;
     case "twin.equip": return action.target ? `${name} equipped` : `${name} unequipped`;
     case "twin.control": return `${name}: control changed`;

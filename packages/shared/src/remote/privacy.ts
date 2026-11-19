@@ -1,7 +1,9 @@
 import { remoteUndoHistory } from "./undo.js";
+import type { TwinCard } from "./actions.js";
 import type { RemoteEvent, RemotePosition, RemoteState, RemoteTable } from "./types.js";
 import type { RemoteSnapshot } from "./realtime.js";
 import { remotePublicCard } from "./deck-checks.js";
+import { remoteFieldZone } from "./twin-placement.js";
 const hidden = (zone?:string,faceUp=true) => !faceUp || zone==="hand" || zone==="deck" || zone==="extra";
 function projectPosition<T extends RemotePosition>(state:T, seats:ReadonlySet<number>):T {
   const next=structuredClone(state);
@@ -66,6 +68,11 @@ function projectEvent(event:RemoteEvent,seats:ReadonlySet<number>):RemoteEvent {
     if(effects?.privateHandIdentity) next.action={type:'log.note',actorSeat:actor,text:a.type==='deck.count'?'Updated a private Deck count':'Updated a private hand card',idempotencyKey:event.id};
     if(a.type==="side.swap") { next.action={type:"log.note",actorSeat:actor,text:"Updated a private side deck",idempotencyKey:event.id}; delete next.messages; }
     if(a.type==="effect.choose" && !effects?.publicEffectChoice) { next.action={type:"log.note",actorSeat:actor,text:"Updated a private card choice",idempotencyKey:event.id}; delete next.messages; }
+    if(a.type==="twin.move" && a.setRef) {
+      next.action={type:"twin.place",actorSeat:a.actorSeat,seat:a.seat,zone:a.zone,source:"auto",at:a.at,idempotencyKey:a.idempotencyKey,
+        card:{ref:a.setRef,faceUp:false,position:a.position??"attack",...(a.slot!==undefined?{slot:a.slot}:{})}};
+      delete next.messages;
+    }
     if(a.type==="twin.place" && hidden(a.zone,a.card.faceUp)) { delete a.card.cardId; delete a.card.passcode; delete a.card.name; delete a.card.race; delete a.card.nameCandidates; delete next.messages; }
     if(a.type==="card.identified" || a.type==="cards.identified") {
       const sightings=a.type==="card.identified" ? [a] : a.cards;
@@ -76,15 +83,15 @@ function projectEvent(event:RemoteEvent,seats:ReadonlySet<number>):RemoteEvent {
   return next;
 }
 /**
- * What a spectator may know. A player sees some cards because the table told that player (a searched card, a reveal, a
- * card once public and now Set). A spectator gets none of that, except the revealed / returned-to-hand cards (public table
- * knowledge, filtered like a player's view): no other hand contents, no face-down names, no notes, no undo or deck data.
+ * Spectators see the public field, including cards turned face-down after they were public there. Revealed and returned-to-hand
+ * cards are filtered like a player's view. Private hand contents, notes, undo and deck data are omitted.
  * Allow list for events: a new action type shows as a private line until it is added here.
  */
 const SPECTATOR_EVENTS:ReadonlySet<string>=new Set(["table.created","table.configured","table.started","table.ended","idle.warning","admin.watching","seat.joined","seat.left","seat.ready","seat.deck",
   "phase.set","phase.advance","turn.end","lp.change","detection.mode","attack.declare","attack.resolve","player.concede","player.leave","match.declare","match.confirm","match.continue","match.first","side.ready","side.unready","side.timeout",
   "hand.draw","hand.count","twin.place","twin.move","twin.flip","twin.remove","twin.attach","twin.detach","twin.equip","twin.control","pile.lift","pile.order","effect.activated"]);
-const PUBLIC_ZONE=(card:{zone:string;faceUp?:boolean})=>card.faceUp!==false && !["hand","deck","extra"].includes(card.zone);
+const PUBLIC_ZONE = (card: TwinCard) => card.faceUp !== false && !["hand", "deck", "extra"].includes(card.zone) ||
+  !!card.knownFaceDown && !!card.publicIdentity && remoteFieldZone(card.zone);
 /** Twin refs can hold the card id ("c0-<id>-..."). A ref that is not of a card public now becomes a name with no meaning for one snapshot. */
 function spectatorRefs(state:RemotePosition) {
   const open=new Set(state.seats.flatMap(seat=>seat.twin.filter(PUBLIC_ZONE).map(card=>card.ref))), names=new Map<string,string>();
@@ -107,7 +114,7 @@ function renameRefs(value:unknown,hide:(ref:string)=>string):void {
     else renameRefs(item,hide);
   }
 }
-const CARD_IDENTITY=["cardId","passcode","name","race","bestMatch","publicIdentity","setBy","zoneRule"] as const;
+const CARD_IDENTITY=["cardId","passcode","name","race","bestMatch","publicIdentity","knownFaceDown","setBy","zoneRule"] as const;
 function spectatorPosition<T extends RemotePosition>(state:T,refs:SpectatorRefs):T {
   const next=structuredClone(withoutUndo(state as unknown as RemoteState)) as unknown as T;
   delete next.twinConfirmation; delete next.twinConfirmationQueue; delete next.effectTracking;
@@ -119,7 +126,7 @@ function spectatorPosition<T extends RemotePosition>(state:T,refs:SpectatorRefs)
     seat.twin=seat.twin.filter(card=>card.zone!=="hand" && card.zone!=="deck");
     for(const card of seat.twin) delete card.ownerIdentity;
     for(const card of seat.twin) if(!PUBLIC_ZONE(card)) {
-      delete card.cardId; delete card.passcode; delete card.name; delete card.race; delete card.bestMatch; delete card.nameCandidates; delete card.publicIdentity; delete card.setBy;
+      delete card.cardId; delete card.passcode; delete card.name; delete card.race; delete card.bestMatch; delete card.nameCandidates; delete card.publicIdentity; delete card.knownFaceDown; delete card.setBy;
     }
   }
   const shown=next.identified, on=shown?.cardRef ? next.seats[shown.seat]?.twin.find(card=>card.ref===shown.cardRef) : undefined;
@@ -134,7 +141,7 @@ function spectatorEvent(event:RemoteEvent,refs:SpectatorRefs):RemoteEvent {
   if(!SPECTATOR_EVENTS.has(a.type)) return {...projected,action:{type:"log.note",actorSeat:actor,text:a.type==="undo" ? "Undid an action" : "Updated a private card",idempotencyKey:event.id}};
   if(a.type==="twin.flip" && !a.faceUp) { delete a.cardId; }
   if(a.type==="twin.place" && (a.zone==="hand" || a.zone==="deck")) return {...projected,action:{type:"log.note",actorSeat:actor,text:"Updated a private card",idempotencyKey:event.id}};
-  // An old event must not name a card that is not public now: Set again, back in the hand or Deck, or removed.
+  // Historic events may name only cards whose identity is public on the current board.
   const subject=(a.type==="twin.place" ? a.card : a.type==="effect.activated" ? a.source : a) as unknown as Record<string,unknown>, subjectRef=a.type==="twin.place" ? a.card.ref : "cardRef" in subject ? subject.cardRef : undefined;
   if(typeof subjectRef==="string" && !refs.open.has(subjectRef)) {
     for(const key of CARD_IDENTITY) delete subject[key];

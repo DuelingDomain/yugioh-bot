@@ -6,6 +6,7 @@ import type { RemoteEvent } from "@yugidraft/shared/remote";
 import { VoiceControls } from "@/components/remote/ui/voice-controls";
 import { useVoiceDiagnostics } from "@/components/remote/ui/use-voice-diagnostics";
 import { utteranceRecord } from "@/lib/remote/voice-diagnostics";
+import { chooseThemed } from "./helpers/themed-select";
 const utterance = (id: string) => utteranceRecord({ id, method: "kws", text: "battle", canonical: "battle phase", context: { turn: 3, phase: "main1", turnSeat: 0, ownSeat: 0 },
   decision: { outcome: "acted", reason: null, actionId: `action-${id}` }, utterance: { hits: [{ keyword: "F1" }], busyMs: 10, audioMs: 900, speechMs: 500 } });
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); });
@@ -18,7 +19,7 @@ it("binds a wrong label to the selected result while newer utterances arrive, an
   fireEvent.click(screen.getByRole("button", { name: "Save label" }));
   expect(onMark).toHaveBeenLastCalledWith({ label: "wrong", intended: "nothing", note: "", method: "kws", utteranceId: "u1", contextIds: ["u1"] });
   fireEvent.click(screen.getByRole("button", { name: "It missed me" }));
-  fireEvent.change(screen.getByLabelText("Intended command"), { target: { value: "free-text" } });
+  chooseThemed("Intended command", "free-text");
   fireEvent.change(screen.getByLabelText("Intended words"), { target: { value: "I said main two" } });
   fireEvent.click(screen.getByRole("button", { name: "Save label" }));
   expect(onMark).toHaveBeenLastCalledWith({ label: "missed", intended: "free-text", note: "I said main two", method: "kws", utteranceId: null, contextIds: ["u1", "u2"] });

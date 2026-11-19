@@ -2,6 +2,7 @@ import { remoteAssert, type RemoteAction } from "./actions.js";
 import { remotePublicCard, remotePublicZone, type RemoteReductionContext } from "./deck-checks.js";
 import { REMOTE_SEARCH_SOURCE_ZONES, type RemoteEffectCandidate, type RemoteEffectPlan, type RemoteEffectSource } from "./effect-filters.js";
 import { reduceRemoteHandAction } from "./hand.js";
+import { remoteFieldZone } from "./twin-placement.js";
 import type { RemoteState } from "./types.js";
 export type RemoteEffectOrigin = {
   id: string; seat: number; ref: string; destination: "set" | "hand"; source: RemoteEffectSource;
@@ -70,7 +71,9 @@ export function applyRemoteEffectTracking(next: RemoteState, before: RemoteState
     action.type==="twin.move" || (action.type==="twin.flip" && !action.faceUp && action.source!=="auto") ? next.seats[action.seat].twin.find(c=>c.ref===action.cardRef) : undefined;
   if(placed && "seat" in action && !placed.faceUp && ["spell-trap","monster","field","pendulum"].includes(placed.zone)) {
     const active=tracking.contexts[action.seat];
-    if(active && !tracking.origins.some(o=>o.seat===action.seat && o.ref===placed.ref && o.destination==="set")) {
+    const alreadyOnField = (!context.replay || context.fieldFaceState === 2) &&
+      before.seats[action.seat].twin.some(card => card.ref === placed.ref && remoteFieldZone(card.zone));
+    if(active && !alreadyOnField && !tracking.origins.some(o=>o.seat===action.seat && o.ref===placed.ref && o.destination==="set")) {
       newOrigin(action.idempotencyKey+":set",action.seat,placed.ref,active.source,active.plan); delete tracking.contexts[action.seat];
     }
   }

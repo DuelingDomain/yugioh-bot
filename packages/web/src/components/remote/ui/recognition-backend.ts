@@ -1,11 +1,16 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
+import type { CardReader, ReaderDiagnostics } from "@yugidraft/vision";
 
 /** Auto and GPU both let the engine try WebGPU first (it falls back to WASM on its own); CPU skips WebGPU. */
 export type RecognitionMode = "auto" | "gpu" | "cpu";
 export type EngineBackend = "webgpu" | "wasm";
 export type RecognitionBackendState = {
+  hybridEnabled: boolean;
+  reader: CardReader;
+  readerNote: string;
+  read: ReaderDiagnostics | null;
   mode: RecognitionMode;
   /** Where the card reader runs now; null until the reader has started. */
   backend: EngineBackend | null;
@@ -24,7 +29,9 @@ export const RECOGNITION_MODES: readonly { value: RecognitionMode; label: string
 ];
 
 const KEY = "dd-remote-recognition-mode";
-const DEFAULT: RecognitionBackendState = { mode: "auto", backend: null, ms: null, note: "", generation: 0 };
+const READER_KEY = "dd-remote-card-reader";
+export const CARD_READERS: readonly {value:CardReader;label:string}[] = [{value:"current",label:"Current"},{value:"hybrid",label:"Hybrid"}];
+const DEFAULT: RecognitionBackendState = { hybridEnabled: false, reader:"current",readerNote:"",read:null,mode: "auto", backend: null, ms: null, note: "", generation: 0 };
 let state: RecognitionBackendState | null = null;
 let forcedCpu = false;
 const listeners = new Set<() => void>();
@@ -36,6 +43,12 @@ function load(): RecognitionBackendState {
   try { const stored = localStorage.getItem(KEY); if (stored === "auto" || stored === "gpu" || stored === "cpu") mode = stored; } catch { /* Private mode: memory only. */ }
   return state = { ...DEFAULT, mode };
 }
+function preferredReader(): CardReader {
+  let reader: CardReader = "current";
+  try {const stored=localStorage.getItem(READER_KEY);if(stored==="hybrid")reader=stored;}catch{}
+  try {const forced=new URL(location.href).searchParams.get("visionReader");if(forced==="current"||forced==="hybrid")reader=forced;}catch{}
+  return reader;
+}
 function update(patch: Partial<RecognitionBackendState>) {
   const now = load(), next = { ...now, ...patch };
   if ((Object.keys(patch) as (keyof RecognitionBackendState)[]).every(key => now[key] === next[key])) return;
@@ -46,11 +59,34 @@ function update(patch: Partial<RecognitionBackendState>) {
 export function engineBackend(): "auto" | "wasm" {
   return forcedCpu || load().mode === "cpu" ? "wasm" : "auto";
 }
+export const cardReader=():CardReader=>load().reader;
+function updateReader(reader: CardReader, hybridEnabled: boolean) {
+  const now = load();
+  if (now.reader === reader) {
+    update({ hybridEnabled });
+    return;
+  }
+  update({ hybridEnabled, reader, readerNote: "", read: null, backend: null, ms: null, note: "", generation: now.generation + 1 });
+  for(const reset of resetters)reset();
+}
+/** Set from the signed-in Remote Duels page before its camera starts the reader. */
+export function setHybridReaderEnabled(enabled: boolean) {
+  if (load().hybridEnabled === enabled) return;
+  updateReader(enabled ? preferredReader() : "current", enabled);
+}
+export function setCardReader(reader:CardReader) {
+  const now = load();
+  if (now.reader === reader || (reader === "hybrid" && !now.hybridEnabled)) return;
+  try {localStorage.setItem(READER_KEY,reader);}catch{}
+  updateReader(reader, now.hybridEnabled);
+}
+export function reportReaderNote(readerNote:string) {update({readerNote});}
+export function reportReaderRead(read:ReaderDiagnostics|undefined) {if(read)update({read});}
 export function setRecognitionMode(mode: RecognitionMode) {
   if (load().mode === mode) return;
   try { localStorage.setItem(KEY, mode); } catch { /* Memory-only fallback. */ }
   forcedCpu = false;
-  update({ mode, backend: null, ms: null, note: "", generation: load().generation + 1 });
+  update({ mode, backend: null, ms: null, note: "", readerNote:"",read:null,generation: load().generation + 1 });
   for (const reset of resetters) reset();
 }
 /** Changes each time the reader restarts (new mode, GPU lost, GPU retry). */

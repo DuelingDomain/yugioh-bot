@@ -31,6 +31,22 @@ test('a shaded finger crossing the card edge still blocks the card',()=>{
   expect(evidence.occluded?.(card)).toBe(true);
 });
 
+test('the calibrated mat edge excludes the desk from skin evidence and still detects a hand that crosses it',()=>{
+  const mat=[{x:.1,y:.31},{x:.9,y:.28},{x:.9,y:.9},{x:.1,y:.9}];
+  const image=scene(false);
+  for(let y=0;y<100;y++)for(let x=0;x<100;x++){
+    const desk=y<32-(x-10)*3/80;
+    image.data.set(desk?[190,130,95,255]:[45,50,55,255],(y*100+x)*4);
+  }
+  const analyze=createFieldAnalyzer();
+  const clear=analyze(image,0,mat);
+  expect(clear.skinNear?.(card)).toBe(0);
+  expect(clear.touched?.(card)).toBe(0);
+  const hand={...image,data:new Uint8ClampedArray(image.data)};
+  for(let y=16;y<50;y++)for(let x=40;x<60;x++)hand.data.set([190,130,95,255],(y*100+x)*4);
+  expect(analyze(hand,100,mat).touched?.(card)).toBeGreaterThan(.12);
+});
+
 test('skin gripping opposite outside edges is contact even when no skin covers the crop',()=>{
   const image=scene(false);
   for(let y=40;y<=60;y++)for(let x=71;x<=82;x++)image.data.set([180,135,108,255],(y*image.width+x)*4);

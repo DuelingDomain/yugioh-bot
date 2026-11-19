@@ -1247,6 +1247,24 @@ describe("solo remote tables", () => {
       expect(service.join(slug, "g", users[3], "Admin", 1, t + 20_000 + 10).seats.map(x => x.userId)).toContain(users[3]);
     } finally { vi.unstubAllEnvs(); }
   });
+  it("commits a log note and a twin placement submitted concurrently at the same sequence", async () => {
+    const s = deckSession("normal");
+    s.start();
+    const { slug, lastSeq: baseSeq, state } = s.room;
+    const submit = (proposal: RemoteActionProposal, idempotencyKey: string) => Promise.resolve().then(() =>
+      s.service.act(slug, "g", s.users[0], { baseSeq, action: remoteActionSchema.parse({ ...proposal, idempotencyKey }) }, 3000));
+
+    // Both requests carry the same sequence. SQLite processes the note first.
+    const [noted, placed] = await Promise.all([
+      submit({ type: "log.note", actorSeat: 0, text: "Good luck" }, "concurrent-note"),
+      submit({ type: "twin.place", actorSeat: 0, seat: 0, zone: "monster",
+        card: { ref: "concurrent-card", slot: 1, faceUp: true, position: "attack" } }, "concurrent-place"),
+    ]);
+    expect(noted.state).toEqual({ ...state, updatedAt: 3000 });
+    expect(placed.lastSeq).toBe(baseSeq + 2);
+    expect(placed.events.slice(-2).map(event => event.action.type)).toEqual(["log.note", "twin.place"]);
+    expect(placed.state.seats[0].twin).toContainEqual(expect.objectContaining({ ref: "concurrent-card", zone: "monster", slot: 1 }));
+  });
   it("an admin who starts or stops watching never makes a player's move stale, and the stop line follows the grace", () => {
     const s = deckSession("normal", false);
     vi.stubEnv("OWNER_USER_IDS", String(s.users[3]));
@@ -2234,7 +2252,13 @@ describe("remote effect origins and hidden information", () => {
     expect(s.service.snapshot(s.room.slug,"g").state.seats[0].twin.find(c=>c.ref==="return")?.cardId).toBeUndefined();
   });
   it("publishes a default-table Set choice without flipping it or sharing the other candidates", () => {
-    const s=originSession(true); s.act({type:"effect.activated",source:{cardId:70825459}});
+    const s=originSession(true);
+    s.act({type:"twin.place",seat:0,zone:"spell-trap",card:{ref:"existing-spell",cardId:5318639,slot:2,faceUp:true}});
+    s.act({type:"effect.activated",source:{cardId:70825459}});
+    s.act({type:"twin.move",seat:0,cardRef:"existing-spell",zone:"spell-trap",slot:3,faceUp:false,source:"auto"});
+    expect(s.service.snapshot(s.room.slug,"g").state.seats[0].twin[0]).not.toHaveProperty("cardId");
+    expect(s.room.state.effectTracking!.origins).toEqual([]);
+    s.act({type:"twin.remove",seat:0,cardRef:"existing-spell"});
     s.act({type:"twin.place",seat:0,zone:"spell-trap",card:{ref:"public-set",faceUp:false,slot:1}});
     const origin=originOf(s);
     s.act({type:"effect.choose",originId:origin.id,cardId:53582587});
@@ -2524,11 +2548,14 @@ it("keeps omitted-zone hidden recognition private even in later event history",(
 it("links camera reads to a privately chosen Set and keeps batch notes independently dismissible",async()=>{
   const {remoteRecognitionRef}=await import("../../src/remote/effect-tracking.js");
   const s=originSession();
-  for(const ref of ["a","b"]) {
-    s.act({type:"effect.activated",source:{cardId:70825459}});
-    s.act({type:"twin.place",seat:0,zone:"spell-trap",card:{ref,faceUp:false}});
-  }
+  s.act({type:"twin.place",seat:0,zone:"spell-trap",card:{ref:"lifted",faceUp:false,slot:2}});
+  s.act({type:"twin.move",seat:0,cardRef:"lifted",zone:"hand",source:"auto"});
+  s.act({type:"effect.activated",source:{cardId:70825459}});
+  s.act({type:"twin.place",seat:0,zone:"spell-trap",card:{ref:"a",faceUp:false,slot:1}});
+  s.act({type:"effect.activated",source:{cardId:70825459}});
+  s.act({type:"twin.move",seat:0,cardRef:"lifted",setRef:"b",zone:"spell-trap",slot:2,source:"auto",faceUp:false});
   const origins=s.room.state.effectTracking!.origins;
+  expect(origins.map(origin=>origin.ref)).toEqual(["a","b"]);
   s.act({type:"effect.choose",originId:origins[0].id,cardId:53582587});
   expect(remoteRecognitionRef(s.room.state,0,53582587)).toBe("a");
   expect(remoteRecognitionRef(s.room.state,0,5318639)).toBeUndefined();
@@ -2740,18 +2767,75 @@ it('reveals identity and position in one undoable action, then hides a public Se
   const revealed=structuredClone(state),actionId=state.undo!.actionId;
   const legacySet=ygoModule.reduce(revealed,remoteActionSchema.parse({type:'twin.flip',actorSeat:0,seat:0,cardRef:'set',faceUp:false,idempotencyKey:'historic-set',at:serial}),{replay:true,twinPlacementGuard:1});
   expect(legacySet.seats[0].twin[0].publicIdentity).toBeUndefined();
+  const legacyCameraSet=ygoModule.reduce(revealed,remoteActionSchema.parse({type:'twin.flip',actorSeat:0,seat:0,cardRef:'set',faceUp:false,source:'auto',idempotencyKey:'historic-camera-set',at:serial}),{replay:true,fieldFaceState:1});
+  expect(legacyCameraSet.seats[0].twin[0].publicIdentity).toBeUndefined();
+  const legacyManualSet=ygoModule.reduce(revealed,remoteActionSchema.parse({type:'twin.flip',actorSeat:0,seat:0,cardRef:'set',faceUp:false,idempotencyKey:'v1-manual-set',at:serial}),{replay:true,fieldFaceState:1});
+  expect(projectRemoteState(legacyManualSet,new Set([1])).seats[0].twin[0]).toMatchObject({publicIdentity:true,cardId:46986414});
+  expect(legacyManualSet.seats[0].twin[0]).not.toHaveProperty('knownFaceDown');
+  expect(projectRemoteSpectator({table:{seats:[]} as never,state:legacyManualSet,events:[]}).state.seats[0].twin[0]).not.toHaveProperty('cardId');
   reduce({type:'undo',targetActionId:actionId});expect(state.seats[0].twin).toEqual(before.seats[0].twin);
-  // The camera sees it turned face-down: the opponent sees a plain Set, the owner keeps the name.
-  state=structuredClone(revealed);reduce({type:'twin.flip',seat:0,cardRef:'set',faceUp:false,source:'auto',position:'defense'});
-  expect(state.seats[0].twin[0]).toMatchObject({faceUp:false,cardId:46986414,name:'Dark Magician'});expect(state.seats[0].twin[0].publicIdentity).toBeUndefined();
-  expect(projectRemoteState(state,new Set([1])).seats[0].twin[0].cardId).toBeUndefined();expect(projectRemoteState(state,new Set([1])).seats[0].twin[0].name).toBeUndefined();
-  expect(projectRemoteState(state,new Set([1])).deckChecks.instances.filter(i=>i.seat===0)).toEqual([]);
+  const opponentCard = (ref: string) => projectRemoteState(state, new Set([1])).seats[0].twin.find(c => c.ref === ref);
+  const spectator = () => projectRemoteSpectator({table:{seats:[]} as never,state,events:[]}).state.seats[0].twin;
+  reduce({type:'twin.place',seat:0,zone:'hand',card:{ref:'spell',cardId:5318639,name:'Mystical Space Typhoon',faceUp:false}});
+  reduce({type:'twin.move',seat:0,cardRef:'spell',zone:'spell-trap',slot:1,faceUp:false});
+  expect(opponentCard('spell')).toMatchObject({faceUp:false,slot:1});
+  expect(opponentCard('spell')).not.toHaveProperty('cardId');
+  expect(spectator().find(c=>c.zone==='spell-trap')).not.toHaveProperty('cardId');
+  reduce({type:'twin.flip',seat:0,cardRef:'spell',faceUp:true});
+  const activatedSpell = structuredClone(state);
+  reduce({type:'twin.flip',seat:0,cardRef:'spell',faceUp:false,source:'auto'});
+  const knownSpell = {faceUp:false,cardId:5318639,name:'Mystical Space Typhoon',publicIdentity:true,knownFaceDown:true};
+  expect(opponentCard('spell')).toMatchObject({...knownSpell,slot:1});
+  expect(spectator().find(c=>c.ref==='spell')).toMatchObject({...knownSpell,slot:1});
+  const resetSpell = structuredClone(state);
+  const replayedSet = ygoModule.reduce(activatedSpell,remoteActionSchema.parse({type:'twin.flip',actorSeat:0,seat:0,cardRef:'spell',faceUp:false,source:'auto',idempotencyKey:'v2-camera-set',at:serial}),{replay:true,fieldFaceState:2});
+  expect(replayedSet.seats[0].twin.find(c=>c.ref==='spell')).toMatchObject(knownSpell);
+  reduce({type:'twin.flip',seat:0,cardRef:'spell',faceUp:false,source:'auto',identityUncertain:true});
+  expect(opponentCard('spell')).not.toHaveProperty('cardId');
+  expect(spectator().find(c=>c.zone==='spell-trap')).not.toHaveProperty('cardId');
+  state=structuredClone(resetSpell);
+  reduce({type:'twin.control',seat:0,toSeat:1,cardRef:'spell',zone:'spell-trap',slot:1});
+  const proxy = projectRemoteState(state,new Set([1])).seats[1].twin[0];
+  expect(proxy).toMatchObject({ownerSeat:0,faceUp:false});
+  expect(proxy).not.toHaveProperty('cardId');
+  const spectatorProxy = projectRemoteSpectator({table:{seats:[]} as never,state,events:[]}).state.seats[1].twin[0];
+  expect(spectatorProxy).not.toHaveProperty('cardId');
+  reduce({type:'twin.control',seat:1,toSeat:0,cardRef:'spell',zone:'spell-trap',slot:1});
+  expect(state.seats[0].twin.find(c=>c.ref==='spell')).toMatchObject({faceUp:false,cardId:5318639});
+  expect(opponentCard('spell')).not.toHaveProperty('cardId');
+  state=structuredClone(resetSpell);
+  reduce({type:'twin.move',seat:0,cardRef:'spell',zone:'spell-trap',slot:2,source:'auto'});
+  for (const movedSpell of [opponentCard('spell'), spectator().find(c=>c.zone==='spell-trap' && c.slot===2)]) {
+    expect(movedSpell).toMatchObject({faceUp:false,slot:2});
+    expect(movedSpell).not.toHaveProperty('name');
+    expect(movedSpell).not.toHaveProperty('cardId');
+    expect(movedSpell).not.toHaveProperty('knownFaceDown');
+  }
+  state=structuredClone(resetSpell);
+  reduce({type:'twin.move',seat:0,cardRef:'spell',zone:'spell-trap',slot:2});
+  expect(opponentCard('spell')).not.toHaveProperty('cardId');
+  expect(spectator().find(c=>c.zone==='spell-trap')).not.toHaveProperty('cardId');
+  state=activatedSpell;
+  reduce({type:'twin.move',seat:0,cardRef:'spell',zone:'spell-trap',slot:3,faceUp:false,source:'auto'});
+  expect(opponentCard('spell')).not.toHaveProperty('cardId');
+  state=activatedSpell;
+  reduce({type:'twin.move',seat:0,cardRef:'spell',zone:'spell-trap',slot:1,faceUp:false,source:'auto',physicalZoneChanged:true});
+  expect(opponentCard('spell')).not.toHaveProperty('cardId');
+  state=activatedSpell;
+  reduce({type:'twin.flip',seat:0,cardRef:'spell',faceUp:false,source:'auto',identityUncertain:true});
+  expect(opponentCard('spell')).not.toHaveProperty('cardId');
+  expect(spectator().find(c=>c.zone==='spell-trap')).not.toHaveProperty('cardId');
+  state=resetSpell;
+  reduce({type:'twin.move',seat:0,cardRef:'spell',zone:'hand'});
+  expect(opponentCard('spell')).not.toHaveProperty('cardId');
+  expect(spectator().some(c=>c.cardId===knownSpell.cardId)).toBe(false);
   // Why the watcher needs a clear back to flip an Xyz Monster (fieldStrongBack): the flip sends its materials to the GY, and a flip up does not bring them back.
   state=ygoModule.initialState({seatCount:2});
   reduce({type:'twin.place',seat:0,zone:'monster',card:{ref:'mat',slot:1,cardId:1,name:'Material',faceUp:true,position:'attack'}});reduce({type:'twin.place',seat:0,zone:'extra-monster',card:{ref:'xyz',slot:1,cardId:3,name:'Xyz',faceUp:true,position:'attack',bestMatch:true}});reduce({type:'twin.attach',seat:0,cardRef:'xyz',kind:'xyz',materialRefs:['mat']});
-  reduce({type:'twin.flip',seat:0,cardRef:'xyz',faceUp:false,source:'auto',position:'defense'});expect(projectRemoteState(state,new Set([1])).seats[0].twin.find(c=>c.ref==='xyz')?.bestMatch).toBeUndefined();reduce({type:'twin.flip',seat:0,cardRef:'xyz',faceUp:true,source:'auto',position:'attack',cardId:3,name:'Xyz'});
+  reduce({type:'twin.flip',seat:0,cardRef:'xyz',faceUp:false,source:'auto',position:'defense'});expect(opponentCard('xyz')).toMatchObject({cardId:3,faceUp:false,publicIdentity:true});reduce({type:'twin.flip',seat:0,cardRef:'xyz',faceUp:true,source:'auto',position:'attack',cardId:3,name:'Xyz'});
   expect(state.seats[0].twin.find(c=>c.ref==='mat')?.zone).toBe('graveyard');expect(state.seats[0].twin.find(c=>c.ref==='xyz')?.materials).toBeUndefined();
   state=revealed;reduce({type:'twin.flip',seat:0,cardRef:'set',faceUp:false});expect(state.seats[0].twin[0].publicIdentity).toBe(true);
+  expect(spectator().find(c=>c.ref==='set')).toMatchObject({cardId:46986414,faceUp:false});
   const publicSet=structuredClone(state);reduce({type:'twin.move',seat:0,cardRef:'set',zone:'hand'});
   expect(state.seats[0].twin[0].publicIdentity).toBeUndefined();expect(projectRemoteState(state,new Set([1])).seats[0].twin[0].cardId).toBeUndefined();
   state=publicSet;state.twinConfirmation={seat:0,cardRef:'incoming',existingRefs:['set'],anotherCopyAllowed:true,message:'Where did this card come from?',options:[{ref:'set',label:'Moved from M2'},{label:'New copy'}]};state=ygoModule.reduce(state,remoteActionSchema.parse({type:'twin.place',actorSeat:0,seat:0,zone:'monster',originRequestRef:'incoming',anotherCopy:true,card:{ref:'incoming',cardId:46986414,slot:3},idempotencyKey:'legacy-origin',at:++serial}),{replay:true,twinPlacementGuard:2});
@@ -4050,6 +4134,45 @@ it.each(["idle", "creator-left"] as const)("expires no-result %s evidence after 
   } finally {vi.unstubAllEnvs();}
 });
 
+it('rotates the ref of a recovered Set and keeps identity only for a face-up card returned promptly to its original cell', () => {
+  const cases = [
+    { faceUp: true, slot: 1, physicalZoneChanged: false, returnAt: 4, known: true },
+    { faceUp: true, slot: 1, physicalZoneChanged: false, returnAt: 3 + 3000, known: true },
+    { faceUp: true, slot: 1, physicalZoneChanged: false, returnAt: 3 + 10_000, known: false },
+    { faceUp: false, slot: 1, physicalZoneChanged: false, returnAt: 4, known: false },
+    { faceUp: true, slot: 2, physicalZoneChanged: false, returnAt: 4, known: false },
+    { faceUp: true, slot: 1, physicalZoneChanged: true, returnAt: 4, known: false },
+  ] as const;
+  for (const { faceUp, slot, physicalZoneChanged, returnAt, known } of cases) {
+    const place = remoteActionSchema.parse({ type: 'twin.place', seat: 0, actorSeat: 0, zone: 'spell-trap', at: 1,
+      idempotencyKey: 'first-place', card: { ref: 'old', slot: 1, faceUp: true, cardId: 5318639 } });
+    const flip = remoteActionSchema.parse({ type:'twin.flip', seat: 0, actorSeat: 0, cardRef: 'old', faceUp: false, at: 2, idempotencyKey: 'first-set' });
+    const lift = remoteActionSchema.parse({ type: 'twin.move', seat: 0, actorSeat: 0, cardRef: 'old', zone: 'hand',
+      source: 'auto', faceUp: !faceUp, at: 3, idempotencyKey: 'lift' });
+    const recover = remoteActionSchema.parse({ type: 'twin.move', seat: 0, actorSeat: 0, cardRef: 'old', setRef: 'fresh', zone: 'spell-trap',
+      slot, faceUp: false, source: 'auto', ...(physicalZoneChanged ? { physicalZoneChanged: true } : {}), at: returnAt, idempotencyKey: 'recover' });
+    const initial = ygoModule.initialState({ seatCount: 2 });
+    const events = faceUp ? [place, lift, recover] : [place, flip, lift, recover];
+    const state = events.reduce((position, event) => ygoModule.reduce(position, event), initial);
+    const historical = events.reduce((position, event) => ygoModule.reduce(position, event, {
+      replay: true, twinPlacementGuard: 9, fieldFaceState: 2, setReturnFaceState: 1,
+    }), initial);
+    for (const position of [state, historical]) {
+      expect(projectRemoteState(position, new Set([0])).seats[0].twin).toEqual([
+        expect.objectContaining({ ref: 'fresh', zone: 'spell-trap', slot, faceUp: false, cardId: 5318639 }),
+      ]);
+      const opponent = projectRemoteState(position, new Set([1])).seats[0].twin[0];
+      const spectator = projectRemoteSpectator({table:{seats:[]} as never,state:position,events:[]}).state.seats[0].twin[0];
+      expect(opponent.ref).toBe('fresh');
+      for (const viewerCard of [opponent, spectator]) {
+        expect(viewerCard).toMatchObject({ zone: 'spell-trap', slot, faceUp: false });
+        expect(viewerCard.cardId).toBe(known ? 5318639 : undefined);
+        expect(viewerCard.knownFaceDown).toBe(known ? true : undefined);
+      }
+    }
+  }
+});
+
 it('a card the camera sent from the field to a pile is the same copy when put back late, and the pile counts stay exact', () => {
   let state = ygoModule.initialState({seatCount:2}), at = 0;
   const act = (input:Record<string,unknown>) => state = ygoModule.reduce(state, remoteActionSchema.parse({actorSeat:0, ...(input.type === 'undo' ? {} : {seat:0}), at, idempotencyKey:crypto.randomUUID(), ...input}));
@@ -4180,6 +4303,152 @@ it('keeps a token as public table state: created, moved and removed by its owner
   expect(s.room.state.seats[0].twin.some(c => c.ref === 'real-1')).toBe(false);
   s.act({ type: 'undo', targetActionId: s.room.state.undo!.actionId });
   expect(mine()).toMatchObject({ zone: 'monster', slot: 2 });
+});
+
+it('lets a seated player put a token on another field: only its creator and that field owner can change it, a watching spectator cannot, and replay keeps it', () => {
+  const { db, users, service } = setup();
+  const [a, b, c, watcher] = users; let n = 0;
+  const table = service.create({ guildId: 'g', userId: a, displayName: 'A', gameId: 'ygo', seatCount: 3 }, 3000);
+  const slug = table.slug;
+  service.join(slug, 'g', b, 'B', 1, 3001); service.join(slug, 'g', c, 'C', 2, 3001);
+  for (const user of [a, b, c]) service.ready(slug, 'g', user, true, 3002);
+  service.start(slug, 'g', a, 3003);
+  db.prepare("update remote_tables set visibility='public' where slug=?").run(slug);
+  expect(service.spectate(slug, 'g', watcher, 3004)).toMatchObject({ spectator: true, mySeat: -1 });
+  const send = (user: number, actorSeat: number, input: Record<string, unknown>) => service.act(slug, 'g', user, { baseSeq: service.get(slug, 'g', a).lastSeq,
+    action: remoteActionSchema.parse({ actorSeat, idempotencyKey: 'foreign-' + (++n), ...input }) }, 3100 + n);
+  const state = () => service.get(slug, 'g', a).state;
+  const theirs = () => state().seats[1].twin.find(card => card.ref === 'primal');
+  const token = { ref: 'primal', name: 'Primal Being Token', slot: 3, faceUp: true, position: 'attack', token: { atk: 2000, def: 2000 } };
+
+  // Seat 0 places on seat 1's free zone. A forged creator is replaced by the real one. Everyone sees it, the watcher too.
+  send(a, 0, { type: 'twin.place', seat: 1, zone: 'monster', card: { ...token, token: { ...token.token, by: 1 } } });
+  expect(theirs()).toMatchObject({ zone: 'monster', slot: 3, position: 'attack', faceUp: true, token: { atk: 2000, by: 0 } });
+  expect(state().seats[0].twin.some(card => card.ref === 'primal')).toBe(false);
+  expect(service.spectate(slug, 'g', watcher, 3005).state.seats[1].twin.find(card => card.ref === 'primal')).toMatchObject({ name: 'Primal Being Token' });
+
+  // The zone must be free; a real card and a Spell/Trap Zone are refused.
+  expect(() => send(a, 0, { type: 'twin.place', seat: 1, zone: 'monster', card: { ...token, ref: 'primal-2' } })).toThrow(/occupied/i);
+  expect(() => send(a, 0, { type: 'twin.place', seat: 1, zone: 'monster', card: { ref: 'real', cardId: 14558127, slot: 4 } })).toThrow('Only the field owner can edit their twin');
+  expect(() => send(a, 0, { type: 'twin.place', seat: 1, zone: 'spell-trap', card: { ...token, ref: 'primal-3', slot: 4 } })).toThrow(/monster|zone/i);
+
+  // The spectator is really watching, so the refusal comes from the service seat check.
+  expect(() => send(watcher, 0, { type: 'twin.place', seat: 1, zone: 'monster', card: { ...token, ref: 'primal-4', slot: 4 } })).toThrow('Spectators cannot act at this table');
+  expect(() => send(watcher, 0, { type: 'twin.remove', seat: 1, cardRef: 'primal' })).toThrow('Spectators cannot act at this table');
+  // The third seat is neither the creator nor the field owner.
+  expect(() => send(c, 2, { type: 'twin.flip', seat: 1, cardRef: 'primal', faceUp: true, position: 'defense' })).toThrow('Only the field owner can edit their twin');
+  expect(() => send(c, 2, { type: 'twin.remove', seat: 1, cardRef: 'primal' })).toThrow('Only the field owner can edit their twin');
+  expect(theirs()).toMatchObject({ position: 'attack' });
+
+  // The field owner turns it and the creator turns it back and removes it.
+  send(b, 1, { type: 'twin.flip', seat: 1, cardRef: 'primal', faceUp: true, position: 'defense' });
+  expect(theirs()).toMatchObject({ position: 'defense' });
+  send(a, 0, { type: 'twin.flip', seat: 1, cardRef: 'primal', faceUp: true, position: 'attack' });
+  send(a, 0, { type: 'twin.remove', seat: 1, cardRef: 'primal' });
+  expect(theirs()).toBeUndefined();
+
+  // The controller can send it off the field too: a token never reaches a pile.
+  send(a, 0, { type: 'twin.place', seat: 1, zone: 'monster', card: token });
+  // The creator and the controller can set its ATK/DEF afterwards; the third seat cannot, and a real card has none to set.
+  const stats = (atk: number, def: number) => ({ type: 'twin.flip', seat: 1, cardRef: 'primal', faceUp: true, position: 'attack', tokenStats: { atk, def } });
+  send(a, 0, stats(2500, 1800));
+  expect(theirs()).toMatchObject({ token: { atk: 2500, def: 1800, by: 0 } });
+  send(b, 1, stats(3000, 2000));
+  expect(theirs()).toMatchObject({ token: { atk: 3000, def: 2000 } });
+  expect(() => send(c, 2, stats(1, 1))).toThrow('Only the field owner can edit their twin');
+  send(b, 1, { type: 'twin.move', seat: 1, zone: 'graveyard', cardRef: 'primal' });
+  expect(theirs()).toBeUndefined();
+  expect(state().seats[1].twin.some(card => card.zone === 'graveyard')).toBe(false);
+
+  // Replay: the stored versions include foreignTokens, so the replayed state equals the live one. Without it a foreign token is still refused.
+  expect(service.replay(slug, 'g', a)).toEqual(state());
+  const foreign = remoteActionSchema.parse({ type: 'twin.place', actorSeat: 0, seat: 1, zone: 'monster', card: token, idempotencyKey: 'old-replay', at: 1 });
+  const fresh = ygoModule.initialState({ seatCount: 3 });
+  expect(() => ygoModule.reduce(fresh, foreign, { replay: true })).toThrow('Only the field owner can edit their twin');
+  expect(ygoModule.reduce(fresh, foreign, { replay: true, foreignTokens: 1 }).seats[1].twin[0]).toMatchObject({ ref: 'primal', token: { by: 0 } });
+});
+
+it('gives a card to an opponent as a proxy: the owner keeps it, the camera never moves it, and it goes to the owner pile; old events replay unchanged', () => {
+  const { users, service } = setup();
+  const [a, b, c] = users; let n = 0;
+  const table = service.create({ guildId: 'g', userId: a, displayName: 'A', gameId: 'ygo', seatCount: 3 }, 3000);
+  const slug = table.slug;
+  service.join(slug, 'g', b, 'B', 1, 3001); service.join(slug, 'g', c, 'C', 2, 3001);
+  for (const user of [a, b, c]) service.ready(slug, 'g', user, true, 3002);
+  service.start(slug, 'g', a, 3003);
+  const send = (user: number, actorSeat: number, input: Record<string, unknown>) => service.act(slug, 'g', user, { baseSeq: service.get(slug, 'g', a).lastSeq,
+    action: remoteActionSchema.parse({ actorSeat, idempotencyKey: 'give-' + (++n), ...input }) }, 3100 + n);
+  const state = () => service.get(slug, 'g', a).state;
+  const proxy = (seat = 1) => state().seats[seat].twin.find(card => card.ref === 'kaiju');
+  const kaiju = { ref: 'kaiju', cardId: 14558127, name: 'Gameciel', slot: 2, faceUp: false, position: 'defense' };
+
+  // Seat 0 gives a face-down card from the hand to seat 1's free zone. Seat 1 sees a proxy without the identity; the owner keeps it.
+  const handBefore = state().seats[0].handCount, otherHand = state().seats[1].handCount;
+  send(a, 0, { type: 'twin.place', seat: 1, zone: 'monster', give: true, card: kaiju });
+  // The card leaves the giver's hand; the receiver's hand does not change.
+  expect(handBefore).toBeGreaterThan(0);
+  expect(state().seats[0].handCount).toBe(handBefore! - 1);
+  expect(state().seats[1].handCount).toBe(otherHand);
+  expect(proxy()).toMatchObject({ zone: 'monster', slot: 2, position: 'defense', faceUp: false, ownerSeat: 0, ownerIdentity: { cardId: 14558127 } });
+  expect(proxy()!.cardId).toBeUndefined();
+  expect(service.get(slug, 'g', b).state.seats[1].twin.find(card => card.ref === 'kaiju')).not.toHaveProperty('ownerIdentity');
+  expect(state().seats[0].twin.some(card => card.ref === 'kaiju')).toBe(false);
+  // The zone must be free, the target another seat, and a camera action is refused.
+  expect(() => send(a, 0, { type: 'twin.place', seat: 1, zone: 'monster', give: true, card: { ...kaiju, ref: 'kaiju-2' } })).toThrow(/occupied/i);
+  expect(() => send(a, 0, { type: 'twin.place', seat: 0, zone: 'monster', give: true, card: { ...kaiju, ref: 'kaiju-3', slot: 3 } })).toThrow(/opponent/i);
+
+  // The camera of the holder never removes it; the third seat cannot touch it; the owner and the holder can turn it.
+  const before = state();
+  send(b, 1, { type: 'twin.move', seat: 1, cardRef: 'kaiju', zone: 'graveyard', source: 'auto' });
+  expect(proxy()).toMatchObject({ zone: 'monster', ownerSeat: 0 });
+  expect(state().seats[1].twin).toEqual(before.seats[1].twin);
+  expect(() => send(c, 2, { type: 'twin.flip', seat: 1, cardRef: 'kaiju', faceUp: true })).toThrow('Only the field owner can edit their twin');
+  send(b, 1, { type: 'twin.flip', seat: 1, cardRef: 'kaiju', faceUp: false, position: 'attack' });
+  expect(proxy()).toMatchObject({ position: 'attack' });
+  send(a, 0, { type: 'twin.flip', seat: 1, cardRef: 'kaiju', faceUp: true, position: 'defense' });
+  expect(proxy()).toMatchObject({ position: 'defense', faceUp: true, cardId: 14558127 });
+  expect(proxy()).not.toHaveProperty('ownerIdentity');
+
+  // It leaves the field to the OWNER's Graveyard, not the holder's.
+  send(b, 1, { type: 'twin.move', seat: 1, cardRef: 'kaiju', zone: 'graveyard' });
+  expect(proxy(1)).toBeUndefined();
+  expect(proxy(0)).toMatchObject({ zone: 'graveyard' });
+  expect(proxy(0)).not.toHaveProperty('ownerSeat');
+
+  // A player who is out (4 seats). Holder out: a proxy of a living owner goes to the owner's Graveyard with its identity; the holder's tokens vanish.
+  const game = (list: [number, Record<string, unknown>][]) => list.reduce((st, [actorSeat, input]) => ygoModule.reduce(st, remoteActionSchema.parse({ actorSeat, idempotencyKey: 'out-' + (++n), at: n, ...input })),
+    ygoModule.initialState({ seatCount: 4 }));
+  const sheep = (ref: string, slot: number) => ({ ref, name: 'Sheep Token', slot, faceUp: true, position: 'defense', token: { atk: 0, def: 0 } });
+  const holderOut = game([[0, { type: 'twin.place', seat: 2, zone: 'monster', give: true, card: kaiju }], [3, { type: 'twin.place', seat: 2, zone: 'monster', card: sheep('sheep', 3) }], [2, { type: 'player.concede' }]]);
+  expect(holderOut.seats[2].twin).toEqual([]);
+  expect(holderOut.seats[0].twin.find(card => card.ref === 'kaiju')).toMatchObject({ zone: 'graveyard', faceUp: true, cardId: 14558127 });
+  expect(holderOut.seats[0].twin.find(card => card.ref === 'kaiju')).not.toHaveProperty('ownerSeat');
+  expect(holderOut.seats[0].twin.find(card => card.ref === 'kaiju')).not.toHaveProperty('ownerIdentity');
+  // Tournament: an accepted LP declaration eliminates through the match flow and sends the proxy home too.
+  let lpOut = ygoModule.initialState({ seatCount: 4, bestOf: 1, tournament: true });
+  for (const [actorSeat, input] of [[0, { type: 'twin.place', seat: 2, zone: 'monster', give: true, card: kaiju }], [0, { type: 'lp.change', seat: 2, delta: -8000, reason: 'damage' }]] as [number, Record<string, unknown>][])
+    lpOut = ygoModule.reduce(lpOut, remoteActionSchema.parse({ actorSeat, idempotencyKey: 'lp-out-' + (++n), at: n, ...input }));
+  lpOut = ygoModule.reduce(lpOut, remoteActionSchema.parse({ type: 'match.confirm', actorSeat: 2, declarationId: lpOut.match.pendingResult!.id, accept: true, idempotencyKey: 'lp-out-' + (++n), at: n }));
+  expect(lpOut.seats[2]).toMatchObject({ eliminated: true, twin: [] });
+  expect(lpOut.seats[0].twin.find(card => card.ref === 'kaiju')).toMatchObject({ zone: 'graveyard', faceUp: true, cardId: 14558127 });
+  // Owner out: the proxy stays like a token. The holder removes it, and a send to a pile only removes it (never the holder's Graveyard). A foreign token whose maker is out stays too.
+  const ownerOut = game([[0, { type: 'twin.place', seat: 1, zone: 'monster', give: true, card: kaiju }], [0, { type: 'twin.place', seat: 1, zone: 'monster', give: true, card: { ...kaiju, ref: 'kaiju-b', slot: 3 } }],
+    [0, { type: 'twin.place', seat: 1, zone: 'monster', card: sheep('sheep', 4) }], [0, { type: 'player.concede' }]]);
+  expect(ownerOut.seats[0].twin).toEqual([]);
+  expect(ownerOut.seats[1].twin.map(card => card.ref).sort()).toEqual(['kaiju', 'kaiju-b', 'sheep']);
+  expect(ownerOut.seats[1].twin.find(card => card.ref === 'kaiju')).toMatchObject({ ownerSeat: 0, ownerIdentity: { cardId: 14558127 }, zone: 'monster' });
+  const cleared = game([[0, { type: 'twin.place', seat: 1, zone: 'monster', give: true, card: kaiju }], [0, { type: 'twin.place', seat: 1, zone: 'monster', give: true, card: { ...kaiju, ref: 'kaiju-b', slot: 3 } }],
+    [0, { type: 'twin.place', seat: 1, zone: 'monster', card: sheep('sheep', 4) }], [0, { type: 'player.concede' }],
+    [1, { type: 'twin.remove', seat: 1, cardRef: 'kaiju' }], [1, { type: 'twin.move', seat: 1, cardRef: 'kaiju-b', zone: 'graveyard' }], [1, { type: 'twin.remove', seat: 1, cardRef: 'sheep' }]]);
+  expect(cleared.seats[1].twin).toEqual([]);
+  expect(cleared.seats[0].twin).toEqual([]);
+
+  // Replay: the stored versions include givenCards, so the replayed state equals the live one. An old event stream (no flag) refuses a give.
+  expect(service.replay(slug, 'g', a)).toEqual(state());
+  const give = remoteActionSchema.parse({ type: 'twin.place', actorSeat: 0, seat: 1, zone: 'monster', give: true, card: kaiju, idempotencyKey: 'old-give', at: 1 });
+  const fresh = ygoModule.initialState({ seatCount: 3 });
+  expect(() => ygoModule.reduce(fresh, give, { replay: true })).toThrow('Invalid remote action');
+  expect(ygoModule.reduce(fresh, give, { replay: true, givenCards: 1 }).seats[1].twin[0]).toMatchObject({ ref: 'kaiju', ownerSeat: 0 });
 });
 
 describe("remote match history and replay", () => {
@@ -4660,4 +4929,26 @@ describe("remote hand activation (a card held up from the hand)", () => {
     expect(unsure.sure).toEqual([]);
     expect(unsure.unsure).toEqual([expect.objectContaining({ type: "held-unsure", lifted: true, candidates: [expect.objectContaining({ cardId: "1" }), expect.objectContaining({ cardId: "2" }), expect.objectContaining({ cardId: "3" })] })]);
   });
+});
+
+it("a new room ends the host's own empty lobbies, as an online table does, and keeps one with a guest", () => {
+  const {service,users}=setup();
+  const make=(user:number,at:number,replace:boolean,seatCount:2|3=2)=>{const ended:string[]=[];const room=service.create({guildId:"g",userId:user,displayName:"H",gameId:"ygo",seatCount,...(replace?{replaceEmptyLobbies:(slugs:string[])=>ended.push(...slugs)}:{})},at);return {room,ended};};
+  const status=(slug:string,user:number)=>service.get(slug,"g",user);
+  // Without the option nothing changes: two rooms stay open.
+  const plain1=make(users[1],2000,false).room,plain2=make(users[1],2001,false).room;
+  expect([plain1,plain2].map(r=>status(r.slug,users[1]).status)).toEqual(["lobby","lobby"]);
+  // The option ends every empty lobby of the host, never another host's.
+  const other=make(users[2],2002,false).room;
+  const abandoned=make(users[1],2003,true);
+  expect(abandoned.ended.sort()).toEqual([plain1.slug,plain2.slug].sort());
+  expect(status(plain1.slug,users[1])).toMatchObject({status:"ended",endReason:"creator-left"});
+  expect(status(other.slug,users[2]).status).toBe("lobby");
+  expect(service.list("g",users[1],"live").map(t=>t.slug)).toEqual([abandoned.room.slug]);
+  // A lobby with a guest is kept, so a new room never throws a waiting guest out.
+  service.join(abandoned.room.slug,"g",users[3],"Guest",1,2004);
+  const next=make(users[1],2005,true);
+  expect(next.ended).toEqual([]);
+  expect(status(abandoned.room.slug,users[1]).status).toBe("lobby");
+  expect(service.list("g",users[1],"live").map(t=>t.slug).sort()).toEqual([abandoned.room.slug,next.room.slug].sort());
 });
