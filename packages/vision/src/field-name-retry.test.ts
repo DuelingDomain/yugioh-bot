@@ -5,7 +5,7 @@ import {createFieldIdentityGallery} from './field-gallery';
 import {yugioh} from './games/yugioh';
 import type {DetectedQuad,RecognitionResult} from './types';
 
-function rig(backgroundReread=true,placeUnsure=false,margin=.15,readCostMs=0) {
+function rig(backgroundReread=true,placeUnsure=false,margin=.15,readCostMs=0,quiet=false) {
   const gallery=createFieldIdentityGallery();let known:KnownFieldCard[]=[];
   let at=0,hand=false,motion=0,visible=true,tier:RecognitionResult['tier']='low match',identity='A',pending:Promise<void>|undefined;
   const card:DetectedQuad={kind:'face-up',confidence:.95,partial:false,quad:[{x:.3,y:.3},{x:.4,y:.3},{x:.4,y:.45},{x:.3,y:.45}]};
@@ -20,7 +20,7 @@ function rig(backgroundReread=true,placeUnsure=false,margin=.15,readCostMs=0) {
     buffer:{sample:async()=>({frame,at})},recognizer:{separateDetector:true,detectCards:async()=>visible?[card]:[],recognize:async()=>{
       reads.push(at);const capturedTier=tier,capturedIdentity=identity;await pending;at+=readCostMs;
       return {identityEmbedding:{space:'art-box',values:capturedIdentity==='B'?[0,1]:[1,0]},candidates:[{cardId:capturedIdentity,score:capturedTier==='sure'?.95:.65},{cardId:'RUNNER',score:.65-margin}],tier:capturedTier,quality:{detected:true,cornersFound:true,framesUsed:1,selectedFrameIndices:[0],sharpness:20,fallback:false},timingsMs:{sharpness:0,detect:0,warp:0,embed:0,search:0,total:228},backend:'wasm'};
-    }},analyze:()=>({motion:()=>motion,sharpness:()=>20,crop:()=>frame,appearance:()=>Array(12).fill(.6),halo:()=>Array(12).fill(.8),touched:()=>hand?.5:0,occluded:()=>hand})});
+    }},analyze:()=>({scene:quiet?{moving:0,sinceMark:0,mark(){}}:undefined,motion:()=>motion,sharpness:()=>20,crop:()=>frame,appearance:()=>Array(12).fill(.6),halo:()=>Array(12).fill(.8),touched:()=>hand?.5:0,occluded:()=>hand})});
   watcher.subscribe(e=>events.push(e));
   const tick=async(ms=100)=>{at+=ms;await watcher.tick();await new Promise<void>(r=>setImmediate(r));};
   return {watcher,gallery,events,reads,tick,set known(value:KnownFieldCard[]){known=value;},set hand(v:boolean){hand=v;},set motion(v:number){motion=v;},set visible(v:boolean){visible=v;},sure(id='A'){tier='sure';identity=id;},weakNamed(){tier='not sure';},delay(p:Promise<void>){pending=p;},async untilPrompt(){for(let i=0;i<30&&!events.some(e=>e.type==='prompt');i++)await tick();assert.ok(events.some(e=>e.type==='prompt'));}};
@@ -123,4 +123,17 @@ test('a corrected name teaches the fresh sure embedding, not the original weak c
   assert.deepEqual(r.gallery.resolve({space:'art-box',values:[0,1]}),{kind:'match',cardId:'B'});
   assert.deepEqual(r.gallery.resolve({space:'art-box',values:[1,0]}),{kind:'new'});
  }finally{r.watcher.dispose();}
+});
+
+test('a quiet scene wakes an unanswered name within one second of the prompt', async () => {
+  const r = rig(true,false,.15,0,true);
+  try {
+    await r.untilPrompt();
+    const count = r.reads.length;
+    r.sure();
+    for(let i=0;i<10;i++)await r.tick();
+    assert.equal(r.reads.length,count+1);
+    await r.tick();
+    assert.equal(r.events.filter(e=>e.type==='placed'&&e.track.cardId==='A').length,1);
+  } finally { r.watcher.dispose(); }
 });

@@ -39,7 +39,7 @@ import {FieldWatcherUI} from './field-watcher-ui';
 import {serverNow} from './ui/api';
 import {cardFailed,cardInfo,loadCards,useCardInfo} from './ui/catalog';
 import {fieldSummonKind,fieldSummonMaterials,fieldSummonMinimum,fieldSummonNotice,heldStackStillStacked,fieldKeepsMonsterStack,fieldStackXyzCandidates,SUMMON_WINDOW_MS,SUMMON_RECENT_MS,type FieldVanish} from '@/lib/remote/field-summons';
-import {distinctFieldQuads,fieldCellEvidence,fieldDepartureHasBack,fieldDepartureActivityAt,fieldDepartureDeadline,fieldEmptyProofs,fieldFlipDepartureWait,fieldEvidenceMismatch,fieldSetRebind,fieldSetReturn,fieldSetSlide,fieldSetSlideDeadline,fieldSetSlidePending,fieldSetSlidePileActivity,recentCommittedSet,xyzAttachTargets,type FieldCellEvidence} from '@/lib/remote/field-proposals';
+import {distinctFieldQuads,fieldCellEvidence,fieldDepartureHasBack,fieldDepartureActivityAt,fieldDepartureDeadline,fieldEmptyProofs,fieldFlipDepartureWait,fieldEvidenceMismatch,fieldSureSetReveal,fieldSetRebind,fieldSetReturn,fieldSetSlide,fieldSetSlideDeadline,fieldSetSlidePending,fieldSetSlidePileActivity,recentCommittedSet,xyzAttachTargets,type FieldCellEvidence} from '@/lib/remote/field-proposals';
 
 const toZone=(zone:string,slot?:number):FieldZone|undefined=>zone==='monster'?`M${slot??1}` as FieldZone:zone==='spell-trap'?`S${slot??1}` as FieldZone:zone==='extra-monster'?`EMZ${slot??1}` as FieldZone:({field:'FIELD',graveyard:'GY',banished:'BANISHED',deck:'DECK',extra:'EXTRA'} as Record<string,FieldZone>)[zone];
 /** A removed field card goes to the hand this long after the watcher's removal (it may still flip back or be a material). */
@@ -506,7 +506,8 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     if(!live()||!fieldEvidenceMatches(event,observed)||placeholders.current.has(event.track.id))return;
     const location=fieldZoneLocation(observed!.zone),twins=current.current.room.state.seats[seat].twin;
     if(piles.has(observed!.zone)||twins.some(c=>c.zone===location.zone&&c.slot===location.slot))return;
-    if(twins.some(c=>c.faceUp&&cardCode(c)&&observedFieldZone(room.slug,seat,c.ref)===observed!.zone))return;
+    // A projected card still owns its physical camera cell as well.
+    if(twins.some(c=>c.faceUp&&cardCode(c)&&knownZone(c)===observed!.zone))return;
     const proposal=fieldPlacementProposals({track:{...observed!,cardId:undefined},seat})[0];if(!proposal||proposal.type!=='twin.place')return;
     const updated=await act(proposal);if(!updated)return;
     const saved=updated.state.seats[seat].twin.find(c=>c.zone===location.zone&&c.slot===location.slot);if(!saved)return;
@@ -535,7 +536,11 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     const entry=track.cardId?entries.current.get(track.cardId):undefined;
     let twins=current.current.room.state.seats[seat].twin;
     const physicalCell=fieldZoneLocation(track.zone);
-    if(!humanChoice&&!track.faceDown&&track.bestMatch&&track.restSince!==undefined&&twins.some(c=>publicField(c.zone)&&c.zone===physicalCell.zone&&c.slot===physicalCell.slot&&(cardCode(c)||!c.faceUp||c.token)))return;
+    // A catalog-sure reveal can still carry Best match when it is outside the
+    // deck list. Let it update its own settled Set through the atomic reveal.
+    if(!humanChoice&&!track.faceDown&&track.bestMatch&&track.restSince!==undefined&&twins.some(c=>
+      publicField(c.zone)&&c.zone===physicalCell.zone&&c.slot===physicalCell.slot&&(cardCode(c)||!c.faceUp||c.token)&&
+      !fieldSureSetReveal(event,track,c)))return;
     let existing=twins.find(c=>c.ref===track.id);
     let location=fieldZoneLocation(track.zone);
     if(!track.faceDown&&!entry)throw new Error('Card details are unavailable. Use Retry field update.');
