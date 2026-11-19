@@ -77,6 +77,14 @@ export function createFieldAnalyzer(options:{downsampleRGBA?:boolean}={}) {
     const settledAt=(px:number,py:number)=>scenery.known[Math.floor(py/SETTLED_CELL)*scenery.gx+Math.floor(px/SETTLED_CELL)]===1;
     const crop=(card:DetectedQuad,padding:number)=>{const b=boundsOf(card.quad);return {left:Math.max(1,Math.floor((b.x-b.w*padding)*image.width)),top:Math.max(1,Math.floor((b.y-b.h*padding)*image.height)),right:Math.min(image.width-1,Math.ceil((b.x+b.w*(1+padding))*image.width)),bottom:Math.min(image.height-1,Math.ceil((b.y+b.h*(1+padding))*image.height))};};
     const occlusions=new WeakMap<DetectedQuad,number>(),nearSkin=new WeakMap<DetectedQuad,number>(),grips=new WeakMap<DetectedQuad,FieldEdgeGrip>();
+    const motions=new WeakMap<DetectedQuad,number>();
+    const appearances=new WeakMap<DetectedQuad,number[]>(),halos=new WeakMap<DetectedQuad,number[]>();
+    const skinAt=(i:number)=>{
+      const r=image.data[i],g=image.data[i+1],blue=image.data[i+2];
+      if(r<=40||r<=g||r<=blue)return false;
+      const cb=128-.168736*r-.331264*g+.5*blue,cr=128+.5*r-.418688*g-.081312*blue;
+      return cb>=77&&cb<=127&&cr>=133&&cr<=173;
+    };
     const shadow=shadows(image),means=shadow.means,lastScene=lastMeans,markScene=markMeans;lastMeans=means;
     const scene:FieldSceneChange|undefined=means&&{moving:changedCells(means,lastScene),sinceMark:changedCells(means,markScene),mark(){markMeans=means;}};
     const analysis:FieldAnalysis={
@@ -95,9 +103,12 @@ export function createFieldAnalyzer(options:{downsampleRGBA?:boolean}={}) {
         return warpQuad(patch,card.quad.map(p=>({x:(p.x*frame.width-x)*96/w,y:(p.y*frame.height-y)*140/h})) as Quad,96,140)??undefined;
       },
       appearance(card) {
+        const cached=appearances.get(card);if(cached)return cached;
         const patch=warpQuad(image,card.quad.map(p=>({x:p.x*image.width,y:p.y*image.height})) as Quad,8,12);
-        if(!patch)return [];
-        return Array.from(patch.data).filter((_,i)=>i%4!==3).map(v=>v/255);
+        const values:number[]=[];
+        if(patch)for(let i=0;i<patch.data.length;i+=4)values.push(patch.data[i]/255,patch.data[i+1]/255,patch.data[i+2]/255);
+        appearances.set(card,values);
+        return values;
       },
       settledAppearance(card) {
         // Unknown cells are never evidence of an empty spot. This is scenery, which may include a resting card;
@@ -125,6 +136,7 @@ export function createFieldAnalyzer(options:{downsampleRGBA?:boolean}={}) {
         return values;
       },
       halo(card) {
+        const cached=halos.get(card);if(cached)return cached;
         const b=boundsOf(card.quad),values:number[]=[];
         // Sparse RGB ring outside the card: a stationary hand/arm must clear it
         // before an absent card can produce a removal suggestion.
@@ -134,16 +146,19 @@ export function createFieldAnalyzer(options:{downsampleRGBA?:boolean}={}) {
           const py=Math.max(0,Math.min(image.height-1,Math.round((b.y+b.h*(-.3+1.6*y/9))*image.height))),i=(py*image.width+px)*4;
           values.push(image.data[i]/255,image.data[i+1]/255,image.data[i+2]/255);
         }
+        halos.set(card,values);
         return values;
       },
       motion(card) {
+        const cached=motions.get(card);if(cached!==undefined)return cached;
         if(!before||before.width!==image.width||before.height!==image.height)return 1;
         const b=crop(card,.18);let sum=0,n=0,changed=0;
         for(let y=b.top;y<b.bottom;y++)for(let x=b.left;x<b.right;x++) {
           const i=(y*image.width+x)*4,d=(Math.abs(image.data[i]-before.data[i])+Math.abs(image.data[i+1]-before.data[i+1])+Math.abs(image.data[i+2]-before.data[i+2]))/(3*255);
           sum+=d;if(d>.08)changed++;n++;
         }
-        return n?Math.max(sum/n,changed/n*.2):1;
+        const motion=n?Math.max(sum/n,changed/n*.2):1;
+        motions.set(card,motion);return motion;
       },
       motionOutside(card) {
         if(!before||before.width!==image.width||before.height!==image.height)return 1;
@@ -165,6 +180,13 @@ export function createFieldAnalyzer(options:{downsampleRGBA?:boolean}={}) {
         // Warm printed artwork alone is not an occluder, even while stationary.
         const b=crop(card,.3),box=boundsOf(card.quad),step=2,w=Math.ceil((b.right-b.left)/step),h=Math.ceil((b.bottom-b.top)/step);
         if(w<=0||h<=0)return 0;
+        // The flood fill can only start on the sample boundary. Quiet cells
+        // without a skin-coloured border need no mask or per-pixel geometry.
+        const boundarySkin=(x:number,y:number)=>skinAt(((b.top+y*step)*image.width+b.left+x*step)*4);
+        let connected=false;
+        for(let x=0;x<w&&!connected;x++)connected=boundarySkin(x,0)||boundarySkin(x,h-1);
+        for(let y=1;y<h-1&&!connected;y++)connected=boundarySkin(0,y)||boundarySkin(w-1,y);
+        if(!connected){occlusions.set(card,0);nearSkin.set(card,0);grips.set(card,'clear');return 0;}
         const mask=new Uint8Array(w*h),fresh=new Uint8Array(w*h),inside=new Uint8Array(w*h),edge=new Uint8Array(w*h),queue:number[]=[];
         const sides=new Int8Array(w*h).fill(-1),newSkin=new Uint8Array(w*h),sideTotal=[0,0,0,0],sideSkin=[0,0,0,0];
         const corners=card.quad.map(p=>({x:p.x*image.width,y:p.y*image.height}));
@@ -172,16 +194,22 @@ export function createFieldAnalyzer(options:{downsampleRGBA?:boolean}={}) {
         for(let y=0;y<h;y++)for(let x=0;x<w;x++){
           const px=b.left+x*step,py=b.top+y*step,i=(py*image.width+px)*4,index=y*w+x;
           const r=image.data[i],g=image.data[i+1],blue=image.data[i+2];
-          const cb=128-.168736*r-.331264*g+.5*blue,cr=128+.5*r-.418688*g-.081312*blue;
-          mask[index]=Number(r>40&&r>g&&r>blue&&cb>=77&&cb<=127&&cr>=133&&cr<=173);
+          mask[index]=Number(skinAt(i));
           // Skin colour that equals the settled scene at this pixel is print, wood or a sleeve: it has not arrived with a hand.
           // It still connects a hand to the crop edge (an arm over a warm table), but it is not counted as that hand.
           const learned=settledAt(px,py),still=scenery.data;
           fresh[index]=Number(!learned||Math.max(Math.abs(r-still[i]),Math.abs(g-still[i+1]),Math.abs(blue-still[i+2]))>SETTLED_NEW_RGB);
-          const signs=card.quad.map((a,j)=>{const next=card.quad[(j+1)%4];return (next.x-a.x)*(py/image.height-a.y)-(next.y-a.y)*(px/image.width-a.x);});
-          inside[index]=Number(signs.every(v=>v>=0)||signs.every(v=>v<=0));total+=inside[index];
+          const fx=px/image.width,fy=py/image.height;
+          let positive=false,negative=false;
+          for(let j=0;j<card.quad.length&&!(positive&&negative);j++){
+            const a=card.quad[j],next=card.quad[(j+1)%4];
+            const cross=(next.x-a.x)*(fy-a.y)-(next.y-a.y)*(fx-a.x);
+            if(cross>0)positive=true;
+            if(cross<0)negative=true;
+          }
+          inside[index]=Number(!(positive&&negative));total+=inside[index];
           // The edge ring: just outside the card (12% of its size), not the neighbouring zone (an orange card frame there is not a hand).
-          const fx=px/image.width,fy=py/image.height;edge[index]=Number(!inside[index]&&fx>=box.x-box.w*.12&&fx<=box.x+box.w*1.12&&fy>=box.y-box.h*.12&&fy<=box.y+box.h*1.12);
+          edge[index]=Number(!inside[index]&&fx>=box.x-box.w*.12&&fx<=box.x+box.w*1.12&&fy>=box.y-box.h*.12&&fy<=box.y+box.h*1.12);
           if(edge[index]){
             let best=Infinity,side=-1;
             for(let j=0;j<4;j++){
