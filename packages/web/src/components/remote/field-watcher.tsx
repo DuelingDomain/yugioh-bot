@@ -12,7 +12,7 @@ import type {RoomMutation,RoomTransaction} from '@/lib/remote/room-mutations';
 import {NOT_A_CARD_EVENT} from '@/lib/remote/set-card-diagnostics';
 import {useFieldWatcher} from '@/lib/remote/use-field-watcher';
 import {e2eFieldHook} from '@/lib/remote/e2e-field-hook';
-import {fieldPositionMatches,applyFieldFaceFlip,fieldFaceProposal,fieldSetMove,fieldStrongBack,fieldTwinPosition,fieldDepartureProposal,fieldPileDepartureProposal,fieldDepartureStillMissing,fieldPileEvidence,fieldPileTrackEvidence,fieldLeaveLabel,FIELD_LEAVE_DESTINATIONS,heldFieldReadPending,fieldPlacementProposals,fieldEvidenceMatches,simultaneousFieldCopies,applyVerifiedFieldMutation,StaleFieldPlacementError,observedFieldZone,staleFieldOccupant,retryFieldMutation} from '@/lib/remote/field-proposals';
+import {fieldPositionMatches,applyFieldFaceFlip,fieldFaceProposal,fieldSetMove,fieldStrongBack,fieldTwinPosition,fieldDepartureProposal,fieldPileDepartureProposal,fieldPileUnderTop,fieldDepartureStillMissing,fieldPileEvidence,fieldPileTrackEvidence,fieldLeaveLabel,FIELD_LEAVE_DESTINATIONS,heldFieldReadPending,fieldPlacementProposals,fieldEvidenceMatches,simultaneousFieldCopies,applyVerifiedFieldMutation,StaleFieldPlacementError,observedFieldZone,staleFieldOccupant,retryFieldMutation} from '@/lib/remote/field-proposals';
 import {OutageGaveUpError,onOutageEnd,outageDown} from '@/lib/remote/outage';
 import {createFieldFaceCheck,type FieldFaceFix} from '@/lib/remote/field-face';
 import {fieldTrackMessage} from '@/lib/remote/field-track-cache';
@@ -1180,6 +1180,15 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
         let updated=await act({...proposal,...(card.faceUp?{name}:{})}),undoTarget=updated?.state.undo?.actionId??'';
         if(updated&&seen){const adopted=await adoptPileCard(act,seen,card.ref,undoTarget);if(adopted){updated=adopted.state;undoTarget=adopted.undoTarget;}}
         else if(updated&&wasPublic&&proposal.zone!=='hand')lateDefaults.current.set(card.ref,{at:performance.now(),lastSeen:event.track.lastSeen,cardId:event.track.cardId,...(proposal.zone==='graveyard'?{pile:true as const}:{})});
+        // The camera saw a named card on top of this pile: a card with no evidence of its own lies under it, also when that card was written first.
+        if(updated&&pileZone){
+          const order=updated.state.seats[seat].twin.filter(c=>c.zone===proposal.zone).map(c=>c.ref);
+          const top=watch.getTracks().filter(t=>t.zone===pileZone&&t.visible&&!t.removed&&t.state==='identified'&&t.cardId).sort((x,y)=>y.firstSeen-x.firstSeen)[0],topRef=top&&(bindings.current.get(top.id)??top.id);
+          const cardRefs=topRef?fieldPileUnderTop(order,card.ref,topRef):undefined;
+          if(cardRefs){
+            await act({type:'pile.order',actorSeat:seat,seat,zone:proposal.zone as 'graveyard'|'banished',cardRefs});
+          }
+        }
         if(!live()||!watch.isRemoved(card.ref))return;
         setDeparture({ref:card.ref,name,zone:updated?proposal.zone:'pending',...(proposal.faceUp===false&&proposal.zone==='banished'?{down:true}:{})});
         setNotice(`${name} ${proposal.zone==='deck'?'returned to Deck':'left the field'}${seen?' · seen on camera':''} · ${updated?'auto':'update failed'}`);setUndoId(updated?undoTarget:'');

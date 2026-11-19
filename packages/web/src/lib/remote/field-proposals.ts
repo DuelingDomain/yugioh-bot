@@ -121,6 +121,12 @@ export function fieldPileDepartureProposal(proposal:Extract<RemoteActionProposal
   return proposal.zone==='hand'?{...proposal,zone:pile==='GY'?'graveyard':'banished',faceUp:true}:proposal;
 }
 
+/** The pile order (oldest first) that puts a card with no evidence directly under the camera's named top card, or undefined when it already lies there or lower. */
+export function fieldPileUnderTop(order:readonly string[],cardRef:string,topRef:string):string[]|undefined {
+  if(cardRef===topRef||order.indexOf(topRef)<0||order.indexOf(cardRef)<order.indexOf(topRef))return;
+  const rest=order.filter(r=>r!==cardRef);rest.splice(rest.indexOf(topRef),0,cardRef);return rest;
+}
+
 /**
  * Camera evidence for a card that left the field: a pile card the camera placed within a second before the removal (or after it)
  * and has not named (an unread face-up top, or a face-down card on the banished pile). Exactly one such pile card is evidence; two
