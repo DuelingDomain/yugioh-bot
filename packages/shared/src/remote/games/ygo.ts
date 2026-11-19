@@ -24,6 +24,8 @@ const zones = [
   { id: "material", name: "Xyz material", shape: "pile" },
 ] as const;
 const MONSTER_ZONES = new Set(["monster", "extra-monster"]);
+/** Nibiru, the Primal Being and its alternate art. */
+const NIBIRU_IDS: ReadonlySet<number> = new Set([27204311, 27204313]);
 const FIELD_ZONES = new Set(["monster", "extra-monster", "spell-trap", "field", "pendulum"]);
 /** A material that the summon may take: on the field, or sent to the hand by the camera moments ago. */
 const SUMMON_DEPARTURE_MS = 30_000;
@@ -592,6 +594,10 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
     case "monsters.tribute": {
       // Any seated player may send monsters from any field (Nibiru, the Tuning Tribute): each goes to its owner's Graveyard, a token just leaves.
       remoteAssert(action.seat === action.actorSeat, "A tribute is made by its own player", 403);
+      // Nibiru: the activator's own monsters plus those of ONE opponent (the one who made the summons), and only while a face-up Nibiru is on the activator's field.
+      remoteAssert(new Set(action.targets.map(t => t.seat).filter(n => n !== action.actorSeat)).size <= 1, "A Tribute reaches one opponent only", 409);
+      remoteAssert(next.seats[action.actorSeat].twin.some(c => !c.token && c.faceUp && MONSTER_ZONES.has(c.zone) && (NIBIRU_IDS.has(Number(c.cardId ?? c.passcode)) || c.name?.toLowerCase() === "nibiru, the primal being")),
+        "A Tribute needs your face-up Nibiru, the Primal Being on the field", 409);
       let sent = 0;
       for (const target of action.targets) {
         const holder = seat(target.seat), card = holder.twin.find(c => c.ref === target.cardRef);

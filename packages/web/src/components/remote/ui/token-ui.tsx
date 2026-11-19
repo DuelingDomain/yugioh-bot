@@ -25,9 +25,9 @@ const isMainCell = (key: ZoneKey) => (MAIN as readonly string[]).includes(key);
 const zoneLabel = (key: ZoneKey) => `Monster Zone ${key[1]}`;
 const points = (text: string) => { const n = Number(text); return text.trim() !== "" && Number.isInteger(n) && n >= 0 && n <= MAX ? n : null; };
 
-type View = { kind: "new"; seat: number; key: ZoneKey | null } | { kind: "template"; from?: TokenTemplate } | { kind: "picked"; seat: number; key: ZoneKey; template: TokenTemplate } | { kind: "card"; seat: number; ref: string; };
+type View = { kind: "new"; seat: number; key: ZoneKey | null } | { kind: "template"; from?: TokenTemplate } | { kind: "nibiru"; actorSeat: number; makerRef?: string; template: TokenTemplate } | { kind: "picked"; seat: number; key: ZoneKey; template: TokenTemplate } | { kind: "card"; seat: number; ref: string; };
 /** What the next click on a free Monster Zone puts there. `left` is how many are still to place; `ask` means ATK/DEF are not fixed and the player types them. */
-export type TokenTemplate = { name: string; atk: number; def: number; artId?: number; position: Position; left: number; ask?: boolean; /** ATK/DEF were suggested from the Tributed monsters and may be edited. */ prefilled?: boolean; /** The tokens go to the opponent's field. */ opponent?: boolean; /** The zone is chosen first; the dialog with the ATK/DEF follows. Always for `ask`, and for any token on another player's field. */ confirm?: boolean; /** Face-up Tributed monsters whose ATK/DEF are not known, so the suggestion leaves them out. */ unknown?: number };
+export type TokenTemplate = { name: string; atk: number; def: number; artId?: number; position: Position; left: number; ask?: boolean; /** ATK/DEF were suggested from the Tributed monsters and may be edited. */ prefilled?: boolean; /** The tokens go to the opponent's field. */ opponent?: boolean; /** Only this seat's field takes the token (the one opponent a Nibiru summons was made by). */ onlySeat?: number; /** The zone is chosen first; the dialog with the ATK/DEF follows. Always for `ask`, and for any token on another player's field. */ confirm?: boolean; /** Face-up Tributed monsters whose ATK/DEF are not known, so the suggestion leaves them out. */ unknown?: number };
 const GENERIC: TokenTemplate = { name: "Token", atk: 0, def: 0, position: "attack", left: 1, confirm: true };
 const templateOf = (maker: TokenMaker): TokenTemplate => ({ name: maker.token, atk: maker.atk, def: maker.def, artId: maker.id, position: maker.position, left: maker.count, ...(maker.ask ? { ask: true, confirm: true } : {}), ...(maker.opponent ? { opponent: true } : {}) });
 /** An activation or placement older than this is history (a reconnect or a page load), not news. */
@@ -97,7 +97,7 @@ export function useTokens({ act, room, live, extraZones, layers, info, toast }: 
   const freeKeys = useCallback((seat: number, keys: readonly ZoneKey[]) => freeIn(room.state, seat, keys), [room.state, freeIn]);
 
   /** The Main Monster Zones that glow on a seat: free ones that no unanswered request is already filling. */
-  const openSlots = (seat: number): ZoneKey[] => placing?.opponent && !solo && seat === mySeat ? [] : freeKeys(seat, MAIN).filter(key => !pending.includes(`${seat}:${key}`));
+  const openSlots = (seat: number): ZoneKey[] => placing?.onlySeat !== undefined && seat !== placing.onlySeat || placing?.opponent && !solo && seat === mySeat ? [] : freeKeys(seat, MAIN).filter(key => !pending.includes(`${seat}:${key}`));
   /** The create dialog. An empty Main Monster Zone passes its cell, the button leaves it open. */
   const create = useCallback((seat: number, key?: ZoneKey) => {
     if (!canPlace || room.state.seats[seat]?.eliminated || key && !isMainCell(key)) return false;
@@ -111,7 +111,7 @@ export function useTokens({ act, room, live, extraZones, layers, info, toast }: 
     const target = room.state.seats[seat];
     if (!target || target.eliminated || card || !isMainCell(key)) return false;
     // Tokens meant for the opponent do not go on my own field: the click does nothing.
-    if (placing.opponent && !solo && seat === mySeat) return true;
+    if (placing.onlySeat !== undefined && seat !== placing.onlySeat || placing.opponent && !solo && seat === mySeat) return true;
     // Zone first: on another player's field (or for open stats) the click picks the zone and the dialog with ATK/DEF follows.
     if (placing.confirm && (placing.ask || !solo && seat !== mySeat)) {
       setPlacing(null); setView({ kind: "picked", seat, key, template: placing }); layers.open("token"); return true;
@@ -143,8 +143,14 @@ export function useTokens({ act, room, live, extraZones, layers, info, toast }: 
   };
   const nibiru = (card: TwinCard) => cardName(card, info(cardCode(card))).toLowerCase().startsWith("nibiru");
   /** The face-up monsters on every field, not Nibiru itself: the ones a Nibiru Tribute sends to the Graveyard. */
-  const tributable = (state: RemoteRoom["state"], exceptRef?: string) => state.seats.filter(item => !item.eliminated).flatMap(item => item.twin.filter(card => card.faceUp && ON_FIELD.includes(card.zone) && card.ref !== exceptRef && !nibiru(card)));
-  const suggestStats = (template: TokenTemplate): TokenTemplate => statsOf(template, tributable(room.state));
+  const tributable = (state: RemoteRoom["state"], exceptRef?: string, only?: readonly number[]) => state.seats.filter(item => !item.eliminated && (!only || only.includes(item.seat))).flatMap(item => item.twin.filter(card => card.faceUp && ON_FIELD.includes(card.zone) && card.ref !== exceptRef && !nibiru(card)));
+  /** The living opponents of a seat. */
+  const opponentsOf = (state: RemoteRoom["state"], seat: number) => state.seats.filter(item => item.seat !== seat && !item.eliminated).map(item => item.seat);
+  /** A chip with open stats suggests from the two fields only when there is exactly one opponent; with several the opponent is not known yet. */
+  const suggestStats = (template: TokenTemplate): TokenTemplate => {
+    const me = solo ? 0 : mySeat, opponents = opponentsOf(room.state, me);
+    return opponents.length === 1 ? { ...statsOf(template, tributable(room.state, undefined, [me, opponents[0]])), onlySeat: opponents[0] } : template;
+  };
   /**
    * The seat that played a token maker gets its tokens at once, in free Monster Zones, with the real token art. Players remove them if the effect did not happen.
    * The free zones are read again before each token, so a refused zone does not stop the rest. A maker with open stats (Nibiru) never places by itself.
@@ -153,18 +159,8 @@ export function useTokens({ act, room, live, extraZones, layers, info, toast }: 
     const state = roomRef.current.state;
     const targets = maker.opponent ? state.seats.map((_, index) => index).filter(index => index !== actorSeat && !state.seats[index]?.eliminated) : [actorSeat];
     const template = templateOf(maker);
-    // Nibiru: every other face-up monster on both fields goes to its owner's Graveyard (a token just leaves) as ONE Undo step. The Primal Being
-    // Token then starts from exactly those monsters' ATK/DEF, and the player picks the zone before the dialog with the stats.
-    if (maker.ask) {
-      const tributed = tributable(state, makerRef);
-      let ready = statsOf(template, tributed);
-      if (tributed.length) {
-        const seat = actor(actorSeat);
-        const done = await act({ type: "monsters.tribute", actorSeat: seat, seat, targets: tributed.map(card => ({ seat: state.seats.findIndex(item => item.twin.some(other => other.ref === card.ref)), cardRef: card.ref })) }).catch(() => null);
-        if (!done) { toast?.("The Tribute could not be sent. Send the monsters to the Graveyard by hand.", 4200); ready = suggestStats(template); }
-      }
-      setPlacing(ready); return;
-    }
+    // Nibiru: the player confirms first (which opponent made the summons, and the Tribute itself). Nothing is sent without that click.
+    if (maker.ask) { if (opponentsOf(state, actorSeat).length) { setView({ kind: "nibiru", actorSeat, makerRef, template }); layers.open("token"); } return; }
     // Several opponents: the player decides with the usual placing mode.
     if (targets.length !== 1) { setPlacing(template); return; }
     const refused = new Set<ZoneKey>();
@@ -243,6 +239,22 @@ export function useTokens({ act, room, live, extraZones, layers, info, toast }: 
       })();
     }
   }, [room.events]);
+  /**
+   * The Nibiru confirm was answered. Tribute: the face-up monsters of the activator and of the ONE chosen opponent (not Nibiru) go to their
+   * owners' Graveyards (a token just leaves) as one Undo step. Skip sends nothing. Either way the Primal Being Token then starts from those
+   * monsters' original ATK/DEF, and the zone is picked on the chosen opponent's field before the dialog with the stats.
+   */
+  const settleNibiru = async (ask: Extract<View, { kind: "nibiru" }>, opponent: number, tribute: boolean) => {
+    close();
+    const state = roomRef.current.state, pool = tributable(state, ask.makerRef, [ask.actorSeat, opponent]);
+    const ready = { ...statsOf(ask.template, pool), onlySeat: opponent };
+    if (tribute && pool.length) {
+      const seat = actor(ask.actorSeat);
+      const done = await act({ type: "monsters.tribute", actorSeat: seat, seat, targets: pool.map(card => ({ seat: state.seats.findIndex(item => item.twin.some(other => other.ref === card.ref)), cardRef: card.ref })) }).catch(() => null);
+      if (!done) toast?.("The Tribute could not be sent. Send the monsters to the Graveyard by hand.", 4200);
+    }
+    setPlacing(ready);
+  };
   const customize = (from?: TokenTemplate) => { setView({ kind: "template", ...(from ? { from } : {}) }); layers.open("token"); };
   const open = useCallback((seat: number, card: TwinCard) => { setView({ kind: "card", seat, ref: card.ref }); layers.open("token"); }, [layers]);
   const close = () => { layers.close("token"); setView(null); };
@@ -285,6 +297,8 @@ export function useTokens({ act, room, live, extraZones, layers, info, toast }: 
   const isCreator = (card: TwinCard) => mySeat >= 0 && card.token?.by === mySeat;
   const dialog = layers.layer === "token" && view ? view.kind === "new"
     ? <TokenDialog free={freeKeys(view.seat, MAIN)} start={view.key} onCreate={draft => place(view.seat, { ...draft, key: draft.key! })} onClose={close} />
+    : view.kind === "nibiru" ? <NibiruConfirm opponents={opponentsOf(room.state, view.actorSeat).map(seat => ({ seat, label: room.seats.find(item => item.seat === seat)?.displayName ?? `Seat ${seat + 1}` }))}
+      count={opponent => tributable(room.state, view.makerRef, [view.actorSeat, opponent]).length} onAnswer={(opponent, tribute) => void settleNibiru(view, opponent, tribute)} />
     : view.kind === "picked" ? <TokenDialog free={[view.key]} start={view.key} modal initial={view.template}
       zone={{ label: `${room.seats.find(item => item.seat === view.seat)?.displayName ?? `Seat ${view.seat + 1}`}, ${zoneLabel(view.key)}`,
         change: current => { setPlacing({ ...view.template, ...current, prefilled: true }); close(); } }}
@@ -327,6 +341,25 @@ function TokenBar({ template, suggestions, onPick, onCustom, onCancel }: {
       <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} onClick={onCancel} data-testid="token-cancel">Cancel <kbd>Esc</kbd></button>
     </span>
   </div>;
+}
+
+/** Nibiru was played: which opponent made the summons, and whether the monsters of the two fields go to the Graveyard. Only its buttons close it. */
+function NibiruConfirm({ opponents, count, onAnswer }: { opponents: { seat: number; label: string }[]; count: (opponent: number) => number; onAnswer: (opponent: number, tribute: boolean) => void }) {
+  const [chosen, setChosen] = useState<number | null>(opponents.length === 1 ? opponents[0].seat : null);
+  const n = chosen === null ? null : count(chosen);
+  return <PopupFrame at={CENTER} layer="token" label="Nibiru, the Primal Being" testid="nibiru-confirm" modal>
+    <div className={t.dialog}>
+      <h3>Nibiru, the Primal Being</h3>
+      {opponents.length > 1 ? <div className={t.seg} role="group" aria-label="Opponent who made the summons">
+        {opponents.map(item => <button key={item.seat} type="button" className={`${s.btn} ${s.sm} ${chosen === item.seat ? s.go : s.q}`} aria-pressed={chosen === item.seat} onClick={() => setChosen(item.seat)} data-testid={`nibiru-opponent-${item.seat}`}>{item.label}</button>)}
+      </div> : null}
+      <p className={t.chosen} role="status" data-testid="nibiru-count">{n === null ? "Choose the opponent who made the summons." : `Send ${n} monster${n === 1 ? "" : "s"} to the Graveyard?`}</p>
+      <div className={t.row}>
+        <button type="button" className={`${s.btn} ${s.go}`} disabled={chosen === null} onClick={() => { if (chosen !== null) onAnswer(chosen, true); }} data-testid="nibiru-tribute" data-autofocus>Tribute</button>
+        <button type="button" className={`${s.btn} ${s.q}`} disabled={chosen === null} onClick={() => { if (chosen !== null) onAnswer(chosen, false); }} data-testid="nibiru-skip">Skip</button>
+      </div>
+    </div>
+  </PopupFrame>;
 }
 
 function TokenDialog({ free, start, zoneless, modal, zone, initial, onCreate, onClose }: {

@@ -2271,7 +2271,7 @@ test.describe("remote duels screen, tokens and the camera", () => {
     await expect.poll(sheep, { timeout: 15_000 }).toBe(4);
   });
 
-  test("Nibiru played: both fields' monsters go to the Graveyard in one Undo step, then the zone is picked, then a modal dialog holds the combined ATK/DEF", async ({ page, context }) => {
+  test("Nibiru played: a confirm first, then both fields' monsters go to the Graveyard in one Undo step, then the zone is picked, then a modal dialog holds the combined ATK/DEF", async ({ page, context }) => {
     test.setTimeout(120_000);
     const slug = await soloTable(context.request, 2), path = `/api/remote/${slug}`;
     await page.setViewportSize({ width: 1366, height: 768 });
@@ -2285,8 +2285,15 @@ test.describe("remote duels screen, tokens and the camera", () => {
     await act({ type: "twin.place", actorSeat: 1, seat: 1, zone: "monster", card: { ref: "b", name: "Lamb Token", slot: 2, faceUp: true, position: "defense", token: { atk: 300, def: 400 } } });
     await page.goto(`/duels/remote/${slug}`);
     await expect(page.getByTestId("seat-0")).toBeVisible();
+    // The server refuses a Tribute while the player has no face-up Nibiru on the field.
+    const early = await context.request.post(`${path}/actions`, { data: { baseSeq: (await (await context.request.get(path)).json()).lastSeq, action: { idempotencyKey: crypto.randomUUID(), type: "monsters.tribute", actorSeat: 0, seat: 0, targets: [{ seat: 0, cardRef: "a" }] } } });
+    expect(early.status()).toBe(409);
     await act({ type: "twin.place", actorSeat: 0, seat: 0, zone: "monster", card: { ref: "nib", cardId: 27204311, name: "Nibiru, the Primal Being", slot: 3, faceUp: true, position: "attack" } });
     // Both tokens leave in one step; Nibiru stays.
+    // Nothing is sent before the click: the confirm shows the count, and the board is still whole.
+    await expect(page.getByTestId("nibiru-count")).toHaveText("Send 2 monsters to the Graveyard?");
+    expect((await twins(0)).length + (await twins(1)).length).toBe(3);
+    await page.getByTestId("nibiru-tribute").click();
     await expect.poll(async () => [...await twins(0), ...await twins(1)], { timeout: 15_000 }).toEqual(["Nibiru, the Primal Being:monster"]);
     await expect(page.getByTestId("token-bar")).toBeVisible();
     // The zone comes first; the dialog is modal and holds exactly the Tributed tokens' ATK/DEF (100+300 / 200+400).
