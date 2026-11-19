@@ -1,4 +1,5 @@
 import { applyPatch, type RemoteActionProposal, type RemoteRoom, type RoomPatch } from '@yugidraft/shared/remote';
+import { markFieldAction } from './field-timing';
 import { adoptManualCorrection, beginManualCorrection, cameraCorrectionBlocked } from './manual-corrections';
 import { rememberRecentRead } from './recent-reads';
 import { OutageGaveUpError, writeWaiting, retryThroughOutage, SKIPPED } from './outage';
@@ -16,38 +17,85 @@ export const remoteActionError=()=>lastActionError;
  */
 export const remoteChangeNeedsFetch=(heldSeq:number,announcedSeq:number)=>announcedSeq>heldSeq;
 export type RoomTransaction = <T>(work:(room:RemoteRoom,act:RoomMutation)=>Promise<T>)=>Promise<T>;
-/** Manual reads, prompts and watcher changes share one queue and returned state. */
+
+export const hasPendingTwinConfirmation = (room: RemoteRoom) =>
+  !!(room.state.twinConfirmation || room.state.twinConfirmationQueue?.length);
+
+/** Serialize board transactions. Notes can use the manual chain independently. */
 export function createRoomMutationQueue(read:()=>RemoteRoom|undefined,post:RoomMutation,giveUp?:(error:Error)=>void,valid?:()=>boolean) {
-  let chain:Promise<unknown>=Promise.resolve(),writes:Promise<unknown>=Promise.resolve(),latest:RemoteRoom|undefined;
-  const current=()=>{const rendered=read();if(rendered&&(!latest||rendered.lastSeq>=latest.lastSeq))latest=rendered;return latest;};
-  // A transaction can start more than one write before awaiting either. Choose
-  // baseSeq in post only after the preceding response has updated the room ref.
-  // `patient`: a player's own action. A lost connection retries it with the SAME key (the server returns the saved result for a key it has
-  // seen, so a lost reply never applies it twice) until the outage window ends. Field writes retry in retryFieldMutation, which also checks valid().
-  const write=(proposal:RemoteActionProposal,idempotencyKey?:string,prepared?:()=>void,patient=false)=>{
-    const room=current(),rollback=prepared??(room?beginManualCorrection(room,proposal):()=>{});
-    const result=writes.then(async()=>{const now=current();if(now&&cameraCorrectionBlocked(now,proposal))return null;
-      try{let updated:RemoteRoom|null=null;
-        if(patient){try{const kept=await retryThroughOutage(()=>post(proposal,idempotencyKey),{valid,capMs:MANUAL_OUTAGE_CAP_MS});updated=kept===SKIPPED?null:kept;}catch(error){if(!(error instanceof OutageGaveUpError))throw error;giveUp?.(new Error('Could not reach the table. Check the connection and try again.'));}}
-        else updated=await post(proposal,idempotencyKey);
-        if(updated){adoptManualCorrection(updated,proposal);rememberRecentRead(updated,proposal);if(!latest||updated.lastSeq>=latest.lastSeq)latest=updated;}else rollback();return updated;}
-      catch(error){rollback();throw error;}
+  const idle = Promise.resolve();
+  let chain: Promise<unknown> = idle, manual: Promise<unknown> = idle;
+  let latest: RemoteRoom | undefined;
+  const current = () => {
+    const rendered = read();
+    if (rendered && (!latest || rendered.lastSeq >= latest.lastSeq)) latest = rendered;
+    return latest;
+  };
+  const write = async (proposal:RemoteActionProposal, key?:string, prepared?:()=>void, patient=false) => {
+    const now = current();
+    const rollback = prepared ?? (now ? beginManualCorrection(now, proposal) : undefined);
+    try {
+      if (valid?.() === false || (now && cameraCorrectionBlocked(now, proposal))) {
+        rollback?.();
+        return null;
+      }
+      if (key) markFieldAction(key, 'writeDequeued');
+      const result = patient
+        ? await retryThroughOutage(() => post(proposal, key), {valid, capMs: MANUAL_OUTAGE_CAP_MS})
+        : await post(proposal, key);
+      if (result === SKIPPED || !result) {
+        rollback?.();
+        return null;
+      }
+      adoptManualCorrection(result, proposal);
+      rememberRecentRead(result, proposal);
+      if (!latest || result.lastSeq >= latest.lastSeq) latest = result;
+      return result;
+    } catch (error) {
+      rollback?.();
+      if (!(error instanceof OutageGaveUpError) || !patient) throw error;
+      giveUp?.(new Error('Could not reach the table. Check the connection and try again.'));
+      return null;
+    }
+  };
+  const transaction: RoomTransaction = work => {
+    const result = chain.then(async () => {
+      const room = current();
+      if (!room) throw new Error('Table is not loaded');
+      let writes: Promise<unknown> = idle;
+      // A callback can start more than one write before awaiting either.
+      const act: RoomMutation = (proposal, key) => {
+        if (key) markFieldAction(key, 'writeQueued');
+        const sent = writes.then(() => write(proposal, key));
+        writes = sent.catch(() => undefined);
+        return sent;
+      };
+      try { return await work(room, act); }
+      finally { await writes; }
     });
-    writes=result.catch(()=>undefined);return result;
+    chain = result.catch(() => undefined);
+    return result;
   };
-  const act:RoomMutation=(proposal,idempotencyKey)=>write(proposal,idempotencyKey);
-  const transaction:RoomTransaction=work=>{
-    const result=chain.then(()=>{const room=current();if(!room)throw new Error('Table is not loaded');return work(room,act);});
-    chain=result.catch(()=>undefined);return result;
+  return {
+    transaction,
+    action: (proposal:RemoteActionProposal, idempotencyKey?:string) => {
+      if (writeWaiting()) {
+        giveUp?.(new Error('Reconnecting… try again in a moment.'));
+        return Promise.resolve(null);
+      }
+      const room = current();
+      const rollback = room && beginManualCorrection(room, proposal);
+      const key = idempotencyKey ?? crypto.randomUUID();
+      if (idempotencyKey) markFieldAction(key, 'writeQueued');
+      const prior = manual;
+      const run = () => prior.then(() => write(proposal, key, rollback, true));
+      // A log note can clear a pending placement confirmation in the reducer.
+      const independent = proposal.type === 'log.note' && room && !hasPendingTwinConfirmation(room);
+      const result = independent ? run() : transaction(run);
+      manual = result.catch(() => undefined);
+      return result;
+    },
   };
-  return {transaction,action:(proposal:RemoteActionProposal,idempotencyKey?:string)=>{
-    // Each click makes its own key, so a second click while the first still waits would apply twice after the reconnect. Refuse it with a calm message instead.
-    if(writeWaiting()){giveUp?.(new Error('Reconnecting… try again in a moment.'));return Promise.resolve(null);}
-    const room=current(),rollback=room?beginManualCorrection(room,proposal):()=>{};
-    // One key for the whole call, so every retry through an outage is the same write.
-    const key=idempotencyKey??crypto.randomUUID();
-    return transaction(()=>write(proposal,key,rollback,true));
-  }};
 }
 
 /** What a browser holding sequence `held` does with a patch: apply it, drop it as old, or repair because it cannot be applied in order. */

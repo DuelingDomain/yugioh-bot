@@ -591,9 +591,13 @@ export function createRemoteDuelService(db: Database.Database, options: {
         const timeoutState = command.type === "side.timeout" ? readState(row) : undefined;
         if (timeoutState && (row.status !== "active" || !remoteSideTimeoutDue(timeoutState, now))) return room(row, userId, undefined, timeoutState);
         remoteAssert(Number.isSafeInteger(input.baseSeq) && input.baseSeq >= 0, "Invalid base sequence");
-        // An admin who starts or stops watching adds a log line. That is not a game change, so it never makes a player's move stale.
+        // Admin watch notifications and player notes leave the board unchanged.
         // Quitting and conceding are final choices: another action in flight must not turn them into a refused click.
-        if (command.type !== "side.timeout" && command.type !== "player.leave" && command.type !== "player.concede") remoteAssert(input.baseSeq === row.last_seq || (input.baseSeq < row.last_seq && !db.prepare("select 1 from remote_events where table_id=? and seq>? and json_extract(action_json,'$.type')!='admin.watching' limit 1").get(row.id, input.baseSeq)), "Stale sequence; fetch state and retry", 409, "STALE_SEQUENCE");
+        if (command.type !== "side.timeout" && command.type !== "player.leave" && command.type !== "player.concede") {
+          remoteAssert(input.baseSeq === row.last_seq || (input.baseSeq < row.last_seq && !db.prepare(
+            "select 1 from remote_events where table_id=? and seq>? and json_extract(action_json,'$.type') not in ('admin.watching','log.note') limit 1",
+          ).get(row.id, input.baseSeq)), "Stale sequence; fetch state and retry", 409, "STALE_SEQUENCE");
+        }
         // An idle table the sweep has not closed yet closes here, so the player sees the ended table at once instead of a refused move.
         if (row.status === "active" && idleExpired(row, now) && command.type !== "player.leave") { closeIdle(row, now); return room(load(slug, guildId), userId); }
         remoteAssert(row.status === "active" || (row.end_reason === "game" && command.type === "undo"), "Table is not active", 409, "TABLE_ENDED");

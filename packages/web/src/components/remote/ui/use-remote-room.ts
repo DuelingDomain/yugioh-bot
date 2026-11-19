@@ -2,16 +2,19 @@
 
 import { noteRemoteActionError } from "@/lib/remote/room-mutations";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { isTransientError, noteWriteLost, reconnecting as isReconnecting, subscribeReconnecting, wakeOutage, endOutage } from "@/lib/remote/outage";
+import { isTransientError, noteReachable, noteWriteLost, reconnecting as isReconnecting, subscribeReconnecting, wakeOutage, endOutage } from "@/lib/remote/outage";
 import { useRouter } from "next/navigation";
 import useSWR from "swr";
 import { io, type Socket } from "socket.io-client";
 import { remoteApi, tabId } from "./api";
+import { preloadRoomCards } from "./catalog";
+import { deckIdsOf } from "./model";
 import type { RemoteAction, RemoteActionProposal, RemoteBestOf, RemoteClientEvents, RemoteRoom, RemoteServerEvents } from "@yugidraft/shared/remote";
 
-import {markFieldAction,markFieldState,stampedProposal} from '@/lib/remote/field-timing';
-import {applyRoomPatch,classifyPatch,createRepairScheduler,createRoomMutationQueue,remoteChangeNeedsFetch} from '@/lib/remote/room-mutations';
+import {markFieldState,stampedProposal} from '@/lib/remote/field-timing';
+import {applyRoomPatch,classifyPatch,createRepairScheduler,createRoomMutationQueue,hasPendingTwinConfirmation,remoteChangeNeedsFetch} from '@/lib/remote/room-mutations';
 export type RoomController = ReturnType<typeof useRemoteRoom>;
+const PEER_REPAIR_MS = 150;
 
 /** Loads one table, keeps it fresh from the socket (poll as backup: 30 s while the socket is joined, else 5 s) and posts actions. */
 export function useRemoteRoom(slug: string, options: { watchAsAdmin?: boolean } = {}) {
@@ -40,6 +43,44 @@ export function useRemoteRoom(slug: string, options: { watchAsAdmin?: boolean } 
   const lastSeq = useRef(0),tableKey=useRef(slug),socketSeq=useRef(0);
   if(tableKey.current!==slug){tableKey.current=slug;lastSeq.current=0;socketSeq.current=0;roomRef.current=room?.slug===slug?room:undefined;}
   const status = room?.status; const mySeat = room?.mySeat;
+  const preparingDeckKey = room && room.mySeat >= 0 && (status === "lobby" || room.state.match.phase === "siding")
+    ? deckIdsOf(room, room.mySeat).join(",") : "";
+  useEffect(() => {
+    const opened = roomRef.current;
+    if (opened?.slug === slug && mySeat !== undefined && mySeat >= 0 && status !== "ended") {
+      void preloadRoomCards(opened);
+    }
+  }, [slug, mySeat, status, preparingDeckKey]);
+  const peerStamps = useRef(false);
+  useEffect(() => {
+    try { peerStamps.current = sessionStorage.getItem("remote-peer-latency") === "1"; } catch { /* Optional diagnostics. */ }
+  }, []);
+  const stampPeer = useCallback((view: RemoteRoom, stage: "httpState" | "wsState" | "render", previousSeq?: number, actionId?: string) => {
+    if (!peerStamps.current) return;
+    const at = performance.timeOrigin + performance.now();
+    const emit = (seq: number, commitAt?: number) => window.dispatchEvent(new CustomEvent("remote-peer-latency", {
+      detail: { slug: view.slug, seq, stage, at, commitAt },
+    }));
+    if (previousSeq !== undefined) {
+      for (const event of view.events) if (event.seq > previousSeq) emit(event.seq, event.at);
+      return;
+    }
+    const event = view.events.findLast(event => actionId === undefined ? event.seq === view.lastSeq :
+      "idempotencyKey" in event.action && event.action.idempotencyKey === actionId);
+    if (event) emit(event.seq, event.at);
+  }, []);
+  const [awaitingWrites] = useState(() => new Map<string, {
+    slug: string; actorSeat: number; baseSeq: number; accept: (view: RemoteRoom) => void;
+  }>());
+  const acceptSocketWrites = useCallback((view: RemoteRoom, previousSeq: number) => {
+    if (!awaitingWrites.size || view.lastSeq <= previousSeq) return;
+    // Callers use the returned state and Undo entry for this write. If a
+    // packet already includes later writes, wait for the action's own reply.
+    const event = view.events.at(-1);
+    if (event?.seq !== view.lastSeq || !("idempotencyKey" in event.action)) return;
+    const entry = awaitingWrites.get(event.action.idempotencyKey);
+    if (entry?.slug === view.slug && entry.actorSeat === event.actorSeat && event.seq > entry.baseSeq) entry.accept(view);
+  }, [awaitingWrites]);
   // Every reason to doubt the held room ends here: one jittered GET, however many reasons arrive.
   const heldSeq = useCallback(() => Math.max(socketSeq.current, roomRef.current?.slug === slug ? roomRef.current.lastSeq : 0), [slug]);
   const repair = useMemo(() => createRepairScheduler(() => mutate(), heldSeq), [mutate, heldSeq]);
@@ -88,7 +129,7 @@ export function useRemoteRoom(slug: string, options: { watchAsAdmin?: boolean } 
       if(snapshot.table.slug!==slug) return;
       const held=Math.max(socketSeq.current,roomRef.current?.slug===slug?roomRef.current.lastSeq:0);
       // The patch or private snapshot of this change may be a moment behind the notice, so wait briefly before the GET.
-      if(remoteChangeNeedsFetch(held,snapshot.table.lastSeq)) repair.ask(snapshot.table.lastSeq, 400);
+      if(remoteChangeNeedsFetch(held,snapshot.table.lastSeq)) repair.ask(snapshot.table.lastSeq, PEER_REPAIR_MS);
     });
     socket.on("remote:private", snapshot => {
       if (snapshot.table.slug !== slug) return;
@@ -98,28 +139,41 @@ export function useRemoteRoom(slug: string, options: { watchAsAdmin?: boolean } 
       const fromSnapshot = (current: RemoteRoom): RemoteRoom => ({ ...snapshot.table, state: snapshot.state, events: snapshot.events, mySeat: current.mySeat, isDeveloper: current.isDeveloper, recordingEnabled: current.recordingEnabled, unsureNamesEnabled: current.unsureNamesEnabled, voiceEnabled: current.voiceEnabled, voiceDiagnosticsEnabled: current.voiceDiagnosticsEnabled, spectator: current.spectator, spectatorCount: snapshot.table.spectatorCount ?? current.spectatorCount });
       // The held room moves now, so a patch that follows at once builds on this snapshot.
       const built=held&&held.slug===slug&&held.lastSeq<=snapshot.table.lastSeq?fromSnapshot(held):undefined;
-      if(built)roomRef.current=built;
+      if(held&&built){
+        roomRef.current=built;
+        if(built.lastSeq>held.lastSeq)stampPeer(built,"wsState",held.lastSeq);
+        acceptSocketWrites(built, held.lastSeq);
+      }
       void mutate(current => current && current.lastSeq <= snapshot.table.lastSeq ? built ?? fromSnapshot(current) : current, { revalidate: false });
     });
     // A server that sends no patches never reaches this handler; the snapshots above and the GETs keep such a browser current.
     socket.on("remote:patch", patch => {
       if(patch.slug&&patch.slug!==slug) return;
       const held=roomRef.current;
-      if(!held||held.slug!==slug){repair.ask(patch.seq,300);return;}
+      if(!held||held.slug!==slug){repair.ask(patch.seq,PEER_REPAIR_MS);return;}
       const kind=classifyPatch(held.lastSeq,patch);
       if(kind==='stale') return; // our own action reply or a snapshot already gave this sequence
-      if(kind==='repair'){repair.ask(patch.seq,300);return;}
+      if(kind==='repair'){repair.ask(patch.seq,PEER_REPAIR_MS);return;}
       let next:RemoteRoom;
-      try{next=applyRoomPatch(held,patch);}catch{repair.ask(patch.seq,300);return;}
+      try{next=applyRoomPatch(held,patch);}catch{repair.ask(patch.seq,PEER_REPAIR_MS);return;}
       roomRef.current=next;lastSeq.current=Math.max(lastSeq.current,next.lastSeq);socketSeq.current=Math.max(socketSeq.current,next.lastSeq);
       markFieldState(next,'wsState');
+      stampPeer(next,"wsState",held.lastSeq);
+      acceptSocketWrites(next, held.lastSeq);
       void mutate(current => current && current.lastSeq > next.lastSeq ? current : next, { revalidate: false });
     });
     socket.connect(); const timer = setInterval(() => void join(), 4 * 60_000);
     return () => { disposed = true; clearInterval(timer); socket.emit("remote:leave"); socket.disconnect(); socketRef.current = null; };
-  }, [slug, mySeat, status, mutate, repair]);
+  }, [slug, mySeat, status, mutate, repair, stampPeer, acceptSocketWrites]);
 
-  useEffect(()=>{if(!room)return;const frame=requestAnimationFrame(()=>markFieldState(room,'render'));return()=>cancelAnimationFrame(frame);},[room]);
+  useEffect(()=>{
+    if(!room)return;
+    const frame=requestAnimationFrame(()=>{
+      markFieldState(room,'render');
+      stampPeer(room,"render");
+    });
+    return()=>cancelAnimationFrame(frame);
+  },[room,stampPeer]);
 
   const operation = useCallback(async (path: string, body: unknown = {}) => {
     setBusy(true); setError("");
@@ -141,6 +195,10 @@ export function useRemoteRoom(slug: string, options: { watchAsAdmin?: boolean } 
     lastSeq.current=Math.max(lastSeq.current,refreshed.lastSeq);
     await mutate(old=>old&&old.lastSeq>refreshed.lastSeq?old:refreshed,{revalidate:false});
   },[slug,mutate]);
+  const refreshAfterWrite = useMemo(() => {
+    let pending: Promise<void> | undefined;
+    return () => pending ??= refresh().finally(() => { pending = undefined; });
+  }, [refresh]);
 
   /** Posts one action; resolves to the updated room, or null when the foundation refused it. */
   const postAction = useCallback(async (payload: RemoteActionProposal, idempotencyKey = crypto.randomUUID()): Promise<RemoteRoom | null> => {
@@ -148,27 +206,56 @@ export function useRemoteRoom(slug: string, options: { watchAsAdmin?: boolean } 
     if (!mounted.current) return null;
     const current = roomRef.current; if (tableKey.current!==slug||!current||current.slug!==slug) return null;
     const input = { baseSeq: Math.max(current.lastSeq, lastSeq.current), action: { ...stampedProposal(payload, idempotencyKey, !!current.seats?.find(seat => seat.seat === payload.actorSeat)?.bot), idempotencyKey } as RemoteAction };
+    let attemptedSeq = input.baseSeq;
+    const listenForAck = socketRef.current?.connected && !awaitingWrites.has(idempotencyKey);
+    const stop = listenForAck ? new AbortController() : undefined;
+    const socketAck = listenForAck && new Promise<RemoteRoom>(accept => {
+      awaitingWrites.set(idempotencyKey, {slug, actorSeat: payload.actorSeat, baseSeq: input.baseSeq, accept});
+    });
     setError("");
     try {
-      markFieldAction(idempotencyKey,'httpStart');
-      const updated = await remoteApi<RemoteRoom>(`/${slug}/actions`, input);
+      const path = `/${slug}/actions`;
+      const http = remoteApi<RemoteRoom>(path, input, stop?.signal).catch(async error => {
+        if (error?.code !== "STALE_SEQUENCE" || payload.type !== "log.note" || tableKey.current !== slug || !mounted.current) throw error;
+        if ((roomRef.current?.lastSeq ?? 0) <= input.baseSeq) {
+          try { await refreshAfterWrite(); } catch { throw error; }
+        }
+        const held = roomRef.current;
+        if (stop?.signal.aborted || !mounted.current || !held || held.slug !== slug || held.status !== "active" || held.lastSeq <= input.baseSeq ||
+          held.state.gameId !== current.state.gameId || hasPendingTwinConfirmation(current) || hasPendingTwinConfirmation(held)) throw error;
+        // Retry a log note with its original stamp. Camera retries revalidate physical evidence in the watcher.
+        attemptedSeq = held.lastSeq;
+        return remoteApi<RemoteRoom>(path, { ...input, baseSeq: attemptedSeq }, stop?.signal);
+      });
+      // The action is committed as soon as its exact key appears in the room.
+      // Keep ordered writes moving even when the HTTP reply is delayed.
+      const result = socketAck ? await Promise.race([
+        http.then(view => ({ view, socket: false })),
+        socketAck.then(view => ({ view, socket: true })),
+      ]) : {view: await http, socket: false};
+      if (result.socket) { stop?.abort(); noteReachable(); return result.view; }
+      const updated = result.view;
       markFieldState(updated,'httpState');
+      stampPeer(updated,"httpState",undefined,idempotencyKey);
       if(tableKey.current!==slug)return updated;
       lastSeq.current = Math.max(lastSeq.current, updated.lastSeq);
       if(!roomRef.current||roomRef.current.slug!==slug||updated.lastSeq>=roomRef.current.lastSeq)roomRef.current = updated; // a patch may have moved the room past this reply
-      await mutate(old => old && old.lastSeq > updated.lastSeq ? old : updated, { revalidate: false });
+      void mutate(old => old && old.lastSeq > updated.lastSeq ? old : updated, { revalidate: false });
       return updated;
     } catch (e) {
       if(tableKey.current!==slug)return null;
       // A lost connection is not a refusal: no error text. The queue retries with the same key; the shared "Reconnecting…" notice shows.
       if(isTransientError(e)){noteWriteLost();console.warn('[remote] action not sent, connection lost',e);return null;}
       noteRemoteActionError(e);setError((e as Error).message);
-      try{await refresh();}catch{/* Keep the failed action recoverable during a network outage. */}
+      if (e && (e as {code?: string}).code === "STALE_SEQUENCE" && (roomRef.current?.lastSeq ?? 0) > attemptedSeq) return null;
+      try{await refreshAfterWrite();}catch{/* Keep the failed action recoverable during a network outage. */}
       return null;
+    } finally {
+      if (listenForAck) awaitingWrites.delete(idempotencyKey);
     }
-  }, [slug, mutate, refresh]);
+  }, [slug, mutate, refreshAfterWrite, stampPeer, awaitingWrites]);
 
-  const {action,transaction}=useMemo(()=>createRoomMutationQueue(()=>tableKey.current===slug&&roomRef.current?.slug===slug?roomRef.current:undefined,postAction,e=>{noteRemoteActionError(e);setError(e.message);void refresh().catch(()=>undefined);},()=>mounted.current&&tableKey.current===slug),[postAction,refresh,slug]);
+  const {action,transaction}=useMemo(()=>createRoomMutationQueue(()=>tableKey.current===slug&&roomRef.current?.slug===slug?roomRef.current:undefined,postAction,e=>{noteRemoteActionError(e);setError(e.message);void refreshAfterWrite().catch(()=>undefined);},()=>mounted.current&&tableKey.current===slug),[postAction,refreshAfterWrite,slug]);
   const reconnecting = useSyncExternalStore(subscribeReconnecting, isReconnecting, () => false);
 
   const sendData = useCallback((message: Parameters<RemoteClientEvents["remote:data"]>[0]) => { socketRef.current?.emit("remote:data", message); }, []);
