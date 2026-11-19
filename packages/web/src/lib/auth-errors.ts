@@ -44,7 +44,7 @@ export function mapClerkError(error: unknown, context: Context): AuthErrorView {
   }
   // Kept for as long as the Clerk "Reject compromised passwords" setting is on; the form's own breach warning replaces it.
   if ((context === "newpw" || context === "signup") && code === "form_password_pwned") return field(context === "newpw" ? "newPassword" : "password", "This password was found in a data breach and is blocked by the current security setting. Choose a different password.");
-  if ((context === "newpw" || context === "signup") && ["form_password_length_too_short", "form_password_length_too_short", "form_password_validation_failed"].includes(code ?? "")) return field(context === "newpw" ? "newPassword" : "password", message);
+  if ((context === "newpw" || context === "signup") && ["form_password_length_too_short", "form_password_validation_failed"].includes(code ?? "")) return field(context === "newpw" ? "newPassword" : "password", message);
   if (context === "code") {
     if (code === "form_code_incorrect") return field("code", "That code isn't right.");
     if (code === "verification_expired" || code === "verification_failed") return field("code", "That code expired. Send a new one.");
