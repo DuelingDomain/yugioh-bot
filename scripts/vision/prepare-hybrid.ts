@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { readFile, writeFile, mkdir, copyFile, rename } from 'node:fs/promises';
 import path from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { buildHybridCatalog } from '../../packages/vision/src/hybrid-catalog';
 import { hybridProfiles, HYBRID_ASSETS, duelSightModel, lightModel } from '../../packages/vision/src/hybrid-models';
 import { yugioh } from '../../packages/vision/src/games/yugioh';
@@ -74,4 +75,10 @@ export async function prepareHybrid(out:string,root:string,localSources?:string)
   }
   for(const [source,name] of [['light.onnx','light.onnx'],['light.bin','light.bin'],['sight-recognizer.onnx','recognizer.onnx'],['sight-bank.bin','bank.bin']])await copyFile(path.join(cache,source),path.join(dest,name));
   for(const file of ['duelsight.LICENSE','duelsight.NOTICE','duelsight.PROVENANCE.md','duel-lens.LICENSE','duel-lens-light.THIRD_PARTY_NOTICES.md'])await copyFile(path.join(root,'packages/vision/src/licenses',file),path.join(dest,file));
+}
+
+if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
+  const root = fileURLToPath(new URL('../..', import.meta.url));
+  const out = path.resolve(process.env.VISION_DATA_DIR ?? path.join(root, 'data/vision'));
+  await prepareHybrid(out, root, process.env.VISION_HYBRID_SOURCES);
 }

@@ -46,7 +46,7 @@ import type { VoiceFinal } from "./voice/live-client";
 import { utteranceRecord, voiceCommands, type VoiceContext, type VoiceDecision } from "@/lib/remote/voice-diagnostics";
 import { faceDownInFrame, tapMemoryFor, type TapSpot } from '@/lib/remote/tap-memory';
 import { VideoHubProvider, useVideoHub } from "./video-hub";
-import { gpuLossReason, useRecognitionBackend } from "./recognition-backend";
+import { gpuLossReason, setHybridReaderEnabled, useRecognitionBackend } from "./recognition-backend";
 import { cameraPermissionGranted, cameraWanted, rememberCameraWanted, takeCameraReady } from "./camera-choice";
 import { RemoteLobbyRoom } from "./lobby";
 import { REMOTE_RETENTION_NOTICE } from "./retention-notice";
@@ -111,8 +111,13 @@ function zoneRect(seat: number, key: ZoneKey): { left: number; top: number; righ
 }
 
 /** Entry point of /duels/remote/[slug]: the lobby room before the start, the table after it. */
-export function RemoteTableScreen({ slug, tournament = null, watchAsAdmin = false }: { slug: string; /** Set when the viewer is one of the two paired players of a tournament match on this table. */ tournament?: RemoteTournamentLink | null;
-  /** The admin list's Watch button: open the table as a spectator, a private one too (the server checks the owner list). */ watchAsAdmin?: boolean }) {
+export function RemoteTableScreen({ slug, tournament = null, watchAsAdmin = false, hybridEnabled }: { slug: string; /** Set when the viewer is one of the two paired players of a tournament match on this table. */ tournament?: RemoteTournamentLink | null;
+  /** The admin list's Watch button: open the table as a spectator, a private one too (the server checks the owner list). */ watchAsAdmin?: boolean;
+  hybridEnabled: boolean }) {
+  useLayoutEffect(() => {
+    setHybridReaderEnabled(hybridEnabled);
+    return () => setHybridReaderEnabled(false);
+  }, [hybridEnabled]);
   const ctl = useRemoteRoom(slug, { watchAsAdmin });
   const room = ctl.room;
   const isDeveloper = room?.isDeveloper === true;

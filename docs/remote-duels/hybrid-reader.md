@@ -2,7 +2,9 @@
 
 Remote Duels has two device-local readers: **Current** (the default) and **Hybrid**. The switch is inside the signed-in camera settings in the lobby and at a running table. It restarts the reader and watcher through the existing processor-switch lifecycle; the table, camera and saved board stay open. Nothing opts an existing user into Hybrid.
 
-Choose **Card reader → Hybrid**, or append `?visionReader=hybrid` to the actual table URL (`&visionReader=hybrid` when it already has a query). On localhost this is `http://localhost:3000/duels/remote/<slug>?visionReader=hybrid`; the same parameter works on the production app origin. `visionReader=current` forces the default for that page. The UI choice is saved as `dd-remote-card-reader` in localStorage, alongside the existing `dd-remote-recognition-mode` setting. The query overrides storage at page initialization; remove it before testing saved choices after a reload. The processor selector still controls the unchanged detector and the current compatibility reader.
+Set `REMOTE_HYBRID_USER_IDS` on the web server to the comma-separated application `users.id` values for the rollout. The list applies after Remote Duels access is checked. An empty list allows nobody. Leaving it unset allows every Remote Duels user outside production and nobody in production.
+
+With access, choose **Card reader → Hybrid** or append `?visionReader=hybrid` to the table URL. `visionReader=current` selects Current. The UI saves the choice as `dd-remote-card-reader` in localStorage. The query takes priority over the saved choice when the page opens. The processor selector still controls the detector and the current compatibility reader.
 
 ## Name read and product rules
 
@@ -35,7 +37,7 @@ The page allows eight seconds for the extra catalog download; a failure starts C
 
 ## Prepare and deliver assets
 
-No models, indexes, card images or eval footage are added to Git. The existing `scripts/vision/prepare.ts` owns preparation. The Dockerfile's existing `--code-only` build stays offline and includes the new worker code; binary data still lives in the mounted `data/vision` volume. `--code-only` refuses `--hybrid`.
+The existing `scripts/vision/prepare.ts` prepares the worker and runtime. The Dockerfile keeps that offline `--code-only` step and uses a separate stage for the pinned Hybrid models and indexes.
 
 From this checkout, with an existing prepared Current installation:
 
@@ -50,17 +52,7 @@ npm run dev --workspace=packages/web -- --port 3000
 
 For a fresh preparation on another machine, unset `VISION_HYBRID_SOURCES` and run the same prepare command. It fetches only the pinned GitHub revision files and the checksum-pinned DuelSight v0.8.0 archive. Archive reads use Python 3's standard library (or `VISION_PYTHON`); no upstream code is executed. The prepared `hybrid/` directory contains four binary assets (two models, the bank and the Light index), two catalog/index JSON files, and notices. Verified inputs remain in ignored `hybrid-sources/`; do not ship that source cache.
 
-Production follows the existing manual data procedure in [VM runbook, Remote Duels step 5](../deployment/vm-runbook.md#remote-duels). After the owner deploys the code, copy just the additive Hybrid directory, retaining the existing Current files:
-
-```sh
-# Owner operation, from the prepared checkout; replace <vm>.
-rsync -a data/vision/hybrid/ root@<vm>:/opt/yugioh-bot/data/vision/hybrid/
-# On that VM, from /opt/yugioh-bot:
-chown -R 1000:1000 data/vision/hybrid
-chmod -R a+rX data/vision/hybrid
-```
-
-A new image carries `/app/vision-code/worker.js` and matching `ort/`; the authenticated `/dev/vision-assets/hybrid/*` route reads the volume. No Compose env/build-argument change, new public route, API provider, database migration, or default-reader change is needed. A browser choosing Hybrid before the data copy gets the visible Current fallback. Reload/switch after data installation. No deployment or remote copy was performed for this change.
+The web image runs `scripts/vision/prepare-hybrid.ts` with a temporary `VISION_DATA_DIR` and copies the prepared `hybrid/` directory and its notices to `/app/vision-code/hybrid/`. The authenticated `/dev/vision-assets/hybrid/*` route checks the rollout list and falls back to the local vision data directory when the image lacks the file. Current's models and indexes still come from the volume as described in the [VM runbook](../deployment/vm-runbook.md#remote-duels-limited-test).
 
 ## Sources, licenses and SHA-256
 
@@ -96,7 +88,7 @@ Local preparation on 15 November 2026 rechecked the hashes above without downloa
 | `bank.bin` | 4,185,023 | DuelSight release bank, embeddings of official card pictures; PROVENANCE states Apache-2.0 for the project's work and reserves artwork rights. |
 | `light.bin` | 5,719,316 | Pinned Duel Lens v3b reference index (`f6968f3682d53a79c4a9fef591300615eda61c11`), used unchanged by Light. The model licence does not grant rights in card artwork or catalog data. |
 
-The other checked files are `catalog.json` (2,860,306 bytes) and `light.meta.json` (1,655,583 bytes). All six live under host `/opt/yugioh-bot/data/vision/hybrid/`, mounted at `/app/data/vision/hybrid/` with the default production configuration. The authenticated `/dev/vision-assets/hybrid/<filename>` route serves them from `VISION_DATA_DIR`, with a size/mtime ETag and private one-hour revalidation cache. A custom `VISION_DATA_DIR` must match preparation and the web service. The image provides worker/runtime code, not these binaries. The copy command above and the VM runbook are additive; they do not replace Current's directory.
+The other checked files are `catalog.json` (2,860,306 bytes) and `light.meta.json` (1,655,583 bytes). The six files and their notices total 31,860,228 bytes uncompressed. Hybrid asset responses use `Cache-Control: private, no-store`.
 
 ## Measurements and proof limits
 

@@ -1,7 +1,7 @@
 import { extname } from "node:path";
 import { Readable } from "node:stream";
 import { fxLabEnabled, visionAssetsEnabled } from "@/lib/fx-lab";
-import { remoteDuelsForViewer } from "@/lib/remote-duels";
+import { remoteDuelViewerId, remoteDuelsForViewer, remoteHybridEnabledFor } from "@/lib/remote-duels";
 import { contentEtag, etagMatches, openVisionAsset, statEtag } from "@/lib/vision-assets";
 
 export const runtime = "nodejs";
@@ -23,20 +23,25 @@ const MIME_TYPES: Record<string, string> = {
 };
 
 /**
- * Generated assets stay outside public/ so the request-time lab gate always applies. worker.js, NOTICE and ort/* come
- * from the web image (VISION_CODE_DIR); everything else, and those three when the image lacks them, from VISION_DATA_DIR.
+ * Generated assets stay outside public/ so request-time gates always apply. Image assets are preferred,
+ * with VISION_DATA_DIR as the fallback.
  */
 export async function GET(request: Request, { params }: { params: Promise<{ path: string[] }> }) {
   if (!visionAssetsEnabled()) return new Response(null, { status: 404 });
-  // Outside the public lab these files belong to Remote Duels, so the rollout list applies.
-  if (!fxLabEnabled() && !await remoteDuelsForViewer()) return new Response(null, { status: 404 });
-
   const { path } = await params;
   if (!path.length || path.some(part => !part || part === "." || part === ".." || /[/\\\0]/.test(part))) {
     return new Response(null, { status: 404 });
   }
-  // Owner diagnostic crops share DATA, but are never public model/lab assets.
-  if (path[0] === "diagnostics") return new Response(null, { status: 404 });
+  const hybrid = path[0] === "hybrid";
+  if (hybrid) {
+    const userId = await remoteDuelViewerId();
+    if (userId === null || !remoteHybridEnabledFor(userId)) {
+      return new Response(null, { status: 404, headers: { "Cache-Control": "private, no-store" } });
+    }
+  } else if (!fxLabEnabled() && !await remoteDuelsForViewer()) {
+    return new Response(null, { status: 404 });
+  }
+  if (path[0] === "diagnostics" || path[0] === "hybrid-sources") return new Response(null, { status: 404 });
   const mime = ["LICENSE", "NOTICE"].includes(path.at(-1)!) ? "text/plain; charset=utf-8" : MIME_TYPES[extname(path.at(-1)!).toLowerCase()];
   if (!mime) return new Response(null, { status: 404 });
 
@@ -51,7 +56,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ path
     const headers = new Headers({
       "Content-Type": mime,
       "Content-Length": String(stat.size),
-      "Cache-Control": code ? "private, no-cache" : "private, max-age=3600, must-revalidate",
+      "Cache-Control": hybrid ? "private, no-store" : code ? "private, no-cache" : "private, max-age=3600, must-revalidate",
       "ETag": etag,
       "X-Content-Type-Options": "nosniff",
     });

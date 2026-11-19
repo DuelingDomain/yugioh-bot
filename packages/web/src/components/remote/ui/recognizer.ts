@@ -96,9 +96,10 @@ function loadMeta() {
     const response = await fetch(yugioh.metaUrl, { cache: "force-cache" });
     if (!response.ok) return null;
     const found = await response.json() as Meta;
-    if(selected==="hybrid") {
+    if(selected==="hybrid" && epoch===recognizerEpoch) {
       try {
         const {loadHybridCatalog}=await import('@yugidraft/vision');
+        if (epoch !== recognizerEpoch) return null;
         const extra=await loadHybridCatalog();found.entries=[...new Map([...extra.entries,...found.entries].map(e=>[e.cardId,e])).values()];
       }catch { if(epoch===recognizerEpoch){hybridCatalogFailed=true;reportReaderNote(HYBRID_CATALOG_NOTE);} }
     }
@@ -119,6 +120,7 @@ function loadRecognizer() {
   recognizer ??= loadMeta().then(async found => {
     if (!found) return null;
     const { createRecognizer, yugioh } = await import("@yugidraft/vision");
+    if (epoch !== recognizerEpoch) return null;
     return createRecognizer({ profile: yugioh, reader:hybridCatalogFailed?'current':selected, backend: engineBackend(), onBackendChange: status => {if(epoch!==recognizerEpoch)return;reportBackend(status.backend, undefined, status.fallbackReason ?? "");reportReaderNote(status.readerNote??(hybridCatalogFailed?HYBRID_CATALOG_NOTE:""));} }) as unknown as VisionRecognizer;
   }).catch(() => null);
   return recognizer;

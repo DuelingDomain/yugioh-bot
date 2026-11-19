@@ -7,6 +7,7 @@ import type { CardReader, ReaderDiagnostics } from "@yugidraft/vision";
 export type RecognitionMode = "auto" | "gpu" | "cpu";
 export type EngineBackend = "webgpu" | "wasm";
 export type RecognitionBackendState = {
+  hybridEnabled: boolean;
   reader: CardReader;
   readerNote: string;
   read: ReaderDiagnostics | null;
@@ -30,7 +31,7 @@ export const RECOGNITION_MODES: readonly { value: RecognitionMode; label: string
 const KEY = "dd-remote-recognition-mode";
 const READER_KEY = "dd-remote-card-reader";
 export const CARD_READERS: readonly {value:CardReader;label:string}[] = [{value:"current",label:"Current"},{value:"hybrid",label:"Hybrid"}];
-const DEFAULT: RecognitionBackendState = { reader:"current",readerNote:"",read:null,mode: "auto", backend: null, ms: null, note: "", generation: 0 };
+const DEFAULT: RecognitionBackendState = { hybridEnabled: false, reader:"current",readerNote:"",read:null,mode: "auto", backend: null, ms: null, note: "", generation: 0 };
 let state: RecognitionBackendState | null = null;
 let forcedCpu = false;
 const listeners = new Set<() => void>();
@@ -39,11 +40,14 @@ const resetters = new Set<() => void>();
 function load(): RecognitionBackendState {
   if (state) return state;
   let mode: RecognitionMode = "auto";
-  let reader: CardReader = "current";
   try { const stored = localStorage.getItem(KEY); if (stored === "auto" || stored === "gpu" || stored === "cpu") mode = stored; } catch { /* Private mode: memory only. */ }
+  return state = { ...DEFAULT, mode };
+}
+function preferredReader(): CardReader {
+  let reader: CardReader = "current";
   try {const stored=localStorage.getItem(READER_KEY);if(stored==="hybrid")reader=stored;}catch{}
   try {const forced=new URL(location.href).searchParams.get("visionReader");if(forced==="current"||forced==="hybrid")reader=forced;}catch{}
-  return state = { ...DEFAULT, mode, reader };
+  return reader;
 }
 function update(patch: Partial<RecognitionBackendState>) {
   const now = load(), next = { ...now, ...patch };
@@ -56,11 +60,25 @@ export function engineBackend(): "auto" | "wasm" {
   return forcedCpu || load().mode === "cpu" ? "wasm" : "auto";
 }
 export const cardReader=():CardReader=>load().reader;
-export function setCardReader(reader:CardReader) {
-  if(load().reader===reader)return;
-  try {localStorage.setItem(READER_KEY,reader);}catch{}
-  update({reader,readerNote:"",read:null,backend:null,ms:null,note:"",generation:load().generation+1});
+function updateReader(reader: CardReader, hybridEnabled: boolean) {
+  const now = load();
+  if (now.reader === reader) {
+    update({ hybridEnabled });
+    return;
+  }
+  update({ hybridEnabled, reader, readerNote: "", read: null, backend: null, ms: null, note: "", generation: now.generation + 1 });
   for(const reset of resetters)reset();
+}
+/** Set from the signed-in Remote Duels page before its camera starts the reader. */
+export function setHybridReaderEnabled(enabled: boolean) {
+  if (load().hybridEnabled === enabled) return;
+  updateReader(enabled ? preferredReader() : "current", enabled);
+}
+export function setCardReader(reader:CardReader) {
+  const now = load();
+  if (now.reader === reader || (reader === "hybrid" && !now.hybridEnabled)) return;
+  try {localStorage.setItem(READER_KEY,reader);}catch{}
+  updateReader(reader, now.hybridEnabled);
 }
 export function reportReaderNote(readerNote:string) {update({readerNote});}
 export function reportReaderRead(read:ReaderDiagnostics|undefined) {if(read)update({read});}
