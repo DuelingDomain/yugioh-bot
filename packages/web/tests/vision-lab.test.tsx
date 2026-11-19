@@ -1061,7 +1061,7 @@ describe('typed watcher zone projection',()=>{
    else{expect(dismiss).not.toHaveBeenCalled();expect(fixture.room().state.seats[0].twin).toEqual(placement?[]:[expect.objectContaining({ref:old.ref,zone:'hand'})]);}
   }finally{ready.resolve();fixture.dispose();}
  },10_000);
- it.each(['the next full pass','the removal scan','the pixel-only removal check'] as const)('sends a face-up M1 card to hand in under one second when %s shows empty mat',async scan=>{
+ it.each(['the next full pass','the removal scan','the pixel-only removal check','positive proof without a removal event'] as const)('sends a face-up M1 card to hand in under one second when %s shows empty mat',async scan=>{
   const entry=cards[0],old={ref:'lifted-monster',zone:'monster',slot:1,cardId:entry.passcode,name:entry.name,faceUp:true,position:'attack'};
   const fixture=await typedWatcherFixture(entry,'M1',[old],'moved');
   vi.useFakeTimers({toFake:['setTimeout','clearTimeout','performance']});
@@ -1073,8 +1073,9 @@ describe('typed watcher zone projection',()=>{
    const pixelOnly=scan==='the pixel-only removal check';
    Object.assign(watch.snapshot,{blindZones:[],handZones:[],zoomDeparturePending:pixelOnly?['M1']:[],
     lastFullAt:pixelOnly?removedFrameAt-400:removedFrameAt});
+   if(scan==='positive proof without a removal event')Object.assign(watch.snapshot,{missingTwins:[old.ref],emptyProofAt:{M1:removedAt}});
    fixture.refresh();
-   await fixture.emit({type:'removed',removedAt,...(pixelOnly?{reason:'empty'}:{})});
+   if(scan!=='positive proof without a removal event')await fixture.emit({type:'removed',removedAt,...(pixelOnly?{reason:'empty'}:{})});
    if(scan==='the next full pass'){
     await act(async()=>{await vi.advanceTimersByTimeAsync(200);});
     watch.snapshot.lastFullAt=performance.now();
@@ -1144,11 +1145,12 @@ describe('typed watcher zone projection',()=>{
     handZones:evidence==='hand'?['S4']:[],zoomPendingZones:evidence==='zoom'?['S4']:[],
     zoomDeparturePending:evidence==='forced zoom'?['S4']:[],
     blindSleeveAt:evidence==='sleeve'?{S4:removedAt+100}:{}});
-   if(evidence==='candidate')fixture.addTrack({id:'pending-back',removed:false,state:'candidate',firstSeen:removedAt,card:{...fixture.track.card,kind:'face-down'}});
+   const candidate=evidence==='candidate'?fixture.addTrack({id:'pending-back',removed:false,state:'candidate',firstSeen:removedAt,card:{...fixture.track.card,kind:'face-down'}}):undefined;
    fixture.refresh();
    await fixture.emit({type:'removed',removedAt});
    await advance(1999);
    expect(fixture.post).not.toHaveBeenCalled();
+   if(candidate)candidate.removed=true;
    await advance(1);
    expect(fixture.post).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({type:'twin.move',cardRef:old.ref,zone:'hand'}),expect.anything());
   }finally{fixture.dispose();vi.useRealTimers();}
@@ -1413,7 +1415,7 @@ describe('typed watcher zone projection',()=>{
    expect(fixture.post).not.toHaveBeenCalled();
    if(scenario==='fresh zoom'){
     Object.assign(watch.snapshot,{zoomDeparturePending:[],zoomCheckedAt:{S4:performance.now()}});
-    await advance(101);
+    await advance(200);
    }else{
     await advance(1299);
     expect(fixture.post).not.toHaveBeenCalled();
@@ -1477,6 +1479,31 @@ describe('typed watcher zone projection',()=>{
    expect(shortUndoLabel(entry,(_,ref)=>room.state.seats[0].twin.find((c:TwinCard)=>c.ref===ref)?.name,()=>'')).toBe('Solemn Judgment → S4');
   }finally{fixture.dispose();vi.restoreAllMocks();}
  });
+ it.each([['GY','graveyard',false],['BANISHED','banished',false],['BANISHED','banished',true]] as const)(
+ 'routes to a populated %s pile with inherited rest in one write (%s, face-down %s)',async(zone,destination,faceDown)=>{
+  const entry=cards[0],old={ref:'incoming',zone:'monster',slot:1,cardId:entry.passcode,name:entry.name,faceUp:true,position:'attack'};
+  const top={ref:'pile-top',zone:destination,cardId:83764718,name:'Monster Reborn',faceUp:true,position:'attack'};
+  const fixture=await typedWatcherFixture(entry,'M1',[old,top],'moved');
+  vi.useFakeTimers();
+  try{
+   const advance=(ms:number)=>act(async()=>{await vi.advanceTimersByTimeAsync(ms);});
+   await advance(5000);
+   const watch=state.fieldWatch.watch,removedAt=performance.now();
+   watch.getSnapshot=()=>({...watch.snapshot,tracks:[...watch.snapshot.tracks]});
+   watch.isRemoved=(id:string)=>id===old.ref;
+   Object.assign(fixture.track,{removed:true,visible:false,lastSeen:removedAt-100,removedAt});
+   fixture.addTrack({id:top.ref,zone,cardId:'83764718',firstSeen:100,lastSeen:removedAt,restSince:100});
+   Object.assign(watch.snapshot,{pileContactAt:{[zone]:removedAt+450},lastFullAt:removedAt,metrics:{...watch.snapshot.metrics,intervalMs:400}});
+   await fixture.emit({type:'removed',reason:'empty',removedAt});
+   await advance(900);
+   expect(fixture.post).not.toHaveBeenCalled();
+   fixture.addTrack({id:'new-pile-outline',zone,faceDown,cardId:undefined,state:'candidate',removed:false,visible:true,
+    firstSeen:performance.now(),lastSeen:performance.now(),restSince:100});
+   await advance(300);
+   expect(fixture.post).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({type:'twin.move',cardRef:old.ref,zone:destination,faceUp:!faceDown}),expect.anything());
+   expect(fixture.room().state.seats[0].twin).toEqual([top,expect.objectContaining({ref:old.ref,zone:destination,faceUp:!faceDown})]);
+  }finally{fixture.dispose();vi.useRealTimers();}
+ });
  it('a pile card the camera shows right after a departure settles the move at once, and the stand-in goes (one card, one pile)',async()=>{
   const old={ref:'left-field',zone:'spell-trap',slot:4,cardId:41420027,name:'Solemn Judgment',faceUp:true,position:'attack'};
   const fixture=await typedWatcherFixture(zoneEntries[0],'M4',[old],'moved');
@@ -1490,7 +1517,7 @@ describe('typed watcher zone projection',()=>{
    expect(fixture.room().state.seats[0].twin).toEqual([expect.objectContaining({ref:old.ref,zone:'banished',faceUp:false})]);
   }finally{fixture.dispose();}
  },10_000);
- it('a pile card the camera shows seconds after the hand default moves the card hand to GY (one move, the stand-in goes)',async()=>{
+ it('leaves a completed hand departure alone when an unrelated unread pile card appears later',async()=>{
   const old={ref:'left-field',zone:'spell-trap',slot:4,cardId:41420027,name:'Solemn Judgment',faceUp:true,position:'attack'};
   const fixture=await typedWatcherFixture(zoneEntries[0],'M4',[old],'moved');
   try{
@@ -1499,11 +1526,11 @@ describe('typed watcher zone projection',()=>{
    expect(fixture.room().state.seats[0].twin).toEqual([expect.objectContaining({ref:old.ref,zone:'hand'})]);
    fixture.addTrack({id:'fw-1',zone:'GY',faceDown:false,cardId:undefined,state:'candidate',visible:true,removed:false,firstSeen:performance.now()});
    fixture.setTwins([...fixture.room().state.seats[0].twin,{ref:'fw-1',zone:'graveyard',faceUp:true,position:'attack'}]);
-   await waitFor(()=>expect(fixture.post.mock.calls.map(([p]:any[])=>p.type)).toEqual(['twin.move','twin.move','twin.remove']),{timeout:3000});
-   expect(fixture.room().state.seats[0].twin).toEqual([expect.objectContaining({ref:old.ref,zone:'graveyard'})]);
+   expect(fixture.post.mock.calls.map(([p]:any[])=>p.type)).toEqual(['twin.move']);
+   expect(fixture.room().state.seats[0].twin).toEqual([expect.objectContaining({ref:old.ref,zone:'hand'}),expect.objectContaining({ref:'fw-1',zone:'graveyard'})]);
   }finally{fixture.dispose();}
  },15_000);
- it('two cards the camera took off the field and a pile card seen later open a choice; Neither closes it for good',async()=>{
+ it('an unread pile arrival after two completed hand departures needs no correction prompt',async()=>{
   const a={ref:'left-a',zone:'spell-trap',slot:4,cardId:41420027,name:'Solemn Judgment',faceUp:true,position:'attack'},b={...a,ref:'left-b',slot:3,cardId:55144522,name:'Pot of Greed'};
   const fixture=await typedWatcherFixture(zoneEntries[0],'M4',[a,b],'moved');
   try{
@@ -1511,12 +1538,8 @@ describe('typed watcher zone projection',()=>{
    for(const old of [a,b]){Object.assign(fixture.track,{id:old.ref,removed:true,visible:false});fixture.refresh();const calls=fixture.post.mock.calls.length;await fixture.emit({type:'removed'});await waitFor(()=>expect(fixture.post.mock.calls.length).toBe(calls+1),{timeout:6000});await act(async()=>{await fixture.post.mock.results[calls].value;});fixture.refresh();}
    fixture.addTrack({id:'fw-1',zone:'GY',faceDown:false,cardId:undefined,state:'candidate',visible:true,removed:false,firstSeen:performance.now()});
    fixture.setTwins([...fixture.room().state.seats[0].twin,{ref:'fw-1',zone:'graveyard',faceUp:true,position:'attack'}]);
-   const choice=await screen.findByTestId('leave-choice');
-   fireEvent.click(within(choice).getByRole('button',{name:'Neither'}));
-   await waitFor(()=>expect(screen.queryByTestId('leave-choice')).toBeNull());
-   // A new snapshot with the same pile card must not reopen it.
-   fixture.setTwins([...fixture.room().state.seats[0].twin]);fixture.refresh();await act(async()=>{await new Promise(r=>setTimeout(r,300));});
    expect(screen.queryByTestId('leave-choice')).toBeNull();
+   expect(fixture.post.mock.calls.map(([p]:any[])=>p.type)).toEqual(['twin.move','twin.move']);
   }finally{fixture.dispose();}
  },20_000);
  it('a card that leaves the field goes to the hand by default and the tag moves it where the player says',async()=>{

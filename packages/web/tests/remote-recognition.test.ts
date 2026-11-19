@@ -1113,7 +1113,7 @@ it('the Attach to tag lists face-up Xyz Monsters of both sides, those that attac
 
 it('camera evidence for a departed card: an unread GY top or a face-down banished card is where it went; two candidates are a guess',async()=>{
   const {fieldPileEvidence}=await import('../src/lib/remote/field-proposals');
-  const track=(id:string,zone:string,firstSeen=1000)=>({id,zone,visible:true,removed:false,firstSeen}) as any;
+  const track=(id:string,zone:string,firstSeen=1000)=>({id,zone,visible:true,removed:false,firstSeen,card:{kind:'face-up'}}) as any;
   const stand=(ref:string,zone:string,faceUp:boolean)=>({ref,zone,faceUp,position:'attack'}) as any;
   const base={lastSeen:900,owns:(t:any)=>t.id};
   expect(fieldPileEvidence({...base,twins:[stand('fw-1','graveyard',true)],tracks:[track('fw-1','GY')]})).toMatchObject({zone:'graveyard',faceUp:true});
@@ -1130,6 +1130,10 @@ it('camera evidence for a departed card: an unread GY top or a face-down banishe
   expect(fieldPileTrackEvidence({...base,twins:[],tracks:[resting('t-1','GY'),resting('t-2','BANISHED')]})).toBeUndefined();
   expect(fieldPileTrackEvidence({...base,twins:[],tracks:[{...resting('t-1','GY'),restSince:undefined}]})).toBeUndefined();
   expect(fieldPileTrackEvidence({...base,twins:[],tracks:[resting('t-1','GY',-20000)]})).toBeUndefined();
+  const waitingTop={...resting('next','GY'),visible:false},oldTop={...resting('old','GY',100),lastSeen:950,removed:true};
+  const replacement={...base,twins:[{...stand('old','graveyard',true),cardId:1}],tracks:[oldTop,waitingTop],pileContactAt:{GY:975}};
+  expect(fieldPileTrackEvidence(replacement)).toMatchObject({track:waitingTop,zone:'graveyard'});
+  expect(fieldPileTrackEvidence({...replacement,pileContactAt:{GY:1400}})).toBeUndefined();
   // A pile track the reader already named as another card is that card's, not the leaving one's.
   expect(fieldPileTrackEvidence({...base,cardId:'7',twins:[],tracks:[{...resting('t-1','GY'),cardId:'8'}]})).toBeUndefined();
   expect(fieldPileTrackEvidence({...base,cardId:'7',twins:[],tracks:[{...resting('t-1','GY'),cardId:'7'}]})).toMatchObject({zone:'graveyard'});
