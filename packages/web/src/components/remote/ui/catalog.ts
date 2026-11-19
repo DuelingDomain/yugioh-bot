@@ -1,7 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import type { RemoteRoom } from "@yugidraft/shared/remote";
 import type { CardSummary } from "@/lib/card-types";
+import { recentReadsFor } from "@/lib/remote/recent-reads";
+import { deckIdsOf, seenCardIds } from "./model";
 
 /** Card details the table screen needs: name, type line, ATK/DEF and text. Shared by every component. */
 export type CardInfo = Pick<CardSummary, "id" | "name" | "type" | "frameType" | "race" | "attribute" | "level" | "effectText" | "atk" | "def">;
@@ -14,7 +17,6 @@ const listeners = new Set<() => void>();
 
 function remember(cards: CardSummary[]) {
   for (const card of cards) { cache.set(card.id, card); failed.delete(card.id); }
-  for (const listener of listeners) listener();
 }
 function notify() { for (const listener of listeners) listener(); }
 
@@ -62,10 +64,37 @@ export function loadCards(ids: Iterable<number>): Promise<void> {
   return Promise.all(jobs).then(() => undefined);
 }
 
+/** Warm the card resolver as soon as a seated player opens the room. */
+export function preloadRoomCards(room: RemoteRoom): Promise<void> {
+  if (room.mySeat < 0) return Promise.resolve();
+  const ids = [...deckIdsOf(room, room.mySeat), ...seenCardIds(room)];
+  for (const card of recentReadsFor(room, room.mySeat)) ids.push(card.cardId);
+  for (const { action } of room.events) {
+    if (action.type === "card.identified") ids.push(action.cardId ?? action.passcode ?? 0);
+    if (action.type === "twin.place") ids.push(action.card.cardId ?? action.card.passcode ?? 0);
+    if (action.type === "cards.identified") {
+      for (const card of action.cards) ids.push(card.cardId ?? card.passcode ?? 0);
+    }
+  }
+  return loadCards(ids.some(id => id > 0) ? ids : [46986414]);
+}
+
+/** Call before entering the write queue. A slow response still fills the cache for later corrections. */
+export async function waitForCardFacts(id: number): Promise<CardInfo | undefined> {
+  if (cache.has(id) || cardFailed(id)) return cardInfo(id);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([loadCards([id]), new Promise<void>(resolve => { timer = setTimeout(resolve, 300); })]);
+  } finally {
+    clearTimeout(timer);
+  }
+  return cardInfo(id);
+}
+
 export async function searchCards(text: string, includeExtra = true): Promise<CardInfo[]> {
   const q = text.trim(); if (q.length < 2) return [];
   const cards = await post({ fuzzyName: q, includeExtra }).catch(() => []);
-  remember(cards); return cards.slice(0, 5);
+  remember(cards); notify(); return cards.slice(0, 5);
 }
 
 /**
