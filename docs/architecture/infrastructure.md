@@ -13,7 +13,7 @@ This page tells what the system runs on and how a release gets to the server. Fo
 | Images | ARM64 images built in GitHub Actions, pushed to GHCR | `.github/workflows/test.yml`, `deploy.yml` |
 | Database | One SQLite file, `data/bot.sqlite` | `packages/shared/src/db/` |
 | Backups | Daily SQLite snapshot on the VM | [vm-backup runbook](../runbooks/vm-backup.md) |
-| External services | Clerk (sign-in), Sentry (errors), PostHog (analytics), GitHub (bug report issues), Discord (admin bot, alerts), ygoprodeck.com (card data and images) | `docker-compose.yml` env |
+| External services | Clerk (sign-in), Sentry (errors), PostHog (analytics), GitHub (bug report issues), Discord (admin bot, alerts), ygoprodeck.com (card data and images), api.pwnedpasswords.com (breached-password warning; the browser calls it with a 5-character hash prefix, so it sees the user's IP and Origin) | `docker-compose.yml` env |
 
 ## Why one small VM
 

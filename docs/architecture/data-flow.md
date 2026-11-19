@@ -9,6 +9,7 @@ This page shows how data moves between the browser, the services and SQLite. For
 | SQLite is the only durable store. web, duel, worker and bot open the same file (`DATABASE_PATH`). ws opens it only for its health row. | `packages/shared/src/db/`, `packages/ws/src/server.ts` |
 | Business rules live in shared services (`createDraftService(db)` and others). Every writer calls them. | `packages/shared/src/services/` |
 | The browser talks only to web (HTTPS) and ws (Socket.IO). It never reaches duel, worker or bot. | `Caddyfile` |
+| One exception: the sign-up and password-reset forms ask `api.pwnedpasswords.com` (Have I Been Pwned) whether a password was breached. The browser sends only a 5-character SHA-1 prefix, plus the user's IP and Origin. The password and full hash never leave the browser. | `packages/web/src/lib/pwned-password.ts`, `Caddyfile` (CSP `connect-src`) |
 | ws carries "something changed" signals and small public events. It never carries hidden game data. | `packages/ws/src/internal-http.ts` |
 | Service-to-service calls are signed HTTP POSTs (see [Signed internal HTTP](#signed-internal-http)). | `packages/shared/src/internal-auth/` |
 | Every API route resolves the session first. No session gives 401. A failed check gives 503. | `packages/web/src/lib/session-identity.ts`, `web-access.ts` |

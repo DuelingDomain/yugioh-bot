@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, render, screen, within } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -59,6 +59,8 @@ const signInActions = () => ({
 const signUpActions = () => ({ submitAccount: vi.fn(), continueWithDiscord: vi.fn(), submitCode: vi.fn(), resendCode: vi.fn() });
 
 beforeEach(() => {
+  // The create/new-password fields call the HIBP range API; no test may reach the network.
+  vi.stubGlobal("fetch", vi.fn(async () => new Response("")));
   readCookie.mockReset();
   authState.pending = false;
   clerkUser.username = "owner";
@@ -338,6 +340,23 @@ describe("sign-up page", () => {
     expect(actions.submitAccount).toHaveBeenCalledWith({ username: "cardshark", password: "correct horse battery", legalAccepted: true });
     await user.click(screen.getByRole("button", { name: "Continue with Discord" }));
     expect(actions.continueWithDiscord).toHaveBeenCalledWith({ username: "cardshark", legalAccepted: true });
+  });
+
+  it("warns about a breached password without blocking submit, sending only the hash prefix", async () => {
+    const user = userEvent.setup();
+    // SHA-1("password") = 5BAA61E4C9B93F3F0682250B6CF8331B7EE68FD8
+    const fetchMock = vi.fn(async () => new Response("0000000000000000000000000000000000A:0\n1E4C9B93F3F0682250B6CF8331B7EE68FD8:9545824\n"));
+    vi.stubGlobal("fetch", fetchMock);
+    await renderSignUp(state("invite", { lockedEmail: "sam@example.com" }), { __clerk_ticket: "x" });
+    await user.type(screen.getByLabelText("Create password"), "password");
+    expect(await screen.findByText(/found in a data breach/)).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("https://api.pwnedpasswords.com/range/5BAA6");
+    expect(init.headers).toEqual({ "Add-Padding": "true" });
+    expect(screen.getByRole("button", { name: "Create account" })).toBeEnabled();
+    await user.type(screen.getByLabelText("Create password"), "x");
+    await waitFor(() => expect(screen.queryByText(/found in a data breach/)).toBeNull());
   });
 
   it.each([

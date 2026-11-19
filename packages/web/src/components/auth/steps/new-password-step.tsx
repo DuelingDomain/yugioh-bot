@@ -35,7 +35,7 @@ export function NewPasswordStep({ errors, banner, pending, onSubmit, identifier 
     >
       <form className={shell.form} data-clerk="reset-password" noValidate aria-busy={pending} onSubmit={handleSubmit}>
         {banner && <SignInBanner tone={banner.tone} code={banner.code}>{banner.body}</SignInBanner>}
-        <PasswordField id="f-np" name="newPassword" label="New password" autoComplete="new-password" error={errors.newPassword} hint="At least 8 characters." autoFocus />
+        <PasswordField id="f-np" name="newPassword" label="New password" autoComplete="new-password" error={errors.newPassword} breachWarning hint="At least 8 characters." autoFocus />
         <PasswordField id="f-np2" name="confirm" label="Confirm password" autoComplete="new-password" error={errors.confirm} />
         <button className={`${shell.btn} ${shell["btn-primary"]}`} type="submit" disabled={pending}>Save password</button>
       </form>

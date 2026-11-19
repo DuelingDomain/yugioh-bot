@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { HEARD_FROM, HEARD_FROM_DETAIL_MAX, HEARD_FROM_LABELS, type HeardFrom } from "@yugidraft/shared/util/heard-from";
+import { useBreachedPassword } from "@/lib/pwned-password";
 import { DiscordGlyph } from "./discord-glyph";
 import { PRIVACY_URL, TERMS_URL } from "./legal-links";
 import shell from "./sign-in-shell.module.css";
@@ -32,10 +33,26 @@ export interface FieldAria {
   "aria-describedby"?: string;
 }
 
+/**
+ * Amber, non-blocking notice, never the red error style. The `role="status"` node holds only the text and is rendered
+ * even when empty (`children` null), so a screen reader that registered it earlier announces the text when it arrives.
+ */
+export function FieldWarning({ id, children }: { id: string; children?: ReactNode }) {
+  const idle = !children;
+  return (
+    <div className={cx(styles.fwarn, idle && styles.idle)}>
+      {!idle && WARN_ICON}
+      <span id={id} role="status">{children}</span>
+    </div>
+  );
+}
+
 interface FieldProps {
   id: string;
   label: ReactNode;
   error?: string;
+  /** Shown only when there is no error. It never sets `aria-invalid`. `null` keeps the empty live region mounted. */
+  warning?: ReactNode | null;
   hint?: ReactNode;
   children: (aria: FieldAria) => ReactNode;
 }
@@ -44,13 +61,15 @@ interface FieldProps {
  * Label, control, error and hint in the mock's order. The error and hint ids are `${id}-err` and `${id}-hint`,
  * both wired into the control's aria-describedby (error first), and `aria-invalid` is set only with an error.
  */
-export function Field({ id, label, error, hint, children }: FieldProps) {
-  const describedBy = [error && `${id}-err`, hint && `${id}-hint`].filter(Boolean).join(" ") || undefined;
+export function Field({ id, label, error, warning, hint, children }: FieldProps) {
+  const warn = error ? undefined : warning;
+  const describedBy = [error && `${id}-err`, warn && `${id}-warn`, hint && `${id}-hint`].filter(Boolean).join(" ") || undefined;
   return (
     <div className={cx(styles.field, error && styles.invalid)}>
       <label htmlFor={id}>{label}</label>
       {children({ "aria-invalid": error ? true : undefined, "aria-describedby": describedBy })}
       {error && <FieldError id={`${id}-err`}>{error}</FieldError>}
+      {warn !== undefined && <FieldWarning id={`${id}-warn`}>{warn}</FieldWarning>}
       {hint && <p className={styles.hint} id={`${id}-hint`}>{hint}</p>}
     </div>
   );
@@ -95,6 +114,8 @@ export function TextField({ id, name, label, type = "text", autoComplete, inputM
   );
 }
 
+const BREACH_WARNING = "This password was found in a data breach. You can still use it, but a different password is safer.";
+
 interface PasswordFieldProps {
   id: string;
   name: string;
@@ -104,16 +125,29 @@ interface PasswordFieldProps {
   hint?: ReactNode;
   autoFocus?: boolean;
   required?: boolean;
+  /** Warns (never blocks) when the typed password is found in a data breach. For create/new-password fields only. */
+  breachWarning?: boolean;
 }
 
 /** Password input with the Show / Hide reveal button. The reveal flips the input type; the value is left to the DOM. */
-export function PasswordField({ id, name, label, autoComplete, error, hint, autoFocus, required = true }: PasswordFieldProps) {
+export function PasswordField({ id, name, label, autoComplete, error, hint, autoFocus, required = true, breachWarning = false }: PasswordFieldProps) {
   const [shown, setShown] = useState(false);
+  const [typed, setTyped] = useState("");
+  const breached = useBreachedPassword(typed, breachWarning);
   return (
-    <Field id={id} label={label} error={error} hint={hint}>
+    <Field id={id} label={label} error={error} warning={breachWarning ? (breached ? BREACH_WARNING : null) : undefined} hint={hint}>
       {(aria) => (
         <div className={cx(styles["input-wrap"], styles["has-btn"])}>
-          <input id={id} name={name} type={shown ? "text" : "password"} autoComplete={autoComplete} autoFocus={autoFocus} required={required} {...aria} />
+          <input
+            id={id}
+            name={name}
+            type={shown ? "text" : "password"}
+            autoComplete={autoComplete}
+            autoFocus={autoFocus}
+            required={required}
+            onChange={breachWarning ? (e) => setTyped(e.target.value) : undefined}
+            {...aria}
+          />
           <button type="button" className={styles.reveal} aria-pressed={shown} aria-controls={id} onClick={() => setShown((v) => !v)}>
             <span>{shown ? "Hide" : "Show"}</span>{" "}
             <span className={shell.sr}>password</span>
