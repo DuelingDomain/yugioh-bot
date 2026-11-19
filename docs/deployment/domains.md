@@ -9,6 +9,7 @@ Live since 2026-10-06. Contact: `support@duelingdomain.com`. Server: Nuremberg, 
 | `duelingdomain.com` | Static marketing site; returning members' home GETs get a 302 to the app (details below) |
 | `www.duelingdomain.com` | 308 to `https://duelingdomain.com`, preserving path and query |
 | `app.duelingdomain.com` | App and Socket.IO |
+| `TOURNAMENT_DOMAIN` (optional, e.g. `tournament.duelingdomain.com`) | Tournament bridge: separate container at `host.docker.internal:3400`; [contract and owner setup](../tournament-bridge.md) |
 | `www.app.duelingdomain.com` | 308 to `https://app.duelingdomain.com`, preserving path and query |
 | `duelistskingdom.com` | 308 to `https://app.duelingdomain.com`, preserving path and query |
 | `www.duelistskingdom.com` | 308 to `https://app.duelingdomain.com`, preserving path and query |

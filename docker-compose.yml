@@ -114,6 +114,9 @@ services:
     security_opt: ["no-new-privileges:true"]
     cap_drop: [ALL]
     environment:
+      # Tournament bridge: identity only; tournament data lives in its own container/database.
+      - TOURNAMENT_URL=${TOURNAMENT_URL:-}
+      - TOURNAMENT_BRIDGE_SECRET=${TOURNAMENT_BRIDGE_SECRET:-}
       - REMOTE_DUELS=${REMOTE_DUELS:-0}
       - REMOTE_DUELS_USERS=${REMOTE_DUELS_USERS:-}
       # Test recording of the table camera for the listed users.id values (no `*`). Empty = off. Files go to <data>/remote-recordings.
@@ -305,9 +308,11 @@ services:
       - SITE_DOMAIN=${SITE_DOMAIN:?Set SITE_DOMAIN in .env (localhost for local dev)}
       - MARKETING_DOMAIN=${MARKETING_DOMAIN:-marketing-disabled.localhost}
       - LEGACY_DOMAIN=${LEGACY_DOMAIN:-legacy-disabled.localhost}
+      # Tournament bridge
+      - TOURNAMENT_DOMAIN=${TOURNAMENT_DOMAIN:-tournament-disabled.localhost}
       - RTC_DOMAIN=${RTC_DOMAIN:-rtc-disabled.localhost}
       - NEXT_PUBLIC_POSTHOG_KEY=${NEXT_PUBLIC_POSTHOG_KEY:-}
-    # Reaches LiveKit, which runs on the host network in its own Compose project.
+    # Reaches LiveKit and the separate tournament container on the VM host.
     extra_hosts: ["host.docker.internal:host-gateway"]
     ports:
       - "80:80"

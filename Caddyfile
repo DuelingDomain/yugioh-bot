@@ -151,6 +151,36 @@ Allow: /
     }
 }
 
+# Tournament bridge: separate container and database, managed in its own repository.
+{$TOURNAMENT_DOMAIN:tournament-disabled.localhost} {
+    request_body {
+        max_size 1MB
+    }
+    header >X-Robots-Tag "noindex, nofollow"
+    header {
+        # Proxy errors skip deferred headers, so apply noindex immediately too.
+        X-Robots-Tag "noindex, nofollow"
+        Strict-Transport-Security "max-age=31536000"
+        X-Content-Type-Options "nosniff"
+        Referrer-Policy "no-referrer"
+        X-Frame-Options "DENY"
+    }
+    handle /robots.txt {
+        header Content-Type "text/plain; charset=utf-8"
+        respond "User-agent: *
+Disallow: /
+" 200
+    }
+    handle {
+        reverse_proxy host.docker.internal:3400
+    }
+}
+
+# Tournament bridge: override the app's HTTP catch-all for this host.
+http://{$TOURNAMENT_DOMAIN:tournament-disabled.localhost} {
+    redir https://{$TOURNAMENT_DOMAIN:tournament-disabled.localhost}{uri} 308
+}
+
 # Canonical host, including old HTTP IP links posted in Discord.
 www.{$SITE_DOMAIN}, http:// {
     redir https://{$SITE_DOMAIN}{uri} 308
