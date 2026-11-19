@@ -242,7 +242,10 @@ export function fieldDepartureDeadline(event:FieldEvent,removedAt:number,activit
 
 /** A confirmed Set can wait for slide evidence up to the departure deadline. */
 export function fieldSetSlideDeadline(event:FieldEvent,removedAt:number,otherSleeve=false,activityAt?:number):number {
-  return fieldDepartureDeadline(event,removedAt,activityAt,committedSet(event.track)||otherSleeve?FIELD_FLIP_SETTLE_MS:FIELD_SET_SLIDE_MS);
+  const firstMiss=Math.min(event.track.removedFrameAt??removedAt,removedAt);
+  const settled=committedSet(event.track);
+  const deadline=fieldDepartureDeadline(event,removedAt,activityAt,settled||otherSleeve?FIELD_FLIP_SETTLE_MS:FIELD_SET_SLIDE_MS);
+  return settled?Math.max(deadline,firstMiss+SET_SLIDE_MATCH_MS):deadline;
 }
 
 /** A still-observed pile top can disprove a touch while the hand sweeps past it. */
@@ -303,12 +306,12 @@ type SetSlideInput={
   track:FieldTrack;twins:readonly TwinCard[];tracks:readonly FieldTrack[];owns:(track:FieldTrack)=>string;
   zoneOf:(card:TwinCard)=>FieldTrack['zone']|undefined;now:number;pileTouched?:Partial<Record<'GY'|'BANISHED',number>>;
   blindSleeveSince?:FieldSnapshot['blindSleeveSince'];
+  lastFieldActivityAtByZone?:FieldSnapshot['lastFieldActivityAtByZone'];
   seenOffField:(card:TwinCard,removedAt:number)=>boolean;
 };
 function setSlideSources({track,twins,tracks,owns,zoneOf}:SetSlideInput) {
   if(!fieldBackCandidate(track)||!MAIN_FIELD_SLOT.test(track.zone)||twins.some(c=>c.ref===owns(track)))return [];
-  const {zone:destination,slot}=fieldZoneLocation(track.zone);
-  if(twins.some(c=>c.zone===destination&&c.slot===slot))return [];
+  if(twins.some(card=>zoneOf(card)===track.zone))return [];
   return twins.flatMap(card=>{
     const zone=zoneOf(card);
     if(card.faceUp!==false||card.token||card.ownerSeat!==undefined||card.materials?.length||
@@ -327,7 +330,7 @@ export function fieldSetSlidePending(input:SetSlideInput,snap:FieldSnapshot|unde
 
 /** A Set can follow one new back in its row while the departure is still pending. */
 export function fieldSetSlide(input:SetSlideInput):{card:TwinCard;from:RemovedFieldTrack}|undefined {
-  const {track,twins,tracks,owns,now,pileTouched,blindSleeveSince,seenOffField}=input;
+  const {track,twins,tracks,owns,now,pileTouched,blindSleeveSince,lastFieldActivityAtByZone,seenOffField}=input;
   const sources=setSlideSources(input).flatMap(({card,zone,owned})=>{
     if(owned.some(t=>!t.removed))return [];
     const from=owned.find((t):t is RemovedFieldTrack=>t.removed&&t.zone===zone&&t.removedAt!==undefined);
@@ -336,10 +339,12 @@ export function fieldSetSlide(input:SetSlideInput):{card:TwinCard;from:RemovedFi
     // Date the arrival from the first stable sleeve witness, even if the
     // full scans or the zoom detector confirm the outline later.
     const inSlideWindow=(back:FieldTrack)=>{
-      const sleeveAt=back.card.blind?blindSleeveSince?.[back.zone]:
-        back.setEvidence?.basis==='zoom'?back.restSince:undefined;
+      const sleeveAt=blindSleeveSince?.[back.zone]??(back.setEvidence?.basis==='zoom'?back.restSince:undefined);
       const arrivedAt=sleeveAt!==undefined&&sleeveAt>=since&&sleeveAt<=back.firstSeen?sleeveAt:back.firstSeen;
-      return arrivedAt>=since-1000&&arrivedAt-since<=SET_SLIDE_MATCH_MS;
+      const motionAt=lastFieldActivityAtByZone?.[back.zone];
+      const continued=sleeveAt!==undefined&&motionAt!==undefined&&motionAt>=since&&motionAt<=sleeveAt&&sleeveAt-motionAt<=1000;
+      const startedAt=continued?Math.min(motionAt,arrivedAt):arrivedAt;
+      return startedAt>=since-1000&&startedAt-since<=SET_SLIDE_MATCH_MS;
     };
     if(!inSlideWindow(track)||
       now-from.removedAt>FIELD_SET_RETURN_MS||seenOffField(card,since))return [];
@@ -354,7 +359,7 @@ export function fieldSetSlide(input:SetSlideInput):{card:TwinCard;from:RemovedFi
 }
 
 /** A Set can reclaim a missing card only while the physical removal is recent. */
-export function fieldSetReturn({track,twins,tracks,owns,events,seat,at,now,pileTouched,seenOffField}:{track:Pick<FieldTrack,'id'|'zone'|'faceDown'|'firstSeen'|'lastSeen'|'setEvidence'>;twins:readonly TwinCard[];tracks:readonly FieldTrack[];owns:(track:FieldTrack)=>string;events:readonly Pick<RemoteEvent,'at'|'action'>[];seat:number;/** Server clock. */at:number;/** Watcher clock. */now:number;pileTouched?:Partial<Record<'GY'|'BANISHED',number>>;seenOffField?:(card:TwinCard,removedAt:number)=>boolean}):{kind:'flip'|'return'|'move';card:TwinCard}|undefined {
+export function fieldSetReturn({track,twins,tracks,owns,events,seat,at,now,pileTouched,seenOffField,zoomBack,zoneOf}:{track:Pick<FieldTrack,'id'|'zone'|'faceDown'|'firstSeen'|'lastSeen'|'setEvidence'>;twins:readonly TwinCard[];tracks:readonly FieldTrack[];owns:(track:FieldTrack)=>string;events:readonly Pick<RemoteEvent,'at'|'action'>[];seat:number;/** Server clock. */at:number;/** Watcher clock. */now:number;pileTouched?:Partial<Record<'GY'|'BANISHED',number>>;seenOffField?:(card:TwinCard,removedAt:number)=>boolean;zoomBack?:boolean;zoneOf?:(card:TwinCard)=>FieldTrack['zone']|undefined}):{kind:'flip'|'return'|'move';card:TwinCard}|undefined {
   if(!track.faceDown||!MAIN_FIELD_SLOT.test(track.zone))return;
   const cell=fieldZoneLocation(track.zone);
   const there=(c:Pick<TwinCard,'zone'|'slot'>)=>c.zone===cell.zone&&(c.slot??0)===(cell.slot??0);
@@ -376,9 +381,17 @@ export function fieldSetReturn({track,twins,tracks,owns,events,seat,at,now,pileT
   };
   const handOrigin=(c:TwinCard)=>c.zone==='hand'&&c.departedFrom?.auto&&c.departedFrom.at!==undefined&&c.departedFrom.at<=at?c.departedFrom:undefined;
   const sized=(c:TwinCard,since:number)=>events.some(e=>e.at>=since&&(e.action.type==='hand.draw'||e.action.type==='hand.count'||e.action.type==='hand.add'||e.action.type==='twin.move'&&e.action.zone==='hand'&&e.action.cardRef!==c.ref)&&('seat' in e.action?e.action.seat:e.action.actorSeat)===seat);
-  const occupant=twins.find(there);
+  const occupant=twins.find(c=>zoneOf?zoneOf(c)===track.zone:there(c));
   if(occupant){
-    if(!occupant.faceUp||occupant.token||occupant.ownerSeat!==undefined||occupant.materials?.length||!(occupant.cardId||occupant.passcode))return;
+    if(!occupant.faceUp||occupant.token||occupant.ownerSeat!==undefined||!(occupant.cardId||occupant.passcode))return;
+    if(zoomBack){
+      // The settled back occupies the old front's physical cell. The tracker can still retain an invisible front.
+      const owned=tracks.filter(t=>owns(t)===occupant.ref);
+      const front=owned.find(t=>t.zone===track.zone&&!t.faceDown&&t.lastSeen<track.lastSeen&&
+        t.lastSeen>=track.firstSeen-3000&&!seenOffField?.(occupant,t.lastSeen));
+      if(front&&!owned.some(t=>!t.removed&&t.visible))return {kind:'flip',card:occupant};
+    }
+    if(occupant.materials?.length)return;
     const from=origin(occupant);
     return from&&inPlace(from)?{kind:'flip',card:occupant}:undefined;
   }
