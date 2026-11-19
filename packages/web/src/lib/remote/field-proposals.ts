@@ -35,6 +35,10 @@ export function fieldTwinPosition(track:Pick<FieldTrack,'faceDown'|'zone'|'posit
 export const fieldPositionMatches=(zone:string,stored:string|undefined,wanted:string|undefined)=>/^(graveyard|banished|deck|extra)$/.test(zone)||stored===wanted;
 /** A board card and its track may disagree on face this long, on still frames, before the board follows the track. */
 export const FIELD_FACE_WAIT_MS=600;
+/** Optional evidence from the cell watcher, on the same clock as track samples. */
+export type FieldCellEvidence={basis?:'zoom'|'pixel';settledAt?:number;emptyProofAt?:number;destinationHint?:'GY'|'BANISHED'|'DECK'|'EXTRA'};
+export const fieldCellEvidence=(event:FieldEvent)=>(event as FieldEvent&{evidence?:FieldCellEvidence}).evidence;
+export const fieldEmptyProofs=(snap:FieldSnapshot|undefined)=>(snap as (FieldSnapshot&{emptyProofAt?:Partial<Record<FieldTrack['zone'],number>>})|undefined)?.emptyProofAt;
 /** A track that speaks for the face of its board card: settled on a field zone, on a box that rests on the mat now. A weak box counts; a front needs its read. */
 export function fieldFaceWitness(track:FieldTrack,at:number):boolean {
   return track.state==='identified'&&!track.removed&&!track.under&&track.restSince!==undefined&&at-track.lastSeen<=1500&&/^(M[1-5]|S[1-5]|EMZ[12]|FIELD)$/.test(track.zone)&&(track.faceDown||!!track.cardId);
@@ -129,13 +133,23 @@ export function fieldPileEvidence({twins,tracks,lastSeen,owns}:{twins:readonly T
  * board has no stand-in for it yet): one resting pile track that first showed up around the removal, with no board card of its own.
  * Not with an unnamed stand-in of the same kind around (fieldPileEvidence decides that case) or two such tracks: then the camera cannot say.
  */
-export function fieldPileTrackEvidence({twins,tracks,lastSeen,owns,cardId}:{twins:readonly TwinCard[];tracks:readonly FieldTrack[];lastSeen:number;owns:(track:FieldTrack)=>string;/** The leaving card's camera id: a pile track the reader already named as another card is that card's. */cardId?:string}):{track:FieldTrack;zone:'graveyard'|'banished';faceUp:boolean}|undefined {
-  const recent=tracks.filter(t=>/^(GY|BANISHED)$/.test(t.zone)&&!t.removed&&t.state!=='dismissed'&&t.firstSeen>=lastSeen-1000&&(t.zone==='BANISHED'||!t.faceDown)&&(!t.cardId||t.cardId===cardId));
+export function fieldPileTrackEvidence({twins,tracks,lastSeen,owns,cardId,pileContactAt}:{twins:readonly TwinCard[];tracks:readonly FieldTrack[];lastSeen:number;owns:(track:FieldTrack)=>string;/** The leaving card's camera id: a pile track the reader already named as another card is that card's. */cardId?:string;pileContactAt?:FieldSnapshot['pileContactAt']}):{track:FieldTrack;zone:'graveyard'|'banished';faceUp:boolean}|undefined {
+  const recent=tracks.filter(t=>/^(GY|BANISHED)$/.test(t.zone)&&!t.removed&&!t.under&&t.state!=='dismissed'&&
+    t.firstSeen>=lastSeen-1000&&!t.card.partial&&!t.card.covered&&(t.zone==='BANISHED'||!t.faceDown)&&(!t.cardId||t.cardId===cardId));
   const standIn=(t:FieldTrack)=>twins.some(c=>c.ref===owns(t)&&['graveyard','banished'].includes(c.zone)&&!c.cardId&&!c.passcode&&!c.name);
   if(recent.some(standIn))return;
-  // A new outline can inherit rest from the existing pile footprint.
-  // A receiving card must also have started resting around the departure.
-  const found=recent.filter(t=>t.restSince!==undefined&&t.restSince>=lastSeen-1000&&!twins.some(c=>c.ref===owns(t)));
+  const found=recent.filter(t=>{
+    if(t.restSince===undefined||twins.some(c=>c.ref===owns(t)))return false;
+    const zone=t.zone==='GY'?'graveyard':'banished';
+    const top=twins.filter(c=>c.zone===zone).at(-1);
+    // The tracker can withhold visibility while reading a changed top. The old
+    // bound outline must have just been replaced, with contact ending before rest.
+    const contact=pileContactAt?.[t.zone as 'GY'|'BANISHED'];
+    const replaced=top&&tracks.some(old=>owns(old)===top.ref&&old.zone===t.zone&&old.removed&&old.lastSeen>=t.firstSeen-1000);
+    const settledReplacement=replaced&&t.state==='candidate'&&contact!==undefined&&contact>=lastSeen&&contact<=t.restSince;
+    // A new outline can inherit its rest from a populated pile.
+    return (t.restSince>=lastSeen-1000||!!top)&&(t.visible||settledReplacement);
+  });
   return found.length===1?{track:found[0],zone:found[0].zone==='BANISHED'?'banished':'graveyard',faceUp:!found[0].faceDown}:undefined;
 }
 
@@ -210,12 +224,12 @@ const SET_SLIDE_MATCH_MS=3000;
 
 const fieldActivityRow=(zone:string)=>zone==='FIELD'?'M':zone.replace(/\d$/,'');
 
-/** Motion in the source row or either public pile can belong to this departure. */
+/** The window starts after activity in the source row. Pile work has a separate cap. */
 export function fieldDepartureActivityAt(zone:FieldTrack['zone'],snap:FieldSnapshot|undefined):number {
   const row=fieldActivityRow(zone);
   let activityAt=-Infinity;
   for(const [cell,at] of Object.entries(snap?.lastFieldActivityAtByZone??{})){
-    if(cell==='GY'||cell==='BANISHED'||fieldActivityRow(cell)===row)activityAt=Math.max(activityAt,at);
+    if(fieldActivityRow(cell)===row)activityAt=Math.max(activityAt,at);
   }
   return activityAt;
 }
@@ -250,6 +264,16 @@ export function fieldSetSlidePileActivity(snap:FieldSnapshot|undefined):Record<'
 
 export const fieldBackCandidate=(track:FieldTrack)=>!track.removed&&track.state!=='dismissed'&&
   (track.faceDown||track.state==='candidate'&&track.card.kind==='face-down')&&!track.card.partial&&!track.card.covered;
+
+/** A new back or sleeve witness in the source cell vetoes removal. */
+export function fieldDepartureHasBack(event:FieldEvent,snap:FieldSnapshot|undefined):boolean {
+  if(!snap)return false;
+  const {id,zone,lastSeen,removedFrameAt}=event.track;
+  const since=removedFrameAt??event.removedAt??lastSeen;
+  const sleeve=fieldCellEvidence(event)?.emptyProofAt===undefined&&snap.blindZones?.includes(zone)&&
+    (snap.blindSleeveAt?.[zone]??-Infinity)>=since;
+  return !!sleeve||snap.tracks.some(t=>t.id!==id&&t.zone===zone&&t.firstSeen>=lastSeen-1000&&fieldBackCandidate(t));
+}
 
 /** Time left for a zoom check or a pending back to settle in the vacated slot. */
 export function fieldFlipDepartureWait(event:FieldEvent,snap:FieldSnapshot|undefined,removedAt:number,now:number,faceUp=!event.track.faceDown):number {
