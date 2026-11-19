@@ -94,13 +94,13 @@ test('a verified Deck survives a covered outline and detector misses until its f
   const tick=async(count:number)=>{for(let i=0;i<count;i++){at+=250;await watcher.tick();}};
   try {
     await tick(6);
-    assert.equal(watcher.getSnapshot().piles[0]?.zone,'DECK');
+    assert.equal(watcher.getSnapshot().piles?.[0]?.zone,'DECK');
     outlines=[covered];await tick(3);
-    assert.deepEqual(watcher.getSnapshot().piles[0]?.card.quad,deck.quad);
+    assert.deepEqual(watcher.getSnapshot().piles?.[0]?.card.quad,deck.quad);
     outlines=[];
     look=Array.from({length:288},(_,i)=>sleeve[i]*(i<144?.45:1.05));
     await tick(28);
-    assert.equal(watcher.getSnapshot().piles[0]?.zone,'DECK');
+    assert.equal(watcher.getSnapshot().piles?.[0]?.zone,'DECK');
     assert.ok(!watcher.getSnapshot().missingPiles?.includes('DECK'));
     look=mat;
     await tick(26);
