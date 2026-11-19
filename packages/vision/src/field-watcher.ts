@@ -1192,7 +1192,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         if(visibleShare(box.quad)<MIN_VISIBLE||!canZoomCell(current,box)){clearEmptyZoom(zoomCells.get(zone));continue;}
         const state=zoomCells.get(zone)??{};
         zoomCells.set(zone,state);
-        const at=sample.at,near=handNear(evidence,box),motion=evidence.motion(box),moving=motion>.025;
+        const at=sample.at,motion=evidence.motion(box),moving=motion>.025;
         const here=tracks.filter(t=>t.view.zone===zone||t.announcedZone===zone);
         const departed=here.filter(t=>t.view.removed&&at-departureAt(t.view)<=FIELD_SET_RETURN_MS);
         const pendingFront=here.some(pendingRead),liveFronts=here.filter(liveFront);
@@ -1201,7 +1201,12 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
           known.some(k=>k.zone===zone&&!departed.some(t=>t.view.id===k.id||t.binding?.id===k.id));
         const forced=!front&&!occupied&&departed.some(t=>t.view.removedAt!==undefined&&(zoomCheckedAt.get(zone)??-Infinity)<=t.view.removedAt);
         if(forced){zoomPendingZones.add(zone);zoomDeparturePending.add(zone);}
-        if(handContact(evidence,box)){
+        const contact=handContact(evidence,box);
+        // For a possible in-place flip, judge nearby skin at the last card
+        // outline. The wider cell ring can reach the table beyond the mat.
+        const source=[...liveFronts,...departed].find(t=>!t.view.faceDown&&t.announcedZone===zone)?.announced;
+        const near=contact||handNear(evidence,source??box);
+        if(contact){
           state.handAt=at;
           state.emptyZooms=state.missedLook=undefined;
         }
