@@ -8,10 +8,21 @@ type SignOut = () => Promise<void>;
 
 const SignOutContext = createContext<SignOut | null>(null);
 
+export async function clearTournamentReturnOnSignOut(): Promise<void> {
+  try {
+    await fetch("/api/auth/tournament-return/clear", { method: "POST" });
+  } catch {
+    // Still let Clerk end the session if the app is unreachable.
+  }
+}
+
 /** Clerk ends its own session in this browser and then lands on the sign-in page. */
 function ClerkSignOutProvider({ children }: { children: ReactNode }) {
   const { signOut } = useClerk();
-  const run = useCallback(() => signOut({ redirectUrl: "/sign-in" }), [signOut]);
+  const run = useCallback(async () => {
+    await clearTournamentReturnOnSignOut();
+    await signOut({ redirectUrl: "/sign-in" });
+  }, [signOut]);
   return <SignOutContext.Provider value={run}>{children}</SignOutContext.Provider>;
 }
 

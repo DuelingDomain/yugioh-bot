@@ -107,6 +107,7 @@ it("deletes the Clerk user before it changes the database, then answers 200 with
   expect(res.status).toBe(200);
   expect(await res.json()).toEqual({ ok: true });
   expect(res.headers.get("cache-control")).toBe("no-store");
+  expect(res.headers.get("set-cookie")).toMatch(/^__Host-dd_tournament_return=;.*Max-Age=0;.*Secure;.*HttpOnly;.*SameSite=lax/i);
   expect(s.createBackend).toHaveBeenCalledWith(expect.objectContaining({ secretKey: "sk_test_secret" }));
   expect(s.deleteUser).toHaveBeenCalledExactlyOnceWith("user_one");
   expect(rowOf(1)).toMatchObject({ clerk_user_id: null, email: null, username: "deleted-1", display_name: "Deleted player", discord_user_id: null });

@@ -7,6 +7,7 @@ import { settleClerkSync } from "@/lib/clerk-sync";
 import { notifyRemoteChange } from "@/lib/remote-duels";
 import { getDb } from "@/lib/db";
 import { E2E_SESSION_COOKIE, isE2EAuthEnabled } from "@/lib/e2e-auth";
+import { clearTournamentReturnCookie } from "@/lib/tournament-auth-return";
 import { requireWebAccess } from "@/lib/web-access";
 
 export const runtime = "nodejs";
@@ -60,5 +61,6 @@ export async function POST(request: Request) {
 
   const response = NextResponse.json({ ok: true }, { headers });
   if (e2e) response.cookies.set(E2E_SESSION_COOKIE, "", { path: "/", httpOnly: true, sameSite: "lax", maxAge: 0 });
+  clearTournamentReturnCookie(response);
   return response;
 }

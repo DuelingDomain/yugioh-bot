@@ -3,7 +3,7 @@ import { NextResponse, type NextRequest, type NextMiddleware, type NextFetchEven
 import { E2E_SESSION_COOKIE, isE2EAuthEnabled, verifyE2ESession } from "@/lib/e2e-auth";
 import { fxLabEnabled, isFxLabPublicPath, visionAssetsEnabled } from "@/lib/fx-lab";
 import { TOURNAMENT_BRIDGE_START } from "@/lib/auth-return";
-import { tournamentSignInRedirect } from "@/lib/tournament-auth-return";
+import { tournamentSignInRedirect, tournamentStartFailure } from "@/lib/tournament-auth-return";
 const PUBLIC = ["/sign-in(.*)", "/sign-up(.*)", "/join/(.*)", "/sso-callback(.*)", "/welcome-back", "/monitoring", "/access", "/login", "/favicon.ico", "/icon.svg", "/apple-icon.png", "/icons/(.*)"];
 const isPublic = createRouteMatcher(PUBLIC);
 function beforeAuth(request: NextRequest): Response | null {
@@ -32,7 +32,10 @@ export default async function proxy(request: NextRequest, event: NextFetchEvent)
   const path = request.nextUrl.pathname;
   // Tournament bridge: disabled routes never initialize Clerk. Only these signed API methods bypass it.
   if (path === "/api/tournament-bridge" || path.startsWith("/api/tournament-bridge/")) {
-    if (!process.env.TOURNAMENT_URL?.trim()) return NextResponse.json({ error: "not_found" }, { status: 404, headers: { "Cache-Control": "no-store" } });
+    if (!process.env.TOURNAMENT_URL?.trim()) {
+      const failure = NextResponse.json({ error: "not_found" }, { status: 404, headers: { "Cache-Control": "no-store" } });
+      return request.method === "GET" && path === TOURNAMENT_BRIDGE_START ? tournamentStartFailure(request, failure) : failure;
+    }
     if ((request.method === "GET" && path === "/api/tournament-bridge/users/search")
       || (request.method === "POST" && path === "/api/tournament-bridge/users/lookup")
       || (request.method === "PUT" && /^\/api\/tournament-bridge\/users\/[1-9]\d*\/member-id$/.test(path))) return NextResponse.next();

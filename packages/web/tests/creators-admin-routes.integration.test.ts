@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import Database from "better-sqlite3";
 import { migrate } from "@yugidraft/shared/db";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -32,6 +33,7 @@ beforeEach(() => {
       const sent = JSON.parse(String(init!.body));
       if (sent.email_address === "pending@example.test") return Response.json({ errors: [{ code: "duplicate_record" }] }, { status: 400 });
       if (sent.email_address === "member@example.test") return Response.json({ errors: [{ code: "form_identifier_exists" }] }, { status: 422 });
+      if (sent.email_address === "unavailable@example.test") return Response.json({ errors: [{ code: "server_error" }] }, { status: 503 });
       return Response.json({ id: `inv_${invitations}`, email_address: sent.email_address, status: "pending", url: "https://clerk.example.test/v1/tickets/accept?ticket=x" });
     }
     if (method === "POST" && /^\/v1\/invitations\/[^/]+\/revoke$/.test(pathname)) return Response.json({ id: pathname.split("/")[3], status: "revoked" });
@@ -117,16 +119,34 @@ it("lets only an owner send an audited tournament invitation within the shared C
     actor_user_id: 1, action: "tournament.invite", result: "success", params_json: '{"invitationId":"inv_1"}',
   });
 
-  const pending = await invite("pending@example.test");
+  const pending = await invite(" Pending@Example.test ");
   expect(pending.status).toBe(409);
   expect(await pending.json()).toEqual({ error: "invitation_pending" });
   const member = await invite("member@example.test");
   expect(member.status).toBe(409);
   expect(await member.json()).toEqual({ error: "existing_account" });
   const { reserveOwnerSends } = await import("@/lib/creator-send-limit");
-  expect(reserveOwnerSends(77)).toBeNull();
+  expect(reserveOwnerSends(79)).toBeNull();
   expect((await invite("another@example.test")).status).toBe(429);
   expect(clerk).toHaveBeenCalledTimes(3);
+});
+
+it("audits denied and failed tournament invites with a hash of the normalized email", async () => {
+  const { POST } = await import("../app/api/admin/console/tournament-invites/route");
+  vi.stubEnv("TOURNAMENT_URL", "https://tournament.example.test");
+  vi.stubEnv("TOURNAMENT_BRIDGE_SECRET", "x".repeat(32));
+  for (const [email, status, result, code] of [
+    ["pending@example.test", 409, "denied", "invitation_pending"],
+    ["member@example.test", 409, "denied", "existing_account"],
+    ["unavailable@example.test", 503, "failure", "clerk_unavailable"],
+  ] as const) {
+    const response = await POST(req("/api/admin/console/tournament-invites", "POST", { email: ` ${email.toUpperCase()} ` }));
+    expect(response.status).toBe(status);
+    const row = db.prepare("select result, params_json from mod_actions where action = 'tournament.invite' order by id desc limit 1")
+      .get() as { result: string; params_json: string };
+    expect(row.result).toBe(result);
+    expect(JSON.parse(row.params_json)).toEqual({ code, email_key: createHash("sha256").update(email).digest("hex") });
+  }
 });
 
 it("creates a creator with an allowlist email, a link and more emails; the section and the sheet show them", async () => {

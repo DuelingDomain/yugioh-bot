@@ -2,6 +2,7 @@
 
 import { useState, type ReactNode } from "react";
 import { useClerk, useUser } from "@clerk/nextjs";
+import { clearTournamentReturnOnSignOut } from "@/components/account/sign-out";
 import { SignInBanner } from "./sign-in-error";
 import { SignInShell } from "./sign-in-shell";
 import { SignInFootLinks, SignInStep } from "./sign-in-step";
@@ -48,7 +49,11 @@ export function ClerkInviteSessionNotice({ continueInvite = false }: { continueI
     : null;
   // Reload even if Clerk has no sessions left and skips its completion callback.
   return <InviteSessionNotice identity={user.username || user.primaryEmailAddress?.emailAddress || "your current account"}
-    continueInvite={continueInvite} onSignOut={async () => { await signOut(reloadPage); reloadPage(); }} />;
+    continueInvite={continueInvite} onSignOut={async () => {
+      await clearTournamentReturnOnSignOut();
+      await signOut(reloadPage);
+      reloadPage();
+    }} />;
 }
 
 export function InviteSessionStep({ children, marketingUrl, creatorInvite = false }: { children: ReactNode; marketingUrl: string | null; creatorInvite?: boolean }) {

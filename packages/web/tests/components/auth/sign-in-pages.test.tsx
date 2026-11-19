@@ -104,6 +104,7 @@ describe("sign-in page", () => {
     const start = "/api/tournament-bridge/start";
     const event = `${start}?return=%2Fevents%2Fweekly`;
     vi.stubEnv("TOURNAMENT_URL", "https://tournament.example");
+    vi.stubEnv("TOURNAMENT_BRIDGE_SECRET", "x".repeat(32));
     const signIn = await renderSignIn(state("signin", { returnTo: event }), { redirect_url: event });
     expect(signInFlow).toHaveBeenLastCalledWith({ returnTo: event, marketingUrl: MARKETING });
     expect(screen.getByText("Signing in to DD Tournaments. New here? Ask your tournament organizer for an invite.")).toBeVisible();
@@ -114,6 +115,9 @@ describe("sign-in page", () => {
     const approval = await renderSignUp(state("invite"), { __clerk_ticket: "waitlist-ticket" });
     expect(signUpFlow).toHaveBeenLastCalledWith({ ticket: "waitlist-ticket", returnTo: start });
     approval.unmount();
+    const creator = await renderSignUp(state("invite"), { __clerk_ticket: "creator-ticket", via: "creator" });
+    expect(signUpFlow).toHaveBeenLastCalledWith({ ticket: "creator-ticket", returnTo: "/dashboard" });
+    creator.unmount();
     const ordinary = await renderSignIn(state("signin"));
     expect(signInFlow).toHaveBeenLastCalledWith({ returnTo: start, marketingUrl: MARKETING });
     ordinary.unmount();
@@ -124,6 +128,12 @@ describe("sign-in page", () => {
     const unsafe = await renderSignUp(state("invite"), { __clerk_ticket: "another-ticket", redirect_url: "/a%3f/..//outside.example" });
     expect(signUpFlow).toHaveBeenLastCalledWith({ ticket: "another-ticket", returnTo: "/dashboard" });
     unsafe.unmount();
+
+    vi.stubEnv("TOURNAMENT_BRIDGE_SECRET", "short");
+    const unconfigured = await renderSignIn(state("signin"));
+    expect(signInFlow).toHaveBeenLastCalledWith({ returnTo: "/dashboard", marketingUrl: MARKETING });
+    unconfigured.unmount();
+    vi.stubEnv("TOURNAMENT_BRIDGE_SECRET", "x".repeat(32));
 
     vi.stubEnv("WEB_URL", "https://app.example");
     vi.stubEnv("CLERK_SECRET_KEY", "fake-clerk-secret");

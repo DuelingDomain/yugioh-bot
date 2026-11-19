@@ -18,6 +18,8 @@ import { PUT as member } from "../app/api/tournament-bridge/users/[id]/member-id
 let db: Database.Database;
 const secret = "tournament-bridge-test-secret-32-chars";
 const base = "/api/tournament-bridge";
+const marker = "__Host-dd_tournament_return=1";
+const expiredMarker = /^__Host-dd_tournament_return=;.*Max-Age=0;.*Secure;.*HttpOnly;.*SameSite=lax/i;
 const expectedUser = { id: 1, username: "Ada_Name", displayName: "Ada Example", discordUserId: "123456", discordUsername: "ada.discord", memberId: "1234567895" };
 function signed(path: string, method = "GET", body?: unknown, raw = false): Request {
   const rawBody = body === undefined ? "" : raw ? String(body) : JSON.stringify(body);
@@ -43,11 +45,11 @@ beforeEach(() => {
 afterEach(() => { db.close(); vi.unstubAllEnvs(); vi.restoreAllMocks(); });
 
 it("redirects to the separate callback with a signed identity assertion and refreshes Discord once", async () => {
-  const response = await start(startRequest(undefined, "__Host-dd_tournament_return=1"));
+  const response = await start(startRequest(undefined, marker));
   expect(response.status).toBe(302);
   expect(response.headers.get("cache-control")).toBe("no-store");
   expect(response.headers.get("referrer-policy")).toBe("no-referrer");
-  expect(response.headers.get("set-cookie")).toMatch(/^__Host-dd_tournament_return=;.*Max-Age=0;.*Secure;.*HttpOnly;.*SameSite=lax/i);
+  expect(response.headers.get("set-cookie")).toMatch(expiredMarker);
   const callback = new URL(response.headers.get("location")!);
   expect(callback.origin + callback.pathname).toBe("https://tournament.test/auth/callback");
   const [payload, signature] = callback.searchParams.get("assertion")!.split(".");
@@ -68,6 +70,10 @@ it("preserves the return through normal anonymous sign-in and propagates identit
   expect(state.currentUser).not.toHaveBeenCalled(); expect(state.getDb).not.toHaveBeenCalled();
   state.access.mockResolvedValue({ ok: false, response: Response.json({ error: "session_unavailable" }, { status: 503 }) });
   expect((await start(startRequest())).status).toBe(503);
+  const failedHandoff = await start(startRequest(undefined, marker));
+  expect(failedHandoff.status).toBe(302);
+  expect(failedHandoff.headers.get("location")).toBe("https://app.test/dashboard");
+  expect(failedHandoff.headers.get("set-cookie")).toMatch(expiredMarker);
 });
 
 it.each(["//outside.test", "/\\outside.test", "https://outside.test", "", "/\n/outside.test", "/" + "x".repeat(512)])("rejects unsafe return %j before identity access", async path => {
@@ -105,8 +111,20 @@ it("404s all disabled handlers and rejects incomplete enabled configuration with
   }
   vi.stubEnv("TOURNAMENT_URL", "https://tournament.test"); vi.stubEnv("TOURNAMENT_BRIDGE_SECRET", "short");
   expect((await start(startRequest())).status).toBe(503);
+  const failedHandoff = await start(startRequest(undefined, marker));
+  expect(failedHandoff.status).toBe(302);
+  expect(failedHandoff.headers.get("location")).toBe("https://app.test/dashboard");
+  expect(failedHandoff.headers.get("set-cookie")).toMatch(expiredMarker);
   expect((await lookupIds([1])).status).toBe(503);
   expect(state.access).not.toHaveBeenCalled(); expect(state.getDb).not.toHaveBeenCalled();
+});
+
+it.each(["invalid return", "missing user"])("returns home and clears the marker for a signed-in user with %s", async failure => {
+  if (failure === "missing user") db.prepare("delete from users where id=1").run();
+  const response = await start(startRequest(failure === "invalid return" ? "//outside.test" : undefined, marker));
+  expect(response.status).toBe(302);
+  expect(response.headers.get("location")).toBe("https://app.test/dashboard");
+  expect(response.headers.get("set-cookie")).toMatch(expiredMarker);
 });
 
 it("verifies every service signature before parsing JSON, params, Clerk or database access", async () => {

@@ -68,30 +68,34 @@ path and query intact. Sign-in displays tournament invite guidance beside the
 waitlist link. Successful sign-in follows the requested event link.
 
 The anonymous redirect also sets a host-only, Secure, HttpOnly, SameSite=Lax
-cookie for 30 days. If a visitor later opens an approved waitlist invitation
+cookie for 7 days. If a visitor later opens an approved waitlist invitation
 in the same browser, sign-up uses the marker to return to the tournament
 homepage. An ordinary sign-in with the marker does the same when it would
-otherwise go to the dashboard. Explicit app destinations take precedence, and
-a successful bridge handoff clears the marker.
+otherwise go to the dashboard. The marker applies only while the bridge is
+configured. Explicit app destinations take precedence, and creator sign-ups
+skip the marker. The app clears it when the handoff ends or the user signs out.
+A failed handoff with the marker redirects to the dashboard.
 
 With the bridge configured, owners can use **Admin → Creators → Invite tournament
 organizer** to email a 30-day Clerk invitation. The ticket opens the app's
 sign-up page and continues to DD Tournaments after account creation, including
 in a different browser. Pending invites stay in place. For an existing account,
 send the tournament link directly. The route shares the creator invitation
-budget and records the actor and outcome in `mod_actions`.
+budget and records the actor and outcome in `mod_actions`. Denied and failed
+invite entries include a hash of the normalized email.
 
-Identity-sync outages remain 503. `return` defaults to `/`; it must start with
-`/`, must not start with `//`, must contain no backslash, and must be at most 512
-characters. Control characters are also rejected to prevent URL-parser redirects.
-Invalid values return 400 `{"error":"invalid_return"}`.
+Requests without the marker receive a 503 during identity-sync outages.
+`return` defaults to `/`. It must start with a single slash, be at most 512
+characters, and contain neither backslashes nor control characters. An invalid
+value on a request without the marker returns 400 `{"error":"invalid_return"}`.
 
 After resolving the application identity, exactly one `currentUser()` call
 refreshes `discord_username` from the matching Discord external account
 (`oauth_discord`, provider user ID matching the application's Discord ID).
 An unavailable Clerk user is silently skipped, preserving the last snapshot.
 A successful refresh without a matching account clears the snapshot to null.
-The member ID is preserved. A user removed during the refresh returns 404.
+The member ID is preserved. If the user is removed during the refresh, a
+request without the marker returns 404.
 
 The assertion is `payloadB64url + "." + signature`, where:
 

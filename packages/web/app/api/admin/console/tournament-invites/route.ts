@@ -1,10 +1,11 @@
+import { createHash } from "node:crypto";
 import { ClerkBackendError, createClerkBackend } from "@yugidraft/shared/clerk";
 import { recordModAction } from "@yugidraft/shared/discord-admin";
 import { report } from "@yugidraft/shared/observability";
 import { normalizeJoinEmail } from "@yugidraft/shared/util/join-email";
 import { busyResponse, ownerJson, requireOwnerMutation } from "@/lib/admin-console/creators";
 import { TOURNAMENT_BRIDGE_START } from "@/lib/auth-return";
-import { reserveOwnerSends } from "@/lib/creator-send-limit";
+import { releaseOwnerSends, reserveOwnerSends } from "@/lib/creator-send-limit";
 import { getDb } from "@/lib/db";
 import { webOrigin } from "@/lib/existing-player";
 import { tournamentBridgeConfig } from "@/lib/tournament-bridge";
@@ -29,7 +30,9 @@ export async function POST(request: Request): Promise<Response> {
   const audit = (result: "success" | "denied" | "failure", params: Record<string, unknown>) =>
     recordModAction(db, {
       guildId: process.env.DISCORD_GUILD_ID ?? "", actorSiteUserId: owner.userId,
-      action: "tournament.invite", result, params, notifyDiscord: false,
+      action: "tournament.invite", result,
+      params: result === "success" ? params : { ...params, email_key: createHash("sha256").update(email).digest("hex") },
+      notifyDiscord: false,
     });
 
   let invitation;
@@ -40,10 +43,12 @@ export async function POST(request: Request): Promise<Response> {
   } catch (error) {
     if (error instanceof ClerkBackendError) {
       if (error.code === "duplicate_record") {
+        releaseOwnerSends(1);
         audit("denied", { code: "invitation_pending" });
         return ownerJson({ error: "invitation_pending" }, 409);
       }
       if (error.code === "form_identifier_exists" || error.code === "email_address_exists") {
+        releaseOwnerSends(1);
         audit("denied", { code: "existing_account" });
         return ownerJson({ error: "existing_account" }, 409);
       }

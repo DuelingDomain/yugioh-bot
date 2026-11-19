@@ -200,6 +200,8 @@ const TOURNAMENT_INVITE_ERRORS: Record<string, string> = {
   invitation_pending: "This email already has a pending invitation.",
   existing_account: "This person already has an account. Send them the tournament link.",
   bridge_unavailable: "Tournament sign-in is currently unavailable.",
+  clerk_unavailable: "Clerk did not answer. Try again in a minute.",
+  clerk_not_configured: "Clerk is not set up here, so no invite can go out.",
   not_found: "Tournament invitations are unavailable. Refresh the console.",
 };
 
