@@ -218,7 +218,7 @@ export async function webGpuRuntime(deps: WebRuntimeDeps = {}): Promise<WebGpuRu
         ort.env.wasm.numThreads = 1;
         ort.env.wasm.proxy = false; // WebGPU already runs in our dedicated worker.
         // initEp also checks this adapter, even when a session supplies a device.
-        if (ort.env.webgpu) ort.env.webgpu.adapter = selected;
+        if (ort.env.webgpu) ort.env.webgpu.adapter = selected as unknown as typeof ort.env.webgpu.adapter;
         let fp16 = selected.features?.has('shader-f16') === true;
         const requestDevice = async (features: string[]) => {
           const requesting = selected.requestDevice!({ requiredFeatures: features });
