@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyEvent, type ReactNode } from "react";
-import type { RemoteActionProposal, RemoteRoom } from "@yugidraft/shared/remote";
-import { searchCards, type CardInfo } from "./catalog";
+import type { RemoteActionProposal, RemoteEvent, RemoteRoom } from "@yugidraft/shared/remote";
+import { cardInfo, loadCards, searchCards, type CardInfo } from "./catalog";
+import { TOKEN_ART, TOKEN_MAKERS, type TokenMaker } from "./token-makers";
 import { serverNow } from "./api";
 import { cardCode, cardName, cellsFor, type TwinCard, type ZoneKey } from "./model";
 import { BigArt, PopupFrame } from "./popup";
@@ -25,16 +26,26 @@ const points = (text: string) => { const n = Number(text); return text.trim() !=
 
 type View = { kind: "new"; seat: number; key: ZoneKey | null } | { kind: "template"; from?: TokenTemplate } | { kind: "card"; seat: number; ref: string; };
 /** What the next click on a free Monster Zone puts there. `left` is how many are still to place; `ask` means ATK/DEF are not fixed and the player types them. */
-export type TokenTemplate = { name: string; atk: number; def: number; artId?: number; position: Position; left: number; ask?: boolean; /** ATK/DEF were suggested from the Tributed monsters and may be edited. */ prefilled?: boolean; /** Face-up Tributed monsters whose ATK/DEF are not known, so the suggestion leaves them out. */ unknown?: number };
+export type TokenTemplate = { name: string; atk: number; def: number; artId?: number; position: Position; left: number; ask?: boolean; /** ATK/DEF were suggested from the Tributed monsters and may be edited. */ prefilled?: boolean; /** The tokens go to the opponent's field. */ opponent?: boolean; /** Face-up Tributed monsters whose ATK/DEF are not known, so the suggestion leaves them out. */ unknown?: number };
 const GENERIC: TokenTemplate = { name: "Token", atk: 0, def: 0, position: "attack", left: 1 };
-/** Cards that give named tokens to a player. A card on the table with one of these names offers its token first. Nothing else is guessed. */
-const TOKEN_OF: Record<string, Omit<TokenTemplate, "artId">> = {
-  // The real ATK/DEF of this token is the combined original ATK/DEF of the Tributed monsters, so the player types them.
-  "nibiru, the primal being": { name: "Primal Being Token", atk: 0, def: 0, position: "attack", left: 1, ask: true },
-  "scapegoat": { name: "Sheep Token", atk: 0, def: 0, position: "defense", left: 4 },
-  "ojama trio": { name: "Ojama Token", atk: 0, def: 1000, position: "defense", left: 3 },
-  "dandylion": { name: "Fluff Token", atk: 0, def: 0, position: "defense", left: 2 },
-};
+const templateOf = (maker: TokenMaker): TokenTemplate => ({ name: maker.token, atk: maker.atk, def: maker.def, artId: maker.id, position: maker.position, left: maker.count, ...(maker.ask ? { ask: true } : {}), ...(maker.opponent ? { opponent: true } : {}) });
+/** An activation or placement older than this is history (a reconnect or a page load), not news. */
+const FRESH_MS = 8000;
+/** The same card does not give its tokens twice in this time (an activation and its placement are one event to the player). */
+const REPEAT_MS = 30_000;
+/** The token art of a name that is not in the curated list: the catalog entry with exactly that name. A miss is remembered. */
+const foundArt = new Map<string, number | null>();
+async function artFor(name: string): Promise<number | undefined> {
+  const key = name.trim().toLowerCase();
+  if (TOKEN_ART[key]) return TOKEN_ART[key];
+  if (key === "token" || key.length < 2) return undefined;
+  if (!foundArt.has(key)) {
+    const hit = await Promise.race([searchCards(name.trim(), false).catch(() => []), new Promise<CardInfo[]>(resolve => setTimeout(() => resolve([]), 800))])
+      .then(list => list.find(card => card.name.toLowerCase() === key && /token/i.test(card.type)));
+    if (hit) foundArt.set(key, hit.id);
+  }
+  return foundArt.get(key) ?? undefined;
+}
 const OFF_FIELD = ["hand", "deck", "extra"];
 /** How long a monster that just left the field still counts as Tributed for the Primal Being Token. */
 const TRIBUTE_WINDOW_MS = 30_000;
@@ -48,6 +59,7 @@ export function useTokens({ act, room, live, extraZones, layers, info }: {
   act: Act; room: RemoteRoom; live: boolean; extraZones: boolean; layers: ReturnType<typeof useLayers>; info: (id: number | undefined) => CardInfo | undefined;
 }) {
   const [view, setView] = useState<View | null>(null);
+  const roomRef = useRef(room); roomRef.current = room;
   const [placing, setPlacing] = useState<TokenTemplate | null>(null);
   /** Zones ("seat:key") with a token request that the server has not answered yet. They leave the glow and count as taken. */
   const [pending, setPendingState] = useState<string[]>([]);
@@ -61,19 +73,7 @@ export function useTokens({ act, room, live, extraZones, layers, info }: {
   const canPlace = live && (solo || (mySeat >= 0 && !room.spectator));
   const actor = (seat: number) => solo ? seat : mySeat;
   const names = room.state.seats.flatMap(item => item.twin.filter(card => card.faceUp && !card.token && !OFF_FIELD.includes(card.zone)).map(card => cardName(card, info(cardCode(card))).toLowerCase()));
-  const offered = [...new Set(names.filter(name => TOKEN_OF[name]))].map(name => TOKEN_OF[name]);
-  const offeredKey = offered.map(item => item.name).join("|");
-  const [art, setArt] = useState<Record<string, number>>({});
-  // The token's art comes from the catalog when it is there. The chip works without it.
-  useEffect(() => {
-    let on = true;
-    for (const name of offeredKey ? offeredKey.split("|") : []) void searchCards(name, false).then(list => {
-      const hit = list.find(card => card.name === name && /token/i.test(card.type));
-      if (on && hit) setArt(old => old[name] === hit.id ? old : { ...old, [name]: hit.id });
-    });
-    return () => { on = false; };
-  }, [offeredKey]);
-  const suggestions: TokenTemplate[] = offered.map(item => ({ ...item, ...(art[item.name] ? { artId: art[item.name] } : {}) }));
+  const suggestions: TokenTemplate[] = [...new Set(names.filter(name => TOKEN_MAKERS[name]))].map(name => templateOf(TOKEN_MAKERS[name]));
   useEffect(() => { if (placing && !canPlace) setPlacing(null); }, [placing, canPlace]);
   // Placing mode over: no zone stays marked as waiting for an answer.
   useEffect(() => { if (!placing) setPending([]); }, [placing]);
@@ -99,9 +99,9 @@ export function useTokens({ act, room, live, extraZones, layers, info }: {
   const openSlots = (seat: number): ZoneKey[] => freeKeys(seat, MAIN).filter(key => !pending.includes(`${seat}:${key}`));
   /** The create dialog. An empty Main Monster Zone passes its cell, the button leaves it open. */
   const create = useCallback((seat: number, key?: ZoneKey) => {
-    if (!owns(seat) || key && !isMainCell(key)) return false;
+    if (!canPlace || room.state.seats[seat]?.eliminated || key && !isMainCell(key)) return false;
     setView({ kind: "new", seat, key: key ?? null }); layers.open("token"); return true;
-  }, [owns, layers]);
+  }, [canPlace, room.state.seats, layers]);
   /** The "Token" control: starts placing a generic token, or cancels when already placing. */
   const toggle = () => { if (placing) setPlacing(null); else if (canPlace) setPlacing(GENERIC); };
   /** A click on a zone while placing. A free Main Monster Zone on a living seat gets the token; anything else keeps its usual click. */
@@ -131,13 +131,14 @@ export function useTokens({ act, room, live, extraZones, layers, info }: {
    * taken first; when none are left, the monsters that left a field for a Graveyard in the last 30 seconds. Unknown cards count nothing,
    * and with nothing known the fields stay empty. The player can edit the suggestion.
    */
-  const suggestStats = (template: TokenTemplate): TokenTemplate => {
+  const suggestStats = (template: TokenTemplate, tributed = false): TokenTemplate => {
     const cards = room.state.seats.flatMap(item => item.twin);
     const nibiru = (card: TwinCard) => cardName(card, info(cardCode(card))).toLowerCase().startsWith("nibiru");
     const now = serverNow();
     const onField = cards.filter(card => card.faceUp && ON_FIELD.includes(card.zone) && !nibiru(card));
     const left = cards.filter(card => card.zone === "graveyard" && card.departedFrom && ON_FIELD.includes(card.departedFrom.zone) && card.departedFrom.at !== undefined && now - card.departedFrom.at <= TRIBUTE_WINDOW_MS && !nibiru(card));
-    const chosen = onField.length ? onField : left;
+    // Right after the card was activated the Tributed monsters are already gone, so the field is not their record.
+    const chosen = tributed ? left : onField.length ? onField : left;
     // A token is Tributed too: it counts with its own ATK/DEF. A card counts with its original ATK/DEF from the catalog.
     const stats = chosen.map(card => { if (card.token) return { atk: card.token.atk, def: card.token.def }; const found = info(cardCode(card)); return found && found.atk !== undefined && found.atk !== null && found.atk >= 0 ? { atk: found.atk, def: Math.max(0, found.def ?? 0) } : null; });
     const known = stats.filter((item): item is { atk: number; def: number } => !!item);
@@ -145,13 +146,59 @@ export function useTokens({ act, room, live, extraZones, layers, info }: {
     if (!known.length) return unknown ? { ...template, unknown } : template;
     return { ...template, atk: known.reduce((sum, item) => sum + item.atk, 0), def: known.reduce((sum, item) => sum + item.def, 0), prefilled: true, ...(unknown ? { unknown } : {}) };
   };
+  /** The seat that played a token maker gets its tokens at once, in free Monster Zones, with the real token art. Players remove them if the effect did not happen. */
+  const give = async (maker: TokenMaker, actorSeat: number) => {
+    const state = roomRef.current.state;
+    const targets = maker.opponent ? state.seats.map((_, index) => index).filter(index => index !== actorSeat && !state.seats[index]?.eliminated) : [actorSeat];
+    const template = maker.ask ? suggestStats(templateOf(maker), true) : templateOf(maker);
+    // Several opponents, or stats nobody can work out: the player decides with the usual placing mode or the dialog.
+    if (targets.length !== 1) { if (maker.ask && !template.prefilled) customize(template); else setPlacing(template); return; }
+    if (maker.ask && !template.prefilled) { customize(template); return; }
+    const keys = freeIn(state, targets[0], MAIN).slice(0, maker.count);
+    for (const key of keys) if (!await send(targets[0], { name: template.name, atk: template.atk, def: template.def, artId: template.artId, position: template.position, key })) break;
+  };
+  const giveRef = useRef(give); giveRef.current = give;
+  const seenSeq = useRef<number | null>(null);
+  const madeAt = useRef(new Map<string, number>());
+  useEffect(() => {
+    const top = room.events.reduce((max, event) => Math.max(max, event.seq), 0);
+    // The first render only learns where the log stands.
+    if (seenSeq.current === null) { seenSeq.current = top; return; }
+    const fresh = room.events.filter(event => event.seq > seenSeq.current!).sort((a, b) => a.seq - b.seq);
+    seenSeq.current = Math.max(seenSeq.current, top);
+    if (!canPlace) return;
+    for (const event of fresh) {
+      const action = event.action;
+      // Only the client of the player who played the card makes the tokens, so they are made once.
+      if (event.actorSeat === null || !solo && event.actorSeat !== mySeat || serverNow() - event.at > FRESH_MS) continue;
+      const source = action.type === "effect.activated" ? action.source
+        : action.type === "twin.place" && action.card.faceUp && !action.card.token && !OFF_FIELD.includes(action.zone) && action.zone !== "graveyard" && action.zone !== "banished" ? action.card : null;
+      if (!source) continue;
+      const seat = event.actorSeat;
+      void (async () => {
+        const id = source.cardId ?? ("passcode" in source ? source.passcode : undefined);
+        if (id && !cardInfo(id)) await loadCards([id]);
+        const ref = "cardRef" in source ? source.cardRef : undefined;
+        const held = ref ? roomRef.current.state.seats.flatMap(item => item.twin).find(card => card.ref === ref) : undefined;
+        const name = (source.name ?? cardInfo(id)?.name ?? (held ? cardName(held, cardInfo(cardCode(held))) : "")).toLowerCase();
+        const maker = TOKEN_MAKERS[name];
+        if (!maker?.auto) return;
+        const key = `${seat}:${name}`;
+        if (Date.now() - (madeAt.current.get(key) ?? 0) < REPEAT_MS) return;
+        madeAt.current.set(key, Date.now());
+        await giveRef.current(maker, seat);
+      })();
+    }
+  }, [room.events]);
   const customize = (from?: TokenTemplate) => { setView({ kind: "template", ...(from ? { from } : {}) }); layers.open("token"); };
   const open = useCallback((seat: number, card: TwinCard) => { setView({ kind: "card", seat, ref: card.ref }); layers.open("token"); }, [layers]);
   const close = () => { layers.close("token"); setView(null); };
 
-  const send = (seat: number, draft: { name: string; atk: number; def: number; artId?: number; position: Position; key: ZoneKey }) => {
+  const send = async (seat: number, draft: { name: string; atk: number; def: number; artId?: number; position: Position; key: ZoneKey }) => {
+    // A generic token with a known name (Sheep Token) gets that token's art, too.
+    const artId = draft.artId ?? await artFor(draft.name);
     return act({ type: "twin.place", actorSeat: actor(seat), seat, zone: "monster", card: { ref: crypto.randomUUID(), name: draft.name, slot: Number(draft.key[1]), faceUp: true, position: draft.position,
-      token: { atk: draft.atk, def: draft.def, ...(draft.artId ? { artId: draft.artId } : {}) } } });
+      token: { atk: draft.atk, def: draft.def, ...(artId ? { artId } : {}) } } });
   };
   /** The create dialog places one token and ends. */
   const place = (seat: number, draft: { name: string; atk: number; def: number; artId?: number; position: Position; key: ZoneKey }) => { void send(seat, draft); setPlacing(null); close(); };
