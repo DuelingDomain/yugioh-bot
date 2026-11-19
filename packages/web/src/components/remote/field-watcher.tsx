@@ -890,7 +890,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     let timer:ReturnType<typeof setTimeout>|undefined;
     return Promise.race([lookup,new Promise<void>(resolve=>{timer=setTimeout(resolve,FACTS_WAIT_MS);})]).finally(()=>clearTimeout(timer));
   }
-  function handle(event:FieldEvent,departureOrigin?:Pick<TwinCard,'ref'|'zone'|'slot'>,factsStarted=false) {
+  function handle(event:FieldEvent,departureOrigin?:Pick<TwinCard,'ref'|'zone'|'slot'>,factsStarted=false,moveRetry=0) {
     const observedRef=bindings.current.get(event.track.id)??event.track.id;
     if(givenAway(observedRef))return;
     if(!factsStarted&&live()&&event.type!=='removed'){
@@ -1141,7 +1141,18 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       }
       if(event.type==='moved') {
         if(!publicField(card.zone)&&!recentFieldDeparture(card,serverNow())){await apply(event,act);return;}
-        const observed=watch.getTrack(event.track.id)??watch.getTrack(ref);if(!observed?.visible||observed.removed||observed.state!=='identified')return;
+        const observed=watch.getTrack(event.track.id)??watch.getTrack(ref);
+        if(!observed||observed.removed||observed.state!=='identified')return;
+        if(!observed.visible){
+          // A newer frame can temporarily hide the settled move before its queued write.
+          if(event.track.visible&&!event.track.faceDown&&event.track.cardId&&moveRetry<3)setTimeout(()=>{
+            const latest=watch.getTrack(event.track.id)??watch.getTrack(ref);
+            if(live()&&latest&&!latest.removed&&latest.state==='identified'&&!latest.faceDown&&
+              latest.zone===event.track.zone&&latest.cardId===event.track.cardId&&(latest.revision??0)===(event.track.revision??0))
+              handle(event,undefined,true,moveRetry+1);
+          },150);
+          return;
+        }
         if(keepsManual(card.ref,fieldZoneLocation(observed.zone),observed.position))return;
         const code=cardCode(card),facts=cardInfo(code),twinsNow=current.current.room.state.seats[seat].twin;
         const observedLocation=fieldZoneLocation(observed.zone),frame=entries.current.get(observed.cardId??'')?.frameClass;

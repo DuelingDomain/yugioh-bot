@@ -1035,6 +1035,21 @@ describe('typed watcher zone projection',()=>{
  it('updates physical hints when a real move projects to the same virtual slot',async()=>{
   const fixture=await typedWatcherFixture(zoneEntries[0],'M4');try{await fixture.emit();await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());expect(fixture.known()[0].zone).toBe('M4');fixture.track.zone='S4';await fixture.emit({type:'moved'});await waitFor(()=>expect(JSON.parse(sessionStorage.getItem(physicalHintsKey)!)).toEqual({'physical-typed':'S4'}));expect(fixture.post).toHaveBeenCalledOnce();await fixture.restart();expect(fixture.known()[0].zone).toBe('S4');}finally{fixture.dispose();}
  });
+ it.each([false,true])('rechecks a briefly hidden face-up move within 500 ms (new revision: %s)',async changed=>{
+  const old={ref:'briefly-hidden-move',zone:'spell-trap',slot:4,cardId:41420027,name:'Solemn Judgment',faceUp:true,position:'attack'};
+  const fixture=await typedWatcherFixture(zoneEntries[0],'S4',[old],'moved');
+  vi.useFakeTimers({toFake:['setTimeout','clearTimeout','performance']});
+  try{
+   Object.assign(fixture.track,{zone:'S2',visible:false,revision:1});
+   await fixture.emit({track:{...fixture.track,visible:true}});
+   await act(async()=>{await vi.advanceTimersByTimeAsync(200);});
+   expect(fixture.post).not.toHaveBeenCalled();
+   Object.assign(fixture.track,{visible:true,revision:changed?2:1});
+   await act(async()=>{await vi.advanceTimersByTimeAsync(299);});
+   if(changed)expect(fixture.post).not.toHaveBeenCalled();
+   else expect(fixture.post).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({type:'twin.move',cardRef:old.ref,zone:'spell-trap',slot:2}),expect.anything());
+  }finally{fixture.dispose();vi.useRealTimers();}
+ });
  it('saves the latest physical row after a live move HTTP returns the matching virtual destination',async()=>{
   const ready=deferred<void>(),fixture=await typedWatcherFixture(zoneEntries[0],'M4',[],'placed',undefined,async proposal=>{if(proposal.type==='twin.move')await ready.promise;});try{
    await fixture.emit();await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());fixture.track.zone='M5';await fixture.emit({type:'moved'});await waitFor(()=>expect(fixture.post).toHaveBeenCalledTimes(2));fixture.track.zone='S5';await act(async()=>{ready.resolve();await ready.promise;});await waitFor(()=>expect(JSON.parse(sessionStorage.getItem(physicalHintsKey)!)).toEqual({'physical-typed':'S5'}));expect(fixture.room().state.seats[0].twin[0]).toMatchObject({zone:'spell-trap',slot:5});
