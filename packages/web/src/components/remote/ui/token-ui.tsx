@@ -47,6 +47,8 @@ async function artFor(name: string): Promise<number | undefined> {
   return foundArt.get(key) ?? undefined;
 }
 const OFF_FIELD = ["hand", "deck", "extra"];
+/** The zones of a card in play (a card in the hand, a pile or under another card is not played). */
+const onFieldZone = (zone: string) => ["monster", "spell-trap", "extra-monster", "field", "pendulum"].includes(zone);
 /** How long a monster that just left the field still counts as Tributed for the Primal Being Token. */
 const TRIBUTE_WINDOW_MS = 30_000;
 const ON_FIELD = ["monster", "extra-monster"];
@@ -55,8 +57,8 @@ const ON_FIELD = ["monster", "extra-monster"];
  * Tokens on a Remote Duels table: a token is table state with no physical card. The owner creates it from the "Token" button
  * or from an empty Main Monster Zone's menu, and moves, turns or removes it from its popup. The camera never reads it.
  */
-export function useTokens({ act, room, live, extraZones, layers, info }: {
-  act: Act; room: RemoteRoom; live: boolean; extraZones: boolean; layers: ReturnType<typeof useLayers>; info: (id: number | undefined) => CardInfo | undefined;
+export function useTokens({ act, room, live, extraZones, layers, info, toast }: {
+  act: Act; room: RemoteRoom; live: boolean; extraZones: boolean; layers: ReturnType<typeof useLayers>; info: (id: number | undefined) => CardInfo | undefined; toast?: (text: ReactNode, ms?: number) => void;
 }) {
   const [view, setView] = useState<View | null>(null);
   const roomRef = useRef(room); roomRef.current = room;
@@ -146,24 +148,48 @@ export function useTokens({ act, room, live, extraZones, layers, info }: {
     if (!known.length) return unknown ? { ...template, unknown } : template;
     return { ...template, atk: known.reduce((sum, item) => sum + item.atk, 0), def: known.reduce((sum, item) => sum + item.def, 0), prefilled: true, ...(unknown ? { unknown } : {}) };
   };
-  /** The seat that played a token maker gets its tokens at once, in free Monster Zones, with the real token art. Players remove them if the effect did not happen. */
+  /**
+   * The seat that played a token maker gets its tokens at once, in free Monster Zones, with the real token art. Players remove them if the effect did not happen.
+   * The free zones are read again before each token, so a refused zone does not stop the rest. A maker with open stats (Nibiru) never places by itself.
+   */
   const give = async (maker: TokenMaker, actorSeat: number) => {
     const state = roomRef.current.state;
     const targets = maker.opponent ? state.seats.map((_, index) => index).filter(index => index !== actorSeat && !state.seats[index]?.eliminated) : [actorSeat];
-    const template = maker.ask ? suggestStats(templateOf(maker), true) : templateOf(maker);
-    // Several opponents, or stats nobody can work out: the player decides with the usual placing mode or the dialog.
-    if (targets.length !== 1) { if (maker.ask && !template.prefilled) customize(template); else setPlacing(template); return; }
-    if (maker.ask && !template.prefilled) { customize(template); return; }
-    const keys = freeIn(state, targets[0], MAIN).slice(0, maker.count);
-    for (const key of keys) if (!await send(targets[0], { name: template.name, atk: template.atk, def: template.def, artId: template.artId, position: template.position, key })) break;
+    const template = templateOf(maker);
+    // Stats nobody can know for sure: the player confirms them in the dialog, which starts with the Tributed monsters as a suggestion.
+    if (maker.ask) { customize(suggestStats(template, true)); return; }
+    // Several opponents: the player decides with the usual placing mode.
+    if (targets.length !== 1) { setPlacing(template); return; }
+    const refused = new Set<ZoneKey>();
+    let latest = state, placed = 0;
+    while (placed < maker.count) {
+      const key = freeIn(latest, targets[0], MAIN).find(item => !refused.has(item));
+      if (!key) break;
+      const updated = await send(targets[0], { name: template.name, atk: template.atk, def: template.def, artId: template.artId, position: template.position, key }).catch(() => null);
+      if (updated) { placed++; latest = updated.state; } else { refused.add(key); latest = roomRef.current.state; }
+    }
+    if (placed < maker.count) toast?.(`${placed} of ${maker.count} ${maker.token}s placed. No free Monster Zone is left.`, 4200);
   };
   const giveRef = useRef(give); giveRef.current = give;
   const seenSeq = useRef<number | null>(null);
+  /** Token makers that gave their tokens, by card ref: a maker gives once for as long as it stays on the field (a grace time covers the step from the hand to the field). */
+  const given = useRef(new Map<string, number>());
+  /** Makers with no card ref (a card held up from the hand) are told apart by seat and name for a short time. */
   const madeAt = useRef(new Map<string, number>());
+  /** Where each card stood before the newest events: tells a card played from the hand from one that came back from the Graveyard or was only turned. */
+  const before = useRef(new Map<string, { zone: string; faceUp: boolean }>());
   useEffect(() => {
+    const cards = room.state.seats.flatMap(item => item.twin);
+    const was = before.current;
+    before.current = new Map(cards.map(card => [card.ref, { zone: card.zone, faceUp: card.faceUp }]));
+    for (const [ref, at] of given.current) if (!onFieldZone(before.current.get(ref)?.zone ?? "") && Date.now() - at > REPEAT_MS) given.current.delete(ref);
     const top = room.events.reduce((max, event) => Math.max(max, event.seq), 0);
-    // The first render only learns where the log stands.
-    if (seenSeq.current === null) { seenSeq.current = top; return; }
+    // The first render only learns where the log stands. Makers already face up on a field have given their tokens long ago.
+    if (seenSeq.current === null) {
+      seenSeq.current = top;
+      for (const card of cards) if (card.faceUp && onFieldZone(card.zone) && TOKEN_MAKERS[cardName(card, info(cardCode(card))).toLowerCase()]?.auto) given.current.set(card.ref, Date.now());
+      return;
+    }
     const fresh = room.events.filter(event => event.seq > seenSeq.current!).sort((a, b) => a.seq - b.seq);
     seenSeq.current = Math.max(seenSeq.current, top);
     if (!canPlace) return;
@@ -171,21 +197,40 @@ export function useTokens({ act, room, live, extraZones, layers, info }: {
       const action = event.action;
       // Only the client of the player who played the card makes the tokens, so they are made once.
       if (event.actorSeat === null || !solo && event.actorSeat !== mySeat || serverNow() - event.at > FRESH_MS) continue;
-      const source = action.type === "effect.activated" ? action.source
-        : action.type === "twin.place" && action.card.faceUp && !action.card.token && !OFF_FIELD.includes(action.zone) && action.zone !== "graveyard" && action.zone !== "banished" ? action.card : null;
-      if (!source) continue;
+      const held = (ref: string | undefined) => ref ? cards.find(card => card.ref === ref) : undefined;
+      let ref: string | undefined, id: number | undefined, label: string | undefined;
+      if (action.type === "effect.activated") { ref = action.source.cardRef; id = action.source.cardId; label = action.source.name; }
+      else if (action.type === "twin.place") {
+        // A card shown during its activation is counted by that activation. One that returned from the Graveyard, banishment, Deck or Extra Deck, or only moved on the field, is not played from the hand.
+        if (!action.card.faceUp || action.card.token || !onFieldZone(action.zone) || action.give || action.fromActivation) continue;
+        ref = action.fromRef ?? action.card.ref;
+        const from = was.get(ref)?.zone;
+        if (action.fromRef ? from !== "hand" : from !== undefined && from !== "hand") continue;
+        id = action.card.cardId ?? action.card.passcode; label = action.card.name;
+      }
+      // A Set card turned face up, or a face-up field card the camera or the player named: the effect is played now.
+      else if (action.type === "twin.flip" || action.type === "card.identified") {
+        if (action.type === "twin.flip" && (!action.faceUp || was.get(action.cardRef)?.faceUp !== false)) continue;
+        ref = action.cardRef;
+        const card = held(ref);
+        // Only a monster, Spell or Trap that the actor controls counts.
+        if (!card || card.token || !card.faceUp || !onFieldZone(card.zone) || !solo && !room.state.seats[event.actorSeat]?.twin.some(item => item.ref === card.ref)) continue;
+        id = action.cardId ?? (action.type === "card.identified" ? action.passcode : undefined) ?? cardCode(card); label = action.name;
+      }
+      else continue;
       const seat = event.actorSeat;
       void (async () => {
-        const id = source.cardId ?? ("passcode" in source ? source.passcode : undefined);
         if (id && !cardInfo(id)) await loadCards([id]);
-        const ref = "cardRef" in source ? source.cardRef : undefined;
-        const held = ref ? roomRef.current.state.seats.flatMap(item => item.twin).find(card => card.ref === ref) : undefined;
-        const name = (source.name ?? cardInfo(id)?.name ?? (held ? cardName(held, cardInfo(cardCode(held))) : "")).toLowerCase();
+        const card = held(ref);
+        const name = (label ?? cardInfo(id)?.name ?? (card ? cardName(card, cardInfo(cardCode(card))) : "")).toLowerCase();
         const maker = TOKEN_MAKERS[name];
         if (!maker?.auto) return;
-        const key = `${seat}:${name}`;
-        if (Date.now() - (madeAt.current.get(key) ?? 0) < REPEAT_MS) return;
-        madeAt.current.set(key, Date.now());
+        if (ref) { if (given.current.has(ref)) return; given.current.set(ref, Date.now()); }
+        else {
+          const key = `${seat}:${name}`;
+          if (Date.now() - (madeAt.current.get(key) ?? 0) < REPEAT_MS) return;
+          madeAt.current.set(key, Date.now());
+        }
         await giveRef.current(maker, seat);
       })();
     }

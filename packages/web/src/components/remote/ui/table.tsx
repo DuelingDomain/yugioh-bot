@@ -326,7 +326,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     finally { setZoneBusy(false); }
   };
   const placeInZone = (pick: ZonePick) => { const ref = crypto.randomUUID(); return saveZoneActions(latest => zonePlacement(latest, pick, ref)); };
-  const tokens = useTokens({ act, room, live, extraZones, layers, info });
+  const tokens = useTokens({ act, room, live, extraZones, layers, info, toast });
   const control = useControlChange({ act, room, live, extraZones, layers, info, name, toast });
   controlOfferRef.current = control.offer;
   // A monster that equips itself (Union, Agnumday-style) and sits face up in my Spell & Trap Zone: ask which monster it equips. No link is made without a click.
