@@ -656,6 +656,21 @@ test('a cell gets two empty zooms in ten seconds and a hand contact clears the l
   look=.65;
   await sample(6);
   assert.equal(zooms(),5,'old misses fall out of the retry window');
+
+  look=.51;
+  await sample(6);
+  look=.65;
+  await sample(6);
+  assert.equal(zooms(),6,'the speculative zoom cap is full again');
+  r.known=[{id:'departed',zone:'S3'}];
+  r.watcher.scanNow();
+  await r.tick(300);
+  await r.tick(300);
+  const removed=r.events.find(e=>e.type==='removed'&&e.track.id==='departed');
+  assert.ok(removed,'the board card was removed after two missed full scans');
+  await sample(4);
+  assert.equal(zooms(),7,'the post-removal check still gets a zoom');
+  assert.ok(r.watcher.getSnapshot().zoomCheckedAt!.S3!>removed.removedAt!);
   r.watcher.dispose();
 });
 
@@ -680,6 +695,52 @@ test('a stationary unboxed object cannot replace the learned empty mat in a zoom
   r.zoom=()=>[{...card(.30,.36,.40,.50),kind:'face-down',confidence:.85}];
   for(let i=0;i<5;i++)await r.tick(150);
   assert.deepEqual(r.events.filter(e=>e.type==='placed').map(e=>[e.track.zone,e.track.faceDown]),[['S4',true]]);
+  r.watcher.dispose();
+});
+
+test('an empty Set cell relearns a local lighting shift after three clean full scans',async()=>{
+  const r=fieldRig('sure',20,undefined,{width:1600,height:900},{zoomSets:true});
+  const cell=zones.fieldZoneCells().find(c=>c.zone==='S4')!;
+  const inCell=(c:DetectedQuad)=>{
+    const {x,y}=zones.fieldCenter(c);
+    return x>=cell.x&&x<cell.x+cell.w&&y>=cell.y&&y<cell.y+cell.h;
+  };
+  const zooms=()=>r.detectOptions.filter(o=>o.zoom).length;
+  const full=async()=>{r.watcher.scanNow();await r.tick(300);};
+  let look=.25;
+  r.outlines=[];r.watcher.setCalibration(zones.createFieldCalibration([{x:0,y:0},{x:1,y:1}]));
+  r.appearanceAt=c=>Array(288).fill(inCell(c)?look:.25);
+  r.cropAt=()=>fieldCrop({...card(0,0),kind:'face-down'});
+  for(let i=0;i<8;i++)await full();
+  await r.tick(300);
+
+  look=.65;
+  for(let i=0;i<5&&zooms()===0;i++)await r.tick(150);
+  assert.equal(zooms(),1,'the first zoom confirms the bright spot has no outline');
+  for(let i=0;i<3;i++)await full();
+  await r.tick(300); // Finish Scan field's second pass.
+  assert.ok(!r.watcher.getSnapshot().blindZones?.includes('S4'),'the new baseline is in use after three full scans');
+
+  for(let i=0;i<60;i++){
+    look=i%2?.71:.59; // Enough drift to retry an empty zoom, but close to the new baseline.
+    await r.tick(1000);
+  }
+  assert.equal(zooms(),1,'no zooms in the minute after re-learning');
+  assert.equal(r.events.filter(e=>e.type==='placed').length,0);
+
+  look=.42;
+  for(let i=0;i<5&&zooms()===1;i++)await r.tick(150);
+  assert.equal(zooms(),2);
+  await full();
+  await full();
+  r.skinNearAt=c=>inCell(c)?.06:0;
+  const beforeHand=r.detects;
+  await r.tick(100);
+  assert.equal(r.detects,beforeHand,'the hand crossed the cell between detector passes');
+  r.skinNearAt=undefined;
+  await full();
+  await r.tick(300);
+  assert.ok(r.watcher.getSnapshot().blindZones?.includes('S4'),'a hand interrupts re-learning even between full scans');
   r.watcher.dispose();
 });
 

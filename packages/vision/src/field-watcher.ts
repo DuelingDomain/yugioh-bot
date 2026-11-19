@@ -536,7 +536,10 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
   const blindZones=new Set<FieldZone>(),handZones=new Set<FieldZone>(),blindCountAt=new Map<string,number>();
   const blindSleevesSeen=new Map<FieldZone,{at:number;look:number[]}>(),setFollowUpAt=new Map<FieldZone,number>();
   const zoomPendingZones=new Set<FieldZone>(),zoomDeparturePending=new Set<FieldZone>(),zoomCheckedAt=new Map<FieldZone,number>();
-  const zoomCells=new Map<FieldZone,{look?:number[];missedLook?:number[];emptyZooms?:number[];stableAt?:number;waitingAt?:number;attemptedAt?:number;retryAt?:number;handAt?:number;motionAt?:number}>();
+  const zoomCells=new Map<FieldZone,{look?:number[];missedLook?:number[];emptyZooms?:number[];emptyZoom?:{look:number[];passes:number};stableAt?:number;waitingAt?:number;attemptedAt?:number;retryAt?:number;handAt?:number;motionAt?:number}>();
+  const clearEmptyZoom=(state:ReturnType<typeof zoomCells.get>)=>{
+    if(state?.emptyZoom)state.emptyZoom=state.missedLook=undefined;
+  };
   const completeCellCheck=(zone:FieldZone)=>{
     zoomCheckedAt.set(zone,now());
     zoomPendingZones.delete(zone);
@@ -733,6 +736,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
     // The last detector sighting can predate removal by several seconds. Retries keep the original removal time.
     if(type==='removed'&&fieldSlot(t.view.zone)){
       const cell=zoomCells.get(t.view.zone);
+      clearEmptyZoom(cell);
       if(cell&&t.view.removedAt===undefined)cell.emptyZooms=cell.missedLook=undefined;
       t.view.removedAt??=now();
       t.view.removedFrameAt??=Number.isFinite(lastFrameAt)?lastFrameAt:t.view.removedAt;
@@ -1075,7 +1079,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       }
       const cells=options.zoomSets?fieldCells():[];
       zoomPendingZones.clear();zoomDeparturePending.clear();
-      const zoomCandidates:{zone:FieldZone;box:DetectedQuad;since:number;attemptedAt:number;priority:number;centre:number[]}[]=[];
+      const zoomCandidates:{zone:FieldZone;box:DetectedQuad;since:number;attemptedAt:number;priority:number;centre:number[];emptyMatLook?:number[]}[]=[];
       const slowZoomDevice=device.cores<=4||metrics.detectorMs>=ZOOM_SLOW_MS||pacer.priorityCost>=ZOOM_SLOW_MS;
       let zoomSettling=false;
       const localFlipCandidates:{zone:FieldZone;box:DetectedQuad;since:number;owner:InternalTrack}[]=[];
@@ -1088,10 +1092,10 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       for(const cell of cells){
         const zone=cell.zone;if(!setFollowUpZone(zone))continue;
         const box=cellQuad(cell);
-        if(visibleShare(box.quad)<MIN_VISIBLE||!canZoomCell(current,box))continue;
+        if(visibleShare(box.quad)<MIN_VISIBLE||!canZoomCell(current,box)){clearEmptyZoom(zoomCells.get(zone));continue;}
         const state=zoomCells.get(zone)??{};
         zoomCells.set(zone,state);
-        const at=sample.at,near=handNear(evidence,box),moving=evidence.motion(box)>.025;
+        const at=sample.at,near=handNear(evidence,box),motion=evidence.motion(box),moving=motion>.025;
         const here=tracks.filter(t=>t.view.zone===zone||t.announcedZone===zone);
         const departed=here.filter(t=>t.view.removed&&at-departureAt(t.view)<=FIELD_SET_RETURN_MS);
         const pendingFront=here.some(pendingRead),liveFronts=here.filter(liveFront);
@@ -1105,9 +1109,12 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
           state.emptyZooms=state.missedLook=undefined;
         }
         if(moving)state.motionAt=at;
-        if(busy||near||moving||removalHold(box)){state.stableAt=state.waitingAt=undefined;continue;}
+        const blocked=busy||near||removalHold(box);
+        if(blocked||motion>.01||occupied||front||departed.length)clearEmptyZoom(state);
+        if(blocked||moving){state.stableAt=state.waitingAt=undefined;continue;}
         const look=evidence.appearance?.(box),halo=evidence.halo?.(box),base=emptyLooks.get(zone);
         const unlike=unlikeMat(base,look,halo),empty=!unlike&&(sameFieldAppearance(base?.look,look)||clearFieldBackground(look,halo));
+        if(state.emptyZoom&&(empty||!sameZoomLook(state.emptyZoom.look,look)))clearEmptyZoom(state);
         if(look?.length&&!sameZoomLook(state.look,look)){
           state.look=look;state.stableAt=at;
         }
@@ -1146,12 +1153,13 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         if(!changed||!departed.length&&!zoomSleeveLook(centre)||stackStillThere(zone,evidence,box)){
           state.waitingAt=undefined;continue;
         }
-        // Drifting pixels can keep requesting new zooms from the same object.
-        if(state.emptyZooms?.length===ZOOM_MISS_LIMIT&&at-state.emptyZooms[0]<ZOOM_MISS_WINDOW_MS)continue;
+        // Cap speculative retries from drifting pixels. A departure still gets checked.
+        if(!forced&&state.emptyZooms?.length===ZOOM_MISS_LIMIT&&at-state.emptyZooms[0]<ZOOM_MISS_WINDOW_MS)continue;
         if(departed.length)zoomPendingZones.add(zone);
         if(scanRequested||scanSweep>0||at<(state.retryAt??-Infinity)||!forced&&at-zoomDeckAt<ZOOM_DECK_HOLD_MS)continue;
         state.waitingAt??=at;
-        if(settled)zoomCandidates.push({zone,box,since:state.stableAt,attemptedAt:state.attemptedAt??-Infinity,priority:forced?0:departed.length?1:2,centre});
+        if(settled)zoomCandidates.push({zone,box,since:state.stableAt,attemptedAt:state.attemptedAt??-Infinity,priority:forced?0:departed.length?1:2,centre,
+          emptyMatLook:zone.startsWith('S')&&!departed.length?look:undefined});
         else if(slowZoomDevice&&at-state.waitingAt<HAND_RELEASE_SETTLE_MS)zoomSettling=true;
       }
       // Coalesce pending zones into one full pass. A fresh Set witness or a
@@ -1308,7 +1316,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       const nextZoom=fullBeforeZoom?undefined:zoomCandidates[0];
       if(nextZoom&&!pacer.canSpendPriority(now()))budgetWaitAt=sample.at;
       else if(nextZoom){
-        const {zone,box,since,centre}=nextZoom;
+        const {zone,box,since,centre,emptyMatLook}=nextZoom;
         const state=zoomCells.get(zone)!;
         zoomRan=true;state.attemptedAt=sample.at;state.retryAt=sample.at+ZOOM_RETRY_MS;
         const zoomStart=now();
@@ -1324,6 +1332,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         if(backs){
           completeCellCheck(zone);
           state.missedLook=centre;
+          if(!backs.length&&emptyMatLook)state.emptyZoom={look:emptyMatLook,passes:0};
         }
         for(const c of backs??[]){
           if(c.kind!=='face-down'||c.confidence<.4||c.partial||c.covered||!cardAspect(c)||!planeVerdict(c).ok||
@@ -1737,19 +1746,29 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         const known=options.getKnownCards?.()??[],boxes=[...rawOutlines,...held.cards];
         for(const cell of fieldCells()){
           const zone=cell.zone,box=cellQuad(cell),b=boundsOf(box.quad),look=evidence.appearance?.(box),e=emptyLooks.get(zone);
+          const setZone=setFollowUpZone(zone),zoom=setZone?zoomCells.get(zone):undefined;
           // A card rests in this cell while the cell still shows its "empty" look: that baseline was learned over an undetected card.
           if(e?.look.length&&tracks.some(t=>!t.view.removed&&t.view.zone===zone&&t.view.state==='identified'&&matched.has(t)&&!!t.rest?.ok)&&sameFieldAppearance(e.look,look)&&medianGap(centreLook(e.look),centreLook(look))<PILE_SLEEVE_GAP){emptyLooks.delete(zone);continue;}
           const occupied=boxes.some(c=>overlapFraction(boundsOf(c.quad),b)>=.2)||tracks.some(t=>!t.view.removed&&(t.view.zone===zone||overlapFraction(boundsOf(t.view.card.quad),b)>=.2))||
             known.some(k=>k.zone===zone)||deckZone(zone as FieldZone)&&piles.has(zone as 'DECK'|'EXTRA');
           // A Deck/Extra baseline is learned only while the cell looks like the mat ring around it: a stack the detector never boxed must not become the "empty mat" (it would then read as an empty cell the moment it leaves).
-          if(occupied||!look?.length||blurHold||evidence.motion(box)>.01||removalHold(box)||handNear(evidence,box)||deckZone(zone as FieldZone)&&sleeveOnMat(look,evidence.halo?.(box))){if(e){e.pending=undefined;e.passes=0;}continue;}
-          // A stationary arm can outlast the blind scans without yielding a
-          // sleeve outline. Preserve learned mat if a zoom cell still contrasts with its ring.
           const ring=evidence.halo?.(box);
-          if(e?.look.length&&/^(S[1-5]|DECK|EXTRA)$/.test(zone)&&unlikeMat(e,look,ring)&&
-            (blindShape.has(zone)||(blindScans.get(zone)??0)<SET_STEADY_SCANS+2||options.zoomSets&&setFollowUpZone(zone)&&sleeveOnMat(look,ring))){e.pending=undefined;e.passes=0;continue;}
+          if(occupied||!look?.length||blurHold||evidence.motion(box)>.01||removalHold(box)||handNear(evidence,box)||deckZone(zone as FieldZone)&&sleeveOnMat(look,ring)){
+            clearEmptyZoom(zoom);if(e){e.pending=undefined;e.passes=0;}continue;
+          }
+          // A Set cell that still contrasts with its ring needs an empty zoom
+          // followed by clean full scans with the same look and no sleeve edges.
+          const unlike=!!e?.look.length&&/^(S[1-5]|DECK|EXTRA)$/.test(zone)&&unlikeMat(e,look,ring);
+          const needsZoom=unlike&&options.zoomSets&&setZone&&sleeveOnMat(look,ring);
+          const confirmation=needsZoom?zoom?.emptyZoom:undefined;
+          const sleeve=blindShape.has(zone)||setZone&&blindSleevesSeen.has(zone);
+          if(unlike&&(needsZoom?sleeve||!confirmation:blindShape.has(zone)||(blindScans.get(zone)??0)<SET_STEADY_SCANS+2)){
+            if(sleeve)clearEmptyZoom(zoom);
+            e!.pending=undefined;e!.passes=0;continue;
+          }
           const next:NonNullable<ReturnType<typeof emptyLooks.get>>=e??{look:[],passes:0};
-          if(next.pending&&sameFieldAppearance(next.pending,look))next.passes++;else{next.pending=look;next.passes=1;}
+          if(confirmation){next.pending=look;next.passes=++confirmation.passes;}
+          else if(next.pending&&sameFieldAppearance(next.pending,look))next.passes++;else{next.pending=look;next.passes=1;}
           if(next.passes>=3){next.look=look;next.halo=ring?.length&&ring.length%3===0?medianColour(ring):undefined;if(sameFieldAppearance(evidence.settledAppearance?.(box),look))next.appearance=evidence.appearance;}
           emptyLooks.set(zone,next);
         }
