@@ -2,7 +2,7 @@
 import { recognitionPriorsFor } from "@/lib/remote/recognition-priors";
 
 import {useCallback,useEffect,useMemo,useRef,useState} from 'react';
-import {catalogCardId,fieldZoneLocation,fieldStackUnder,yugioh,type HeldCardEvent,type HeldUnsureEvent,type FieldEvent,type FieldSnapshot,type FieldTrack,type FieldZone,type KnownFieldCard,type FieldCalibration,fieldPacerDevice,FIELD_SET_RETURN_MS} from '@yugidraft/vision';
+import {catalogCardId,fieldZoneLocation,fieldStackUnder,yugioh,type HeldCardEvent,type HeldUnsureEvent,type FieldEvent,type FieldSnapshot,type FieldTrack,type FieldZone,type KnownFieldCard,type FieldCalibration,fieldPacerDevice,FIELD_ACTIVITY_WINDOW_MS,FIELD_SET_RETURN_MS} from '@yugidraft/vision';
 import {useSendHealth} from '@/lib/remote/send-health-store';
 import {markVideoOfferShown,readVideoChoice,VIDEO_OFFER_MS,videoOfferShown} from '@/lib/remote/video-rate';
 import {createSlowWatch,isWeakDevice,markTapOfferShown,readTapChoice,saveTapChoice,tapOfferShown,TAP_OFFER_MS,type TapChoice} from '@/lib/remote/tap-offer';
@@ -39,7 +39,7 @@ import {FieldWatcherUI} from './field-watcher-ui';
 import {serverNow} from './ui/api';
 import {cardFailed,cardInfo,loadCards,useCardInfo} from './ui/catalog';
 import {fieldSummonKind,fieldSummonMaterials,fieldSummonMinimum,fieldSummonNotice,heldStackStillStacked,fieldKeepsMonsterStack,fieldStackXyzCandidates,SUMMON_WINDOW_MS,SUMMON_RECENT_MS,type FieldVanish} from '@/lib/remote/field-summons';
-import {distinctFieldQuads,fieldDepartureDeadline,fieldFlipDepartureWait,fieldEvidenceMismatch,fieldSetRebind,fieldSetReturn,fieldSetSlide,fieldSetSlideDeadline,fieldSetSlidePending,fieldSetSlidePileActivity,recentCommittedSet,xyzAttachTargets} from '@/lib/remote/field-proposals';
+import {distinctFieldQuads,fieldDepartureActivityAt,fieldDepartureDeadline,fieldFlipDepartureWait,fieldEvidenceMismatch,fieldSetRebind,fieldSetReturn,fieldSetSlide,fieldSetSlideDeadline,fieldSetSlidePending,fieldSetSlidePileActivity,recentCommittedSet,xyzAttachTargets} from '@/lib/remote/field-proposals';
 
 const toZone=(zone:string,slot?:number):FieldZone|undefined=>zone==='monster'?`M${slot??1}` as FieldZone:zone==='spell-trap'?`S${slot??1}` as FieldZone:zone==='extra-monster'?`EMZ${slot??1}` as FieldZone:({field:'FIELD',graveyard:'GY',banished:'BANISHED',deck:'DECK',extra:'EXTRA'} as Record<string,FieldZone>)[zone];
 /** A removed field card goes to the hand this long after the watcher's removal (it may still flip back or be a material). */
@@ -235,10 +235,11 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   const slideWait=(event:FieldEvent,snap=watch.getSnapshot?.(),now=performance.now())=>{
     const removedAt=event.removedAt;
     if(!snap||removedAt===undefined)return 0;
-    if(now>=fieldDepartureDeadline(event,removedAt,snap.lastFieldActivityAt))return 0;
+    const activityAt=fieldDepartureActivityAt(event.track.zone,snap);
+    if(now>=fieldDepartureDeadline(event,removedAt,activityAt))return 0;
     const linked=snap.tracks.find(t=>slideFor(t,snap)?.from.id===event.track.id);
     if(!linked)return 0;
-    const until=fieldSetSlideDeadline(event,removedAt,linked.card.blind&&snap.blindSleeveSince?.[linked.zone]!==undefined,snap.lastFieldActivityAt);
+    const until=fieldSetSlideDeadline(event,removedAt,linked.card.blind&&snap.blindSleeveSince?.[linked.zone]!==undefined,activityAt);
     return Math.max(0,until-now);
   };
   const departurePileEvidence=(event:FieldEvent,observed=watch.getTracks())=>{
@@ -573,7 +574,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     const slideInputNow=canReturn?slideInput(latest!,snap):undefined;
     const slide=slideInputNow?fieldSetSlide(slideInputNow):undefined;
     if(slideInputNow&&!slide&&fieldSetSlidePending(slideInputNow,snap)){
-      const now=slideInputNow.now,until=slideUntil??Math.min(now+800,(track.restSince??track.firstSeen)+1750);
+      const now=slideInputNow.now,until=slideUntil??Math.min(now+1000,(track.restSince??track.firstSeen)+1750);
       if(until>now){
         // Release the serial write queue while the source's next sample settles.
         setTimeout(()=>{if(live())void queue(next=>apply(event,next,chosen,attempt,until),event);},Math.min(FLIP_POLL_MS,until-now));
@@ -881,13 +882,14 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       const arm=(wait:number)=>departureTimers.current.set(id,setTimeout(()=>{
         if(!live()||!watch.isRemoved(id)){cancelDeparture(id);return;}
         const snap=watch.getSnapshot?.(),now=performance.now();
-        const deadline=fieldDepartureDeadline(event,removedAt,snap?.lastFieldActivityAt);
+        const activityAt=fieldDepartureActivityAt(zone,snap);
+        const deadline=fieldDepartureDeadline(event,removedAt,activityAt);
         // A linked back cancels the flip hold. Wait for its placement event to
         // commit the move, or resume departure if that candidate goes away.
         const linkedWait=slideWait(event,snap,now);
         if(linkedWait>0){arm(Math.min(FLIP_POLL_MS,linkedWait));return;}
         const otherSleeve=Object.entries(snap?.blindSleeveAt??{}).some(([cell,at])=>cell!==zone&&cell[0]===zone[0]&&mainSlotPattern.test(cell)&&at>=firstMiss);
-        const slideUntil=fieldSetSlideDeadline(event,removedAt,otherSleeve,snap?.lastFieldActivityAt);
+        const slideUntil=fieldSetSlideDeadline(event,removedAt,otherSleeve,activityAt);
         const slideLeft=card.faceUp===false&&event.removedAt!==undefined&&snap&&mainSlotPattern.test(zone)&&
           !pileNear(fieldSetSlidePileActivity(snap),firstMiss)&&(!snap.blindZones?.includes(zone)||otherSleeve)?slideUntil-now:0;
         const pileTouched=pileNear(pileActivity(snap),removedAt);
@@ -895,7 +897,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
         const flipLeft=pileSeen?0:fieldFlipDepartureWait(event,snap,removedAt,now,card.faceUp);
         // A clear lift has already passed the hand check at its source.
         const motionOnly=emptyLift&&!pileNear(snap?.pileContactAt,firstMiss);
-        const activityLeft=snap?.fieldActive&&!pileSeen&&(!motionOnly||flipLeft>0)?deadline-now:0;
+        const activityLeft=now-activityAt<=FIELD_ACTIVITY_WINDOW_MS&&!pileSeen&&(!motionOnly||flipLeft>0)?deadline-now:0;
         const waitLeft=Math.max(slideLeft,flipLeft,activityLeft);
         if(waitLeft>0){arm(Math.min(FLIP_POLL_MS,waitLeft));return;}
         // Give a pile read one short wait, while still checking for a Set in another slot.

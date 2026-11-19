@@ -41,10 +41,10 @@ test('a zoom can spend only the tokens currently available and still counts towa
  assert.equal(p.duty(0),9.6);
  assert.equal(p.check(0),'ready','zooms leave the whole-frame budget available');
  p.spend(2500,0);
- assert.equal(p.canSpendPriority(680),false);
- assert.equal(p.canSpendPriority(690),true,'a low-end zoom refills in under a second');
- p.spendPriority(240,690);
- assert.equal(p.canSpendPriority(690),false);
+ assert.equal(p.canSpendPriority(1000),false,'zoom and whole-frame sustained duty stay below half a core');
+ assert.equal(p.canSpendPriority(1100),true);
+ p.spendPriority(240,1100);
+ assert.equal(p.canSpendPriority(1100),false);
 });
 test('slow detectors repay wake borrowing even when inference separates motion samples',()=>{
  for(const cost of [100,300,600,1200,2400]){

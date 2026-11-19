@@ -134,6 +134,23 @@ function fieldRig(tier: RecognitionResult['tier'] = 'sure',maxTracks=20,gallery?
   return {watcher,events,inputs,detectOptions,set zoom(v:typeof zoom){zoom=v;},set readGate(value:Promise<void>|undefined){readGate=value;},set shadowPasses(v:number){shadowPasses=v;},set scene(v:typeof scene){scene=v;},set backend(v:typeof backend){backend=v;},set tierAt(v:((card:DetectedQuad)=>RecognitionResult['tier'])|undefined){tierAt=v;},set shadow(v:{share:number;changed:number;moved?:Uint8Array;gx?:number;gy?:number}|undefined){shadow=v;},set frameSharpness(v:number|undefined){frameSharpness=v;},get crops(){return cropCalls;},get keeps(){return keeps;},set detectorCost(v:number){detectorCost=v;},set identityAt(v:((card:DetectedQuad)=>string)|undefined){identityAt=v;},set motionAt(v:((card:DetectedQuad)=>number)|undefined){motionAt=v;},set motionRegion(v:{x:number;y:number;w:number;h:number}|undefined){motionRegion=v;},set cropAware(v:boolean){cropAware=v;},set cropAt(v:((card:DetectedQuad)=>ReturnType<typeof fieldCrop>)|undefined){cropAt=v;},set appearanceAt(v:((card:DetectedQuad)=>number[])|undefined){appearanceAt=v;},set touchedAt(v:((card:DetectedQuad)=>number)|undefined){touchedAt=v;},set occludedAt(v:((card:DetectedQuad)=>boolean)|undefined){occludedAt=v;},set skinNearAt(v:((card:DetectedQuad)=>number)|undefined){skinNearAt=v;},set qualityAt(v:((card:DetectedQuad)=>Record<string,boolean>)|undefined){qualityAt=v;},get reads(){return reads;},get detects(){return detects;},get at(){return at;},set embedding(v:number[]){embedding=v;},set embeddingSpace(v:'art-box'|'whole-card'){embeddingSpace=v;},
     async tick(ms=333){at+=ms;await watcher.tick();},set identity(v:string){identity=v;},set decklist(v:string[]){decklist=v;},set known(v:field.KnownFieldCard[]){known=v;},set outlines(v:DetectedQuad[]){outlines=v;},set motion(v:number){motion=v;},set detail(v:number){detail=v;},set appearance(v:number[]){appearance=v;appearanceExplicit=true;},set halo(v:number[]|undefined){halo=v;},set hidden(v:boolean){hidden=v;},set busy(v:boolean){busy=v;}};
 }
+test('field activity expires on a stalled camera and still skin cannot renew it',async()=>{
+  let at=1000,motion=.1;
+  const watcher=field.createFieldWatcher({profile:yugioh,now:()=>at,hidden:()=>false,clone:async f=>f,
+    calibration:zones.createFieldCalibration([{x:0,y:0},{x:1,y:1}]),
+    buffer:{sample:async()=>({frame:frame as ImageData,at})},
+    recognizer:{detectCards:async()=>[],recognize:async()=>sureResult()},
+    analyze:()=>({motion:()=>motion,occluded:()=>true,sharpness:()=>20})});
+  try {
+    await watcher.tick();
+    assert.equal(watcher.getSnapshot().fieldActive,true);
+    at+=301;
+    assert.equal(watcher.getSnapshot().fieldActive,false,'the last moving frame is stale');
+    motion=0;
+    for(let i=0;i<8;i++){at+=100;await watcher.tick();}
+    assert.equal(watcher.getSnapshot().fieldActive,false,'still skin does not count as activity');
+  } finally {watcher.dispose();}
+});
 test('conflicting front pixels use the reader and dismissal cannot bypass positive Set evidence',async context=>{
  for(const dismissed of [false,true])await context.test(`dismissed=${dismissed}`,async()=>{
   const r=fieldRig(),width=96,height=140,data=new Uint8ClampedArray(width*height*4),amplitude=dismissed?80:48;
@@ -622,6 +639,149 @@ test('a flat plain sleeve the detector never boxes is placed as a Set from its p
   assert.equal(lit.events.filter(e=>e.type==='removed').length,1,'the lifted Set is removed under the new light');
   lit.watcher.dispose();
 });
+test('empty zooms in drifting cells leave room for full scans on a slow detector',async()=>{
+  const r=fieldRig('sure',20,undefined,{width:1600,height:900},{zoomSets:true});
+  const cells=zones.fieldZoneCells(),zoneOf=(c:DetectedQuad)=>{
+    const {x,y}=zones.fieldCenter(c);
+    return cells.find(b=>x>=b.x&&x<b.x+b.w&&y>=b.y&&y<b.y+b.h)?.zone;
+  };
+  r.outlines=[];r.watcher.setCalibration(zones.createFieldCalibration([{x:0,y:0},{x:1,y:1}]));
+  let look=.25;
+  r.appearanceAt=c=>Array(288).fill(/^S[1-5]$/.test(zoneOf(c)??'')?look:.25);
+  r.cropAt=()=>fieldCrop({...card(0,0),kind:'face-down'});
+  r.detectorCost=300;
+  for(let i=0;i<8;i++){r.watcher.scanNow();await r.tick(300);}
+  await r.tick(300);
+  const lastFull=r.watcher.getSnapshot().lastFullAt!;
+  const before=r.detects;
+  look=.65;
+  r.scene={moving:0,sinceMark:1,mark(){}};
+  for(let i=0;i<12;i++)await r.tick(100);
+  const calls=r.detectOptions.slice(before);
+  const firstFull=calls.findIndex(o=>!o.zoom&&!o.region);
+  assert.ok(firstFull>0&&firstFull<4,'a ready whole-frame scan runs before the zoom burst ends');
+  assert.ok(r.watcher.getSnapshot().lastFullAt!>lastFull);
+  r.watcher.dispose();
+});
+
+test('a cell gets two empty zooms in ten seconds and a hand contact clears the limit',async()=>{
+  const r=fieldRig('sure',20,undefined,{width:1600,height:900},{zoomSets:true});
+  const cell=zones.fieldZoneCells().find(c=>c.zone==='S3')!;
+  const inCell=(c:DetectedQuad)=>{
+    const {x,y}=zones.fieldCenter(c);
+    return x>=cell.x&&x<cell.x+cell.w&&y>=cell.y&&y<cell.y+cell.h;
+  };
+  r.outlines=[];r.watcher.setCalibration(zones.createFieldCalibration([{x:0,y:0},{x:1,y:1}]));
+  let look=.25;
+  r.appearanceAt=c=>Array(288).fill(inCell(c)?look:.25);
+  r.cropAt=()=>fieldCrop({...card(0,0),kind:'face-down'});
+  const zooms=()=>r.detectOptions.filter(o=>o.zoom).length;
+  const sample=async(n:number)=>{for(let i=0;i<n;i++)await r.tick(150);};
+  for(let i=0;i<8;i++){r.watcher.scanNow();await r.tick(300);}
+  await r.tick(300);
+  for(const shade of [.65,.51,.65,.51]){look=shade;await sample(6);}
+  assert.equal(zooms(),2);
+  r.occludedAt=inCell;
+  await sample(1);
+  r.occludedAt=undefined;
+  look=.72;
+  await sample(6);
+  assert.equal(zooms(),3);
+  look=.54;
+  await sample(6);
+  assert.equal(zooms(),4);
+  await r.tick(10_000);
+  look=.65;
+  await sample(6);
+  assert.equal(zooms(),5,'old misses fall out of the retry window');
+
+  look=.51;
+  await sample(6);
+  look=.65;
+  await sample(6);
+  assert.equal(zooms(),6,'the speculative zoom cap is full again');
+  r.known=[{id:'departed',zone:'S3'}];
+  r.watcher.scanNow();
+  await r.tick(300);
+  await r.tick(300);
+  const removed=r.events.find(e=>e.type==='removed'&&e.track.id==='departed');
+  assert.ok(removed,'the board card was removed after two missed full scans');
+  await sample(4);
+  assert.equal(zooms(),7,'the post-removal check still gets a zoom');
+  assert.ok(r.watcher.getSnapshot().zoomCheckedAt!.S3!>removed.removedAt!);
+  r.watcher.dispose();
+});
+
+test('a stationary unboxed object cannot replace the learned empty mat in a zoom cell',async()=>{
+  const r=fieldRig('sure',20,undefined,{width:1600,height:900},{zoomSets:true});
+  const cell=zones.fieldZoneCells().find(c=>c.zone==='S4')!;
+  const inCell=(c:DetectedQuad)=>{
+    const {x,y}=zones.fieldCenter(c);
+    return x>=cell.x&&x<cell.x+cell.w&&y>=cell.y&&y<cell.y+cell.h;
+  };
+  let look=.25;
+  r.outlines=[];r.watcher.setCalibration(zones.createFieldCalibration([{x:0,y:0},{x:1,y:1}]));
+  r.appearanceAt=c=>Array(288).fill(inCell(c)?look:.25);
+  r.cropAt=()=>fieldCrop({...card(0,0),kind:'face-down'});
+  for(let i=0;i<8;i++){r.watcher.scanNow();await r.tick(300);}
+  look=.70;
+  for(let i=0;i<12;i++){r.watcher.scanNow();await r.tick(300);}
+  await r.tick(300);
+  look=.25;
+  await r.tick(100);
+  look=.65;
+  r.zoom=()=>[{...card(.30,.36,.40,.50),kind:'face-down',confidence:.85}];
+  for(let i=0;i<5;i++)await r.tick(150);
+  assert.deepEqual(r.events.filter(e=>e.type==='placed').map(e=>[e.track.zone,e.track.faceDown]),[['S4',true]]);
+  r.watcher.dispose();
+});
+
+test('an empty Set cell relearns a local lighting shift after three clean full scans',async()=>{
+  const r=fieldRig('sure',20,undefined,{width:1600,height:900},{zoomSets:true});
+  const cell=zones.fieldZoneCells().find(c=>c.zone==='S4')!;
+  const inCell=(c:DetectedQuad)=>{
+    const {x,y}=zones.fieldCenter(c);
+    return x>=cell.x&&x<cell.x+cell.w&&y>=cell.y&&y<cell.y+cell.h;
+  };
+  const zooms=()=>r.detectOptions.filter(o=>o.zoom).length;
+  const full=async()=>{r.watcher.scanNow();await r.tick(300);};
+  let look=.25;
+  r.outlines=[];r.watcher.setCalibration(zones.createFieldCalibration([{x:0,y:0},{x:1,y:1}]));
+  r.appearanceAt=c=>Array(288).fill(inCell(c)?look:.25);
+  r.cropAt=()=>fieldCrop({...card(0,0),kind:'face-down'});
+  for(let i=0;i<8;i++)await full();
+  await r.tick(300);
+
+  look=.65;
+  for(let i=0;i<5&&zooms()===0;i++)await r.tick(150);
+  assert.equal(zooms(),1,'the first zoom confirms the bright spot has no outline');
+  for(let i=0;i<3;i++)await full();
+  await r.tick(300); // Finish Scan field's second pass.
+  assert.ok(!r.watcher.getSnapshot().blindZones?.includes('S4'),'the new baseline is in use after three full scans');
+
+  for(let i=0;i<60;i++){
+    look=i%2?.71:.59; // Enough drift to retry an empty zoom, but close to the new baseline.
+    await r.tick(1000);
+  }
+  assert.equal(zooms(),1,'no zooms in the minute after re-learning');
+  assert.equal(r.events.filter(e=>e.type==='placed').length,0);
+
+  look=.42;
+  for(let i=0;i<5&&zooms()===1;i++)await r.tick(150);
+  assert.equal(zooms(),2);
+  await full();
+  await full();
+  r.skinNearAt=c=>inCell(c)?.06:0;
+  const beforeHand=r.detects;
+  await r.tick(100);
+  assert.equal(r.detects,beforeHand,'the hand crossed the cell between detector passes');
+  r.skinNearAt=undefined;
+  await full();
+  await r.tick(300);
+  assert.ok(r.watcher.getSnapshot().blindZones?.includes('S4'),'a hand interrupts re-learning even between full scans');
+  r.watcher.dispose();
+});
+
 test('a pixel-verified detector back can settle while motion elsewhere spends the CPU budget',async()=>{
   const r=fieldRig('sure',20,undefined,{width:160,height:90});
   r.watcher.setCalibration(zones.createFieldCalibration([{x:0,y:0},{x:1,y:1}]));

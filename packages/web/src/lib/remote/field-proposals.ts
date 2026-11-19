@@ -133,8 +133,9 @@ export function fieldPileTrackEvidence({twins,tracks,lastSeen,owns,cardId}:{twin
   const recent=tracks.filter(t=>/^(GY|BANISHED)$/.test(t.zone)&&!t.removed&&t.state!=='dismissed'&&t.firstSeen>=lastSeen-1000&&(t.zone==='BANISHED'||!t.faceDown)&&(!t.cardId||t.cardId===cardId));
   const standIn=(t:FieldTrack)=>twins.some(c=>c.ref===owns(t)&&['graveyard','banished'].includes(c.zone)&&!c.cardId&&!c.passcode&&!c.name);
   if(recent.some(standIn))return;
-  // A resting box only: a hand hovering over the pile is not a card that arrived.
-  const found=recent.filter(t=>t.restSince!==undefined&&!twins.some(c=>c.ref===owns(t)));
+  // A new outline can inherit rest from the existing pile footprint.
+  // A receiving card must also have started resting around the departure.
+  const found=recent.filter(t=>t.restSince!==undefined&&t.restSince>=lastSeen-1000&&!twins.some(c=>c.ref===owns(t)));
   return found.length===1?{track:found[0],zone:found[0].zone==='BANISHED'?'banished':'graveyard',faceUp:!found[0].faceDown}:undefined;
 }
 
@@ -207,15 +208,27 @@ export const FIELD_FLIP_SETTLE_MS=2000;
 const FIELD_DEPARTURE_MAX_MS=6000;
 const SET_SLIDE_MATCH_MS=3000;
 
+const fieldActivityRow=(zone:string)=>zone==='FIELD'?'M':zone.replace(/\d$/,'');
+
+/** Motion in the source row or either public pile can belong to this departure. */
+export function fieldDepartureActivityAt(zone:FieldTrack['zone'],snap:FieldSnapshot|undefined):number {
+  const row=fieldActivityRow(zone);
+  let activityAt=-Infinity;
+  for(const [cell,at] of Object.entries(snap?.lastFieldActivityAtByZone??{})){
+    if(cell==='GY'||cell==='BANISHED'||fieldActivityRow(cell)===row)activityAt=Math.max(activityAt,at);
+  }
+  return activityAt;
+}
+
 /** Give the action time to finish, with a fixed limit for continuous motion. */
-export function fieldDepartureDeadline(event:FieldEvent,removedAt:number,lastFieldActivityAt?:number,settleMs=FIELD_FLIP_SETTLE_MS):number {
+export function fieldDepartureDeadline(event:FieldEvent,removedAt:number,activityAt=-Infinity,settleMs=FIELD_FLIP_SETTLE_MS):number {
   const firstMiss=Math.min(event.track.removedFrameAt??removedAt,removedAt);
-  return Math.min(firstMiss+FIELD_DEPARTURE_MAX_MS,Math.max(firstMiss,lastFieldActivityAt??firstMiss)+settleMs);
+  return Math.min(firstMiss+FIELD_DEPARTURE_MAX_MS,Math.max(firstMiss,activityAt)+settleMs);
 }
 
 /** A confirmed Set can wait for slide evidence up to the departure deadline. */
-export function fieldSetSlideDeadline(event:FieldEvent,removedAt:number,otherSleeve=false,lastFieldActivityAt?:number):number {
-  return fieldDepartureDeadline(event,removedAt,lastFieldActivityAt,committedSet(event.track)||otherSleeve?FIELD_FLIP_SETTLE_MS:FIELD_SET_SLIDE_MS);
+export function fieldSetSlideDeadline(event:FieldEvent,removedAt:number,otherSleeve=false,activityAt?:number):number {
+  return fieldDepartureDeadline(event,removedAt,activityAt,committedSet(event.track)||otherSleeve?FIELD_FLIP_SETTLE_MS:FIELD_SET_SLIDE_MS);
 }
 
 /** A still-observed pile top can disprove a touch while the hand sweeps past it. */
@@ -227,8 +240,9 @@ export function fieldSetSlidePileActivity(snap:FieldSnapshot|undefined):Record<'
     if(!snap||!snap.pileContactAt||snap.missingPiles?.includes(zone)||snap.pileClearSince?.[zone]!==undefined)continue;
     const top=snap.tracks.find(t=>t.zone===zone&&!t.removed&&t.firstSeen<=touched);
     if(!top)continue;
+    const lastActivity=Math.max(touched,contact);
     const unchanged=top.state==='identified'&&top.visible&&top.restSince!==undefined&&
-      top.restSince<=contact&&top.lastSeen>Math.max(touched,contact);
+      top.restSince<=lastActivity&&top.lastSeen>lastActivity;
     activity[zone]=unchanged?-Infinity:contact;
   }
   return activity;
@@ -240,7 +254,7 @@ export const fieldBackCandidate=(track:FieldTrack)=>!track.removed&&track.state!
 /** Time left for a zoom check or a pending back to settle in the vacated slot. */
 export function fieldFlipDepartureWait(event:FieldEvent,snap:FieldSnapshot|undefined,removedAt:number,now:number,faceUp=!event.track.faceDown):number {
   const {id,zone,lastSeen,removedFrameAt}=event.track;
-  const left=fieldDepartureDeadline(event,removedAt,snap?.lastFieldActivityAt)-now;
+  const left=fieldDepartureDeadline(event,removedAt,fieldDepartureActivityAt(zone,snap))-now;
   if(left<=0||!snap||!MAIN_FIELD_SLOT.test(zone))return 0;
   const looked=(snap.zoomCheckedAt?.[zone]??-Infinity)>removedAt;
   const fullAt=snap.lastFullAt,blind=snap.blindZones?.includes(zone);
@@ -252,7 +266,7 @@ export function fieldFlipDepartureWait(event:FieldEvent,snap:FieldSnapshot|undef
     t.card.kind==='face-down'&&t.state==='identified'&&!t.card.partial&&!t.card.covered&&t.lastSeen>=Math.max(removedAt,fullAt??-Infinity));
   const occupied=blind||hand||replacements.length>0;
   if(freshBack||(snap.blindSleeveAt?.[zone]??-Infinity)>=removedAt)return left;
-  const emptyAtRemoval=!occupied&&(event.reason==='empty'||faceUp&&zone.startsWith('M')&&
+  const emptyAtRemoval=faceUp&&!occupied&&(event.reason==='empty'||zone.startsWith('M')&&
     removedFrameAt!==undefined&&fullAt!==undefined&&fullAt>=removedFrameAt);
   if(emptyAtRemoval)return 0;
   if(!looked&&(snap.zoomPendingZones?.includes(zone)||snap.zoomDeparturePending?.includes(zone)))return left;
@@ -295,9 +309,11 @@ export function fieldSetSlide(input:SetSlideInput):{card:TwinCard;from:RemovedFi
     const from=owned.find((t):t is RemovedFieldTrack=>t.removed&&t.zone===zone&&t.removedAt!==undefined);
     if(!from)return [];
     const since=from.removedFrameAt??from.removedAt;
-    // A blind track takes several full passes to form. Its first stable sleeve scan dates the arrival.
+    // Date the arrival from the first stable sleeve witness, even if the
+    // full scans or the zoom detector confirm the outline later.
     const inSlideWindow=(back:FieldTrack)=>{
-      const sleeveAt=back.card.blind?blindSleeveSince?.[back.zone]:undefined;
+      const sleeveAt=back.card.blind?blindSleeveSince?.[back.zone]:
+        back.setEvidence?.basis==='zoom'?back.restSince:undefined;
       const arrivedAt=sleeveAt!==undefined&&sleeveAt>=since&&sleeveAt<=back.firstSeen?sleeveAt:back.firstSeen;
       return arrivedAt>=since-1000&&arrivedAt-since<=SET_SLIDE_MATCH_MS;
     };
@@ -305,9 +321,9 @@ export function fieldSetSlide(input:SetSlideInput):{card:TwinCard;from:RemovedFi
       now-from.removedAt>FIELD_SET_RETURN_MS||seenOffField(card,since))return [];
     if(Object.values(pileTouched??{}).some(at=>at>=since-1500)||
       tracks.some(t=>/^(GY|BANISHED)$/.test(t.zone)&&!t.removed&&t.firstSeen>=since&&
-        (t.state==='identified'||t.state==='candidate'&&t.restSince!==undefined)))return [];
+        (t.state==='identified'||t.state==='candidate'&&t.restSince!==undefined&&t.restSince>=since)))return [];
     if(tracks.some(t=>t.id!==track.id&&MAIN_FIELD_SLOT.test(t.zone)&&t.zone[0]===zone[0]&&t.zone!==zone&&fieldBackCandidate(t)&&
-      inSlideWindow(t)&&!twins.some(c=>c.ref===owns(t))))return [];
+      (t.state==='identified'||t.restSince!==undefined)&&inSlideWindow(t)&&!twins.some(c=>c.ref===owns(t))))return [];
     return [{card,from}];
   });
   if(sources.length===1)return sources[0];

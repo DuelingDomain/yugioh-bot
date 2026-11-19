@@ -1266,6 +1266,30 @@ describe('typed watcher zone projection',()=>{
    }),expect.anything());
   }finally{fixture.dispose();vi.useRealTimers();}
  });
+ it('posts a face-down departure within two seconds of its row going quiet while the other row keeps moving',async()=>{
+  const old={ref:'lifted-set',zone:'spell-trap',slot:4,faceUp:false,position:'attack'};
+  const fixture=await typedWatcherFixture(zoneEntries[0],'S4',[old],'moved');
+  vi.useFakeTimers({toFake:['setTimeout','clearTimeout','performance']});
+  try{
+   const advance=(ms:number)=>act(async()=>{await vi.advanceTimersByTimeAsync(ms);});
+   await advance(5000);
+   const watch=state.fieldWatch.watch,removedAt=performance.now();
+   Object.assign(fixture.track,{faceDown:true,removed:true,visible:false,removedAt,removedFrameAt:removedAt,setEvidence:committedBack});
+   watch.getSnapshot=()=>watch.snapshot;
+   watch.isRemoved=()=>true;
+   Object.assign(watch.snapshot,{lastFullAt:removedAt+1,lastFieldActivityAtByZone:{S3:removedAt},fieldActive:true});
+   fixture.refresh();
+   await fixture.emit({type:'removed',removedAt,reason:'empty'});
+   for(let ms=0;ms<5000;ms+=100){
+    watch.snapshot.lastFieldActivityAtByZone.M4=performance.now();
+    if(ms===2000)expect(fixture.post).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+     type:'twin.move',cardRef:old.ref,zone:'hand',
+    }),expect.anything());
+    await advance(100);
+   }
+   expect(fixture.post).toHaveBeenCalledTimes(1);
+  }finally{fixture.dispose();vi.useRealTimers();}
+ });
  it('keeps the Set ref when row activity extends the departure deadline',async()=>{
   const old={ref:'sliding-set',zone:'spell-trap',slot:4,faceUp:false,position:'attack'};
   const fixture=await typedWatcherFixture(zoneEntries[0],'S4',[old],'moved');
@@ -1279,7 +1303,7 @@ describe('typed watcher zone projection',()=>{
    fixture.refresh();
    await fixture.emit({type:'removed',removedAt,reason:'empty'});
    await act(async()=>{await vi.advanceTimersByTimeAsync(1700);});
-   watch.snapshot.lastFieldActivityAt=performance.now();
+   watch.snapshot.lastFieldActivityAtByZone={S3:performance.now()};
    await act(async()=>{await vi.advanceTimersByTimeAsync(1000);});
    expect(fixture.post).not.toHaveBeenCalled();
    const now=performance.now();
@@ -1346,6 +1370,29 @@ describe('typed watcher zone projection',()=>{
    expect(fixture.post).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({type:'twin.move',cardRef:old.ref,zone:'spell-trap',slot:1,faceUp:false}),expect.anything());
    await advance(2000);
    expect(fixture.post).toHaveBeenCalledTimes(1);
+  }finally{fixture.dispose();vi.useRealTimers();}
+ });
+ it('waits for the post-removal zoom when full scans miss a face-down twin',async()=>{
+  const old={ref:'missed-set',zone:'spell-trap',slot:4,faceUp:false,position:'attack'};
+  const fixture=await typedWatcherFixture(zoneEntries[0],'S4',[old],'moved');
+  vi.useFakeTimers({toFake:['setTimeout','clearTimeout','performance']});
+  try{
+   const advance=(ms:number)=>act(async()=>{await vi.advanceTimersByTimeAsync(ms);});
+   await advance(5000);
+   const watch=state.fieldWatch.watch,removedAt=performance.now();
+   Object.assign(fixture.track,{faceDown:true,cardId:undefined,removed:true,visible:false,removedAt,removedFrameAt:removedAt});
+   watch.getSnapshot=()=>watch.snapshot;
+   watch.isRemoved=()=>true;
+   Object.assign(watch.snapshot,{lastFullAt:removedAt,missingTwins:[old.ref],zoomDeparturePending:['S4']});
+   fixture.refresh();
+   await fixture.emit({type:'removed',removedAt,reason:'empty'});
+   await advance(1900);
+   expect(fixture.post).not.toHaveBeenCalled();
+   Object.assign(watch.snapshot,{zoomDeparturePending:[],zoomCheckedAt:{S4:performance.now()}});
+   await advance(100);
+   expect(fixture.post).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+    type:'twin.move',cardRef:old.ref,zone:'hand',
+   }),expect.anything());
   }finally{fixture.dispose();vi.useRealTimers();}
  });
  it.each(['fresh zoom','still pending'])('settles a departure with stale full-scan hand evidence: %s',async scenario=>{

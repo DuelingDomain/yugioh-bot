@@ -30,7 +30,7 @@ export interface FieldPacer {
   gap(at:number):number;
 }
 const WINDOW_MS=10_000,STILL_CARDS_MS=4000,STILL_EMPTY_MS=15_000,RETRY_MS=2000,RETRY_FOR_MS=6000;
-const PRIORITY_BURST=4,PRIORITY_REFILL=.35,INITIAL_PRIORITY_COST=90;
+const PRIORITY_BURST=4,PRIORITY_REFILL=.35,SLOW_PRIORITY_REFILL=.22,INITIAL_PRIORITY_COST=90;
 /** CPU bursts rest 1:1; GPU bursts keep the shorter rest for quick placement. */
 const BURST_REST=.5,MOVING_REST=2,MOVING_REST_MS=400;
 export const fieldPacerDevice=():FieldPacerDevice=>{
@@ -39,6 +39,7 @@ export const fieldPacerDevice=():FieldPacerDevice=>{
 };
 export function createFieldPacer(device:FieldPacerDevice,start:number,backend:()=>string|undefined=()=> 'wasm'):FieldPacer {
   const sustain=()=>backend()==='webgpu'?.25:.2;
+  const priorityRefill=device.cores<=4?SLOW_PRIORITY_REFILL:PRIORITY_REFILL;
   let tokens=2500,prioritySpent=0,priorityCost=0;
   let last=start,passMs=0,lastEnd=-Infinity,changedAt=-Infinity,movingSince=-Infinity,wakeAt=-Infinity,wakePermit=false,lateEma=0,backoff=1;
   const passes:{end:number;wall:number}[]=[];
@@ -47,7 +48,7 @@ export function createFieldPacer(device:FieldPacerDevice,start:number,backend:()
   const refill=(at:number)=>{
     const elapsed=Math.max(0,at-last)/backoff;
     // Zooms have their own allowance so a burst leaves time for whole-frame scans.
-    prioritySpent=Math.max(0,prioritySpent-elapsed*PRIORITY_REFILL);
+    prioritySpent=Math.max(0,prioritySpent-elapsed*priorityRefill);
     tokens=Math.min(capacity(),tokens+elapsed*sustain());last=Math.max(last,at);
   };
   const prune=(at:number)=>{while(passes.length&&at-passes[0].end>WINDOW_MS)passes.shift();};
