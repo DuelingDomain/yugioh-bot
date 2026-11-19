@@ -2,7 +2,7 @@
 
 Remote Duels has two device-local readers: **Current** (the default) and **Hybrid**. The switch is inside the signed-in camera settings in the lobby and at a running table. It restarts the reader and watcher through the existing processor-switch lifecycle; the table, camera and saved board stay open. Nothing opts an existing user into Hybrid.
 
-Set `REMOTE_HYBRID_USER_IDS` on the web server to the comma-separated application `users.id` values for the rollout. The list applies after Remote Duels access is checked. An empty list allows nobody. Leaving it unset allows every Remote Duels user outside production and nobody in production.
+Set `REMOTE_HYBRID_USER_IDS` on the web server to the comma-separated application `users.id` values for the rollout. The list applies after Remote Duels access is checked. An empty list allows nobody. Leaving it unset allows every Remote Duels user.
 
 With access, choose **Card reader → Hybrid** or append `?visionReader=hybrid` to the table URL. `visionReader=current` selects Current. The UI saves the choice as `dd-remote-card-reader` in localStorage. The query takes priority over the saved choice when the page opens. The processor selector still controls the detector and the current compatibility reader.
 
