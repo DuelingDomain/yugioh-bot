@@ -275,6 +275,21 @@ export const FIELD_ACTIVITY_WINDOW_MS=300;
 const setFollowUpZone=(zone:string):zone is Extract<FieldZone,`${'M'|'S'}${number}`>=>/^[MS][1-5]$/.test(zone);
 const ZOOM_RETRY_MS=500,ZOOM_DECK_HOLD_MS=1500,ZOOM_SLOW_MS=200;
 const ZOOM_FULL_WAIT_MS=800,ZOOM_MISS_WINDOW_MS=10_000,ZOOM_MISS_LIMIT=2;
+const CELL_CHANGE_HOLD_MS=2200;
+interface CellZoomState {
+  /** A continuous run of sharp, quiet, unobstructed samples of this look. */
+  settle?: {look:number[];since:number};
+  /** The last successfully sampled look, including a crop without a card. */
+  checkedLook?: number[];
+  missedLook?: number[];
+  emptyZooms?: number[];
+  emptyZoom?: {look:number[];passes:number};
+  waitingAt?: number;
+  attemptedAt?: number;
+  retryAt?: number;
+  handAt?: number;
+  motionAt?: number;
+}
 /** A sleeve can reflect light unevenly, so only require a flat patch across half the cell centre. */
 const zoomSleeveLook=(centre:number[])=>{
   const median=medianColour(centre);
@@ -373,8 +388,16 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
   const twinMisses=new Map<string,{misses:number;at:number;emits:number;emittedAt?:number}>(),missingTwins=new Set<string>();
   /** Illumination-invariant: the card's own texture is still on its spot under lower light. */
   const shadedKeeps=(t:InternalTrack,evidence:FieldAnalysis)=>shadowShare>=.03&&sameShadedFieldAppearance(t.identityAppearance??t.appearance,evidence.appearance?.(t.view.card));
-  const cellQuad=(cell:{x:number;y:number;w:number;h:number}):DetectedQuad=>({quad:[{x:cell.x,y:cell.y},{x:cell.x+cell.w,y:cell.y},{x:cell.x+cell.w,y:cell.y+cell.h},{x:cell.x,y:cell.y+cell.h}].map(p=>calibration?fieldMatPoint(p,calibration):p),kind:'face-up',confidence:1,partial:false});
-  const fieldCells=()=>calibration?fieldZoneCells(options.format,calibration.zoneSpacing,calibration.zones):[];
+  const readCells=()=>fieldZoneCells(options.format,calibration?.zoneSpacing,calibration?.zones);
+  let cameraCells=readCells(),cellQuads=new WeakMap<object,DetectedQuad>();
+  const cellQuad=(cell:{x:number;y:number;w:number;h:number}):DetectedQuad=>{
+    const cached=cellQuads.get(cell);
+    if(cached)return cached;
+    const box:DetectedQuad={quad:[{x:cell.x,y:cell.y},{x:cell.x+cell.w,y:cell.y},{x:cell.x+cell.w,y:cell.y+cell.h},{x:cell.x,y:cell.y+cell.h}].map(p=>calibration?fieldMatPoint(p,calibration):p),kind:'face-up',confidence:1,partial:false};
+    cellQuads.set(cell,box);
+    return box;
+  };
+  const fieldCells=()=>calibration?cameraCells:[];
   /** Frame area of one field zone (median), for the "larger than two zones" outline check. */
   const zoneArea=()=>{const areas=fieldCells().filter(c=>fieldZoneName(c.zone)).map(c=>{const b=boundsOf(cellQuad(c).quad);return b.w*b.h;}).sort((a,b)=>a-b);return areas.length?areas[Math.floor(areas.length/2)]:undefined;};
   /** Lower-score outlines: settled or automatically dismissed tracks, and field twins with no live track. */
@@ -549,7 +572,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
   const blindZones=new Set<FieldZone>(),handZones=new Set<FieldZone>(),blindCountAt=new Map<string,number>();
   const blindSleevesSeen=new Map<FieldZone,{at:number;since:number;look:number[]}>(),setFollowUpAt=new Map<FieldZone,number>();
   const zoomPendingZones=new Set<FieldZone>(),zoomDeparturePending=new Set<FieldZone>(),zoomCheckedAt=new Map<FieldZone,number>();
-  const zoomCells=new Map<FieldZone,{look?:number[];missedLook?:number[];emptyZooms?:number[];emptyZoom?:{look:number[];passes:number};stableAt?:number;waitingAt?:number;attemptedAt?:number;retryAt?:number;handAt?:number;motionAt?:number}>();
+  const zoomCells=new Map<FieldZone,CellZoomState>();
   const clearEmptyZoom=(state:ReturnType<typeof zoomCells.get>)=>{
     if(state?.emptyZoom)state.emptyZoom=state.missedLook=undefined;
   };
@@ -900,7 +923,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
   }
   function resetFace(t:InternalTrack){setWait.delete(t);if(t.face?.pendingAt!==undefined||t.face?.transitionAt!==undefined)count(t,'faceResets');t.face?.gate.reset();t.face?.setGate?.reset();if(t.face){t.face.pendingAt=undefined;t.face.transitionAt=undefined;t.face.outlineAppearance=undefined;}}
   function resetAbsence(t:InternalTrack,preserveWindow=false){t.missingSamples=0;t.missingAt=undefined;if(!preserveWindow)t.clearWindowAt=undefined;}
-  function interruptWindow(preserveVisibility=false,preserveAbsenceWindow=false) {previousAt=-Infinity;if(!preserveVisibility)forcePass=true;for(const t of tracks){sourceMisses.delete(t);interruptContact(t);resetFace(t);if(t.face)t.face.revealUntil=undefined;t.pose=undefined;if(!preserveVisibility)t.view.visible=false;invalidateRead(t);t.stableSince=NaN;t.observations=0;if(!preserveAbsenceWindow)resetAbsence(t);t.best=undefined;}pruneFrames();}
+  function interruptWindow(preserveVisibility=false,preserveAbsenceWindow=false) {previousAt=-Infinity;if(!preserveVisibility)forcePass=true;for(const cell of zoomCells.values())cell.settle=cell.waitingAt=undefined;for(const t of tracks){sourceMisses.delete(t);interruptContact(t);resetFace(t);if(t.face)t.face.revealUntil=undefined;t.pose=undefined;if(!preserveVisibility)t.view.visible=false;invalidateRead(t);t.stableSince=NaN;t.observations=0;if(!preserveAbsenceWindow)resetAbsence(t);t.best=undefined;}pruneFrames();}
   const preparation=()=>({priors:options.getPriors?.(),sessionGallery:gallery.entries().flatMap(entry=>entry.cardId&&(entry.embedding.modelId||entry.embedding.values.length===options.profile.embedding.dim)?[{cardId:entry.cardId,embedding:entry.embedding}]:[]).slice(-512)});
   async function read(t:InternalTrack,input:FieldFrame,card:DetectedQuad,pending:PendingRead,generation:number) {
     const start=now();
@@ -1086,7 +1109,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       const readHolds=(t:InternalTrack,c:DetectedQuad)=>!!t.read?.card&&!!t.read.art?.length&&quadIou(t.read.card,c)>=.3&&evidence.motion(artBox(t.read.card))<=.06&&!blocks(t,artBox(t.read.card))&&sameArt(t.read,t.read.card);
       // Sample cells before the detector budget can skip this tick. Motion
       // alone counts here: still skin, including on the mat, cannot renew it.
-      for(const cell of fieldZoneCells(options.format,calibration?.zoneSpacing,calibration?.zones)){
+      for(const cell of cameraCells){
         const {zone}=cell;
         if(publicPile(zone)||zone==='EXTRA'){
           if(evidence.motion(cellQuad(cell))>.025){
@@ -1153,7 +1176,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       }
       const cells=options.zoomSets?fieldCells():[];
       zoomPendingZones.clear();zoomDeparturePending.clear();
-      const zoomCandidates:{zone:FieldZone;box:DetectedQuad;since:number;attemptedAt:number;priority:number;centre:number[];emptyMatLook?:number[]}[]=[];
+      const zoomCandidates:{zone:FieldZone;box:DetectedQuad;since:number;attemptedAt:number;priority:number;look:number[];centre:number[];emptyMatLook?:number[];owner?:InternalTrack}[]=[];
       const slowZoomDevice=device.cores<=4||metrics.detectorMs>=ZOOM_SLOW_MS||pacer.priorityCost>=ZOOM_SLOW_MS;
       let zoomSettling=false;
       const localFlipCandidates:{zone:FieldZone;box:DetectedQuad;since:number;owner:InternalTrack}[]=[];
@@ -1185,36 +1208,51 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         if(moving)state.motionAt=at;
         const blocked=busy||near||removalHold(box);
         if(blocked||motion>.01||occupied||front||departed.length)clearEmptyZoom(state);
-        if(blocked||moving){state.stableAt=state.waitingAt=undefined;continue;}
+        if(blocked||moving){state.settle=state.waitingAt=undefined;continue;}
         const look=evidence.appearance?.(box),halo=evidence.halo?.(box),base=emptyLooks.get(zone);
         const unlike=unlikeMat(base,look,halo),empty=!unlike&&(sameFieldAppearance(base?.look,look)||clearFieldBackground(look,halo));
         if(state.emptyZoom&&(empty||!sameZoomLook(state.emptyZoom.look,look)))clearEmptyZoom(state);
-        if(look?.length&&!sameZoomLook(state.look,look)){
-          state.look=look;state.stableAt=at;
-        }
+        if(!look?.length){state.settle=undefined;continue;}
+        if(!state.settle||!sameZoomLook(state.settle.look,look))state.settle={look,since:at};
         if(empty)stackLooks.delete(zone);
-        state.stableAt??=at;
+        const {since}=state.settle;
         // The two clean cell samples can establish rest during the hand-release
         // interval, even when a full scan last saw the outline under fingers.
-        const settled=at-state.stableAt>=REST_MS&&at-(state.handAt??-Infinity)>=HAND_RELEASE_SETTLE_MS;
+        const settled=at-since>=REST_MS&&at-(state.handAt??-Infinity)>=HAND_RELEASE_SETTLE_MS;
+        const activityAt=Math.max(state.handAt??-Infinity,state.motionAt??-Infinity);
+        const canCheck=!scanRequested&&scanSweep===0&&at>=(state.retryAt??-Infinity);
+        const freshChange=at-activityAt<CELL_CHANGE_HOLD_MS&&!sameZoomLook(state.checkedLook,look);
+        const requestZoom=(centre:number[],priority:number,emptyMatLook?:number[],owner?:InternalTrack)=>{
+          zoomCandidates.push({zone,box,since,attemptedAt:state.attemptedAt??-Infinity,priority,look,centre,emptyMatLook,owner});
+        };
         if(front){
           // A live front keeps its detector outline. A witnessed, flat sleeve
           // replacing its own pixels can confirm an in-place flip without a zoom.
           const owner=liveFronts.length===1?liveFronts[0]:undefined;
           if(owner?.announced&&bound(owner)&&!owner.under&&!pendingFront&&!empty&&settled&&scanSweep===0&&!scanRequested&&
-            at-Math.max(state.handAt??-Infinity,state.motionAt??-Infinity)<SET_FOLLOW_UP_WINDOW_MS&&
+            at-activityAt<SET_FOLLOW_UP_WINDOW_MS&&
             !matchesLook(owner,evidence.appearance?.(owner.announced))){
-            localFlipCandidates.push({zone,box,since:state.stableAt,owner});
+            localFlipCandidates.push({zone,box,since,owner});
+            const centre=centreLook(look);
+            if(centre&&freshChange&&canCheck)requestZoom(centre,1,undefined,owner);
           }
           continue;
         }
         if(empty&&settled){
           state.missedLook=undefined;
+          state.checkedLook=undefined;
           if(forced)completeCellCheck(zone);
         }
-        if(occupied||empty||!look?.length){state.waitingAt=undefined;continue;}
+        if(empty){state.waitingAt=undefined;continue;}
         const centre=centreLook(look);
         if(!centre)continue;
+        if(occupied){
+          // A Set being revealed can yield a front in the same crop.
+          const back=here.find(t=>!t.view.removed&&bound(t)&&t.view.faceDown);
+          if(back&&freshChange&&settled&&canCheck&&!matchesLook(back,evidence.appearance?.(back.announced??back.view.card)))
+            requestZoom(centre,1);
+          continue;
+        }
         if(sameZoomLook(state.missedLook,centre)){
           if(forced&&settled)completeCellCheck(zone);
           state.waitingAt=undefined;continue;
@@ -1222,19 +1260,19 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         // A changing halo alone can make a still patch of mat look different
         // after exposure correction. Check the centre against the mat as well.
         const changed=base?.look.length?unlike&&medianGap(centreLook(base.look),centre)>=PILE_SLEEVE_GAP:
-          at-Math.max(state.handAt??-Infinity,state.motionAt??-Infinity)<SET_FOLLOW_UP_WINDOW_MS&&
+          at-activityAt<SET_FOLLOW_UP_WINDOW_MS&&
           !sameZoomLook(centreLook(startupAppearance?.(box)),centre)&&sleeveOnMat(centre,halo);
-        if(!changed||!departed.length&&!zoomSleeveLook(centre)||stackStillThere(zone,evidence,box)){
+        const sleeve=changed&&(departed.length>0||zoomSleeveLook(centre));
+        if(!sleeve&&!freshChange||stackStillThere(zone,evidence,box)){
           state.waitingAt=undefined;continue;
         }
         // Cap speculative retries from drifting pixels. A departure still gets checked.
         if(!forced&&state.emptyZooms?.length===ZOOM_MISS_LIMIT&&at-state.emptyZooms[0]<ZOOM_MISS_WINDOW_MS)continue;
         if(departed.length)zoomPendingZones.add(zone);
-        if(scanRequested||scanSweep>0||at<(state.retryAt??-Infinity)||!forced&&at-zoomDeckAt<ZOOM_DECK_HOLD_MS)continue;
+        if(!canCheck||!forced&&(at-zoomDeckAt<ZOOM_DECK_HOLD_MS||sameZoomLook(state.checkedLook,look)))continue;
         state.waitingAt??=at;
-        if(settled)zoomCandidates.push({zone,box,since:state.stableAt,attemptedAt:state.attemptedAt??-Infinity,priority:forced?0:departed.length?1:2,centre,
-          emptyMatLook:zone.startsWith('S')&&!departed.length?look:undefined});
-        else if(slowZoomDevice&&at-state.waitingAt<HAND_RELEASE_SETTLE_MS)zoomSettling=true;
+        if(settled)requestZoom(centre,forced?0:departed.length?1:2,sleeve&&zone.startsWith('S')&&!departed.length?look:undefined);
+        else if(sleeve&&slowZoomDevice&&at-state.waitingAt<HAND_RELEASE_SETTLE_MS)zoomSettling=true;
       }
       // Coalesce pending zones into one full pass. A fresh Set witness or a
       // partial blind sleeve count can request the next confirming pass.
@@ -1334,7 +1372,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       const localFronts=new Set(cachedTracks.filter(t=>{
         const q=t.view.card;
         if(t.view.state!=='candidate'||t.missed||t.view.removed||t.promptOnly||q.kind!=='face-up'||q.confidence<.8||q.partial||q.covered||
-          now()-detectionDoneAt>=confirmationAge||!freshOutline(t)||blurHold||handNear(evidence,q)||evidence.motion(q)>.025||!planeVerdict(q).ok||
+          now()-Math.max(detectionDoneAt,t.setRealAt??-Infinity)>=confirmationAge||!freshOutline(t)||blurHold||handNear(evidence,q)||evidence.motion(q)>.025||!planeVerdict(q).ok||
           !sameFieldAppearance(t.face?.outlineAppearance??t.read?.appearance??t.appearance,evidence.appearance?.(q))||
           isCovered(q,cachedTracks.filter(o=>!o.view.removed&&quadIou(q,o.view.card)>.1).map(o=>o.view.card)))return false;
         const crop=evidence.crop?.(q),front=crop?classifyFaceState(crop):undefined;
@@ -1366,7 +1404,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
           fits(c.quad.map(p=>onMat(p,calibration)).map(p=>({x:p.x*width,y:p.y*height})));
       };
       let detected:DetectedQuad[],region:FractionalBox|undefined,rawOutlines:DetectedQuad[]=[];
-      const checkedBacks=new Map<DetectedQuad,{zone:FieldZone;since:number;crop:RGBAImage;observation:FaceStateResult;measured:ReturnType<typeof measureSetEvidence>;owner?:InternalTrack}>();
+      const checkedCells=new Map<DetectedQuad,{zone:FieldZone;since:number;crop:RGBAImage;observation:FaceStateResult;measured?:ReturnType<typeof measureSetEvidence>;owner?:InternalTrack}>();
       for(const {zone,box,since,owner} of localFlipCandidates){
         const edges=flatSleeveQuad(box,evidence),old=owner.announced!;
         // A remembered Monster Zone outline may be under a stack or on bare
@@ -1384,19 +1422,19 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         const pixels=evidence.appearance?.(c),ring=evidence.halo?.(c);
         if(!edges&&!sleeveOnMat(pixels,ring))continue;
         const measured=measureSetEvidence(crop,c,observation,setMemory,true,false,true);
-        if(observation.state!=='up'&&measured.evidence.positive)checkedBacks.set(c,{zone,since,crop,observation,measured,owner});
+        if(observation.state!=='up'&&measured.evidence.positive)checkedCells.set(c,{zone,since,crop,observation,measured,owner});
       }
       zoomCandidates.sort((a,b)=>a.priority-b.priority||a.attemptedAt-b.attemptedAt||a.since-b.since);
       let zoomRan=false;
-      const nextZoom=fullBeforeZoom?undefined:zoomCandidates[0];
+      const nextZoom=fullBeforeZoom||checkedCells.size?undefined:zoomCandidates[0];
       if(nextZoom&&!pacer.canSpendPriority(now()))budgetWaitAt=sample.at;
       else if(nextZoom){
-        const {zone,box,since,centre,emptyMatLook}=nextZoom;
+        const {zone,box,since,look,centre,emptyMatLook,owner}=nextZoom;
         const state=zoomCells.get(zone)!;
         zoomRan=true;state.attemptedAt=sample.at;state.retryAt=sample.at+ZOOM_RETRY_MS;
         const zoomStart=now();
-        let backs:DetectedQuad[]|undefined;
-        try {backs=await detectZoomedCell(current,box,options.recognizer);}
+        let cellOutlines:DetectedQuad[]|undefined;
+        try {cellOutlines=await detectZoomedCell(current,box,options.recognizer);}
         catch(cause){state.retryAt=now()+ZOOM_RETRY_MS;warnOnce('zoom',cause instanceof Error?cause.message:String(cause),cause);}
         finally {
           const end=now(),cost=end-zoomStart;
@@ -1404,23 +1442,31 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
           pacer.spendPriority(cost,end);metrics.zoomMs=zoomMs;
         }
         if(generation!==epoch||disposed)return;
-        if(backs){
+        if(cellOutlines){
           completeCellCheck(zone);
+          state.checkedLook=look;
           state.missedLook=centre;
-          if(!backs.length&&emptyMatLook)state.emptyZoom={look:emptyMatLook,passes:0};
+          if(!cellOutlines.length&&emptyMatLook)state.emptyZoom={look:emptyMatLook,passes:0};
         }
-        for(const c of backs??[]){
-          if(c.kind!=='face-down'||c.confidence<.4||c.partial||c.covered||!cardAspect(c)||!planeVerdict(c).ok||
+        const zoomOutlines=cellOutlines??[];
+        for(const c of zoomOutlines){
+          if(c.confidence<.4||c.partial||c.covered||isCovered(c,zoomOutlines)||!cardAspect(c)||!planeVerdict(c).ok||
             zoneCellAt(onMat(fieldCenter(c),calibration),cells)?.zone!==zone||handNear(evidence,c)||removalHold(c)||evidence.motion(c)>.025||
-            overlapsFront(c)||heldReader.claims(c,sample.at,stableMs))continue;
+            heldReader.claims(c,sample.at,stableMs))continue;
           const sizeLimit=Math.min(.95,(restSize??.8)*1.1);
           const g=matRestGeometry(c,calibration!,options.format);
           if(!g||g.cellShare<.6||g.size>sizeLimit)continue;
           const pixels=evidence.appearance?.(c),ring=evidence.halo?.(c);
-          if(clearFieldBackground(pixels,ring)||stackFootprint(c,zone,evidence,box))continue;
+          if(clearFieldBackground(pixels,ring))continue;
           let crop=evidence.crop?.(c);
           if(!crop)continue;
           let observation=classifyFaceState(crop);
+          if(c.kind==='face-up'){
+            if(c.confidence<.7||observation.state!=='up'||observation.confidence<.8)continue;
+            state.missedLook=undefined;
+            checkedCells.set(c,{zone,since,crop,observation});break;
+          }
+          if(overlapsFront(c,owner)||owner&&quadIou(owner.announced!,c)<.5||stackFootprint(c,zone,evidence,box))continue;
           if(observation.state==='up')continue;
           const flat=plainSleeve(pixels,ring,centreLook(emptyLooks.get(zone)?.look));
           let measured=measureSetEvidence(crop,c,observation,setMemory,sleeveOnMat(pixels,ring),false,flat);
@@ -1440,9 +1486,9 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
           }
           measured.evidence={...measured.evidence,positive:true,basis:'zoom'};
           state.missedLook=undefined;
-          checkedBacks.set(c,{zone,since,crop,observation,measured});break;
+          checkedCells.set(c,{zone,since,crop,observation,measured,owner});break;
         }
-        if(backs&&state.missedLook){
+        if(cellOutlines&&state.missedLook){
           const misses=state.emptyZooms??=[];
           if(misses.length===ZOOM_MISS_LIMIT)misses.shift();
           misses.push(sample.at);
@@ -1457,7 +1503,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       }
       const unsampledBacks=new Set<InternalTrack>();
       // A sure read on a held outline commits now; a due full pass waits one tick.
-      if(checkedBacks.size||readyRead||!regularFullDue&&(faceSamples||recentReveals.size>0||localFronts.size>0||localSets.size>0)){
+      if(checkedCells.size||readyRead||!regularFullDue&&(faceSamples||recentReveals.size>0||localFronts.size>0||localSets.size>0)){
         debugPath('cached outlines',sample.at);
         // Retain only outlines whose current pixels still agree. A new outline
         // or changed/occluded pixels must go through detection as usual.
@@ -1470,9 +1516,9 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
           return true;
         }).filter(t=>localFronts.has(t)||localSets.has(t)||recentReveals.has(t)||!t.view.removed&&(t.read?.result&&readHolds(t,t.view.card))||!t.view.removed&&(t.view.visible||t.read||t.face?.pendingAt!==undefined||t.face?.transitionAt!==undefined||t.newOutline&&faceSamples&&freshOutline(t)&&!t.view.card.partial&&!t.view.card.covered||t.view.state==='identified'&&t.view.faceDown!==(t.view.card.kind==='face-down'))&&evidence.motion(t.view.card)<=.025&&
           sameFieldAppearance(t.face?.outlineAppearance??t.read?.appearance??t.appearance,evidence.appearance?.(t.view.card))).map(t=>structuredClone(t.view.card));
-        if(checkedBacks.size){
-          detected=detected.filter(c=>![...checkedBacks.keys()].some(back=>quadIou(back,c)>.1));
-          detected.push(...checkedBacks.keys());
+        if(checkedCells.size){
+          detected=detected.filter(c=>![...checkedCells.keys()].some(checked=>quadIou(checked,c)>.1));
+          detected.push(...checkedCells.keys());
           debugPath(zoomRan?'detector (zoomed cell)':'local Set flip',sample.at);
           debug={at:sample.at,path:debugTick,full:false,detections:[],reasons:{},...(lastPileScores?{pileScores:lastPileScores}:{})};
         }
@@ -1549,8 +1595,8 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       if(!region){for(const zone of setFollowUps)setFollowUpAt.set(zone,sample.at);lastFullDetectionAt=sample.at;forcePass=false;evidence.scene?.mark();if(scanRequested)scanFollowUp=true;else scanFollowUp=false;scanRequested=false;}
       // "Out of view is gone" for piles: a GY, Banished, Deck or Extra cell with
       // no outline in 2 full scans in a row, and no hand over it, is missing.
-      if(!region&&calibration)for(const cell of fieldZoneCells(options.format,calibration.zoneSpacing,calibration.zones))if(['GY','BANISHED','DECK','EXTRA'].includes(cell.zone)){
-        const box:DetectedQuad={quad:[{x:cell.x,y:cell.y},{x:cell.x+cell.w,y:cell.y},{x:cell.x+cell.w,y:cell.y+cell.h},{x:cell.x,y:cell.y+cell.h}].map(p=>fieldMatPoint(p,calibration!)),kind:'face-up',confidence:1,partial:false};
+      if(!region&&calibration)for(const cell of cameraCells)if(['GY','BANISHED','DECK','EXTRA'].includes(cell.zone)){
+        const box=cellQuad(cell);
         // A kept (low-score) outline of a stale track is no witness on a GY/banished cell that shows the empty mat.
         const zone=cell.zone as FieldZone,clearSince=publicPile(zone)?pileClear.get(zone):undefined,seen=detected.some(d=>mapFieldZone(d,calibration,detected,options.format).zone===zone&&!(d.kept&&clearSince!==undefined));
         const hand=!seen&&(evidence.occluded?.(box)||(evidence.touched?.(box)??0)>.02||evidence.motion(box)>.06);
@@ -1655,8 +1701,8 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         (t.under!==undefined||evidence.motion(c)<=.025&&c.confidence>=.7&&!c.partial&&!removalBlurred&&!blurHold)&&
         !sameRotatedFieldAppearance(t.identityAppearance,appearance(c))&&!sameShadedFieldAppearance(t.identityAppearance,appearance(c));
       const pairs=tracks.flatMap(t=>cards.filter(c=>{
-        const zoom=checkedBacks.get(c);
-        return !zoom||zoom.zone===t.view.zone&&(!zoom.owner||zoom.owner===t);
+        const zoom=checkedCells.get(c);
+        return !zoom||c.kind==='face-up'||zoom.zone===t.view.zone&&(!zoom.owner||zoom.owner===t);
       }).map(c=>{
         const a=boundsOf(t.view.card.quad),b=boundsOf(c.quad),ratio=(a.w*a.h)/(b.w*b.h||1);
         const overlap=quadIou(t.view.card,c),d=distance(t.view.card,c);
@@ -1677,7 +1723,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       const lost=tracks.filter(t=>!matched.has(t)&&(t.view.state==='identified'||t.prompted)&&(t.view.removed?
         (t.view.state==='dismissed'||t.restoredAt!==undefined||sample.at-t.view.lastSeen<=2500)&&incoming.length===1&&t.view.card.kind===incoming[0].kind&&(incoming[0].kind==='face-up'||t.prompted&&t.view.state==='dismissed')&&(bound(t)?sameRotatedFieldAppearance(t.identityAppearance,appearance(incoming[0])):sameFieldAppearance(t.identityAppearance,appearance(incoming[0]))):
         sample.at-t.view.lastSeen<=Math.max(2500,removalMs))).filter(t=>pileCanLeave(t)&&(incoming.length!==1||followsAppearance(t,incoming[0])&&follows(t,incoming[0])));
-      if(lost.length===1&&incoming.length===1&&!checkedBacks.has(incoming[0])) {
+      if(lost.length===1&&incoming.length===1&&!(incoming[0].kind==='face-down'&&checkedCells.has(incoming[0]))) {
         const a=boundsOf(lost[0].view.card.quad),b=boundsOf(incoming[0].quad),ratio=a.w*a.h/(b.w*b.h||1);
         if(ratio>.5&&ratio<2&&lost[0].view.card.kind===incoming[0].kind&&followsAppearance(lost[0],incoming[0])){
           if(clearOldSpot(lost[0],incoming[0])){matched.set(lost[0],incoming[0]);taken.add(incoming[0]);}
@@ -1698,7 +1744,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       // the detector scores lower under coloured light. Reads still decide identity.
       for(const c of cards){
         if(taken.has(c))continue;
-        if(checkedBacks.has(c)&&tracks.some(t=>t.view.state==='identified'&&!t.view.removed&&t.view.zone===checkedBacks.get(c)!.zone))continue;
+        if(c.kind==='face-down'&&checkedCells.has(c)&&tracks.some(t=>t.view.state==='identified'&&!t.view.removed&&t.view.zone===checkedCells.get(c)!.zone))continue;
         if(handNear(evidence,c)&&tracks.some(t=>bound(t)&&t.view.removed&&followsAppearance(t,c))){
           skipped.set(c,'lifted field card');continue;
         }
@@ -1741,11 +1787,11 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         }
         untracked=loose;gridOffAt=sample.at;gridOffPasses=gap+outside>=2?gridOffPasses+1:0;gridShift={gap,outside,suspect:gridOffPasses>=3};
       }
-      if((detectorRan||checkedBacks.size)&&debug){
+      if((detectorRan||checkedCells.size)&&debug){
         const owners=new Map([...matched].map(([t,c])=>[c,t]));
         debug.detections=outlines.map(c=>{const zone=mapFieldZone(c,calibration,[],options.format).zone,owner=owners.get(c);
           const gap=!!calibration&&!zoneCellAt(onMat(fieldCenter(c),calibration),fieldCells());
-          return {quad:structuredClone(c.quad),kind:c.kind,confidence:c.confidence,zone,use:checkedBacks.has(c)?checkedBacks.get(c)!.owner?'local Set flip':'zoomed cell':deckZone(zone)?'deck pile':owner?`track ${owner.view.id.slice(-4)}`:skipped.get(c)??'not used',...(gap?{gap}:{})};});
+          return {quad:structuredClone(c.quad),kind:c.kind,confidence:c.confidence,zone,use:checkedCells.has(c)?checkedCells.get(c)!.owner?'local Set flip':'zoomed cell':deckZone(zone)?'deck pile':owner?`track ${owner.view.id.slice(-4)}`:skipped.get(c)??'not used',...(gap?{gap}:{})};});
         // Held cards (add-to-hand path) with the reason the resting test gave.
         for(const c of held.cards)debug.detections.push({quad:structuredClone(c.quad),kind:c.kind,confidence:c.confidence,zone:mapFieldZone(c,calibration,[],options.format).zone,use:held.notes.get(c)??'held card'});
       }
@@ -1957,7 +2003,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       for(const t of [...tracks]) {
         let c=covers.has(t.view.id)?undefined:matched.get(t);
         // A fresh zoom can match a candidate whose old outline was omitted.
-        if(reconnected.has(t)||unsampledBacks.has(t)&&!(c&&checkedBacks.has(c)))continue;
+        if(reconnected.has(t)||unsampledBacks.has(t)&&!(c&&checkedCells.has(c)))continue;
         t.setBridged=false;
         // Tracking a lifted outline must not move its source check into the hand.
         const source=t.announced;
@@ -1981,7 +2027,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
             }
           }
         }else sourceMisses.delete(t);
-        if(!c&&checkedBacks.size)continue;
+        if(!c&&checkedCells.size)continue;
         if(!c&&!t.view.removed&&t.view.state==='identified'&&stackLooks.size&&stackStillThere(t.view.zone,evidence)){
           t.view.visible=false;t.fullMisses=0;t.fullMissAt=undefined;resetAbsence(t);
           note(t,'known card covered by a stack footprint');continue;
@@ -2067,8 +2113,15 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
               // source window while waiting for the next periodic pass.
               if(bound(t)&&!pendingNew&&t.fullMisses<DEPARTURE_SCANS&&
                 (!departureChecks.has(t)||t.fullMisses>1)){departureChecks.add(t);scanFollowUp=true;}
+              // A hand can hold a sleeve low enough to hide the old front but
+              // high enough to prevent a new outline. Let that cell settle
+              // before publishing a detector-only departure.
+              const changingCell=options.zoomSets&&!weak&&!back&&bound(t)&&!!t.announced&&setFollowUpZone(t.view.zone)&&
+                (contactWait.has(t)||sample.at-(lastFieldActivityAtByZone[t.view.zone]??-Infinity)<=CELL_CHANGE_HOLD_MS)&&
+                sample.at-t.fullMissAt<CELL_CHANGE_HOLD_MS;
               // Two separate scans (>= 250 ms apart), not two passes of one burst.
-              if(removalHold(t.view.card)&&t.fullMisses<DEPARTURE_SCANS)note(t,shadowNote());
+              if(changingCell)note(t,'waiting for the changed cell to settle');
+              else if(removalHold(t.view.card)&&t.fullMisses<DEPARTURE_SCANS)note(t,shadowNote());
               else if(t.fullMisses>=2&&sample.at-t.fullMissAt>=250&&!stackWaiting.has(t.view.id)&&(!pendingNew||weak)){
                 note(t,`${phantom?'phantom (no box on the mat plane)':empty?'its cell shows the empty mat':'no outline'} in ${t.fullMisses} full passes over ${Math.round(sample.at-t.fullMissAt)} ms`);
                 t.view.removed=true;t.view.removedFrameAt=t.fullMissAt;t.restoredAt=undefined;t.fullMisses=0;t.fullMissAt=undefined;emit('removed',t,phantom?{reason:'phantom'}:empty?{reason:'empty'}:{});
@@ -2082,7 +2135,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
           // The lightweight observation above already checked clear mat.
           continue;
         }
-        const zoom=checkedBacks.get(c);
+        const zoom=checkedCells.get(c);
         t.fullMisses=0;t.fullMissAt=undefined;if((detectorRan||zoom)&&!t.setBridged)t.setRealAt=sample.at;
         if(c.confidence>=.7&&!c.kept&&!c.cell&&matchesLook(t,evidence.appearance?.(c)))departureChecks.delete(t);
         if(t.view.state==='candidate'&&tooBig(c)){expireCandidate(t,'candidate expired: outline larger than two zones');continue;}
@@ -2175,7 +2228,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         if(admittingSet||ignored){
           const stillBack=detectorRan&&c.kind==='face-down'&&observation.state==='down'&&observation.confidence>=.8&&cardAspect(c)&&!c.partial&&!c.covered&&!handNear(evidence,c)&&evidence.motion(c)<=.025;
           if(detectorRan&&!t.setBridged)t.setDownScans=stillBack?(t.setDownScans??0)+1:0;
-          const measured=faceClean&&zoom?zoom.measured:measureSetEvidence(crop,c,observation,setMemory,sleeveOnMat(pixels,evidence.halo?.(c)),(t.setDownScans??0)>=SET_STEADY_SCANS,!!c.blind);
+          const measured=faceClean&&zoom?.measured?zoom.measured:measureSetEvidence(crop,c,observation,setMemory,sleeveOnMat(pixels,evidence.halo?.(c)),(t.setDownScans??0)>=SET_STEADY_SCANS,!!c.blind);
           if(measured.evidence.positive&&(detectorRan||zoom)&&!t.setBridged){t.setPositiveAt=sample.at;t.setBackLook=pixels?.slice();}
           t.view.setEvidence={...measured.evidence,decision:t.view.setEvidence?.decision??'waiting'};setLooks.set(t,measured.look);
           if(faceClean&&restOk(t)&&t.view.setEvidence.decision==='waiting'&&!setObserved.has(t)){setObserved.add(t);setDecision(t,'waiting');}
@@ -2261,7 +2314,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         // full face window. Existing cards retain their normal flip hysteresis.
         const sureBack=t.view.state==='candidate'&&t.resolvedAt===undefined&&!t.binding&&!t.prompted&&
           faceClean&&c.kind==='face-down'&&c.confidence>=.7&&setFace.state==='down';
-        const checkedBack=!!zoom&&faceClean&&restOk(t)&&t.view.setEvidence?.positive&&observation.state!=='up';
+        const checkedBack=!!zoom?.measured&&faceClean&&restOk(t)&&t.view.setEvidence?.positive&&observation.state!=='up';
         let face=knownFace?{state:t.view.faceDown?'down' as const:'up' as const,confidence:1}:checkedBack?{state:'down' as const,confidence:Math.max(.8,observation.confidence)}:sureFront||sureBack?observation:gatedFace;
         // The Graveyard holds no face-down cards: pixels alone never turn a detector front there into a back.
         const graveFront=t.view.zone==='GY'&&!knownFace&&c.kind==='face-up';
@@ -2742,7 +2795,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       ...(softCamera?{softCamera:true}:{}),held:heldReader.snapshot(),...(lastMotionAt!==undefined?{lastMotionAt}:{}),...(untracked?{untracked}:{}),...(gridShift?{gridShift:{...gridShift}}:{}),blur:{sharpness:sharpNow,ratio:removalSharpBase>0?sharpNow/removalSharpBase:1,hold:removalBlurred||blurHold,limit:sharpLimit()},shadow:{share:shadowShare,hold:shadowHold},missingTwins:[...missingTwins],blindZones:[...blindZones],...(zoomPendingZones.size?{zoomPendingZones:[...zoomPendingZones]}:{}),blindSleeveAt:Object.fromEntries(stableBlindSleeves.map(([zone,{at}])=>[zone,at])),
       blindSleeveSince:Object.fromEntries(stableBlindSleeves.map(([zone,{since}])=>[zone,since])),handZones:[...handZones],missingPiles:[...pilePresence].flatMap(([zone,p])=>p.present?[]:[zone]),pileTouchedAt:Object.fromEntries([...pileTouches].filter(([zone])=>publicPile(zone))),pileContactAt:Object.fromEntries(pileContacts),pileClearSince:Object.fromEntries(pileClear),lastFullAt:Number.isFinite(lastFullDetectionAt)?lastFullDetectionAt:undefined,...(Number.isFinite(lastScanAt)?{lastScanAt,lastScanBacks:[...lastScanBacks],lastScanOffFrame:[...lastScanOffFrame]}:{}),status,tracks:tracks.map(t=>copy(t.view)),piles:[...piles].flatMap(([zone,pile])=>pile.down&&now()-pile.keptAt<=PILE_GONE_MS?[{zone,card:structuredClone(pile.card)}]:[]),metrics:{...metrics},error,
       debug:{at:debugAt,path:debugTick,full:debug?.full??false,region:debug?.region,detections:debug?.detections??[],...(debug?.pileScores?{pileScores:debug.pileScores}:{}),reasons:Object.fromEntries(tracks.map(t=>[t.view.id,`${t.rest?.text?`${t.rest.text} · `:''}${t.read?'reading identity · ':''}${t.promptOnly?`prompt only (${t.promptOnly}) · `:''}${t.reason??''}${t.view.setEvidence?` · Set ${JSON.stringify(t.view.setEvidence)}`:''}${t.lastResult?.prior?` · prior: ${t.lastResult.prior}`:''}`]))}};},
-    setCalibration(value?:FieldCalibration){lastFieldActivityAtByZone={};exposedTops.clear();calibration=value;gridOffPasses=0;gridShift=undefined;untracked=0;heldReader.reset();if(status!=='starting')epoch++;interruptWindow();piles.clear();emptyLooks.clear();blindScans.clear();blindShape.clear();blindMisses.clear();blindZones.clear();blindSleevesSeen.clear();handZones.clear();blindCountAt.clear();setFollowUpAt.clear();zoomCells.clear();zoomPendingZones.clear();zoomDeparturePending.clear();zoomCheckedAt.clear();stackLooks.clear();zoomDeckAt=-Infinity;zoomDeckGone=false;zoomDeckContactSince=undefined;pileClear.clear();pileContacts.clear();restSize=undefined;restSizes.clear();for(const t of tracks){t.prompted=false;t.view.revision=(t.view.revision??0)+1;t.view.zone=mapFieldZone(t.view.card,calibration,[],options.format).zone;t.announcedZone=undefined;}notify();},
+    setCalibration(value?:FieldCalibration){lastFieldActivityAtByZone={};exposedTops.clear();calibration=value;cameraCells=readCells();cellQuads=new WeakMap();gridOffPasses=0;gridShift=undefined;untracked=0;heldReader.reset();if(status!=='starting')epoch++;interruptWindow();piles.clear();emptyLooks.clear();blindScans.clear();blindShape.clear();blindMisses.clear();blindZones.clear();blindSleevesSeen.clear();handZones.clear();blindCountAt.clear();setFollowUpAt.clear();zoomCells.clear();zoomPendingZones.clear();zoomDeparturePending.clear();zoomCheckedAt.clear();stackLooks.clear();zoomDeckAt=-Infinity;zoomDeckGone=false;zoomDeckContactSince=undefined;pileClear.clear();pileContacts.clear();restSize=undefined;restSizes.clear();for(const t of tracks){t.prompted=false;t.view.revision=(t.view.revision??0)+1;t.view.zone=mapFieldZone(t.view.card,calibration,[],options.format).zone;t.announcedZone=undefined;}notify();},
     confirm(id:string,cardId?:string,ref?:string,human=true){const lock=locks.get(id);if(ref&&lock&&!locks.has(ref))locks.set(ref,lock);const t=tracks.find(t=>t.view.id===id);if(human&&cardId)for(const key of [id,ref])if(key)locks.set(key,{cardId,score:Infinity,at:now(),embedding:t?.latestEmbedding??t?.identityEmbedding,look:t?.identityAppearance?.slice()});if(t){if(human){t.nameRetry=undefined;t.view.nameCandidates=undefined;}if(human&&t.promptOnly==='card-presence'){rememberSetBack(setMemory,setLooks.get(t)??[]);options.onSetMemoryChange?.();}t.awaitingName=undefined;t.prompted=false;t.setRecovery=false;t.pose=undefined;t.read=undefined;const other=tracks.find(other=>other!==t&&other.view.id===ref);if(other&&(other.view.removed||!other.view.visible))tracks.splice(tracks.indexOf(other),1);if(ref&&!tracks.some(other=>other!==t&&other.view.id===ref))t.view.id=ref;t.view.visible=!t.missed;for(let i=suppressed.length-1;i>=0;i--)if(sameFieldAppearance(suppressed[i].appearance,t.appearance)||quadIou(suppressed[i].card,t.view.card)>.5)suppressed.splice(i,1);if(human&&!t.view.faceDown&&t.face&&cardId!==t.face.setCardId)t.face.setCardId=undefined;if(!t.view.faceDown&&cardId&&!t.view.nameCandidates)gallery.remember(t.latestEmbedding,cardId);t.view.cardId=t.view.faceDown?undefined:cardId;if(!t.view.faceDown&&cardId&&t.face?.front)t.face.reference={crop:t.face.front,embedding:t.latestEmbedding};t.realLook=undefined;t.identityAppearance=t.appearance?.slice();t.identityEmbedding=t.latestEmbedding;t.identityCheck=undefined;t.resolvedAt=now();t.promptOnly=undefined;t.binding=undefined;t.view.state='identified';t.needsRead=false;t.announced=t.view.card;t.announcedZone=t.view.zone;t.announcedPosition=t.view.position;t.moveAt=undefined;t.best=undefined;pruneFrames();notify();}},
     setGuards(value:Partial<SetGuards>){const next={...DEFAULT_SET_GUARDS,...value};if(next.positiveBack===setGuards.positiveBack&&next.prompt===setGuards.prompt&&next.ignore===setGuards.ignore&&next.startup===setGuards.startup&&next.handRelease===setGuards.handRelease)return;setGuards=next;for(const t of tracks)if((t.view.state==='dismissed'||t.promptOnly==='card-presence')&&t.view.setEvidence){rearm(t,'Set safeguards changed');}notify();},
     acceptSet(id:string){const t=tracks.find(t=>t.view.id===id);if(!t||t.promptOnly!=='card-presence'||t.view.removed||!t.view.visible)return false;

@@ -10,6 +10,7 @@ import { CARD_DETECTOR } from './detector/spec';
 import { ScenePixels } from './scene-pixels';
 import { SceneRefiner } from './scene-refiner';
 import { detectScene, lastShadowPasses } from './detect-scene';
+import { detectFieldCellOutlines } from './field-set-zoom';
 import { indexVersion, type LearningSnapshot } from './learning';
 import { calibratedThresholds } from './threshold-config';
 import { LearningCache } from './learning-cache';
@@ -206,12 +207,14 @@ scope.onmessage = (event: MessageEvent<Request>) => {
         if(message.type==='detect') {
           const detectorSession=await ensureDetector();
           const start=performance.now();
-          const source=!message.opts?.zoom&&'close' in message.frame?new ScenePixels(message.frame):undefined;
-          const image=source?source.sample(undefined,configuration.profile.detector.longSide):pixels(message.frame,message.opts?.zoom),pixelsMs=performance.now()-start;
-          const result=await detectScene(image,configuration.profile,detectorSession,Tensor,message.opts,sceneRefiner,source);
+          const zoom=message.opts?.zoom;
+          const source=!zoom&&'close' in message.frame?new ScenePixels(message.frame):undefined;
+          const image=source?source.sample(undefined,configuration.profile.detector.longSide):pixels(message.frame,zoom),pixelsMs=performance.now()-start;
+          const result=zoom?await detectFieldCellOutlines(image,detectorSession,Tensor):
+            await detectScene(image,configuration.profile,detectorSession,Tensor,message.opts,sceneRefiner,source);
           const detectMs=performance.now()-start-pixelsMs,last=lastDetectTimings;
           // Profile split: tensor preprocess, session run (incl. output readback), heatmap decode, then refine/covered/sort.
-          const split=last?{shadowPasses:lastShadowPasses(),preprocess:last.preprocessMs,run:last.runMs,readback:last.readbackMs,decode:last.decodeMs,post:Math.max(0,detectMs-last.preprocessMs-last.runMs-last.readbackMs-last.decodeMs)}:{};
+          const split=last?{shadowPasses:zoom?0:lastShadowPasses(),preprocess:last.preprocessMs,run:last.runMs,readback:last.readbackMs,decode:last.decodeMs,post:Math.max(0,detectMs-last.preprocessMs-last.runMs-last.readbackMs-last.decodeMs)}:{};
           reply({id:message.id,result,timingsMs:{queue:queueMs,pixels:pixelsMs,detect:detectMs,...split,worker:performance.now()-start}});return;
         }
         if(message.type==='aiCrop') {

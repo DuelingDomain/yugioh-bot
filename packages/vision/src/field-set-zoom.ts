@@ -1,8 +1,21 @@
 import { boundsOf } from './geometry';
-import { cropRGBA } from './pixels';
+import { cropRGBA, type RGBAImage } from './pixels';
 import { closeFieldFrame, type FieldFrame } from './field-motion';
 import type { Recognizer } from './client';
+import { detect } from './detector/run';
+import { CARD_DETECTOR } from './detector/spec';
+import type { ModelSession } from './runtime';
+import type { TensorCtor } from './embed';
 import type { DetectedQuad } from './types';
+
+/** One detector pass on the native crop. The watcher checks which cell owns each result. */
+export async function detectFieldCellOutlines(frame:RGBAImage,detector:ModelSession,Tensor:TensorCtor):Promise<DetectedQuad[]> {
+  const {width,height}=frame;
+  if(width<3||height<3||width*height>16_000_000||frame.data.length!==width*height*4)throw new Error('Invalid frame');
+  const cards=await detect(detector,Tensor,frame,CARD_DETECTOR.cropLongSide,CARD_DETECTOR.minScore,true);
+  return cards.filter(c=>c.conf>=CARD_DETECTOR.minConfidence&&c.pts.every(([x,y])=>x>2&&y>2&&x<width-2&&y<height-2))
+    .map(c=>({quad:c.pts.map(([x,y])=>({x:x/width,y:y/height})),kind:c.kind,confidence:c.conf,partial:false}));
+}
 
 /** Upscaling a cell with too few native pixels magnifies noise and mat print. */
 export function canZoomCell(frame:FieldFrame,cell:DetectedQuad):boolean {

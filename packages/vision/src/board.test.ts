@@ -595,6 +595,28 @@ test('a flat plain sleeve the detector never boxes is placed as a Set from its p
     'a fresh zoom settles its existing candidate while motion elsewhere blocks cached confirmation');
   pending.watcher.dispose();
 
+  const revealed=fieldRig('sure',20,undefined,{width:1600,height:900},{zoomSets:true});
+  revealed.outlines=[];revealed.watcher.setCalibration(zones.createFieldCalibration([{x:0,y:0},{x:1,y:1}]));
+  revealed.appearanceAt=()=>Array(288).fill(.25);revealed.cropAt=()=>barePadded;
+  for(let i=0;i<8;i++){revealed.watcher.scanNow();await revealed.tick(300);}
+  await revealed.tick(300);
+  revealed.backend='wasm';
+  revealed.scene={moving:0,sinceMark:0,mark(){}};
+  revealed.appearanceAt=c=>inCell(c)?Array.from({length:288},(_,i)=>Math.floor(i/3)%2?.75:.2):Array(288).fill(.25);
+  revealed.cropAt=c=>inCell(c)?fieldCrop(c):barePadded;
+  revealed.zoom=()=>[card(.30,.36,.40,.50)];
+  revealed.motionAt=c=>inCell(c)?.1:0;
+  await revealed.tick(100);
+  revealed.motionAt=undefined;
+  await revealed.tick(100);
+  assert.equal(revealed.detectOptions.filter(o=>o.zoom).length,0,'the front still needs a second clear sample');
+  await revealed.tick(100);
+  assert.equal(revealed.detectOptions.filter(o=>o.zoom).length,1,'the cell gets a single zoom as soon as it settles');
+  assert.ok(revealed.watcher.getSnapshot().tracks.some(t=>t.zone==='S4'&&t.card.kind==='face-up'),'the zoom front reaches the field tracker');
+  for(let i=0;i<10;i++)await revealed.tick(100);
+  assert.equal(revealed.detectOptions.filter(o=>o.zoom).length,1,'an unchanged front does not repeatedly zoom');
+  revealed.watcher.dispose();
+
   const still=fieldRig('sure',20,undefined,{width:1600,height:900},{zoomSets:true});
   still.outlines=[];still.watcher.setCalibration(zones.createFieldCalibration([{x:0,y:0},{x:1,y:1}]));
   still.appearanceAt=()=>Array(288).fill(.25);still.cropAt=()=>barePadded;
