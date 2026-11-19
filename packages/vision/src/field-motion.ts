@@ -337,13 +337,15 @@ export function fieldEmbeddingSimilarity(a?:{values:number[];space:string;modelI
 
 /** A detector miss is only absence when the old footprint looks like clear mat.
  * Unknown or patterned surroundings abstain rather than classify a still hand. */
-export function clearFieldBackground(inside?:number[],halo?:number[]):boolean {
+export function clearFieldBackground(inside?:number[],halo?:number[],unevenLight=false):boolean {
   if(!inside?.length||inside.length%3||!halo?.length||halo.length%3)return false;
   const center=[0,1,2].map(c=>halo.filter((_,i)=>i%3===c).sort((a,b)=>a-b)[Math.floor(halo.length/6)]);
   const distances=(pixels:number[])=>Array.from({length:pixels.length/3},(_,i)=>(Math.abs(pixels[i*3]-center[0])+Math.abs(pixels[i*3+1]-center[1])+Math.abs(pixels[i*3+2]-center[2]))/3);
   const ring=distances(halo).sort((a,b)=>a-b),spread=ring[Math.ceil(ring.length*.9)-1];
-  if(!Number.isFinite(spread)||spread>.055)return false;
-  const tolerance=Math.max(.035,spread*1.5),patch=distances(inside);
+  if(!Number.isFinite(spread)||spread>(unevenLight?.12:.055))return false;
+  // The surrounding ring can straddle a shadow edge, but the former footprint
+  // still needs to match its median mat colour within the usual tolerance.
+  const tolerance=Math.max(.035,Math.min(.055,spread)*1.5),patch=distances(inside);
   return patch.filter(d=>Number.isFinite(d)&&d<=tolerance).length/patch.length>=.95;
 }
 

@@ -1220,6 +1220,37 @@ describe('typed watcher zone projection',()=>{
    expect(fixture.post).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({type:'twin.move',cardRef:old.ref,zone:'hand'}),expect.anything());
   }finally{fixture.dispose();vi.mocked(performance.now).mockRestore();vi.useRealTimers();}
  });
+ it('keeps a confirmed Set ref while a late slide settles beside an unchanged pile',async()=>{
+  const old={ref:'sliding-set',zone:'spell-trap',slot:4,faceUp:false,position:'attack'};
+  const fixture=await typedWatcherFixture(zoneEntries[0],'S4',[old],'moved');
+  vi.useFakeTimers();
+  try{
+   const advance=(ms:number)=>act(async()=>{await vi.advanceTimersByTimeAsync(ms);});
+   await advance(5000);
+   const watch=state.fieldWatch.watch,firstMiss=performance.now(),removedAt=firstMiss+400;
+   Object.assign(fixture.track,{faceDown:true,removed:true,removedAt,removedFrameAt:firstMiss,setEvidence:committedBack});
+   watch.getSnapshot=()=>watch.snapshot;
+   watch.isRemoved=()=>fixture.track.removed;
+   Object.assign(watch.snapshot,{lastFullAt:firstMiss,pileTouchedAt:{GY:firstMiss-400},pileContactAt:{GY:firstMiss-500}});
+   fixture.addTrack({id:'gy-top',zone:'GY',faceDown:false,visible:true,removed:false,state:'identified',
+    firstSeen:0,restSince:1000,lastSeen:firstMiss+600,cardId:'100'});
+   await advance(400);
+   await fixture.emit({type:'removed',removedAt,reason:'empty'});
+   await advance(2500);
+   const now=performance.now();
+   const back=fixture.addTrack({id:'slide-back',zone:'S2',faceDown:true,visible:false,removed:false,state:'candidate',cardId:undefined,
+    firstSeen:now,lastSeen:now,card:{...fixture.track.card,kind:'face-down'}});
+   fixture.addTrack({id:'unsettled-gy',zone:'GY',faceDown:false,visible:false,removed:false,state:'candidate',
+    firstSeen:now-200,lastSeen:now-200,cardId:undefined});
+   await advance(600);
+   Object.assign(back,{state:'identified',visible:true,lastSeen:performance.now(),restSince:now,setEvidence:committedBack});
+   await fixture.emit({type:'placed',track:{...back}});
+   await advance(1000);
+   expect(fixture.post).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+    type:'twin.move',cardRef:old.ref,zone:'spell-trap',slot:2,faceUp:false,
+   }),expect.anything());
+  }finally{fixture.dispose();vi.useRealTimers();}
+ });
  it('moves a new Set once the source is marked removed during the placement poll',async()=>{
   const old={ref:'sliding-set',zone:'spell-trap',slot:2,faceUp:false,position:'attack'};
   const fixture=await typedWatcherFixture(zoneEntries[0],'S2',[old],'moved');

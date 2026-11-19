@@ -791,19 +791,36 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
     if(t.view.removed||t.under)return;
     // An unanswered presence question owns its spot until a choice. A detector miss cannot ask it again.
     if(t.promptOnly==='card-presence'){if(evidence.motion(t.view.card)>.025)t.view.visible=false;return;}
-    const spot=t.announced??t.view.card,box=t.view.faceDown&&t.view.setEvidence?.decision==='committed'?cellOf(t.view.zone):undefined;
+    const card=t.view.card,spot=t.announced??card,box=t.view.faceDown&&t.view.setEvidence?.decision==='committed'?cellOf(t.view.zone):undefined;
     const vacantSet=!!box&&
       !handContact(evidence,box)&&!evidence.occluded?.(spot)&&
       medianGap(t.setBackLook??t.identityAppearance,evidence.appearance?.(spot))>SET_BRIDGE_LOOK&&cellEmpty(evidence,t.view.zone,false);
+    const stack=stackLooks.size>0&&stackStillThere(t.view.zone,evidence);
+    const halo=evidence.halo?.(card),pixels=evidence.background?.(card)??evidence.appearance?.(card);
+    // A sharp, hand-free footprint can show the mat even while a shadow
+    // crosses its ring. Require a recent, distinct front and no sleeve edge.
+    const frontVacant=()=>{
+      if(!options.zoomSets||!t.announced||!bound(t)||t.view.faceDown||!t.view.cardId||
+        !/^M[1-5]$/.test(t.view.zone)||at-t.view.lastSeen>3000||handNear(evidence,spot)||evidence.motion(spot)>.01)return false;
+      const look=evidence.appearance?.(spot),ring=evidence.halo?.(spot),refs=lookRefs(t);
+      if(!clearFieldBackground(look,ring,true)||!refs.length||refs.some(ref=>
+        clearFieldBackground(ref,ring,true)||matchesLook(t,look,ref)||sameShadedFieldAppearance(ref,look)))return false;
+      // A remembered stack can extend past the old card. Judge the entire
+      // calibrated cell before overriding the stack witness.
+      const cell=cellOf(t.view.zone);
+      return !!cell&&(!stack||clearFieldBackground(evidence.appearance?.(cell),evidence.halo?.(cell),true))&&
+        !flatSleeveQuad(cell,evidence);
+    };
+    const vacantFront=frontVacant();
     // A moving shadow is occlusion; a settled one only removes a card whose texture is gone.
-    if(removalBlurred||blurHold||!vacantSet&&handNear(evidence,t.view.card)||shadedKeeps(t,evidence)){t.clearCandidate=false;t.clearCandidateAt=undefined;resetAbsence(t);if(removalBlurred||blurHold)note(t,shadowNote());return;}
-    const halo=evidence.halo?.(t.view.card),pixels=evidence.background?.(t.view.card)??evidence.appearance?.(t.view.card);
+    if(removalBlurred||blurHold||!vacantSet&&!vacantFront&&handNear(evidence,card)||shadedKeeps(t,evidence)||
+      !vacantFront&&stack){t.clearCandidate=false;t.clearCandidateAt=undefined;resetAbsence(t);if(removalBlurred||blurHold)note(t,shadowNote());return;}
     // A uniform sleeve can match the mat. Unchanged card pixels are never
     // evidence of departure, even when the detector is between samples.
-    const clear=vacantSet||!sameFieldAppearance(t.identityAppearance??t.appearance,pixels)&&!evidence.occluded?.(t.view.card)&&
+    const clear=vacantSet||vacantFront||!sameFieldAppearance(t.identityAppearance??t.appearance,pixels)&&!evidence.occluded?.(card)&&
       clearFieldBackground(pixels,halo);
     t.clearCandidate=!!clear;if(clear)t.clearCandidateAt??=at;else t.clearCandidateAt=undefined;
-    if(!clear||evidence.motion(t.view.card)>.01){resetAbsence(t);return;}
+    if(!clear||evidence.motion(vacantFront?spot:card)>.01){resetAbsence(t);return;}
     t.view.visible=false;t.missed=true;invalidateRead(t);t.best=undefined;
     // The detector's receiving outline needs a few samples to settle. Give a new outline over another known
     // monster the same bounded chance here as in the full-scan path, even when its new top looks unlike this source.
@@ -820,7 +837,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
     if(t.missingAt!==undefined&&at-t.missingAt>Math.max(1000,metrics.detectorMs*2))resetAbsence(t);
     t.clearWindowAt??=at;t.missingAt=at;t.missingSamples++;
     if(t.missingSamples<DEPARTURE_SCANS||at-t.clearWindowAt<removalMs)return;
-    if(shadowOver(t.view.card)&&at-t.clearWindowAt<DEPARTURE_HOLD_MS){note(t,shadowNote());return;}
+    if(!vacantFront&&shadowOver(card)&&at-t.clearWindowAt<DEPARTURE_HOLD_MS){note(t,shadowNote());return;}
     t.view.removed=true;t.restoredAt=undefined;
     if(fieldSlot(t.view.zone))t.view.removedFrameAt=t.clearWindowAt;
     if(t.view.state==='identified'||t.placeholder)emit('removed',t,{reason:'empty'});
@@ -1084,7 +1101,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
           tracks.splice(tracks.indexOf(t),1);t.best=undefined;pruneFrames();continue;
         }
         if(!t.view.removed&&(evidence.motion(t.view.card)>.025||t.identityAppearance?.length&&!matchesLook(t,evidence.appearance?.(t.view.card))))beginTiming(t,sample.at);
-        if(busy||stackLooks.size&&stackStillThere(t.view.zone,evidence))resetAbsence(t);else observeAbsence(t,evidence,sample.at);
+        if(busy)resetAbsence(t);else observeAbsence(t,evidence,sample.at);
       }
       const cells=options.zoomSets?fieldCells():[];
       zoomPendingZones.clear();zoomDeparturePending.clear();

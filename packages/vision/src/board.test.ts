@@ -2281,6 +2281,28 @@ test('a hand over a missing monster and a changed neighbour cannot establish a c
  }finally{s.r.watcher.dispose();}
 });
 
+test('a known front clears promptly when a moving shadow varies the mat around its footprint',async()=>{
+ const r=fieldRig('sure',20,undefined,{width:1600,height:900},{zoomSets:true});
+ try{
+  r.watcher.setCalibration(zones.createFieldCalibration([{x:0,y:0},{x:1,y:1}]));
+  const spot=card(.4,.35,.1,.15),front=Array.from({length:288},(_,i)=>i%5<2?.75:.25);
+  r.outlines=[spot];r.appearanceAt=()=>front;
+  for(let i=0;i<8;i++)await r.tick();
+  const placed=r.events.find(e=>e.type==='placed')!;
+  r.watcher.confirm(placed.track.id,'A');
+  r.known=[{id:placed.track.id,zone:placed.track.zone,cardId:'A'}];
+  await r.tick(100);
+  const lift=r.at;
+  r.outlines=[];r.appearanceAt=()=>Array(288).fill(.2);
+  r.halo=Array.from({length:192},(_,i)=>i<36?.3:.2);
+  r.shadow={share:.2,changed:.05};
+  for(let i=0;i<6;i++)await r.tick(100);
+  const removed=r.events.find(e=>e.type==='removed'&&e.track.id===placed.track.id);
+  assert.equal(removed?.reason,'empty');
+  assert.ok(removed!.removedAt!-lift<=600);
+ }finally{r.watcher.dispose();}
+});
+
 test('a known monster leaving to empty mat without a receiving stack is removed promptly',async()=>{
  const s=await rememberedStackRig();try{
   s.show(null);const from=s.r.at;for(let i=0;i<35;i++)await s.r.tick(100);
