@@ -104,7 +104,7 @@ test('a verified Deck survives a covered outline and detector misses until its f
     assert.ok(!watcher.getSnapshot().missingPiles?.includes('DECK'));
     look=mat;
     await tick(26);
-    assert.equal(watcher.getSnapshot().piles.length,0);
+    assert.equal(watcher.getSnapshot().piles?.length??0,0);
     assert.ok(watcher.getSnapshot().missingPiles?.includes('DECK'));
   } finally { watcher.dispose(); }
 });
