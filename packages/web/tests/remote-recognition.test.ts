@@ -834,12 +834,16 @@ it('the face check waits on still frames, limits repeated flips, keeps the playe
  const {createFieldFaceCheck,FIELD_FACE_RELEASE_MS,FIELD_FACE_QUIET_MS,FIELD_FACE_CALM_MS}=await import('../src/lib/remote/field-face');
  const {fieldFaceProposal,fieldSetMove,applyFieldFaceFlip}=await import('../src/lib/remote/field-proposals');
  const track=(over:object={})=>({id:'c',state:'identified',zone:'S4',faceDown:true,position:'attack',removed:false,visible:false,lastSeen:0,restSince:0,revision:1,card:{confidence:.2},...over}) as any;
- const run=(check:ReturnType<typeof createFieldFaceCheck>,t:any,card:any,at:number,scan=false)=>check.due({at,seat:0,scan,tracks:[{...t,lastSeen:at}],twins:[card],refOf:x=>x.id,identity:x=>x.cardId?{cardId:89194033,name:'Apophis'}:undefined});
+ const run=(check:ReturnType<typeof createFieldFaceCheck>,t:any,card:any,at:number,scan=false,freshZoom=false)=>check.due({at,seat:0,scan,tracks:[{...t,lastSeen:at}],twins:[card],refOf:x=>x.id,freshZoom:()=>freshZoom,identity:x=>x.cardId?{cardId:89194033,name:'Apophis'}:undefined});
  const up={ref:'c',zone:'spell-trap',faceUp:true} as any,down={...up,faceUp:false};
  // 600 ms of still frames, and a rest that starts later counts from there.
  let check=createFieldFaceCheck();
  expect(run(check,track({restSince:1000}),up,1000)).toEqual([]);expect(run(check,track({restSince:1000}),up,1500)).toEqual([]);
  expect(run(check,track({restSince:1000}),up,1650)[0].proposal).toMatchObject({type:'twin.flip',faceUp:false,source:'auto'});
+ const zoomFront=track({visible:true,faceDown:false,cardId:'a',restSince:1000});
+ expect(run(createFieldFaceCheck(),zoomFront,down,1000,false,true)[0]?.proposal).toMatchObject({type:'twin.flip',cardRef:'c',faceUp:true,cardId:89194033});
+ const manuallySet=createFieldFaceCheck();manuallySet.hold('c',false);
+ expect(run(manuallySet,zoomFront,down,1000,false,true)).toEqual([]);
  // Glare: a down and an up, then quiet. The level check picks the card up again after the quiet time; Scan field does not wait.
  check=createFieldFaceCheck();check.flipped('c',0);check.flipped('c',1300);
  expect(run(check,track(),up,5000)).toEqual([]);expect(run(check,track(),up,1300+FIELD_FACE_QUIET_MS-1)).toEqual([]);

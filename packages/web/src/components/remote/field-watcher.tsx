@@ -1150,6 +1150,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
         if(target.zone){const latest=fieldZoneLocation(target.zone);if(persisted.zone===latest.zone&&persisted.slot===latest.slot&&fieldPositionMatches(latest.zone,persisted.position,fieldTwinPosition({...after!,zone:target.zone})))rememberPhysical(card.ref,after!.zone);}
       }else if(event.type==='flipped'&&event.track.faceDown)await apply(event,act);
     },event);
+    if(event.type==='flipped'&&!event.track.faceDown&&fieldCellEvidence(event)?.basis==='zoom')faceCheck.current(event);
   }
   // A new card-recognition mode restarts the reader, so the watcher must pick up the new one.
   const {generation}=useRecognitionBackend(),readerKey=useMemo(()=>({source,generation}),[source,generation]);
@@ -1574,13 +1575,12 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   /** False when this fix was already tried on this board state. A failed write may try again (3 times) next cycle. */
   const tryFix=(key:string)=>{const board=boardState(),seen=resynced.current.get(key);if(seen?.board===board)return false;resynced.current.set(key,{board,fails:seen?.fails??0});return true;};
   const fixFailed=(key:string,error:unknown)=>{console.info('[remote field] re-sync write skipped',key,error instanceof Error?error.message:error);if(error instanceof OutageGaveUpError){resynced.current.delete(key);return;}const seen=resynced.current.get(key);if(seen&&++seen.fails<3)seen.board='';};
-  // Face check. A flip event fires once, on the change, and is dropped if its card stays out of sight during the retries. So the
-  // board follows the track's face itself, whichever path caused the difference: after 600 ms of still frames, one flip action,
-  // no notice. The rules are in field-face.ts. Holds are in memory: after a reload the board follows the camera again.
+  // A fresh zoom triggers the face check directly. Older detector evidence uses the still-frame check.
   const faceBusy=useRef(false);
-  const faceFixes=(at:number,scan:boolean)=>{
+  const faceFixes=(at:number,scan:boolean,zoom?:FieldEvent)=>{
     const reading=new Set(placeholders.current.values());
     return face.current.due({at,scan,seat,tracks:watch.getTracks(),twins:current.current.room.state.seats[seat].twin,refOf:t=>bindings.current.get(t.id)??t.id,skip:ref=>reading.has(ref)||heldStacks.current.has(ref),
+      freshZoom:t=>!!zoom&&zoom.track.id===t.id&&zoom.track.zone===t.zone&&zoom.track.restSince===t.restSince&&fieldEvidenceMatches(zoom,t),
       identity:t=>{const entry=t.cardId?entries.current.get(t.cardId):undefined,code=entry&&catalogCardId(entry);return code?{cardId:code,name:entry!.name}:undefined;}});
   };
   const flipFace=async(act:RoomMutation,{track,card,proposal}:FieldFaceFix)=>{
@@ -1599,15 +1599,15 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     rememberPhysical(card.ref,track.zone);
     return updated;
   };
-  const faceCheck=useRef<()=>void>(()=>undefined);
-  faceCheck.current=()=>{
+  const faceCheck=useRef<(zoom?:FieldEvent)=>void>(()=>undefined);
+  faceCheck.current=zoom=>{
     if(faceBusy.current||!live()||calibrationBusy.current||document.hidden)return;
-    const fixes=faceFixes(performance.now(),false);if(!fixes.length)return;
+    const fixes=faceFixes(performance.now(),false,zoom);if(!fixes.length)return;
     faceBusy.current=true;
     void queue(async act=>{
       for(const {card:{ref}} of fixes){
         // Earlier work in the queue may have settled it already.
-        const fix=faceFixes(performance.now(),false).find(f=>f.card.ref===ref);if(!fix)continue;
+        const fix=faceFixes(performance.now(),false,zoom).find(f=>f.card.ref===ref);if(!fix)continue;
         try{await flipFace(act,fix);}catch(error){console.info('[remote field] face check write failed',ref,error instanceof Error?error.message:error);face.current.failed(ref,performance.now());}
       }
     },undefined,false,true).finally(()=>{faceBusy.current=false;});

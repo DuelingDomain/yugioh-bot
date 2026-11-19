@@ -19,6 +19,8 @@ export interface FieldFaceInput {
   /** Cards this check leaves alone for now (a reading placeholder, a stack that waits for a summon). */
   skip?:(ref:string)=>boolean;
   identity:(track:FieldTrack)=>{cardId:number;name?:string}|undefined;
+  /** This revision and face have a current settled zoom witness. */
+  freshZoom?:(track:FieldTrack)=>boolean;
   /** Scan field: overrules holds, the wait, the limit and earlier failures. */
   scan?:boolean;
 }
@@ -45,7 +47,7 @@ export function createFieldFaceCheck() {
     /** A write failed: wait, and stop after three until the faces agree or Scan field runs. */
     failed(ref:string,at:number){const count=(fails.get(ref)?.count??0)+1;fails.set(ref,{count,until:count>=MAX_FAILS?Infinity:at+2000*count});},
     clear(){holds.clear();seen.clear();flips.clear();fails.clear();pairs.clear();locks.clear();},
-    due({at,seat,tracks,twins,refOf,skip,identity,scan=false}:FieldFaceInput):FieldFaceFix[] {
+    due({at,seat,tracks,twins,refOf,skip,identity,freshZoom,scan=false}:FieldFaceInput):FieldFaceFix[] {
       const fixes:FieldFaceFix[]=[];
       for(const track of tracks){
         if(!fieldFaceWitness(track,at))continue;
@@ -65,7 +67,8 @@ export function createFieldFaceCheck() {
         const proposal=fieldFaceProposal(card,track,seat,identity(track));
         if(!proposal){if(card.faceUp!==track.faceDown){seen.delete(card.ref);fails.delete(card.ref);}continue;}
         const since=seen.get(card.ref)??at;seen.set(card.ref,since);
-        if(!scan&&(at<(fails.get(card.ref)?.until??-Infinity)||!allows(card.ref,at)||at-Math.max(since,track.restSince!)<FIELD_FACE_WAIT_MS))continue;
+        if(!scan&&(at<(fails.get(card.ref)?.until??-Infinity)||!allows(card.ref,at)||
+          at-Math.max(since,track.restSince!)<FIELD_FACE_WAIT_MS&&!(track.visible&&freshZoom?.(track))))continue;
         fixes.push({track,card,proposal});
       }
       return fixes;
