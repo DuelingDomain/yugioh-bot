@@ -16,27 +16,16 @@ export const remoteActionError=()=>lastActionError;
  * A lost private message leaves the held sequence behind, so the GET still runs; the slow poll repairs anything else.
  */
 export const remoteChangeNeedsFetch=(heldSeq:number,announcedSeq:number)=>announcedSeq>heldSeq;
-/** Opt in for one ref and cell. Any stale-write retry must revalidate the callback's evidence. */
-type CardScope = {seat: number; cardRef: string; cell: {zone: string; slot?: number}};
-export type RoomTransaction = <T>(work:(room:RemoteRoom,act:RoomMutation)=>Promise<T>,scope?:CardScope)=>Promise<T>;
+export type RoomTransaction = <T>(work:(room:RemoteRoom,act:RoomMutation)=>Promise<T>)=>Promise<T>;
 
 export const hasPendingTwinConfirmation = (room: RemoteRoom) =>
   !!(room.state.twinConfirmation || room.state.twinConfirmationQueue?.length);
 
-function scopeKeys({seat,cardRef,cell}: CardScope) {
-  const {zone,slot}=cell;
-  const location=zone==='extra-monster'?'shared:extra-monster':zone==='pendulum'
-    ?`${seat}:spell-trap:${slot===2?5:1}`
-    :`${seat}:${zone}:${slot??0}`;
-  return [`ref:${seat}:${cardRef}`,`cell:${location}`];
-}
-
-/** A room-wide transaction remains a barrier for card-scoped work. Log writes have no board dependency. */
+/** Serialize board transactions. Notes can use the manual chain independently. */
 export function createRoomMutationQueue(read:()=>RemoteRoom|undefined,post:RoomMutation,giveUp?:(error:Error)=>void,valid?:()=>boolean) {
   const idle = Promise.resolve();
   let chain: Promise<unknown> = idle, manual: Promise<unknown> = idle;
   let latest: RemoteRoom | undefined;
-  const scoped = new Map<string, Promise<unknown>>();
   const current = () => {
     const rendered = read();
     if (rendered && (!latest || rendered.lastSeq >= latest.lastSeq)) latest = rendered;
@@ -69,12 +58,8 @@ export function createRoomMutationQueue(read:()=>RemoteRoom|undefined,post:RoomM
       return null;
     }
   };
-  const transaction: RoomTransaction = (work, scope) => {
-    const keys = scope && scopeKeys(scope);
-    const ready = scoped.size
-      ? Promise.all([chain, ...(keys ? keys.map(key => scoped.get(key)) : new Set(scoped.values()))])
-      : chain;
-    const result = ready.then(async () => {
+  const transaction: RoomTransaction = work => {
+    const result = chain.then(async () => {
       const room = current();
       if (!room) throw new Error('Table is not loaded');
       let writes: Promise<unknown> = idle;
@@ -88,13 +73,7 @@ export function createRoomMutationQueue(read:()=>RemoteRoom|undefined,post:RoomM
       try { return await work(room, act); }
       finally { await writes; }
     });
-    const tail = result.catch(() => undefined);
-    if (keys) {
-      for (const key of keys) scoped.set(key, tail);
-      void tail.then(() => {
-        for (const key of keys) if (scoped.get(key) === tail) scoped.delete(key);
-      });
-    } else chain = tail;
+    chain = result.catch(() => undefined);
     return result;
   };
   return {

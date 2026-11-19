@@ -8,6 +8,7 @@ import useSWR from "swr";
 import { io, type Socket } from "socket.io-client";
 import { remoteApi, tabId } from "./api";
 import { preloadRoomCards } from "./catalog";
+import { deckIdsOf } from "./model";
 import type { RemoteAction, RemoteActionProposal, RemoteBestOf, RemoteClientEvents, RemoteRoom, RemoteServerEvents } from "@yugidraft/shared/remote";
 
 import {markFieldState,stampedProposal} from '@/lib/remote/field-timing';
@@ -42,14 +43,14 @@ export function useRemoteRoom(slug: string, options: { watchAsAdmin?: boolean } 
   const lastSeq = useRef(0),tableKey=useRef(slug),socketSeq=useRef(0);
   if(tableKey.current!==slug){tableKey.current=slug;lastSeq.current=0;socketSeq.current=0;roomRef.current=room?.slug===slug?room:undefined;}
   const status = room?.status; const mySeat = room?.mySeat;
-  const preparingDeck = status === "lobby" || room?.state.match.phase === "siding"
-    ? room?.seats.find(seat => seat.seat === mySeat)?.deck?.deck : undefined;
+  const preparingDeckKey = room && room.mySeat >= 0 && (status === "lobby" || room.state.match.phase === "siding")
+    ? deckIdsOf(room, room.mySeat).join(",") : "";
   useEffect(() => {
     const opened = roomRef.current;
     if (opened?.slug === slug && mySeat !== undefined && mySeat >= 0 && status !== "ended") {
       void preloadRoomCards(opened);
     }
-  }, [slug, mySeat, status, preparingDeck]);
+  }, [slug, mySeat, status, preparingDeckKey]);
   const peerStamps = useRef(false);
   useEffect(() => {
     try { peerStamps.current = sessionStorage.getItem("remote-peer-latency") === "1"; } catch { /* Optional diagnostics. */ }

@@ -1247,6 +1247,24 @@ describe("solo remote tables", () => {
       expect(service.join(slug, "g", users[3], "Admin", 1, t + 20_000 + 10).seats.map(x => x.userId)).toContain(users[3]);
     } finally { vi.unstubAllEnvs(); }
   });
+  it("commits a log note and a twin placement submitted concurrently at the same sequence", async () => {
+    const s = deckSession("normal");
+    s.start();
+    const { slug, lastSeq: baseSeq, state } = s.room;
+    const submit = (proposal: RemoteActionProposal, idempotencyKey: string) => Promise.resolve().then(() =>
+      s.service.act(slug, "g", s.users[0], { baseSeq, action: remoteActionSchema.parse({ ...proposal, idempotencyKey }) }, 3000));
+
+    // Both requests carry the same sequence. SQLite processes the note first.
+    const [noted, placed] = await Promise.all([
+      submit({ type: "log.note", actorSeat: 0, text: "Good luck" }, "concurrent-note"),
+      submit({ type: "twin.place", actorSeat: 0, seat: 0, zone: "monster",
+        card: { ref: "concurrent-card", slot: 1, faceUp: true, position: "attack" } }, "concurrent-place"),
+    ]);
+    expect(noted.state).toEqual({ ...state, updatedAt: 3000 });
+    expect(placed.lastSeq).toBe(baseSeq + 2);
+    expect(placed.events.slice(-2).map(event => event.action.type)).toEqual(["log.note", "twin.place"]);
+    expect(placed.state.seats[0].twin).toContainEqual(expect.objectContaining({ ref: "concurrent-card", zone: "monster", slot: 1 }));
+  });
   it("an admin who starts or stops watching never makes a player's move stale, and the stop line follows the grace", () => {
     const s = deckSession("normal", false);
     vi.stubEnv("OWNER_USER_IDS", String(s.users[3]));
