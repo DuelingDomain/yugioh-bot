@@ -160,6 +160,16 @@ export function recentCommittedSet(track:FieldTrack,at=performance.now()):boolea
 }
 export const fieldSetRebind=(event:FieldEvent)=>event.track.faceDown&&(event.type==='flipped'||event.type==='moved');
 
+/** A sure, settled read can reveal its bound Set through the atomic placement path. */
+export function fieldSureSetReveal(event:FieldEvent,track:FieldTrack,card:Pick<TwinCard,'ref'|'zone'|'slot'|'faceUp'|'ownerSeat'>):boolean {
+  const result=event.result,top=result?.candidates[0];
+  const location=fieldZoneLocation(track.zone);
+  return event.type==='placed'&&event.track.zone===track.zone&&card.ref===track.id&&!card.faceUp&&card.ownerSeat===undefined&&
+    card.zone===location.zone&&card.slot===location.slot&&!!track.visible&&!track.under&&!track.faceDown&&
+    track.restSince!==undefined&&!track.nameCandidates?.length&&result?.tier==='sure'&&!!top&&top.cardId===track.cardId&&top.score>=.84&&
+    !result.quality.fallback&&!result.quality.covered&&!result.quality.partial&&!result.quality.faceDown;
+}
+
 /** An identified track that was seen this recently still has evidence when a slow tick set `visible` false. */
 const VISIBLE_GRACE_MS=1000;
 /** The first reason queued evidence no longer fits the live track (undefined: it fits). For the "identification deferred" log. */

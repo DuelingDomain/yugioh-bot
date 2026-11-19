@@ -1545,3 +1545,18 @@ it('Set comparison switches default on and query overrides take precedence over 
  vi.stubGlobal('localStorage',{getItem:()=>null});vi.stubGlobal('window',{location:{search:''}});
  expect(readSetGuards()).toEqual({positiveBack:true,prompt:true,ignore:true,startup:true,handRelease:true});
 });
+
+it('only a clean sure read can reveal the settled Set on its own ref immediately', async () => {
+  const {fieldSureSetReveal} = await import('../src/lib/remote/field-proposals');
+  const track = {id:'set-1',zone:'S2',cardId:'17782288',visible:true,faceDown:false,restSince:100,bestMatch:true} as import('@yugidraft/vision').FieldTrack;
+  const card = {ref:'set-1',zone:'spell-trap',slot:2,faceUp:false} as import('@yugidraft/shared/remote').TwinCard;
+  const result = {tier:'sure',quality:{},candidates:[{cardId:'17782288',score:.843}]} as import('@yugidraft/vision').RecognitionResult;
+  const event = {type:'placed',source:'auto',track,result} as const;
+  expect(fieldSureSetReveal(event,track,card)).toBe(true);
+  expect(fieldSureSetReveal(event,track,{...card,ref:'other'})).toBe(false);
+  expect(fieldSureSetReveal(event,track,{...card,slot:3})).toBe(false);
+  expect(fieldSureSetReveal(event,{...track,visible:false},card)).toBe(false);
+  expect(fieldSureSetReveal(event,{...track,cardId:'other'},card)).toBe(false);
+  expect(fieldSureSetReveal({...event,result:{...result,tier:'not sure'}},track,card)).toBe(false);
+  expect(fieldSureSetReveal({...event,result:{...result,quality:{...result.quality,fallback:true}}},track,card)).toBe(false);
+});
