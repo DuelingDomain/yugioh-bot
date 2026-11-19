@@ -645,13 +645,15 @@ it('field legality: a full row abstains instead of overwriting a twin',async()=>
   expect(result.zone).toBeUndefined();expect(result.reason).toMatch(/no free|full/i);
  }
 });
-it('field legality: Field Spells move to a free Field Spell Zone (hard rule) and otherwise stay with Check zone',async()=>{
+it('field legality: Field Spells use the Field Spell Zone even when it is occupied',async()=>{
  const {projectFieldZone,hardFieldZone}=await import('../src/lib/remote/field-legality');
  for(const facts of [{type:'Field Spell'},{type:'Spell Card',race:'Field'}]){
   expect(projectFieldZone({zone:'M4',facts,twins:[]})).toEqual({zone:'FIELD',label:'Field Spell Zone',moved:'Field Spell → Field Zone'});
   expect(hardFieldZone(facts,'S1',[],'self')).toBe('FIELD');
-  const blocked=projectFieldZone({zone:'S4',facts,twins:[{ref:'field',zone:'field'}]});
-  expect(blocked.zone).toBe('S4');expect(blocked.check).toMatch(/Field Spell Zone/i);
+  const twins=[{ref:'field',zone:'field'}];
+  for(const zone of ['S4','M4','FIELD'] as const){
+   expect(projectFieldZone({zone,facts,twins})).toEqual({zone:'FIELD',label:'Field Spell Zone',...(zone==='FIELD'?{}:{moved:'Field Spell → Field Zone'})});
+  }
  }
  expect(hardFieldZone({type:'Link Monster',frameType:'link'},'S2',[],'self')).toBeUndefined();
  expect(hardFieldZone({type:'Effect Monster'},'S2',[],'self')).toBeUndefined();

@@ -14,6 +14,7 @@ import { deleteRemoteRooms, pruneRemoteSessions } from "./remote-cleanup.js";
 import { captureRemoteTournamentEvidence } from "./tournament-remote-evidence.js";
 import { initializeRemoteHandCounts } from "../remote/hand.js";
 import { diffView } from "../remote/delta.js";
+import { remoteFieldZone } from "../remote/twin-placement.js";
 import type { RemoteHistoryItem, RemoteHistoryOptions, RemoteHistoryPage, RemoteReplay, RemoteReplayStep } from "../remote/history.js";
 import type Database from "better-sqlite3";
 import { isOwnerUser } from "../access/owner-access.js";
@@ -606,6 +607,13 @@ export function createRemoteDuelService(db: Database.Database, options: {
         const stamp = Math.max(now, before.updatedAt);
         const action = { ...command, at: stamp };
         const effects: RemoteReductionContext = {...REMOTE_REDUCTION_VERSIONS,showCardsSetFromDeck:before.showCardsSetFromDeck};
+        const target = 'cardRef' in command && 'seat' in command
+          ? before.seats[command.seat]?.twin.find(c => c.ref === command.cardRef) : undefined;
+        const played = command.type === 'twin.place' && !command.give && remoteFieldZone(command.zone) ? command.card :
+          command.type === 'twin.move' && remoteFieldZone(command.zone) ? target :
+          command.type === 'twin.flip' && command.faceUp && target && remoteFieldZone(target.zone) ? (command.cardId ? command : target) :
+          command.type === 'card.identified' && target?.faceUp && remoteFieldZone(target.zone) ? command :
+          command.type === 'effect.activated' && command.fromHand ? command.source : undefined;
         if(command.type==='hand.add')effects.privateHandIdentity=command.source==='deck'&&before.showCardsSetFromDeck===false||command.source==='field'&&
           !!before.seats[command.actorSeat].twin.find(c=>(c.cardId??c.passcode)===command.cardId&&['monster','extra-monster','spell-trap','field','pendulum'].includes(c.zone)&&!c.faceUp);
         if(command.type==='deck.count')effects.privateHandIdentity=true;
@@ -633,6 +641,10 @@ export function createRemoteDuelService(db: Database.Database, options: {
         const deckCodes = Object.values(registrations).flatMap(r => r ? [...r.deck.main, ...r.deck.extra, ...r.deck.side, ...(r.deck.deckMaster ? [r.deck.deckMaster] : [])] : []);
         const twinCodes = before.seats.flatMap(s => s.twin.flatMap(c => c.cardId ?? c.passcode ? [c.cardId ?? c.passcode!] : []));
         effects.facts = deckRules.facts(format(row), [...new Set([...codes, ...deckCodes, ...twinCodes])]);
+        if (played) {
+          const code = played.cardId ?? ('passcode' in played ? played.passcode : undefined);
+          if (code || played.name) effects.spellTrapPlay = deckRules.spellTrapPlay({ cardId: code, name: played.name, type: code ? effects.facts[code]?.type : undefined });
+        }
         if (command.type === "side.swap") {
           const registration = registrations[command.actorSeat];
           remoteAssert(registration, "Select an attached deck before side decking", 409);

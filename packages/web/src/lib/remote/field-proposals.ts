@@ -1,6 +1,6 @@
 import {remoteActionError,type RoomMutation} from './room-mutations';
 import {OutageGaveUpError,retryThroughOutage,SKIPPED} from './outage';
-import {REMOTE_TWIN_MOVE_WINDOW_MS,type RemoteActionProposal,type RemoteEvent,type RemoteSummonKind,type TwinCard} from '@yugidraft/shared/remote';
+import {RemoteDuelError,REMOTE_TWIN_MOVE_WINDOW_MS,type RemoteActionProposal,type RemoteEvent,type RemoteSummonKind,type TwinCard} from '@yugidraft/shared/remote';
 import { FIELD_SET_RETURN_MS,fieldZoneLocation, type FieldEvent, type FieldSnapshot, type FieldTrack } from '@yugidraft/vision';
 // A manual read may finish before the watcher's first identity read. Preserve
 // its physical row even when card legality projects it into another virtual row.
@@ -435,13 +435,14 @@ export async function retryFieldMutation(act:RoomMutation,proposal:RemoteActionP
   const attempts=3;let reason='';
   for(let attempt=0;attempt<attempts;attempt++){
     if(!valid())return null;
-    const before=remoteActionError()?.at;
+    const before=remoteActionError();
     let updated:Awaited<ReturnType<RoomMutation>>=null;
     try{
       const sent=await retryThroughOutage(()=>act(proposal,id),{valid,patient:!options.quiet});
       if(sent===SKIPPED)return null;
       updated=sent;
     }catch(error){
+      if(error instanceof RemoteDuelError&&error.code==='ACTIVATION_LIMIT')throw error;
       if(error instanceof OutageGaveUpError){
         if(options.quiet)throw error;
         throw new Error(`Could not save the field update (${proposal.type}: no connection). Use Retry field update.`);
@@ -449,7 +450,11 @@ export async function retryFieldMutation(act:RoomMutation,proposal:RemoteActionP
       failed(error);reason=error instanceof Error?error.message:String(error);if(attempt===attempts-1)throw error;
     }
     if(updated)return updated;
-    const server=remoteActionError();if(server&&server.at!==before)reason=server.message;
+    const server=remoteActionError();
+    if(server&&server!==before){
+      if(server.code==='ACTIVATION_LIMIT')throw new RemoteDuelError(server.message,409,server.code);
+      reason=server.message;
+    }
     failed(new Error(`Could not save ${proposal.type}${reason?`: ${reason}`:''}. Retrying the field update.`));
     if(attempt<attempts-1)await new Promise(resolve=>setTimeout(resolve,100*(attempt+1)));
   }

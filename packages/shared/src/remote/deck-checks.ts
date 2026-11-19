@@ -58,6 +58,8 @@ export type RemoteReductionContext = {
   /** Event-time rule; absent on events recorded before Deck publicity existed. */
   showCardsSetFromDeck?: boolean;
   effect?: { source: import("./effect-filters.js").RemoteEffectSource; plans: import("./effect-filters.js").RemoteEffectPlan[] };
+  /** Catalog rules for the card played by this action. Older events omit them. */
+  spellTrapPlay?: { field?: true; activationLimit?: string };
   privateRecognition?: boolean;
   publicEffectChoice?: boolean;
   /** Private hand/deck payloads are removed from public event projections. */
