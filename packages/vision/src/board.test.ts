@@ -550,7 +550,9 @@ test('a flat plain sleeve the detector never boxes is placed as a Set from its p
   for(let i=0;i<8;i++){zoomed.watcher.scanNow();await zoomed.tick(300);}
   await zoomed.tick(300); // Finish the explicit scan before testing priority sampling.
   zoomed.appearanceAt=c=>Array(288).fill(inCell(c)?.65:.25);
-  zoomed.cropAt=c=>c.kind==='face-down'?own:barePadded;
+  const span=(c:DetectedQuad)=>Math.max(...c.quad.map(p=>p.x))-Math.min(...c.quad.map(p=>p.x));
+  zoomed.skinNearAt=c=>inCell(c)&&span(c)>=cell.w-.001?.1:0;
+  zoomed.cropAt=c=>c.kind==='face-down'?(span(c)>cell.w?padded:own):barePadded;
   zoomed.zoom=frame=>{
     assert.ok(frame.width>200&&frame.width<400,'the crop comes from the native frame');
     return [{...card(.30,.36,.40,.50),kind:'face-down',confidence:.41}];
@@ -564,8 +566,12 @@ test('a flat plain sleeve the detector never boxes is placed as a Set from its p
   assert.deepEqual(zoomed.events.filter(e=>e.type==='placed').map(e=>[e.track.zone,e.track.faceDown]),[['S4',true]]);
   await zoomed.tick(100);
   assert.equal(zoomed.detectOptions.filter(o=>o.zoom).length,1,'the settled Set does not spend another crop');
-  zoomed.appearanceAt=()=>Array(288).fill(.2);
+  zoomed.skinNearAt=undefined;
+  zoomed.appearanceAt=c=>inCell(c)?Array.from({length:288},(_,i)=>i<144?.38:.85):Array(288).fill(.2);
   zoomed.zoom=()=>[];
+  for(let i=0;i<14;i++)await zoomed.tick(100);
+  assert.equal(zoomed.events.filter(e=>e.type==='removed').length,0,'a detector miss and changed sleeve glare do not prove the Set left');
+  zoomed.appearanceAt=()=>Array(288).fill(.2);
   for(let i=0;i<14;i++)await zoomed.tick(100);
   assert.equal(zoomed.detectOptions.filter(o=>o.zoom).length,1,'clear mat does not need a departure zoom');
   const departure=zoomed.events.find(e=>e.type==='removed');
@@ -1972,6 +1978,30 @@ test('a face-up card turned face-down in its zone flips in place, also after a l
   if(scenario==='stack')assert.deepEqual(sets,[],'a deck stack never becomes a Set');
   l.watcher.dispose();
  }
+});
+
+test('a settled same-cell flip follows the announced front after the detector follows the lift',async()=>{
+ const r=fieldRig('sure',20,undefined,{width:1600,height:900},{zoomSets:true});
+ try{
+  r.watcher.setCalibration(zones.createFieldCalibration([{x:0,y:0},{x:1,y:1}]));
+  const front=card(.45,.75,.08,.21),lift=card(.50,.75,.08,.21);
+  const art=Array.from({length:288},(_,i)=>((Math.floor(i/3)*17+(i%3)*31)%251)/255);
+  const sleeve=Array(288).fill(.78),inS3=(c:DetectedQuad)=>Math.abs(zones.fieldCenter(c).x-.5)<.067&&zones.fieldCenter(c).y>2/3;
+  r.outlines=[front];r.appearanceAt=c=>inS3(c)?art:Array(288).fill(.2);
+  for(let i=0;i<12;i++)await r.tick(100);
+  const placed=r.events.find(e=>e.type==='placed')!;
+  r.known=[{id:placed.track.id,zone:'S3',cardId:'A',faceDown:false}];
+  r.watcher.confirm(placed.track.id,'A');
+  r.outlines=[lift];r.motion=.1;
+  await r.tick(100);
+  assert.deepEqual(r.watcher.getSnapshot().tracks.find(t=>t.id===placed.track.id)?.card.quad,lift.quad,'the detector followed the lifted card');
+  r.outlines=[];
+  r.appearanceAt=c=>inS3(c)?sleeve:Array(288).fill(.2);
+  r.cropAt=c=>c.blind?fieldCrop({...c,kind:'face-down'}):undefined!;
+  r.motion=0;
+  for(let i=0;i<8;i++)await r.tick(100);
+  assert.deepEqual(r.events.filter(e=>e.type==='flipped'||e.type==='removed').map(e=>[e.type,e.track.id]),[['flipped',placed.track.id]]);
+ }finally{r.watcher.dispose();}
 });
 
 // Owner cleared the field: S2, S4, M3 and FIELD stayed ~10 s while an arm lay on the mat at the far side.

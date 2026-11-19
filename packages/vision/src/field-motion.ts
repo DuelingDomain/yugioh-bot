@@ -1,8 +1,9 @@
 import { boundsOf, quadMap, warpQuad, type Quad } from './geometry';
 import { sharpness } from './quality';
-import type { DetectedQuad, FractionalBox } from './types';
+import type { DetectedQuad, FractionalBox, Point } from './types';
 import { resizeRGBA, type RGBAImage } from './pixels';
 const SKIN_CONNECT_RGB=32;
+const SKIN_SAMPLE_STEP=2;
 /**
  * Settled background for the hand test. Skin colour alone cannot tell a hand from an orange card frame, a pink sleeve,
  * warm mat art or a wooden table: those never leave, a hand does. A grid cell joins the background once nothing moved in
@@ -10,6 +11,17 @@ const SKIN_CONNECT_RGB=32;
  * hovers or trembles keeps its own cells and their neighbours moving, so it is not learned.
  */
 const SETTLED_CELL=8,SETTLED_NEAR=2,SETTLED_MS=4000,SETTLED_NEW_RGB=32;
+function insideQuad(x:number,y:number,quad:readonly Point[],inset?:readonly number[]):boolean {
+  let positive=false,negative=false;
+  for(let i=0;i<quad.length;i++){
+    const a=quad[i],b=quad[(i+1)%quad.length],cross=(b.x-a.x)*(y-a.y)-(b.y-a.y)*(x-a.x);
+    if(inset&&Math.abs(cross)<inset[i])return false;
+    if(cross>0)positive=true;
+    if(cross<0)negative=true;
+    if(positive&&negative)return false;
+  }
+  return true;
+}
 export type FieldFrame=ImageBitmap|ImageData;
 /** Shadow evidence: share of the frame darker than its recent background with the same chromaticity, and the share that changed since the last frame. */
 export interface FieldShadow { /** Mean RGB per grid cell (gx x gy x 3) of this frame. */ means?:Float32Array; share:number; changed:number; /** Per-cell flags (row-major, gx x gy) of shadow cells that turned on or off this frame: the watcher holds removals only where a shadow moves. */ moved?:Uint8Array; gx?:number; gy?:number }
@@ -30,7 +42,7 @@ export function createFieldAnalyzer(options:{downsampleRGBA?:boolean}={}) {
   let lastMeans:Float32Array|undefined,markMeans:Float32Array|undefined;
   /** A camera lock or exposure change: learn the shadow baseline and the motion reference again. */
   const reset=()=>{shadows=createShadowBaseline();previous=undefined;skinReference=undefined;settled=undefined;lastMeans=undefined;markMeans=undefined;};
-  return Object.assign((frame:FieldFrame,at:number=performance.now()):FieldAnalysis=>{
+  return Object.assign((frame:FieldFrame,at:number=performance.now(),mat?:readonly Point[]):FieldAnalysis=>{
     let image:RGBAImage;
     if(!('close' in frame))image=options.downsampleRGBA&&frame.width>320?resizeRGBA(frame,320,Math.max(3,Math.round(frame.height*320/frame.width))):frame;
     else {
@@ -73,6 +85,12 @@ export function createFieldAnalyzer(options:{downsampleRGBA?:boolean}={}) {
       }
     }
     const scenery=settled;
+    const matPixels=mat?.length===4?mat.map(p=>({x:p.x*image.width,y:p.y*image.height})):undefined;
+    // The downsample blends desk and mat colours along the calibrated edge.
+    const matInset=matPixels?.map((p,i)=>{
+      const next=matPixels[(i+1)%4];
+      return SKIN_SAMPLE_STEP*Math.hypot(next.x-p.x,next.y-p.y);
+    });
     /** The settled pixel under (px,py), if its cell has been learned. */
     const settledAt=(px:number,py:number)=>scenery.known[Math.floor(py/SETTLED_CELL)*scenery.gx+Math.floor(px/SETTLED_CELL)]===1;
     const crop=(card:DetectedQuad,padding:number)=>{const b=boundsOf(card.quad);return {left:Math.max(1,Math.floor((b.x-b.w*padding)*image.width)),top:Math.max(1,Math.floor((b.y-b.h*padding)*image.height)),right:Math.min(image.width-1,Math.ceil((b.x+b.w*(1+padding))*image.width)),bottom:Math.min(image.height-1,Math.ceil((b.y+b.h*(1+padding))*image.height))};};
@@ -178,7 +196,7 @@ export function createFieldAnalyzer(options:{downsampleRGBA?:boolean}={}) {
         const cached=occlusions.get(card);if(cached!==undefined)return cached;
         // Skin must connect through the sleeve edge to the surrounding hand.
         // Warm printed artwork alone is not an occluder, even while stationary.
-        const b=crop(card,.3),box=boundsOf(card.quad),step=2,w=Math.ceil((b.right-b.left)/step),h=Math.ceil((b.bottom-b.top)/step);
+        const b=crop(card,.3),box=boundsOf(card.quad),step=SKIN_SAMPLE_STEP,w=Math.ceil((b.right-b.left)/step),h=Math.ceil((b.bottom-b.top)/step);
         if(w<=0||h<=0)return 0;
         // The flood fill can only start on the sample boundary. Quiet cells
         // without a skin-coloured border need no mask or per-pixel geometry.
@@ -190,6 +208,7 @@ export function createFieldAnalyzer(options:{downsampleRGBA?:boolean}={}) {
         const mask=new Uint8Array(w*h),fresh=new Uint8Array(w*h),inside=new Uint8Array(w*h),edge=new Uint8Array(w*h),queue:number[]=[];
         const sides=new Int8Array(w*h).fill(-1),newSkin=new Uint8Array(w*h),sideTotal=[0,0,0,0],sideSkin=[0,0,0,0];
         const corners=card.quad.map(p=>({x:p.x*image.width,y:p.y*image.height}));
+        const onMat=matPixels&&insideQuad((box.x+box.w/2)*image.width,(box.y+box.h/2)*image.height,matPixels);
         let total=0,covered=0,near=0;
         for(let y=0;y<h;y++)for(let x=0;x<w;x++){
           const px=b.left+x*step,py=b.top+y*step,i=(py*image.width+px)*4,index=y*w+x;
@@ -200,16 +219,12 @@ export function createFieldAnalyzer(options:{downsampleRGBA?:boolean}={}) {
           const learned=settledAt(px,py),still=scenery.data;
           fresh[index]=Number(!learned||Math.max(Math.abs(r-still[i]),Math.abs(g-still[i+1]),Math.abs(blue-still[i+2]))>SETTLED_NEW_RGB);
           const fx=px/image.width,fy=py/image.height;
-          let positive=false,negative=false;
-          for(let j=0;j<card.quad.length&&!(positive&&negative);j++){
-            const a=card.quad[j],next=card.quad[(j+1)%4];
-            const cross=(next.x-a.x)*(fy-a.y)-(next.y-a.y)*(fx-a.x);
-            if(cross>0)positive=true;
-            if(cross<0)negative=true;
+          // Outside pixels can connect an entering hand to the crop edge. Only
+          // the part of that hand on the mat counts against a field card.
+          if(!onMat||insideQuad(px,py,matPixels!,matInset)){
+            inside[index]=Number(insideQuad(fx,fy,card.quad));total+=inside[index];
+            edge[index]=Number(!inside[index]&&fx>=box.x-box.w*.12&&fx<=box.x+box.w*1.12&&fy>=box.y-box.h*.12&&fy<=box.y+box.h*1.12);
           }
-          inside[index]=Number(!(positive&&negative));total+=inside[index];
-          // The edge ring: just outside the card (12% of its size), not the neighbouring zone (an orange card frame there is not a hand).
-          edge[index]=Number(!inside[index]&&fx>=box.x-box.w*.12&&fx<=box.x+box.w*1.12&&fy>=box.y-box.h*.12&&fy<=box.y+box.h*1.12);
           if(edge[index]){
             let best=Infinity,side=-1;
             for(let j=0;j<4;j++){
