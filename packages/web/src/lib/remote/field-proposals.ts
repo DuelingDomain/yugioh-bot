@@ -242,7 +242,10 @@ export function fieldDepartureDeadline(event:FieldEvent,removedAt:number,activit
 
 /** A confirmed Set can wait for slide evidence up to the departure deadline. */
 export function fieldSetSlideDeadline(event:FieldEvent,removedAt:number,otherSleeve=false,activityAt?:number):number {
-  return fieldDepartureDeadline(event,removedAt,activityAt,committedSet(event.track)||otherSleeve?FIELD_FLIP_SETTLE_MS:FIELD_SET_SLIDE_MS);
+  const firstMiss=Math.min(event.track.removedFrameAt??removedAt,removedAt);
+  const settled=committedSet(event.track);
+  const deadline=fieldDepartureDeadline(event,removedAt,activityAt,settled||otherSleeve?FIELD_FLIP_SETTLE_MS:FIELD_SET_SLIDE_MS);
+  return settled?Math.max(deadline,firstMiss+SET_SLIDE_MATCH_MS):deadline;
 }
 
 /** A still-observed pile top can disprove a touch while the hand sweeps past it. */

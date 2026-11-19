@@ -237,8 +237,14 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     pileTouched:fieldSetSlidePileActivity(snap),blindSleeveSince:snap?.blindSleeveSince,
     lastFieldActivityAtByZone:snap?.lastFieldActivityAtByZone,seenOffField});
   const slideFor=(track:FieldTrack,snap=watch.getSnapshot?.())=>fieldSetSlide(slideInput(track,snap));
-  const linkedSlide=(event:FieldEvent,snap:FieldSnapshot|undefined)=>
-    snap?.tracks.find(t=>slideFor(t,snap)?.from.id===event.track.id);
+  const linkedSlide=(event:FieldEvent,snap:FieldSnapshot|undefined,forHandVeto=false)=>
+    snap?.tracks.find(t=>{
+      const input=slideInput(t,snap);
+      // An unconfirmed pile touch cannot justify writing Hand when a back is resting in another cell.
+      const slide=fieldSetSlide(input)??(forHandVeto&&(t.state==='identified'||t.restSince!==undefined)?
+        fieldSetSlide({...input,pileTouched:undefined}):undefined);
+      return slide?.from.id===event.track.id;
+    });
   const slideWait=(event:FieldEvent,snap=watch.getSnapshot?.(),now=performance.now())=>{
     const removedAt=event.removedAt;
     if(!snap||removedAt===undefined)return 0;
@@ -374,7 +380,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
           if(!live())return false;
           if(!event)return true;
           if(event.type==='removed')return watch.isRemoved(event.track.id)&&
-            (proposal.type!=='twin.move'||proposal.zone!=='hand'||!linkedSlide(event,watch.getSnapshot?.()));
+            (proposal.type!=='twin.move'||proposal.zone!=='hand'||!linkedSlide(event,watch.getSnapshot?.(),true));
           if(event.type==='placed'&&proposal.type==='twin.flip'&&!proposal.faceUp&&
             proposal.cardRef!==(bindings.current.get(event.track.id)??event.track.id)){
             const observed=watch.getTrack(event.track.id);
@@ -615,6 +621,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
         const updated=proposal.type==='twin.move'&&proposal.setRef?await saveSetReturn(event,mutate,{...proposal,setRef:proposal.setRef}):await mutate(proposal);
         if(!updated)return;
         if(slide)cancelDeparture(slide.from.id);
+        if(departureRef.current?.ref===card.ref)setDeparture(null);
         if(setBack.kind==='flip')face.current.flipped(card.ref,performance.now());
         placeholders.current.delete(event.track.id);
         if(!rotates){bindings.current.set(event.track.id,setRef);watch.confirm(event.track.id,undefined,setRef,false);}
@@ -946,6 +953,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       const zone=event.track.zone,removedAt=event.removedAt??started;
       const firstMiss=event.track.removedFrameAt??removedAt;
       const proofAt=fieldCellEvidence(event)?.emptyProofAt;
+      const committedBack=event.track.faceDown&&event.track.setEvidence?.decision==='committed';
       const arm=(wait:number)=>departureTimers.current.set(id,setTimeout(()=>{
         if(!live()||!watch.isRemoved(id)){cancelDeparture(id);return;}
         const snap=watch.getSnapshot?.(),now=performance.now();
@@ -967,7 +975,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
             cell!==zone&&cell[0]===zone[0]&&mainSlotPattern.test(cell)&&at>=firstMiss?[snap.blindSleeveSince?.[cell as FieldZone]??at]:[]));
           const otherSleeve=sleeveAt>=firstMiss;
           // A nearby pile touch must not cut short the time for a Set to settle in its row.
-          if(activityAt>firstMiss||otherSleeve||proofAt===undefined&&
+          if(committedBack||activityAt>firstMiss||otherSleeve||proofAt===undefined&&
             !snap.blindZones?.includes(zone)&&!pileNear(fieldSetSlidePileActivity(snap),firstMiss)){
             slideLeft=fieldSetSlideDeadline(event,removedAt,otherSleeve,Math.max(activityAt,sleeveAt))-now;
           }
@@ -1105,7 +1113,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
         const pending=pendingDepartures.current.get(event.track.id);
         if(!seen&&proposal.zone==='hand'&&event.removedAt!==undefined&&
           (pending?.pileWorked||activeDeparturePile(snap,sourceAt,now,fieldActivityWindow(snap))||
-            !card.faceUp&&linkedSlide(event,snap))){
+            !card.faceUp&&linkedSlide(event,snap,true))){
           if(pending)pending.unresolved=true;
           settlingDepartures.current.delete(event.track.id);pendingLeft.current.delete(event.track.id);
           setDeparture({ref:card.ref,name,zone:'pending'});setNotice(`${name} left the field · choose destination`);return;

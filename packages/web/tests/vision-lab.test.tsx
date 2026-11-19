@@ -1255,7 +1255,7 @@ describe('typed watcher zone projection',()=>{
    expect(fixture.post).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({type:'twin.move',cardRef:old.ref,zone:'hand'}),expect.anything());
   }finally{fixture.dispose();vi.mocked(performance.now).mockRestore();vi.useRealTimers();}
  });
- it.each(['before','after'] as const)('handles a confirmed Set slide beside an unchanged pile %s the physical deadline',async timing=>{
+ it.each(['early','late'] as const)('handles an %s confirmed Set slide beside an unchanged pile',async timing=>{
   const old={ref:'sliding-set',zone:'spell-trap' as const,slot:4,faceUp:false,position:'attack' as const};
   const fixture=await typedWatcherFixture(zoneEntries[0],'S4',[old],'moved');
   vi.useFakeTimers();
@@ -1271,29 +1271,16 @@ describe('typed watcher zone projection',()=>{
     firstSeen:0,restSince:1000,lastSeen:firstMiss+600,cardId:'100'});
    await advance(400);
    await fixture.emit({type:'removed',removedAt,reason:'empty'});
-   if(timing==='after'){
-    await advance(1599);
-    expect(fixture.post).not.toHaveBeenCalled();
-    await advance(1);
-    expect(fixture.post).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
-     type:'twin.move',cardRef:old.ref,zone:'hand',
-    }),expect.anything());
-    await advance(900);
-   }else await advance(1450);
+   await advance(timing==='late'?2500:1450);
+   expect(fixture.post).not.toHaveBeenCalled();
    const now=performance.now();
    const back=fixture.addTrack({id:'slide-back',zone:'S2',faceDown:true,visible:false,removed:false,state:'candidate',cardId:undefined,
     firstSeen:now,lastSeen:now,card:{...fixture.track.card,kind:'face-down'}});
    fixture.addTrack({id:'unsettled-gy',zone:'GY',faceDown:false,visible:false,removed:false,state:'candidate',
     firstSeen:now-200,lastSeen:now-200,cardId:undefined});
-   await advance(timing==='after'?600:100);
+   await advance(timing==='late'?600:100);
    Object.assign(back,{state:'identified',visible:true,lastSeen:performance.now(),restSince:now,setEvidence:committedBack});
-   if(timing==='after'){
-    const {fieldSetSlide,fieldSetSlidePileActivity}=await import('@/lib/remote/field-proposals');
-    expect(fieldSetSlide({track:back,twins:[old],tracks:watch.snapshot.tracks,owns:t=>t.id,
-     zoneOf:()=>'S4',now:performance.now(),pileTouched:fieldSetSlidePileActivity(watch.snapshot),seenOffField:()=>false,
-    })).toEqual(expect.objectContaining({card:old,from:expect.objectContaining({id:old.ref})}));
-    return;
-   }
+   expect(fixture.post).not.toHaveBeenCalled();
    await fixture.emit({type:'placed',track:{...back}});
    await advance(1000);
    expect(fixture.post).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
@@ -1301,7 +1288,7 @@ describe('typed watcher zone projection',()=>{
    }),expect.anything());
   }finally{fixture.dispose();vi.useRealTimers();}
  });
- it('posts a face-down departure within two seconds of its row going quiet while the other row keeps moving',async()=>{
+ it('posts a face-down departure when the slide window ends while the other row keeps moving',async()=>{
   const old={ref:'lifted-set',zone:'spell-trap',slot:4,faceUp:false,position:'attack'};
   const fixture=await typedWatcherFixture(zoneEntries[0],'S4',[old],'moved');
   vi.useFakeTimers({toFake:['setTimeout','clearTimeout','performance']});
@@ -1317,7 +1304,7 @@ describe('typed watcher zone projection',()=>{
    await fixture.emit({type:'removed',removedAt,reason:'empty'});
    for(let ms=0;ms<5000;ms+=100){
     watch.snapshot.lastFieldActivityAtByZone.M4=performance.now();
-    if(ms===2000)expect(fixture.post).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+    if(ms===3000)expect(fixture.post).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
      type:'twin.move',cardRef:old.ref,zone:'hand',
     }),expect.anything());
     await advance(100);
@@ -1367,7 +1354,7 @@ describe('typed watcher zone projection',()=>{
    fixture.refresh();
    await advance(400);
    await fixture.emit({type:'removed',removedAt,reason:'empty'});
-   await advance(1650);
+   await advance(2650);
    expect(fixture.post).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
     type:'twin.move',cardRef:old.ref,zone:'hand',
    }),expect.anything());
