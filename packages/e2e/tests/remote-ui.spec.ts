@@ -2285,12 +2285,22 @@ test.describe("remote duels screen, tokens and the camera", () => {
     await act({ type: "twin.place", actorSeat: 1, seat: 1, zone: "monster", card: { ref: "b", name: "Lamb Token", slot: 2, faceUp: true, position: "defense", token: { atk: 300, def: 400 } } });
     await page.goto(`/duels/remote/${slug}`);
     await expect(page.getByTestId("seat-0")).toBeVisible();
+    // A click that works proves the page is live: a card placed before that is "already on the field", not played.
+    await page.getByTestId("fwrap-0").click({ position: { x: 4, y: 4 } });
+    await expect(page.getByTestId("seat-0")).toHaveAttribute("data-view", "camera");
     // The server refuses a Tribute while the player has no face-up Nibiru on the field.
     const early = await context.request.post(`${path}/actions`, { data: { baseSeq: (await (await context.request.get(path)).json()).lastSeq, action: { idempotencyKey: crypto.randomUUID(), type: "monsters.tribute", actorSeat: 0, seat: 0, targets: [{ seat: 0, cardRef: "a" }] } } });
     expect(early.status()).toBe(409);
     await act({ type: "twin.place", actorSeat: 0, seat: 0, zone: "monster", card: { ref: "nib", cardId: 27204311, name: "Nibiru, the Primal Being", slot: 3, faceUp: true, position: "attack" } });
-    // Both tokens leave in one step; Nibiru stays.
-    // Nothing is sent before the click: the confirm shows the count, and the board is still whole.
+    // Nibiru not on the field (shown from the hand): Tribute waits. When Nibiru lands, it enables by itself.
+    await expect(page.getByTestId("nibiru-tribute")).toBeEnabled();
+    const placed = (await (await context.request.get(path)).json()).state.undoHistory.find((entry: { action: { type: string; card?: { ref: string } } }) => entry.action.card?.ref === "nib");
+    await act({ type: "undo", actorSeat: 0, targetActionId: placed.actionId });
+    await expect(page.getByTestId("nibiru-wait")).toBeVisible();
+    await expect(page.getByTestId("nibiru-tribute")).toBeDisabled();
+    await act({ type: "twin.place", actorSeat: 0, seat: 0, zone: "monster", card: { ref: "nib2", cardId: 27204311, name: "Nibiru, the Primal Being", slot: 3, faceUp: true, position: "attack" } });
+    await expect(page.getByTestId("nibiru-tribute")).toBeEnabled();
+    // Both tokens leave in one step; Nibiru stays. Nothing is sent before the click: the confirm shows the count, and the board is still whole.
     await expect(page.getByTestId("nibiru-count")).toHaveText("Send 2 monsters to the Graveyard?");
     expect((await twins(0)).length + (await twins(1)).length).toBe(3);
     await page.getByTestId("nibiru-tribute").click();

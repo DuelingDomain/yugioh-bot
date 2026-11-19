@@ -51,6 +51,8 @@ const OFF_FIELD = ["hand", "deck", "extra"];
 /** The zones of a card in play (a card in the hand, a pile or under another card is not played). */
 const onFieldZone = (zone: string) => ["monster", "spell-trap", "extra-monster", "field", "pendulum"].includes(zone);
 const ON_FIELD = ["monster", "extra-monster"];
+/** Nibiru, the Primal Being and its alternate art. */
+const NIBIRU_IDS = [27204311, 27204313];
 
 /**
  * Tokens on a Remote Duels table: a token is table state with no physical card. The owner creates it from the "Token" button
@@ -258,6 +260,8 @@ export function useTokens({ act, room, live, extraZones, layers, info, toast }: 
   const customize = (from?: TokenTemplate) => { setView({ kind: "template", ...(from ? { from } : {}) }); layers.open("token"); };
   const open = useCallback((seat: number, card: TwinCard) => { setView({ kind: "card", seat, ref: card.ref }); layers.open("token"); }, [layers]);
   const close = () => { layers.close("token"); setView(null); };
+  // The Nibiru confirm is not lost when another popup took the layer: it comes back when that popup is gone.
+  useEffect(() => { if (view?.kind === "nibiru" && !layers.layer) layers.open("token"); }, [view, layers]);
 
   const send = async (seat: number, draft: { name: string; atk: number; def: number; artId?: number; position: Position; key: ZoneKey }) => {
     // A generic token with a known name (Sheep Token) gets that token's art, too; with no match it gets the default token card.
@@ -298,7 +302,8 @@ export function useTokens({ act, room, live, extraZones, layers, info, toast }: 
   const dialog = layers.layer === "token" && view ? view.kind === "new"
     ? <TokenDialog free={freeKeys(view.seat, MAIN)} start={view.key} onCreate={draft => place(view.seat, { ...draft, key: draft.key! })} onClose={close} />
     : view.kind === "nibiru" ? <NibiruConfirm opponents={opponentsOf(room.state, view.actorSeat).map(seat => ({ seat, label: room.seats.find(item => item.seat === seat)?.displayName ?? `Seat ${seat + 1}` }))}
-      count={opponent => tributable(room.state, view.makerRef, [view.actorSeat, opponent]).length} onAnswer={(opponent, tribute) => void settleNibiru(view, opponent, tribute)} />
+      count={opponent => tributable(room.state, view.makerRef, [view.actorSeat, opponent]).length}
+      onField={!!room.state.seats[view.actorSeat]?.twin.some(card => !card.token && card.faceUp && ON_FIELD.includes(card.zone) && (NIBIRU_IDS.includes(Number(cardCode(card))) || cardName(card, info(cardCode(card))).toLowerCase() === "nibiru, the primal being"))} onAnswer={(opponent, tribute) => void settleNibiru(view, opponent, tribute)} />
     : view.kind === "picked" ? <TokenDialog free={[view.key]} start={view.key} modal initial={view.template}
       zone={{ label: `${room.seats.find(item => item.seat === view.seat)?.displayName ?? `Seat ${view.seat + 1}`}, ${zoneLabel(view.key)}`,
         change: current => { setPlacing({ ...view.template, ...current, prefilled: true }); close(); } }}
@@ -344,7 +349,7 @@ function TokenBar({ template, suggestions, onPick, onCustom, onCancel }: {
 }
 
 /** Nibiru was played: which opponent made the summons, and whether the monsters of the two fields go to the Graveyard. Only its buttons close it. */
-function NibiruConfirm({ opponents, count, onAnswer }: { opponents: { seat: number; label: string }[]; count: (opponent: number) => number; onAnswer: (opponent: number, tribute: boolean) => void }) {
+function NibiruConfirm({ opponents, count, onField, onAnswer }: { opponents: { seat: number; label: string }[]; count: (opponent: number) => number; /** A face-up Nibiru is on the activator's field now. The server refuses a Tribute without it. */ onField: boolean; onAnswer: (opponent: number, tribute: boolean) => void }) {
   const [chosen, setChosen] = useState<number | null>(opponents.length === 1 ? opponents[0].seat : null);
   const n = chosen === null ? null : count(chosen);
   return <PopupFrame at={CENTER} layer="token" label="Nibiru, the Primal Being" testid="nibiru-confirm" modal>
@@ -353,9 +358,10 @@ function NibiruConfirm({ opponents, count, onAnswer }: { opponents: { seat: numb
       {opponents.length > 1 ? <div className={t.seg} role="group" aria-label="Opponent who made the summons">
         {opponents.map(item => <button key={item.seat} type="button" className={`${s.btn} ${s.sm} ${chosen === item.seat ? s.go : s.q}`} aria-pressed={chosen === item.seat} onClick={() => setChosen(item.seat)} data-testid={`nibiru-opponent-${item.seat}`}>{item.label}</button>)}
       </div> : null}
+      {onField ? null : <p className={t.note} role="status" data-testid="nibiru-wait">Put Nibiru on your field, then Tribute.</p>}
       <p className={t.chosen} role="status" data-testid="nibiru-count">{n === null ? "Choose the opponent who made the summons." : `Send ${n} monster${n === 1 ? "" : "s"} to the Graveyard?`}</p>
       <div className={t.row}>
-        <button type="button" className={`${s.btn} ${s.go}`} disabled={chosen === null} onClick={() => { if (chosen !== null) onAnswer(chosen, true); }} data-testid="nibiru-tribute" data-autofocus>Tribute</button>
+        <button type="button" className={`${s.btn} ${s.go}`} disabled={chosen === null || !onField} onClick={() => { if (chosen !== null && onField) onAnswer(chosen, true); }} data-testid="nibiru-tribute" data-autofocus>Tribute</button>
         <button type="button" className={`${s.btn} ${s.q}`} disabled={chosen === null} onClick={() => { if (chosen !== null) onAnswer(chosen, false); }} data-testid="nibiru-skip">Skip</button>
       </div>
     </div>
