@@ -28,7 +28,8 @@ import { matchOf } from "./match-model";
 import { OpeningRollScreen } from "./opening-roll";
 import { cardCode, cardName, cellsFor, COLORS, facingSeat, hasExtraZones, type TwinCard, type ZoneKey } from "./model";
 import { PeerVisionChip } from "./peer-vision-chip";
-import { TapModeChip } from "./tap-mode-banner";
+import { TapBoardNote, TapModeChip } from "./tap-mode-banner";
+import { seatBoardOff, stateMode } from "@/lib/remote/tournament-detection";
 import { PileViewer, type PileZone } from "./pile-viewer";
 import { FeedCards, FeedCardsProvider } from "./feed-cards";
 import type { PopAt, Rect } from "./popup";
@@ -154,6 +155,11 @@ function SpectatorTable({ room }: { room: RemoteRoom }) {
   const noVideo = { subscribe: () => () => undefined, snapshot: { connection: ConnectionState.Disconnected, feeds: [], error: "" } as ReturnType<SpectatorVideo["getSnapshot"]> };
   const snapshot = useSyncExternalStore(video?.subscribe ?? noVideo.subscribe, video?.getSnapshot ?? (() => noVideo.snapshot), () => noVideo.snapshot);
   const online = snapshot.connection === ConnectionState.Connected;
+  // A Tap mode player's board is off for everyone: that seat shows its camera like Webcam only, with a note.
+  const subscribeTap = useCallback((listener: () => void) => { const a = video?.tracks.subscribe(listener), b = video?.vision.subscribe(listener), c = video?.subscribe(listener); return () => { a?.(); b?.(); c?.(); }; }, [video]);
+  // The camera signals stay cached for a while after a seat stops its camera: they count only while its feed is live.
+  const live = (seat: number) => !!video?.getSnapshot().feeds.some(feed => feed.seat === seat && feed.video);
+  const tapSeats = useSyncExternalStore(subscribeTap, () => Array.from({ length: room.seatCount }, (_, seat) => seat).filter(seat => seatBoardOff({ stateMode: stateMode(room.state, seat), tracksTap: live(seat) && !!video?.tracks.tap(seat), visionTap: live(seat) && video?.vision.get(seat)?.detect === "tap" })).join(","), () => "");
   const [, setFrozen] = useState<Record<number, boolean>>({});
   const onFrozen = useMemo(() => (seat: number, value: boolean) => setFrozen(old => old[seat] === value ? old : { ...old, [seat]: value }), []);
 
@@ -243,15 +249,16 @@ function SpectatorTable({ room }: { room: RemoteRoom }) {
           ? <button type="button" className={v.retry} data-testid="spectator-video-retry" onClick={() => video?.retry()}>Try again</button> : null}</p> : null}
         <LpStrip players={players} turnSeat={turnSeat} lp={lp} onJump={seat => document.querySelector(`[data-testid="seat-${seat}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" })} />
         {seatIds.map(seat => {
+          const boardOff = tapSeats.split(",").includes(String(seat)), wc = webcamOnly || boardOff;
           const twin = state.seats[seat]?.twin ?? [];
           const field = twin.filter(card => ["monster", "extra-monster", "spell-trap", "field", "pendulum"].includes(card.zone));
           const shown = field.filter(card => card.faceUp !== false && cardCode(card)); const hiddenCount = field.filter(card => card.faceUp === false).length;
           const gy = twin.filter(card => card.zone === "graveyard").length, banished = twin.filter(card => card.zone === "banished").length;
           return <section key={seat} className={[s.seat, s[`s${seat}`], seat === turnSeat ? s.turn : "", state.seats[seat]?.eliminated ? s.out : ""].filter(Boolean).join(" ")} aria-label={`${name(seat)}'s seat`}
-            style={{ "--c": COLORS[seat] } as CSSProperties} data-testid={`seat-${seat}`} data-turn={seat === turnSeat || undefined} data-view="camera" data-wc={webcamOnly ? "1" : undefined}>
+            style={{ "--c": COLORS[seat] } as CSSProperties} data-testid={`seat-${seat}`} data-turn={seat === turnSeat || undefined} data-view="camera" data-wc={wc ? "1" : undefined}>
             <header className={s.sh}>
               <span className={s.pip} /><h2 className={s.nm} style={{ margin: 0 }}>{name(seat)}</h2>
-              {webcamOnly ? <span className={s.wcpiles} role="group" aria-label="Piles" data-testid={`wc-piles-${seat}`}>
+              {wc ? <span className={s.wcpiles} role="group" aria-label="Piles" data-testid={`wc-piles-${seat}`}>
                 <button type="button" aria-label={`${name(seat)} Graveyard: ${gy} cards. Open`} onClick={event => { setPile({ seat, zone: "graveyard" }); layers.open("pile", event.currentTarget); }}>GY <b className={s.num}>{gy}</b></button>
                 <button type="button" aria-label={`${name(seat)} Banished: ${banished} cards. Open`} onClick={event => { setPile({ seat, zone: "banished" }); layers.open("pile", event.currentTarget); }}>BAN <b className={s.num}>{banished}</b></button>
               </span> : null}
@@ -265,10 +272,10 @@ function SpectatorTable({ room }: { room: RemoteRoom }) {
             </header>
             <div className={s.sbody}>
               {video ? <SpectatorFeed seat={seat} name={name(seat)} format={format} gridOn={gridOn} video={video} online={online} stopped={!!snapshot.error} frozen={onFrozen} onCard={onFeed} /> : <div className={s.feedcol}><div className={s.cams} data-testid={`feed-${seat}`}><div className={s.nofeed}><span>Table video is off.</span></div></div></div>}
-              {webcamOnly ? <div className={`${s.fside} ${v.side}`}>
+              {wc ? <div className={`${s.fside} ${v.side}`}>
                 <HandStrip seat={seat} name={name(seat)} hand={{ cards: knownHandOf(state, seat), count: handCountOf(state, seat), tray: true, onInspect: card => showKnown(seat, card) }} />
                 <div className={v.stats}><span data-testid={`lp-${seat}`}>LP <b data-testid={`lp-value-${seat}`} aria-label={`${name(seat)}: ${lp(seat)} of ${startingLp} life points`}>{lp(seat)}</b></span></div>
-                <ul className={v.cards} aria-label={`${name(seat)}'s public cards`} data-testid={`public-cards-${seat}`}>
+                {boardOff ? <TapBoardNote /> : null}<ul className={v.cards} aria-label={`${name(seat)}'s public cards`} data-testid={`public-cards-${seat}`}>
                   {shown.map(card => <li key={card.ref}><button type="button" onClick={event => { const box = event.currentTarget.getBoundingClientRect(); show(seat, card, { left: box.left, right: box.right, top: box.top, bottom: box.bottom }, null); }}>{cardName(card, info(cardCode(card)))}</button></li>)}
                   {hiddenCount ? <li className={v.set} data-testid={`set-count-${seat}`}>{hiddenCount} Set</li> : null}
                 </ul>
