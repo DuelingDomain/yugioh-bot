@@ -92,7 +92,7 @@ export const remoteActionSchema = z.discriminatedUnion("type", [
   z.strictObject({ ...meta, type: z.literal("pile.lift"), seat: remoteSeatSchema, zone: z.enum(["graveyard", "banished"]), cardRefs: z.array(id).min(1).max(120), source: z.literal("auto").optional() }),
   /** The owner fixes the order of a GY/banished pile (oldest first). The list must hold every card of the pile once. */
   z.strictObject({ ...meta, type: z.literal("pile.order"), seat: remoteSeatSchema, zone: z.enum(["graveyard", "banished"]), cardRefs: z.array(id).min(1).max(120)
-    .refine(refs => new Set(refs).size === refs.length, "Duplicate pile card") }),
+    .refine(refs => new Set(refs).size === refs.length, "Duplicate pile card"), source: z.literal("auto").optional() }),
   z.strictObject({ ...meta, type: z.literal("twin.move"), seat: remoteSeatSchema, zone, cardRef: id, slot: slot.optional(), position: z.enum(["attack", "defense"]).optional(), faceUp: z.boolean().optional(), source: z.literal("auto").optional(), name: z.string().trim().min(1).max(200).optional(),
     /** Fresh public ref for a camera-confirmed face-down return from the hand. */
     setRef: id.optional(),
