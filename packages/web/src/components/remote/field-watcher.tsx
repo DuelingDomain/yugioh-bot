@@ -40,6 +40,7 @@ import {nextFieldGhosts,setFieldGhosts,blockGhostCell,newGhostState} from '@/lib
 import {FieldWatcherUI} from './field-watcher-ui';
 import {serverNow} from './ui/api';
 import {cardFailed,cardInfo,loadCards,useCardInfo} from './ui/catalog';
+import {setFieldLatencyLog} from '@/lib/remote/field-profile';
 import {fieldSummonKind,fieldSummonMaterials,fieldSummonMinimum,fieldSummonNotice,heldStackStillStacked,fieldKeepsMonsterStack,fieldStackXyzCandidates,SUMMON_WINDOW_MS,SUMMON_RECENT_MS,type FieldVanish} from '@/lib/remote/field-summons';
 import {distinctFieldQuads,fieldCellEvidence,fieldDepartureHasBack,fieldDepartureActivityAt,fieldDepartureDeadline,fieldEmptyProofs,fieldFlipDepartureWait,fieldEvidenceMismatch,fieldSureSetReveal,fieldSetRebind,fieldSetReturn,fieldSetSlide,fieldSetSlideDeadline,fieldSetSlidePending,fieldSetSlidePileActivity,recentCommittedSet,xyzAttachTargets,type FieldCellEvidence} from '@/lib/remote/field-proposals';
 
@@ -50,6 +51,13 @@ const DEPARTURE_WAIT_MS=600,PILE_DEPARTURE_CAP_MS=1600;
 const PILE_ACTION_CAP_MS=15_000;
 /** A face-up camera placement waits at most this long for the card's facts (type, level). The name is known already; the zone-rule effect fixes a hard-rule row once the facts arrive. */
 const FACTS_WAIT_MS=300;
+/** A Spell/Trap placement and the abstain-and-reload of a card whose facts are still loading wait at most this long for the facts. The card catalog's own lookup deadline is 10 s; no placement may wait for it. */
+const SPELL_FACTS_WAIT_MS=1000,SLOW_FACTS_CAP_MS=1000;
+/** `lookup`, or an earlier end after `ms`. Never rejects. */
+function cappedFacts(lookup:Promise<void>,ms:number):Promise<void> {
+  let timer:ReturnType<typeof setTimeout>|undefined;
+  return Promise.race([lookup.catch(()=>undefined),new Promise<void>(resolve=>{timer=setTimeout(resolve,ms);})]).finally(()=>clearTimeout(timer));
+}
 /** The reader's frame class of a Main Deck card that lies in its own row (a non-Extra monster in a Monster Zone, a Spell/Trap in a Spell & Trap Zone). It needs no facts first: the zone-rule effect fixes a hard-rule row once the facts arrive. Pendulum, Field Spells, Trap Monsters and Extra Deck frames keep the wait. */
 const mainDeckOwnRow=(frameClass:string|undefined,zone:string)=>/^M[1-5]$/.test(zone)&&['Normal','Effect','Ritual'].includes(frameClass??'')||/^S[1-5]$/.test(zone)&&['Spell','Trap'].includes(frameClass??'');
 /** Association window for pile or Set evidence around a departure. */
@@ -161,6 +169,8 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   if(current.current.room.slug!==room.slug||room.lastSeq>=current.current.room.lastSeq)current.current.room=room;
   current.current.active=ownsSource&&hub.cameraOn;
   const deckKey=deckIdsOf(room,seat).join(',');
+  // The per-action latency log (field-profile.ts) records every action type only while the diagnostics switch is on; it is off for everyone else.
+  useEffect(()=>{setFieldLatencyLog(diagnosticsAllowed);return()=>setFieldLatencyLog(false);},[diagnosticsAllowed]);
   useEffect(()=>{
     if(!ownsSource||!hub.cameraOn)return;
     void prepareOwnReader(recognitionPriorsFor(current.current.room,seat)).catch(()=>undefined);
@@ -478,6 +488,14 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     const latest=track.glare.candidates.length?track.glare.candidates:fieldGlareChoices(event.result);
     if(latest.some(c=>c.cardId===chosen))return track;
   }
+  /** The cards and cells an event touches: works that share one keep their order, the others do not wait for each other (see createRoomMutationQueue). */
+  const fieldLanes=(event?:FieldEvent):string[]|undefined=>{
+    if(!event)return undefined;
+    const ids=[event.track.id,bindings.current.get(event.track.id),event.bindRef,event.fromRef,event.replacesRef,event.coverRef,event.uncoveredRef,event.previousId];
+    // The cell the card holds on the table now: a move out of it and a placement into it keep their order.
+    const held=current.current.room.state.seats[seat].twin.find(c=>ids.includes(c.ref)),heldZone=held&&knownZone(held);
+    return [`zone:${event.track.zone}`,...(heldZone?[`zone:${heldZone}`]:[]),...ids.filter((id):id is string=>!!id).map(id=>`ref:${id}`)];
+  };
   /** `quiet`: a background board re-sync. A failed write is logged only (no notice, no Retry banner); it is tried again next cycle. */
   function queue(work:(act:RoomMutation)=>Promise<void>,event?:FieldEvent,humanChoice=false,quiet=false) {
     console.info('[remote field] queued',event?.type,event?.track.id,event?.track.revision);
@@ -525,7 +543,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
         const before=current.current.room.state.seats[seat].twin;
         console.info('[remote field] write',proposal.type,actionId);markFieldTiming(event?.timing,'mutation',{actionId});const updated=await retryFieldMutation(act,proposal,actionId,stillValid,error=>{const text=error instanceof Error?error.message:String(error);console.warn('[remote field] save failed',proposal.type,text);lastWriteError.current=`${new Date().toLocaleTimeString()} ${text}`;markFieldTiming(event?.timing,'writeFailed',{type:proposal.type});if(!quiet)setNotice(text);},{quiet});console.info('[remote field] write result',proposal.type,updated?.lastSeq??'not saved');if(!updated)console.info('[remote field] write skipped: the card changed before it was saved',proposal.type);if(updated){current.current.room=updated;holdReplacedFieldCards(before,updated.state.seats[seat].twin);prunePhysical();}return updated;};
       await work(apply);console.info('[remote field] flushed',event?.type,event?.track.id,current.current.room.lastSeq);workKeys.current.delete(work);setFailedUpdate(previous=>previous?.work===work?null:previous);
-    }).catch(error=>{if(error instanceof RemoteDuelError&&error.code==='ACTIVATION_LIMIT'){setNotice(error.message);return;}console.error('[remote field] update failed',error);if(quiet)return;if(error instanceof StaleFieldPlacementError)setRecovery(error);else{setFailedUpdate({work,event,humanChoice});setNotice(error instanceof Error?error.message:'Could not save the field update. Use Retry field update.');}});
+    },fieldLanes(event)).catch(error=>{if(error instanceof RemoteDuelError&&error.code==='ACTIVATION_LIMIT'){setNotice(error.message);return;}console.error('[remote field] update failed',error);if(quiet)return;if(error instanceof StaleFieldPlacementError)setRecovery(error);else{setFailedUpdate({work,event,humanChoice});setNotice(error instanceof Error?error.message:'Could not save the field update. Use Retry field update.');}});
   }
   /** A button the player pressed: its writes carry `by:'player'` and the control's name (evidence only). The stamp is made once per write, before the retries. */
   function queueHuman(ui:string,work:(act:RoomMutation)=>Promise<void>,event?:FieldEvent) {
@@ -677,7 +695,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     const after=watch.getTrack(event.track.id);
     if(!after||after.removed||after.revision!==event.track.revision)await removePlaceholder(event.track.id,act);
   }
-  async function apply(event:FieldEvent,act:RoomMutation,chosen?:string,attempt=0,slideUntil?:number) {
+  async function apply(event:FieldEvent,act:RoomMutation,chosen?:string,attempt=0,slideUntil?:number,factsWaited=false) {
     if(givenHold(event.track))return;
     console.info('[remote field] identify',event.track.id,chosen??event.track.cardId,event.track.zone,event.type);
     const humanChoice=event.type==='prompt'&&(!!chosen||event.reason==='card-presence');
@@ -750,7 +768,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     if(existing)track={...track,id:existing.ref};
     else if(twins.some(c=>c.ref===track.id))track={...track,id:`fw-${crypto.randomUUID()}`};
     const placementRef=track.id;
-    const slowFacts=!!code&&!track.faceDown&&!cardInfo(code)&&!cardFailed(code);
+    const slowFacts=!factsWaited&&!!code&&!track.faceDown&&!cardInfo(code)&&!cardFailed(code);
     const latest=watch.getTrack(event.track.id);if(!live()||!matchesEvidence(latest)){defer(latest);return;}
     // Keep the reserved physical ref while refreshing geometry and occupancy after I/O.
     track={...latest!,id:existing?.ref??placementRef,...(chosen?{cardId:chosen,faceDown:false}:{})};
@@ -842,8 +860,9 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     const claimsSlot=!fieldSpell&&stale&&projectObserved(track,twins.filter(c=>c.ref!==stale.ref),existing,facts).zone===track.zone;
     const needsSummonFacts=!existing&&/^M[1-5]$/.test(track.zone)&&/^(fusion|synchro|xyz|link)/i.test(entry?.frameClass??'');
     if(slowFacts&&(stale||track.zone.startsWith('EMZ')||needsSummonFacts)){
-      if(code)void loadCards([code]).then(()=>{
-        if(cardInfo(code)&&live()&&matchesEvidence(watch.getTrack(event.track.id)))void queue(next=>apply(event,next,chosen,attempt),event,humanChoice);
+      // The retry runs when the facts arrive, or after SLOW_FACTS_CAP_MS at the latest (a failed or slow lookup used to leave the action waiting for the 10 s lookup deadline, or for a later read). Then it goes on with the observed zone, as for a card whose lookup failed.
+      if(code)void cappedFacts(loadCards([code]),SLOW_FACTS_CAP_MS).then(()=>{
+        if(live()&&matchesEvidence(watch.getTrack(event.track.id)))void queue(next=>apply(event,next,chosen,attempt,undefined,true),event,humanChoice);
       });
       abstain(event,'Check zone? Card details are still loading.');return;
     }
@@ -1069,7 +1088,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     void lookup.then(()=>{if(cardInfo(code)&&live())setFactsTick(n=>n+1);});
     if(piles.has(track.zone))return;
     // Type and activation text must be available before a Spell/Trap can take a field slot.
-    if(/^(spell|trap)/i.test(entry.frameClass??'')&&(event.type==='placed'||event.type==='moved'||chosen))return lookup;
+    if(/^(spell|trap)/i.test(entry.frameClass??'')&&(event.type==='placed'||event.type==='moved'||chosen))return cappedFacts(lookup,SPELL_FACTS_WAIT_MS);
     if(event.type!=='placed'&&event.type!=='moved'&&!chosen)return;
     const twins=current.current.room.state.seats[seat].twin,ref=bindings.current.get(track.id)??track.id;
     const bound=twins.find(c=>c.ref===ref||chosen&&c.ref===event.bindRef);
@@ -1081,8 +1100,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     const ruleNeedsFacts=track.zone.startsWith('EMZ')||(!bound&&(occupied||summon))||
       !!entry.frameClass&&!mainDeckOwnRow(entry.frameClass,track.zone)&&!summon;
     if(!ruleNeedsFacts)return;
-    let timer:ReturnType<typeof setTimeout>|undefined;
-    return Promise.race([lookup,new Promise<void>(resolve=>{timer=setTimeout(resolve,FACTS_WAIT_MS);})]).finally(()=>clearTimeout(timer));
+    return cappedFacts(lookup,FACTS_WAIT_MS);
   }
   function handle(event:FieldEvent,departureOrigin?:Pick<TwinCard,'ref'|'zone'|'slot'>,factsStarted=false,moveRetry=0) {
     const observedRef=bindings.current.get(event.track.id)??event.track.id;
