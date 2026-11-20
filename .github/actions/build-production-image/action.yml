@@ -76,6 +76,23 @@ runs:
           echo "context=nextcache=docker-image://$IMAGE@$digest" >> "$GITHUB_OUTPUT"
         fi
 
+    # Web exports only final layers (mode=min), so apt and npm ci would rerun on every release.
+    # The deps stage deletes source maps, so its layers are safe to cache in full. The builder keeps them
+    # locally for the build below. A cache problem only costs time, never the release.
+    - name: Cache web dependency layers
+      if: inputs.service == 'web' && inputs.push == 'true'
+      continue-on-error: true
+      uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+      with:
+        context: .
+        target: deps
+        platforms: ${{ inputs.platform }}
+        push: false
+        provenance: false
+        sbom: false
+        cache-from: type=registry,ref=${{ env.IMAGE }}:depscache
+        cache-to: type=registry,ref=${{ env.IMAGE }}:depscache,mode=max,ignore-error=true
+
     - name: Build and push runtime image
       id: runtime-image
       uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0

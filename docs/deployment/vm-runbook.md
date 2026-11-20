@@ -123,6 +123,7 @@ Deploy jobs run in the `production` GitHub Environment and require these GitHub 
    stays in the VM runtime environment. Non-web targets no longer run the Next.js build.
    Each image has a separate `:buildcache` registry cache. Non-web images use `mode=max`;
    web uses `mode=min` so its source-map build stage cannot enter public intermediate layers.
+   Web also keeps a `mode=max` `:depscache` of its `deps` stage (apt, `npm ci`; source maps are deleted there).
    Web imports a digest-pinned `:nextcache` image and exports only sanitized `.next/cache` after its build.
    Docker sets `NEXT_BUILD_FS_CACHE=0`, removes inherited Turbopack data before building, and removes
    and checks for Turbopack folders again before export. Source maps are removed in the same build layer.
@@ -296,7 +297,7 @@ with Compose; the duel target needs the prepared named engine context described 
 4. `.github/workflows/ghcr-cleanup.yml` runs each Sunday at 05:17 UTC. It has only `packages: write`.
    It keeps the newest ten release-tagged versions per package. SHA-only versions created before the fixed
    cutover `2026-10-21T00:00:00Z` keep the old newest-ten-SHA rule; newer SHA-only versions expire after
-   seven days. All `buildcache`, `nextcache`, production pointers and owner tags remain protected.
+   seven days. All `buildcache`, `depscache`, `nextcache`, production pointers and owner tags remain protected.
    It removes untagged versions only after seven days.
    It protects child manifests referenced by retained indexes. If a retained manifest cannot be read,
    it stops that package before deletion and continues with the next package. Cache layers and
