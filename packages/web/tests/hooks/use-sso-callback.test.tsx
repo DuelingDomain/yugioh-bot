@@ -50,6 +50,22 @@ describe("SSO callback", () => {
     expect(mock.signUpSignal.signUp.finalize).not.toHaveBeenCalled();
     expect(mock.push).not.toHaveBeenCalled();
   });
+  it("asks for the password again after a cancelled automatic Discord trip, and still auto-fills nothing", async () => {
+    sessionStorage.setItem("dd_auth_resume", JSON.stringify({ kind: "sign-up", attemptId: "sua_invited", auto: true }));
+    mock.signUpSignal.signUp.missingFields = ["username", "password"];
+    const { result } = await mount();
+    expect(result.current.passwordRequired).toBe(true);
+    expect(result.current.state.step).toBe("invite");
+    expect(mock.signUpSignal.signUp.update).not.toHaveBeenCalled();
+  });
+  it("auto-fills the username after a completed automatic Discord trip", async () => {
+    sessionStorage.setItem("dd_auth_resume", JSON.stringify({ kind: "sign-up", attemptId: "sua_invited", auto: true }));
+    mock.signUpSignal.signUp.missingFields = ["username"];
+    mock.signUpSignal.signUp.firstName = "Kaiba";
+    const { result } = await mount();
+    expect(result.current.passwordRequired).toBe(false);
+    expect(mock.signUpSignal.signUp.update).toHaveBeenCalledWith({ username: "kaiba" });
+  });
   it("sends verification for an otherwise complete signup and resumes code errors", async () => {
     mock.signUpSignal.signUp.missingFields = [];
     mock.signUpSignal.signUp.unverifiedFields = ["email_address"];

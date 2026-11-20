@@ -71,6 +71,11 @@ export function reduceAuth(state: AuthFlowState, event: AuthEvent): AuthFlowStat
     case "recovering": return { ...state, step: "recovering", pending: false, fieldErrors: {}, banner: null };
     case "error": {
       const view = event.view;
+      // The automatic Discord trip failed before leaving: show the email form with the message, not "Opening Discord" for ever.
+      if (state.step === "discord-invite" && view.kind !== "step") {
+        const invite = { ...state, step: "invite" as const, pending: false };
+        return view.kind === "field" ? { ...invite, fieldErrors: { [view.field]: view.message }, banner: null } : { ...invite, fieldErrors: {}, banner: view.banner };
+      }
       // The recovering card has no banner or buttons; if the hand-off stalls, fall back to the signing card's retry.
       if (state.step === "recovering" && view.kind === "banner") return { ...state, step: "signing", pending: false, fieldErrors: {}, banner: view.banner };
       if (view.kind === "step") return { ...state, step: view.step, pending: false, fieldErrors: {}, banner: null };

@@ -53,6 +53,7 @@ function useAccountFlow(opts: { ticket: string | null; returnTo: string; callbac
   const recovering = useRef(false);
   const lockedEmail = useRef<string | null>(null);
   const emailInstead = useRef(false);
+  const tripStarted = useRef(false);
   const destination = useRef(state.returnTo);
   const fetching = signUpSignal.fetchStatus === "fetching" || signInSignal?.fetchStatus === "fetching";
   // Before Clerk loads, these hooks return gated proxies with idle fetchStatus,
@@ -166,6 +167,7 @@ function useAccountFlow(opts: { ticket: string | null; returnTo: string; callbac
     // Give the card a moment so "Use email instead" can be reached before the page leaves.
     await new Promise(resolve => setTimeout(resolve, 1500));
     if (emailInstead.current || !mounted.current) return;
+    tripStarted.current = true;
     const current = latest.current.signUpSignal.signUp!;
     if (!await call(() => current.update({ legalAccepted: true }), "signup")) return;
     try { sessionStorage.setItem("dd_auth_resume", JSON.stringify({ kind: "sign-up", returnTo: state.returnTo, attemptId: current.id, auto: true })); } catch { /* Clerk preserves the accepted attempt even without storage. */ }
@@ -222,7 +224,7 @@ function useAccountFlow(opts: { ticket: string | null; returnTo: string; callbac
   return {
     state: { ...state, pending: pending || busy.current }, resumeKind,
     actions: {
-      useEmailInstead: () => { emailInstead.current = true; void advanceSignup(); },
+      useEmailInstead: () => { if (tripStarted.current) return; emailInstead.current = true; void advanceSignup(); },
       submitAccount: async (input) => {
         if (state.step !== "invite") return;
         await run("signup", async () => {
@@ -262,7 +264,7 @@ export function useSignUpFlow(opts: { ticket: string | null; returnTo: string; d
   return { state, actions, passwordRequired: signal.signUp?.missingFields?.includes("password") ?? true };
 }
 
-export function useSsoCallback(): { state: AuthFlowState; resumeKind: ResumeKind; actions: ReturnType<typeof useSignUpFlow>["actions"] } {
+export function useSsoCallback(): { state: AuthFlowState; resumeKind: ResumeKind; actions: ReturnType<typeof useSignUpFlow>["actions"]; passwordRequired: boolean } {
   const signUp = useSignUp();
   const signIn = useSignIn();
   const [returnTo] = useState(() => {
@@ -270,5 +272,7 @@ export function useSsoCallback(): { state: AuthFlowState; resumeKind: ResumeKind
     const query = new URLSearchParams(window.location.search).get("redirect_url");
     return safeReturnPath(query ?? readResume().returnTo);
   });
-  return useAccountFlow({ ticket: null, returnTo, callback: true }, signUp, signIn);
+  const flow = useAccountFlow({ ticket: null, returnTo, callback: true }, signUp, signIn);
+  // A cancelled Discord trip leaves the attempt without a password: the card must then ask for one.
+  return { ...flow, passwordRequired: signUp.signUp?.missingFields?.includes("password") ?? false };
 }

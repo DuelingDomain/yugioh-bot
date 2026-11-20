@@ -78,8 +78,10 @@ interface AccountViewProps extends ViewProps<{ state: AuthFlowState; actions: Si
 }
 
 /** Every sign-up step, shared by `/sign-up` and `/sso-callback`. Both own the single `#clerk-captcha` from first paint. */
-export function AccountView({ flow: { state, actions, passwordRequired = true }, marketingUrl, callback = false, creatorInvite = false }: AccountViewProps) {
+export function AccountView({ flow: { state, actions, passwordRequired: required }, marketingUrl, callback = false, creatorInvite = false }: AccountViewProps) {
   const { pending, banner, fieldErrors } = state;
+  // The callback card asks for a password only when Clerk still needs one (a cancelled Discord trip); the invite page by default.
+  const passwordRequired = required ?? !callback;
   const restart = () => hardNavigate(signInHref(state.returnTo));
   const reload = () => hardNavigate(window.location.href);
   return (
@@ -89,7 +91,7 @@ export function AccountView({ flow: { state, actions, passwordRequired = true },
           case "invite":
             // Retrying reloads this URL, so the invitation ticket is consumed again from a clean Clerk attempt.
             if (!state.lockedEmail) return <CheckingInviteStep banner={banner} onRetry={reload} />;
-            return <CreateAccountStep lockedEmail={state.lockedEmail} errors={{ username: fieldErrors.username, password: fieldErrors.password, legal: fieldErrors.legal }} banner={banner} pending={pending} onSubmit={actions.submitAccount} onDiscord={actions.continueWithDiscord} passwordOptional={callback || !passwordRequired} hideHeardFrom={callback || creatorInvite} />;
+            return <CreateAccountStep lockedEmail={state.lockedEmail} errors={{ username: fieldErrors.username, password: fieldErrors.password, legal: fieldErrors.legal }} banner={banner} pending={pending} onSubmit={actions.submitAccount} onDiscord={actions.continueWithDiscord} passwordOptional={!passwordRequired} hideHeardFrom={callback || creatorInvite} />;
           case "code":
             // The invitation email is locked, so there is no way back to a different one.
             return <CodeStep purpose={state.codePurpose ?? "signup"} identifier={state.lockedEmail ?? state.identifier} error={fieldErrors.code} banner={banner} pending={pending} resendAvailableAt={state.resendAvailableAt} onSubmit={actions.submitCode} onResend={actions.resendCode} />;
