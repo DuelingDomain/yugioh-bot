@@ -89,8 +89,13 @@ process.stdout.write(JSON.stringify(data));
 test('a PR proof covers a push only when it passed every area the push selects', async () => {
   const { covers } = await import('./reuse-pr-result.mjs');
   const f = o => ({ web: 'false', engine: 'false', data_only: 'false', ...o });
-  assert.equal(covers({ flags: f({ web: 'true', engine: 'true' }) }, f({ web: 'true' })), true);
-  assert.equal(covers({ flags: f({ web: 'true' }) }, f({ engine: 'true' })), false);
-  assert.equal(covers({ flags: f({ web: 'true', data_only: 'true' }) }, f({ web: 'true' })), false);
-  assert.equal(covers(null, f({ web: 'true' })), false);
+  const p = old, proof = flags => ({ parent: p, flags });
+  assert.equal(covers(proof(f({ web: 'true', engine: 'true' })), f({ web: 'true' }), p), true);
+  assert.equal(covers(proof(f({ web: 'true' })), f({ engine: 'true' }), p), false);
+  assert.equal(covers(proof(f({ web: 'true', data_only: 'true' })), f({ web: 'true' }), p), false);
+  assert.equal(covers(null, f({ web: 'true' }), p), false);
+  // The PR tested on a different main tip than the push's tested ancestor (cancelled main run in between).
+  assert.equal(covers(proof(f({ web: 'true' })), f({ web: 'true' }), engine), false);
+  assert.equal(covers(proof(f({ web: 'true' })), f({ web: 'true' }), ''), false);
+  assert.equal(covers(proof(f({ web: 'true', tests_only: 'true' })), f({ web: 'true' }), p), false);
 });

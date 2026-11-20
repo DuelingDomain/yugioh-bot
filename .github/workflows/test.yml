@@ -89,6 +89,7 @@ jobs:
       tests_only: ${{ steps.diff.outputs.tests_only }}
       reused: ${{ steps.reuse.outputs.reused }}
       tree: ${{ steps.reuse.outputs.tree }}
+      parent: ${{ steps.reuse.outputs.parent }}
       base: ${{ steps.diff.outputs.base }}
       head: ${{ steps.diff.outputs.head }}
       smoke_enabled: ${{ steps.smoke.outputs.smoke_enabled }}
@@ -131,6 +132,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           EVENT: ${{ github.event_name }}
           DIFF: ${{ toJSON(steps.diff.outputs) }}
+          BASE: ${{ steps.baseline.outputs.base }}
         run: prlimit --core=0 -- node scripts/ci/reuse-pr-result.mjs
 
       - name: Resolve new-card smoke PR
@@ -1346,16 +1348,17 @@ jobs:
       # Proof for the main push of this exact tree (scripts/ci/reuse-pr-result.mjs). Only a passing PR run
       # of this repository writes it; the gate above already failed the job otherwise.
       - name: Record tested tree for the merge
-        if: success() && github.event_name == 'pull_request' && needs.changes.outputs.tree != ''
+        if: success() && github.event_name == 'pull_request' && needs.changes.outputs.tree != '' && needs.changes.outputs.parent != ''
         env:
           PROOF: ${{ toJSON(needs.changes.outputs) }}
           RUN: ${{ github.run_id }}
           TREE: ${{ needs.changes.outputs.tree }}
+          PARENT: ${{ needs.changes.outputs.parent }}
         run: |
           mkdir -p "$RUNNER_TEMP/pr-proof"
-          node -e 'const f=JSON.parse(process.env.PROOF);require("fs").writeFileSync(process.argv[1],JSON.stringify({tree:process.env.TREE,run:process.env.RUN,result:"success",flags:f}))' "$RUNNER_TEMP/pr-proof/proof.json"
+          node -e 'const f=JSON.parse(process.env.PROOF);require("fs").writeFileSync(process.argv[1],JSON.stringify({tree:process.env.TREE,parent:process.env.PARENT,run:process.env.RUN,result:"success",flags:f}))' "$RUNNER_TEMP/pr-proof/proof.json"
       - name: Upload tested tree proof
-        if: success() && github.event_name == 'pull_request' && needs.changes.outputs.tree != ''
+        if: success() && github.event_name == 'pull_request' && needs.changes.outputs.tree != '' && needs.changes.outputs.parent != ''
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: pr-tested-tree-${{ needs.changes.outputs.tree }}
