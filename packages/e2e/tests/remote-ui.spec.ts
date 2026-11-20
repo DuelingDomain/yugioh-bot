@@ -79,6 +79,62 @@ test.describe("remote duels screen, solo", () => {
     await expect(scan).toContainText("Scan field");
   });
 
+  test("Scan field is the primary camera action: first, in view at every size, glows with a reason when the camera and the board differ, runs by itself only when the player is idle, and reports its time", async ({ page, context }) => {
+    test.setTimeout(120_000);
+    await page.setViewportSize({ width: 1366, height: 768 });
+    await fakeCamera(page, "16:9");
+    // A stand-in for the card reader: the camera "sees" `untracked` cards that no track follows. A scan counts itself and, when `fixes` is set, clears the difference.
+    await page.addInitScript(() => {
+      const w = window as unknown as Record<string, unknown>, state = { untracked: 0, scans: 0, scannedAt: -Infinity, fixes: false }; w.__scan = state;
+      w.__e2eFieldWatcher = {
+        getSnapshot: () => ({ status: "watching", tracks: [], lastFullAt: performance.now(), lastScanAt: state.scannedAt, ...(state.untracked ? { untracked: state.untracked } : {}), missingTwins: [], metrics: { detectorMs: 0, recognitionMs: 0, dutyPercent: 0, intervalMs: 333, samples: 0, skipped: 0, placements: 0, latencyMs: 0, errors: 0 } }),
+        confirm() {}, dismiss() {}, forget() {}, resetBaselines() {}, setCalibration() {}, start() {}, dispose() {}, subscribe: () => () => {}, subscribeState: () => () => {},
+        scanNow() { state.scans++; setTimeout(() => { state.scannedAt = performance.now(); if (state.fixes) state.untracked = 0; }, 150); },
+      };
+    });
+    const slug = await soloTable(context.request, 2);
+    await page.goto(`/duels/remote/${slug}`);
+    await page.getByTestId("camera-on-feed").click();
+    await expect.poll(() => page.locator('[data-testid="feed-0"] video').evaluate((v: HTMLVideoElement) => v.videoWidth), { timeout: 30_000 }).toBeGreaterThan(0);
+    await page.getByTestId("feed-box-0").hover(); await page.getByRole("button", { name: "Calibrate zones", exact: true }).first().click();
+    const dialog = page.getByRole("dialog", { name: "Calibrate field zones", exact: true }); await expect(dialog).toBeVisible();
+    await dialog.getByTestId("camera-my-view").click(); await dialog.getByRole("button", { name: "Save calibration", exact: true }).click(); await expect(dialog).toBeHidden();
+    await page.waitForFunction(() => (window as unknown as { __e2eField?: { live: () => boolean } }).__e2eField?.live());
+    const scan = page.getByTestId("field-scan"), chip = page.getByTestId("field-watcher-status"), state = (key: string) => page.evaluate(k => (window as unknown as { __scan: Record<string, number> }).__scan[k], key);
+    await expect(scan).toHaveAttribute("aria-disabled", "false", { timeout: 30_000 });
+    // First in the camera tools, solid and large enough to find, fully in view and clear of the Token button at laptop, 1080p and 1440p sizes.
+    for (const [width, height] of [[1366, 768], [1920, 1080], [2560, 1440]]) {
+      await page.setViewportSize({ width, height });
+      await expect(scan).toBeInViewport({ ratio: 1 });
+      const facts = await scan.evaluate(button => {
+        const token = document.querySelector('[data-testid="token-open-0"]'), a = button.getBoundingClientRect(), b = token?.getBoundingClientRect();
+        return { first: !token || !!(button.compareDocumentPosition(token) & Node.DOCUMENT_POSITION_FOLLOWING), height: a.height, clear: !b || a.right <= b.left + 1 || a.bottom <= b.top + 1 || b.right <= a.left + 1 || b.bottom <= a.top + 1, solid: getComputedStyle(button).backgroundImage !== "none" };
+      });
+      expect(facts, `${width}x${height}`).toMatchObject({ first: true, clear: true, solid: true }); expect(facts.height).toBeGreaterThanOrEqual(28);
+    }
+    await expect(scan).not.toHaveAttribute("data-need", ""); await expect(chip).toHaveText("Watching field");
+    // The camera sees 2 cards the board lacks. While a pointer button is held (a drag) nothing scans by itself: the button glows and says why.
+    await page.evaluate(() => { (window as unknown as { __scan: { untracked: number } }).__scan.untracked = 2; });
+    await page.mouse.move(5, 5); await page.mouse.down();
+    await expect(scan).toHaveAttribute("data-need", "", { timeout: 10_000 });
+    await expect(chip).toHaveText("Camera sees 2 cards not on the board · Scan field");
+    await expect(scan).toHaveAttribute("aria-label", "Scan field. Camera sees 2 cards not on the board");
+    await page.waitForTimeout(2500); expect(await state("scans")).toBe(0);
+    // Idle again: one gentle scan starts by itself. It cannot fix this difference here, so the reason stays for the player.
+    await page.mouse.up();
+    await expect.poll(() => state("scans"), { timeout: 10_000 }).toBe(1);
+    await expect(scan).toHaveAttribute("data-need", "", { timeout: 10_000 });
+    // The player scans: S on the keyboard, the same as a click. The scan reports its time (the stand-in has no detector cost) and the reason goes away.
+    await page.evaluate(() => { (window as unknown as { __scan: { fixes: boolean } }).__scan.fixes = true; });
+    await page.keyboard.press("s");
+    await expect.poll(() => state("scans")).toBe(2);
+    await expect(scan).toHaveAttribute("data-scan-ms", /^\d+$/); await expect(scan).not.toHaveAttribute("data-need", "", { timeout: 10_000 });
+    const [totalMs, sweepMs] = await Promise.all([scan.getAttribute("data-scan-ms"), scan.getAttribute("data-scan-sweep-ms")]);
+    test.info().annotations.push({ type: "scan-ms", description: `sweep ${sweepMs} ms, total ${totalMs} ms (stand-in reader)` });
+    expect(Number(totalMs)).toBeLessThan(2000);
+    await expect(chip).toHaveText("Watching field", { timeout: 10_000 });
+  });
+
   test("1v1 table: phase rail, LP, undo, drawers", async ({ page, context }) => {
     const slug = await soloTable(context.request, 2);
     await page.goto(`/duels/remote/${slug}`);
