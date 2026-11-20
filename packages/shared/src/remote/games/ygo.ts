@@ -239,18 +239,21 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
   const setPhase = (phase: string) => {
     ownTurn(); remoteAssert(!state.attack, "Resolve the attack first", 409);
     remoteAssert(phases.some(p => p.id === phase), "Unknown phase");
+    // Setting the phase it is already in changes nothing (a repeated click on a slow reply): no new event. Old logs replay as they were recorded.
+    if (phase === state.phase && !context?.replay) return false;
     // Backward phase.set is a same-turn correction with the normal Undo snapshot.
     if (!context?.replay && phases.findIndex(p => p.id === phase) < phases.findIndex(p => p.id === state.phase))
       remoteAssert(action.actorSeat === state.turnSeat, "Only the turn player can go back a phase", 403);
     remoteAssert(phase !== "battle" || ygoBattleAllowed(state), "Battle Phase is unavailable in the opening turns", 409);
     next.battleEntered = battleEnteredThisTurn(state) || phase === "battle";
     next.phase = phase;
+    return true;
   };
   switch (action.type) {
     case "hand.add": case "hand.reveal": case "hand.forget": case "hand.count": case "hand.draw": case "deck.count":
       if(!reduceRemoteHandAction(next, action, context))return state;
       break;
-    case "phase.set": setPhase(action.phase); break;
+    case "phase.set": if (!setPhase(action.phase)) return state; break;
     case "phase.advance": {
       const index = phases.findIndex(p => p.id === state.phase);
       if (index === phases.length - 1) endTurn();

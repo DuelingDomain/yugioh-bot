@@ -749,6 +749,15 @@ describe("remote deck registration and live checks", () => {
     expect(s.service.snapshot(s.room.slug, "g", s.users[0]).state.undo).toEqual({actionId:expect.any(String),at:expect.any(Number)});
     expect(s.service.snapshot(s.room.slug, "g").state.undo).toEqual({actionId:expect.any(String),at:expect.any(Number)});
   });
+  it("ignores a repeated phase set and does not log a missing saved deck as a read error", () => {
+    const s = deckSession("normal"); s.start();
+    s.act({ type: "phase.set", phase: "main1" });
+    const seq = s.room.lastSeq;
+    s.act({ type: "phase.set", phase: "main1" });
+    expect(s.room.lastSeq).toBe(seq);
+    s.act({ type: "card.identified", seat: 0, cardId: 14558127, name: "Ash Blossom", source: "auto" });
+    expect(s.room.state.identified).toMatchObject({ cardId: 14558127, addErrors: [] });
+  });
   it("allows physical multiplayer readiness without a deck and rejects invalid selected decks in solo", () => {
     const live = deckSession("normal", false);
     const ready = live.service.ready(live.room.slug, "g", live.users[0], true, 2001);

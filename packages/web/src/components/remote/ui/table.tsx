@@ -345,7 +345,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
       return;
     }
   }, [state.seats, live, solo, mySeat, control]);
-  const setPhase = (phase: string) => { if (live && myTurn) void act({ type: "phase.set", actorSeat: turnActor, phase }); };
+  const setPhase = (phase: string) => { if (live && myTurn && phase !== state.phase) void act({ type: "phase.set", actorSeat: turnActor, phase }); };
   const phaseBack = (phase: string) => { if (live && myTurn) void act(phaseBackAction(turnActor, phase)); };
   const passTurn = () => { if (live && myTurn) void act({ type: "turn.end", actorSeat: turnActor }); };
   // ---- match: result, declare, side decking ----
