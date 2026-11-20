@@ -16,7 +16,7 @@ import {fieldPositionMatches,applyFieldFaceFlip,fieldFaceProposal,fieldSetMove,f
 import {OutageGaveUpError,onOutageEnd,outageDown} from '@/lib/remote/outage';
 import {createFieldFaceCheck,type FieldFaceFix} from '@/lib/remote/field-face';
 import {fieldTrackMessage} from '@/lib/remote/field-track-cache';
-import {givenSpotHolds} from '@/lib/remote/given-hold';
+import {givenSpotHolds,type GivenSpot} from '@/lib/remote/given-hold';
 import {onManualMove,requestManualZone} from '@/lib/remote/manual-moves';
 import {correctionsFor,cameraCorrectionBlocked} from '@/lib/remote/manual-corrections';
 import {createChangedZones} from '@/lib/remote/changed-zones';
@@ -410,9 +410,10 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[room.state,seat]);
   /** My card an opponent holds as a proxy: its paper card leaves my zone or stays on the mat, and the camera does nothing about it. Read from the live state, so a reload, a take back, an Undo and a return to my Graveyard all end it. */
-  const givenAway=(ref:string)=>current.current.room.state.seats.some((s,i)=>i!==seat&&s.twin.some(c=>c.ref===ref&&c.ownerSeat===seat));
-  /** The same card by identity: the camera may start a new track (a new ref) for the paper card that stays on my mat. The mat spot and card id of each given card are kept while it is given, and a track of that card on that spot is held too. */
-  const givenSpots=useRef(new Map<string,{zone:FieldZone;cardId?:string}>());
+  const givenCopy=(ref:string)=>{for(const [i,s] of current.current.room.state.seats.entries()){if(i===seat)continue;const c=s.twin.find(c=>c.ref===ref&&c.ownerSeat===seat);if(c)return c;}};
+  const givenAway=(ref:string)=>!!givenCopy(ref);
+  /** The same card by identity: the camera may start a new track (a new ref) for the paper card that stays on my mat. The mat spot and card id of each given card are kept while it is given, and a track of that card on that spot is held too, until the paper card leaves it (see `givenSpotHolds`). */
+  const givenSpots=useRef(new Map<string,GivenSpot>());
   const rememberGiven=(before:readonly TwinCard[])=>{
     const given=new Map<string,TwinCard>();
     current.current.room.state.seats.forEach((s,i)=>{if(i!==seat)for(const c of s.twin)if(c.ownerSeat===seat)given.set(c.ref,c);});
@@ -421,13 +422,13 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       if(givenSpots.current.has(ref))continue;
       const mine=before.find(c=>c.ref===ref),zone=mine&&publicField(mine.zone)?knownZone(mine):physical.current!.zones.get(ref)??observedFieldZone(room.slug,seat,ref);
       const code=cardCode(card)??(mine&&cardCode(mine))??card.ownerIdentity?.cardId;
-      if(zone&&/^(M[1-5]|S[1-5]|EMZ[12]|FIELD)$/.test(zone))givenSpots.current.set(ref,{zone,cardId:code?String(code):undefined});
+      if(zone&&/^(M[1-5]|S[1-5]|EMZ[12]|FIELD)$/.test(zone))givenSpots.current.set(ref,{zone,cardId:code?String(code):undefined,at:performance.now()});
     }
   };
   /** True for a track of my given card: the same ref, or the same card (an unread track counts) on the mat spot where it was given. */
-  const givenHold=(track:Pick<FieldTrack,'id'|'zone'|'cardId'>)=>{
+  const givenHold=(track:Pick<FieldTrack,'id'|'zone'|'cardId'|'faceDown'>)=>{
     if(givenAway(bindings.current.get(track.id)??track.id))return true;
-    return givenSpotHolds(givenSpots.current,track,givenAway);
+    return givenSpotHolds(givenSpots.current,track,givenCopy,zone=>fieldEmptyProofs(watch.getSnapshot?.())?.[zone as FieldZone]);
   };
   const undoCards=useRef(new Map<string,Pick<RemoteUndoEntry,'action'|'cards'>>()),undoSeq=useRef<number|null>(null);
   useEffect(()=>{undoCards.current.clear();undoSeq.current=null;},[room.slug,seat]);
