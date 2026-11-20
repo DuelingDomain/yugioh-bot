@@ -173,8 +173,10 @@ function useAccountFlow(opts: { ticket: string | null; returnTo: string; callbac
           dispatch({ type: "error", view: { kind: "step", step: "err-signup" } }); return;
         }
         setResumeKind("sign-up");
-        if (resume.auto && signUp.missingFields.includes("username") && !signUp.missingFields.includes("password")) {
-          if (!await fillUsername(signUp)) { await advanceSignup(); return; }
+        // Clerk lists no missing username when "Require username" is off, so also fill when the attempt has none. A failed fill
+        // never blocks: an optional username is skipped, a required one falls back to the form.
+        if (resume.auto && !signUp.missingFields.includes("password") && (signUp.missingFields.includes("username") || !signUp.username)) {
+          await fillUsername(signUp);
           // Re-read: the update changed the attempt, which may now be complete or only need a code.
           await advanceSignup();
           return;

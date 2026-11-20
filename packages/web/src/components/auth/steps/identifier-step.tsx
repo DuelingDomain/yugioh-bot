@@ -47,7 +47,6 @@ export function IdentifierStep({ identifier, error, banner, pending, onSubmit, o
           type="text"
           label="Email or username"
           autoComplete="username"
-          inputMode="email"
           placeholder="you@email.com or username"
           defaultValue={identifier}
           error={error}
