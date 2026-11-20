@@ -11,7 +11,7 @@ import { SheetButton, sheetButtonClass, sheetPage } from "@/components/duel/shee
 import { SpectatorVideo } from "@/lib/remote/spectator-video";
 import { publicTrackedTwin } from "@/lib/remote/field-track-cache";
 import { watchVideoFrames } from "@/lib/remote/video-protocol";
-import { useCardInfo } from "./catalog";
+import { useCardInfo, warmCardArt } from "./catalog";
 import { HandStrip } from "./hand-ui";
 import { handCountOf, knownHandOf } from "./reveal-model";
 import { CardPopover, InspectorBody, type CardActions, type Subject } from "./card-view";
@@ -121,7 +121,7 @@ function SpectatorTable({ room }: { room: RemoteRoom }) {
   const toggleGrid = () => { const next = !gridOn; setGridOn(next); writeGridPref(false, next); };
   // W switches between Both and Webcam only, as for the players.
   useEffect(() => {
-    const key = (event: KeyboardEvent) => { if (event.key.toLowerCase() !== "w" || event.ctrlKey || event.metaKey || event.altKey || isTypingTarget(event.target)) return; setWebcamOnly(!webcamOnly); };
+    const key = (event: KeyboardEvent) => { if (event.repeat || event.key.toLowerCase() !== "w" || event.ctrlKey || event.metaKey || event.altKey || isTypingTarget(event.target)) return; setWebcamOnly(!webcamOnly); };
     window.addEventListener("keydown", key); return () => window.removeEventListener("keydown", key);
   }, [webcamOnly, setWebcamOnly]);
   const [rv, setRv] = useState<Record<number, ZoneKey>>({});
@@ -153,7 +153,11 @@ function SpectatorTable({ room }: { room: RemoteRoom }) {
   const lp = (seat: number) => state.seats[seat]?.resources.lp ?? 0;
   const [subject, setSubject] = useState<Subject | null>(null);
   const [popAt, setPopAt] = useState<PopAt>({ anchor: null, feed: null });
-  const info = useCardInfo([...state.seats.flatMap(item => [...item.twin.map(card => cardCode(card) ?? card.token?.artId), ...(item.knownHand ?? []).map(card => card.cardId)]), subject?.cardId]);
+  const publicIds = state.seats.flatMap(item => [...item.twin.map(card => cardCode(card) ?? card.token?.artId), ...(item.knownHand ?? []).map(card => card.cardId)]);
+  const info = useCardInfo([...publicIds, subject?.cardId]);
+  // Players warm their card pictures as they play; a spectator never does, so the first inspector read waited for the server to fetch the art.
+  const warmKey = [...new Set(publicIds.filter((id): id is number => !!id))].sort((a, b) => a - b).join(",");
+  useEffect(() => { if (warmKey) warmCardArt(warmKey.split(",").map(Number)); }, [warmKey]);
   const extraZones = hasExtraZones(room.format?.id);
   const format = (room.format?.id ?? state.deckChecks.format.id) as FieldFormat;
 
@@ -245,7 +249,7 @@ function SpectatorTable({ room }: { room: RemoteRoom }) {
               <span className={`${s.tag} ${s.turnt}`}>TURN</span><span className={`${s.tag} ${s.nextt}`}>NEXT</span>
               {state.seats[seat]?.eliminated ? <span className={s.tag}>OUT</span> : null}
               <span className={s.sp} />
-              <button type="button" className={s.vtog} data-testid={`zone-grid-toggle-${seat}`} aria-pressed={gridOn} onClick={toggleGrid} title="Draw the zone outlines over the cameras">Show zone grid</button>
+              <button type="button" className={s.vtog} data-testid={`zone-grid-toggle-${seat}`} aria-pressed={gridOn} aria-label="Show zone grid" onClick={toggleGrid} title="Draw the zone outlines over the cameras"><span className={v.zgLong}>Show zone </span>grid</button>
               <button type="button" className={`${s.vtog} ${s.vhide}`} data-testid={`field-toggle-${seat}`} onClick={() => setWebcamOnly(!webcamOnly)} aria-keyshortcuts="W"
                 title={webcamOnly ? "Show the virtual fields (beta) (W)" : "Hide the virtual fields (beta). The cameras take the screen (W)"}>
                 <span>{webcamOnly ? "Show" : "Hide"} <span className={s.vlong}>virtual </span>field</span> <span className={s.vbeta}>Beta</span> <kbd>W</kbd></button>
@@ -261,11 +265,11 @@ function SpectatorTable({ room }: { room: RemoteRoom }) {
                 </ul>
               </div> : <div className={s.fside}>
                 <div className={s.fboard}>
-                  <div className={s.fwrap} data-testid={`fwrap-${seat}`}>
+                  <div className={`${s.fwrap} ${v.noZoom}`} data-testid={`fwrap-${seat}`}>
                     <div className={s.holo}>
                       <i className={`${s.corner} ${s.a}`} /><i className={`${s.corner} ${s.b}`} /><i className={`${s.corner} ${s.c}`} /><i className={`${s.corner} ${s.d}`} />
                       <span className={s.fplate} data-plate={seat}><span className={s.pip} />{name(seat)} <span className={s.num}>{lp(seat)}</span></span>
-                      <HoloField seat={seat} name={name(seat)} twin={state.seats[seat]?.twin ?? []} info={info} extraZones={extraZones} facing={facing(seat)} rv={rv[seat] ?? "m1"} onRv={key => setRv(old => ({ ...old, [seat]: key }))}
+                      <HoloField readOnly seat={seat} name={name(seat)} twin={state.seats[seat]?.twin ?? []} info={info} extraZones={extraZones} facing={facing(seat)} rv={rv[seat] ?? "m1"} onRv={key => setRv(old => ({ ...old, [seat]: key }))}
                         picking={false} warnRefs={NO_WARN} onActivate={(_key, card) => inspect(seat, card, true)} onAttack={noop} onInspect={card => inspect(seat, card, true)}
                         onPile={(zone, opener) => { setPile({ seat, zone }); layers.open("pile", opener); }} boardSeats={state.seats} owners={players} />
                     </div>

@@ -25,10 +25,13 @@ export type Subject = {
 };
 
 function Art({ id }: { id: number }) {
-  const [broken, setBroken] = useState(false);
+  // The failure belongs to one card: a new card starts with a clean state, and one failed load is tried again once.
+  const [state, setState] = useState<{ id: number; tries: number; broken: boolean }>({ id, tries: 0, broken: false });
+  const now = state.id === id ? state : { id, tries: 0, broken: false };
+  const fail = () => setState(now.tries < 1 ? { id, tries: now.tries + 1, broken: false } : { id, tries: now.tries, broken: true });
   return <div className={s.dart}>
-    {broken ? <div className={`${s.cd} ${s.tEffect}`} style={{ "--h": (id * 47) % 360 } as CSSProperties}><div className={s.art} /></div>
-      : <img className={s.artImg} style={{ width: "100%", height: "100%", borderRadius: 6, objectFit: "cover" }} src={cardArt(id, "full")} alt="" onError={() => setBroken(true)} />}
+    {now.broken ? <div className={`${s.cd} ${s.tEffect}`} style={{ "--h": (id * 47) % 360 } as CSSProperties}><div className={s.art} /></div>
+      : <img key={`${id}-${now.tries}`} className={s.artImg} style={{ width: "100%", height: "100%", borderRadius: 6, objectFit: "cover" }} src={`${cardArt(id, "full")}${now.tries ? "&retry=1" : ""}`} alt="" onError={fail} />}
   </div>;
 }
 

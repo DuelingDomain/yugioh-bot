@@ -20,3 +20,7 @@
 @media (max-width:1100px){.hideNarrow{display:none}}
 /* Phones use the stacked layout of the table in remote-ui.module.css. There is no dock under the rail here. */
 @media (max-width:900px){.leave{padding-inline:8px}}
+/* A spectator board cannot be zoomed or acted on, so the players' zoom cursor does not apply. */
+.app section[data-view="camera"] .noZoom{cursor:default}
+/* A narrow seat keeps the zone grid button but drops the long words: "Show zone grid" becomes "grid". */
+@container seat (max-width:520px){.zgLong{display:none}}
