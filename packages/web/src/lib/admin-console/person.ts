@@ -18,11 +18,14 @@ type DuelRow = {
 };
 type DraftRow = { id: number; web_slug: string; name: string; status: string; created_at: string; started_at: string | null; ended_at: string | null };
 
+/** The console is admin-only: a running table opens in the read-only admin watch, never the player page (invite-only for private tables). */
+export const adminWatchPath = (kind: "duel" | "draft", slug: string) => `/admin/watch/${kind}/${slug}`;
+
 function duelActivity(row: DuelRow): PersonActivity {
   const format = (row.format in FORMAT_LABEL ? row.format : "1v1") as DuelFormat;
   const base = { kind: "duel" as const, name: row.name, what: FORMAT_LABEL[format] };
-  if (row.status === "active") return { ...base, href: `/duels/${row.web_slug}`, outcome: "Playing", tone: "live", at: dbTimeMs(row.started_at) ?? dbTimeMs(row.created_at) };
-  if (row.status === "lobby") return { ...base, href: `/duels/${row.web_slug}`, outcome: "Lobby", tone: "quiet", at: dbTimeMs(row.created_at) };
+  if (row.status === "active") return { ...base, href: adminWatchPath("duel", row.web_slug), outcome: "Playing", tone: "live", at: dbTimeMs(row.started_at) ?? dbTimeMs(row.created_at) };
+  if (row.status === "lobby") return { ...base, href: adminWatchPath("duel", row.web_slug), outcome: "Lobby", tone: "quiet", at: dbTimeMs(row.created_at) };
   const at = dbTimeMs(row.ended_at) ?? dbTimeMs(row.created_at);
   const href = `/duels/${row.web_slug}/replay`;
   if (row.status === "completed" && row.winner_seat !== null) {
@@ -37,7 +40,7 @@ function draftActivity(row: DraftRow): PersonActivity {
   const outcome = row.status === "active" ? "Drafting" : row.status === "pending" ? "Lobby" : row.status === "completed" ? "Completed" : "Cancelled";
   const tone = row.status === "active" ? "live" : "quiet";
   return {
-    kind: "draft", name: row.name, href: `/draft/${row.web_slug}`, what: "Draft", outcome, tone,
+    kind: "draft", name: row.name, href: row.status === "active" || row.status === "pending" ? adminWatchPath("draft", row.web_slug) : `/draft/${row.web_slug}`, what: "Draft", outcome, tone,
     at: dbTimeMs(row.ended_at) ?? dbTimeMs(row.started_at) ?? dbTimeMs(row.created_at),
   };
 }

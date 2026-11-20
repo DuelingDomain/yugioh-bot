@@ -160,7 +160,7 @@ export function PeopleView({ s, actions, selected, sheetOpen, onCloseSheet, filt
               <div className={styles.cur} role="cell">
                 {u.current ? (
                   <>
-                    <a href={u.current.href} target="_blank" rel="noopener" onClick={(e) => e.stopPropagation()}>{u.current.label} · {u.current.name}</a>
+                    <a href={`/admin/watch/${u.current.kind}/${u.current.slug}`} target="_blank" rel="noopener" onClick={(e) => e.stopPropagation()}>{u.current.label} · {u.current.name}</a>
                     <small>{placeDetail(u.current, live)}</small>
                   </>
                 ) : <span className={styles.muted}>Not in a game</span>}
