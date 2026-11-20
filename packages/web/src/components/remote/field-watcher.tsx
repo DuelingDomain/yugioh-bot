@@ -525,6 +525,17 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     return {existing,blocked:false};
   }
   /** The newest face-up member of this seat's GY/banished pile with this identity. */
+  /** An older pile card the camera shows as the top again: the cards above it in the pile were picked up, when each was seen on top and is out of view now. */
+  const liftedAbove=(top:TwinCard,track:FieldTrack,twins:readonly TwinCard[])=>{
+    const members=twins.filter(c=>c.zone===top.zone),above=members.slice(members.indexOf(top)+1);
+    if(!above.length||!pileEntry(track)||pendingDepartures.current.size||pendingLeft.current.size||lateDefaults.current.size)return [];
+    const tracks=watch.getTracks();
+    const proven=above.every(c=>{
+      const own=tracks.filter(t=>(bindings.current.get(t.id)??t.id)===c.ref);
+      return own.some(t=>t.removed)&&own.every(t=>t.removed||!t.visible)&&!undoKept.current.has(c.ref)&&!manual.current.has(c.ref);
+    });
+    return proven?above:[];
+  };
   const pileCopy=(members:readonly TwinCard[],entry:Entry)=>[...members].reverse().find(c=>c.faceUp&&sameObservedCard(c,{cardId:catalogCardId(entry),name:entry.name}));
   /**
    * Pile exit. A card the camera sees on the field while the same card lies in this seat's
@@ -648,7 +659,14 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     if(resolved.blocked){abstain(event,'Another physical card owns this ref. Check the field.');return;}
     existing=resolved.existing??pileExit(track,entry,twins);
     if(existing&&['GY','BANISHED'].includes(track.zone)&&existing.zone===location.zone&&existing.faceUp===!track.faceDown&&entry&&sameObservedCard(existing,{cardId:catalogCardId(entry),name:entry.name})){
-      bindings.current.set(event.track.id,existing.ref);watch.confirm(event.track.id,track.cardId,existing.ref,false);return;
+      bindings.current.set(event.track.id,existing.ref);watch.confirm(event.track.id,track.cardId,existing.ref,false);
+      // The cards that lay above it left the pile: to the hand, in one undoable action.
+      const lifted=liftedAbove(existing,track,twins);
+      if(lifted.length){
+        const moved=await act({type:'pile.lift',actorSeat:seat,seat,zone:location.zone as 'graveyard'|'banished',cardRefs:lifted.map(c=>c.ref),source:'auto'});
+        if(moved){setDeparture(null);setNotice(`${lifted.map(c=>c.name??'Card').join(', ')} picked up from the ${track.zone==='GY'?'Graveyard':'banished pile'} · auto`);setUndoId(moved.state.undo?.actionId??'');}
+      }
+      return;
     }
     if(existing)track={...track,id:existing.ref};
     else if(twins.some(c=>c.ref===track.id))track={...track,id:`fw-${crypto.randomUUID()}`};
