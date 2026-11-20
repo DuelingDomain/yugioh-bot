@@ -32,6 +32,17 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 describe("sign-in flow", () => {
+  it("signs a person with no password in with an emailed code as the first factor", async () => {
+    mock.signal.signIn.supportedFirstFactors = [{ strategy: "email_code" }];
+    mock.signal.signIn.emailCode = { sendCode: vi.fn(ok), verifyCode: vi.fn(async () => { mock.signal.signIn.status = "complete"; return { error: null }; }) };
+    const { result } = setup();
+    await act(async () => { await result.current.actions.submitIdentifier("nopass@test.dev"); });
+    expect(mock.signal.signIn.emailCode.sendCode).toHaveBeenCalledOnce();
+    expect(result.current.state).toMatchObject({ step: "code", codePurpose: "email-code" });
+    await act(async () => { await result.current.actions.submitCode("123456"); });
+    expect(mock.signal.signIn.emailCode.verifyCode).toHaveBeenCalledWith({ code: "123456" });
+    expect(mock.signal.signIn.finalize).toHaveBeenCalled();
+  });
   it("shows a support message for a refused recovery account", () => {
     window.history.replaceState(null, "", "/sign-in?error=discord_recovery_support");
     const { result } = setup();

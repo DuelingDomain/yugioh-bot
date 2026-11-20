@@ -9,6 +9,7 @@ import { AuthFlowShell } from "./flow-shell";
 import { hardNavigate } from "./navigate";
 import { APP_WAITLIST_PATH, signInHref } from "./marketing-links";
 import { AccountUnavailableStep } from "./steps/account-unavailable-step";
+import { DiscordInviteStep } from "./steps/discord-invite-step";
 import { CheckingInviteStep } from "./steps/checking-invite-step";
 import { CodeStep } from "./steps/code-step";
 import { CreateAccountStep } from "./steps/create-account-step";
@@ -66,7 +67,7 @@ export function SignInView({ flow: { state, actions }, marketingUrl }: ViewProps
   );
 }
 
-interface AccountViewProps extends ViewProps<{ state: AuthFlowState; actions: SignUpFlow["actions"] }> {
+interface AccountViewProps extends ViewProps<{ state: AuthFlowState; actions: SignUpFlow["actions"]; passwordRequired?: boolean }> {
   /**
    * The SSO callback card: Discord is already chosen, so only username and consent are asked (no password, no second
    * Discord button), and the page opens on "Signing you in".
@@ -77,8 +78,10 @@ interface AccountViewProps extends ViewProps<{ state: AuthFlowState; actions: Si
 }
 
 /** Every sign-up step, shared by `/sign-up` and `/sso-callback`. Both own the single `#clerk-captcha` from first paint. */
-export function AccountView({ flow: { state, actions }, marketingUrl, callback = false, creatorInvite = false }: AccountViewProps) {
+export function AccountView({ flow: { state, actions, passwordRequired: required }, marketingUrl, callback = false, creatorInvite = false }: AccountViewProps) {
   const { pending, banner, fieldErrors } = state;
+  // The callback card asks for a password only when Clerk still needs one (a cancelled Discord trip); the invite page by default.
+  const passwordRequired = required ?? !callback;
   const restart = () => hardNavigate(signInHref(state.returnTo));
   const reload = () => hardNavigate(window.location.href);
   return (
@@ -88,10 +91,12 @@ export function AccountView({ flow: { state, actions }, marketingUrl, callback =
           case "invite":
             // Retrying reloads this URL, so the invitation ticket is consumed again from a clean Clerk attempt.
             if (!state.lockedEmail) return <CheckingInviteStep banner={banner} onRetry={reload} />;
-            return <CreateAccountStep lockedEmail={state.lockedEmail} errors={{ username: fieldErrors.username, password: fieldErrors.password, legal: fieldErrors.legal }} banner={banner} pending={pending} onSubmit={actions.submitAccount} onDiscord={actions.continueWithDiscord} passwordOptional={callback} hideHeardFrom={callback || creatorInvite} />;
+            return <CreateAccountStep lockedEmail={state.lockedEmail} errors={{ username: fieldErrors.username, password: fieldErrors.password, legal: fieldErrors.legal }} banner={banner} pending={pending} onSubmit={actions.submitAccount} onDiscord={actions.continueWithDiscord} passwordOptional={!passwordRequired} hideHeardFrom={callback || creatorInvite} />;
           case "code":
             // The invitation email is locked, so there is no way back to a different one.
             return <CodeStep purpose={state.codePurpose ?? "signup"} identifier={state.lockedEmail ?? state.identifier} error={fieldErrors.code} banner={banner} pending={pending} resendAvailableAt={state.resendAvailableAt} onSubmit={actions.submitCode} onResend={actions.resendCode} />;
+          case "discord-invite":
+            return <DiscordInviteStep lockedEmail={state.lockedEmail ?? ""} onUseEmail={actions.useEmailInstead} />;
           case "signing":
             return <SigningStep banner={banner} onRetry={restart} />;
           case "recovering":

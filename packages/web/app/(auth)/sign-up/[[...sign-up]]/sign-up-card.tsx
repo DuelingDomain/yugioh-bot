@@ -11,7 +11,7 @@ import { useRedirectIfSignedIn } from "@/hooks/use-redirect-if-signed-in";
 import { useSignUpFlow } from "@/hooks/use-sign-up-flow";
 import { mapClerkError } from "@/lib/auth-errors";
 
-type SignUpCardProps = { ticket: string | null; returnTo: string; marketingUrl: string | null; creatorInvite?: boolean };
+type SignUpCardProps = { ticket: string | null; returnTo: string; marketingUrl: string | null; creatorInvite?: boolean; discordFirst?: boolean };
 
 export function SignUpCard(props: SignUpCardProps) {
   return props.ticket ? <TicketSignUpCard {...props} /> : <RegularSignUpCard {...props} />;
@@ -38,8 +38,8 @@ function TicketSignUpCard(props: SignUpCardProps) {
   return <SignInShell marketingUrl={props.marketingUrl ?? undefined}><CheckingInviteStep banner={error?.kind === "banner" ? error.banner : null} onRetry={reloadPage} /></SignInShell>;
 }
 
-function SignUpFlowCard({ ticket, returnTo, marketingUrl, creatorInvite = false }: SignUpCardProps) {
-  const flow = useSignUpFlow({ ticket, returnTo });
+function SignUpFlowCard({ ticket, returnTo, marketingUrl, creatorInvite = false, discordFirst = false }: SignUpCardProps) {
+  const flow = useSignUpFlow({ ticket, returnTo, discordFirst });
   return <AccountView flow={flow} marketingUrl={marketingUrl} creatorInvite={creatorInvite} />;
 }
 
