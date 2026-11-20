@@ -56,6 +56,9 @@ const mainDeckOwnRow=(frameClass:string|undefined,zone:string)=>/^M[1-5]$/.test(
 const PILE_NEAR_MS=1500;
 /** Contact alone (no new pile card) picks a pile only when it began this close before the removal; older contact is a hand that was just passing. */
 const PILE_CONTACT_LEAD_MS=500;
+/** The empty-cell proof can come well after the card left. A new pile card is judged from when the card was last seen (contact alone still from the removal), but never from more than this long before the proof. */
+const PILE_LEFT_LOOKBACK_MS=4000;
+const departureSince=(sourceAt:number,lastSeen:number|undefined)=>lastSeen===undefined?sourceAt:Math.max(Math.min(sourceAt,lastSeen),sourceAt-PILE_LEFT_LOOKBACK_MS);
 const pileActivity=(snap:FieldSnapshot|undefined)=>({
   GY:Math.max(snap?.pileContactAt?.GY??-Infinity,snap?.pileTouchedAt?.GY??-Infinity),
   BANISHED:Math.max(snap?.pileContactAt?.BANISHED??-Infinity,snap?.pileTouchedAt?.BANISHED??-Infinity),
@@ -77,21 +80,21 @@ const contactedPile=(snap:FieldSnapshot|undefined,sourceAt:number):'GY'|'BANISHE
  * card that itself left the field to a pile (the departed card's own arrival). Transient detections and re-detected old pile tracks
  * do not count. It is recomputed at every use, never remembered. GY unless only the banished pile changed.
  */
-const changedPile=(snap:FieldSnapshot|undefined,sourceAt:number,twins:readonly TwinCard[],owns:(t:FieldTrack)=>string,sentAt:(ref:string)=>number|undefined):'GY'|'BANISHED'|undefined=>{
+const changedPile=(snap:FieldSnapshot|undefined,sourceAt:number,since:number,twins:readonly TwinCard[],owns:(t:FieldTrack)=>string,sentAt:(ref:string)=>number|undefined):'GY'|'BANISHED'|undefined=>{
   let best:{zone:'GY'|'BANISHED';at:number}|undefined;
-  const touched=(zone:'GY'|'BANISHED')=>Math.max(snap?.pileContactAt?.[zone]??-Infinity,snap?.pileTouchedAt?.[zone]??-Infinity)>=sourceAt-PILE_NEAR_MS;
+  const touched=(zone:'GY'|'BANISHED')=>Math.max(snap?.pileContactAt?.[zone]??-Infinity,snap?.pileTouchedAt?.[zone]??-Infinity)>=since-PILE_NEAR_MS;
   for(const zone of ['GY','BANISHED'] as const){
     const contact=snap?.pileContactAt?.[zone]??-Infinity;
     let fresh=-Infinity;
     if(touched(zone))for(const t of snap?.tracks??[]){
       if(t.zone!==zone||t.removed||t.under||t.state==='dismissed'||!t.visible||t.restSince===undefined&&t.state!=='identified'||t.card.partial||t.card.covered)continue;
-      if(t.firstSeen<sourceAt-1000||t.firstSeen>sourceAt+PILE_ACTION_CAP_MS)continue;
+      if(t.firstSeen<since-1000||t.firstSeen>sourceAt+PILE_ACTION_CAP_MS)continue;
       const pileZone=zone==='GY'?'graveyard':'banished',twin=twins.find(c=>c.ref===owns(t));
       // A twin's departure time is server time; the removal time is the watcher clock.
-      const serverSince=serverNow()-(performance.now()-sourceAt)-1000;
+      const serverSince=serverNow()-(performance.now()-since)-1000;
       // Owned: only a card that left the field to this pile around the removal (departedFrom never expires, so old ones do not count).
       // A move the camera confirmed keeps no departedFrom, so the watcher's own recent pile write (watcher clock) counts too.
-      if(twin&&!(twin.zone===pileZone&&(twin.departedFrom?.auto&&twin.departedFrom.at!==undefined&&twin.departedFrom.at>=serverSince||(sentAt(twin.ref)??-Infinity)>=sourceAt-1000)))continue;
+      if(twin&&!(twin.zone===pileZone&&(twin.departedFrom?.auto&&twin.departedFrom.at!==undefined&&twin.departedFrom.at>=serverSince||(sentAt(twin.ref)??-Infinity)>=since-1000)))continue;
       // Unowned: not a second outline of a card that already lay in this pile before the removal.
       if(!twin&&t.cardId&&twins.some(c=>c.zone===pileZone&&String(cardCode(c)??'')===t.cardId&&!(c.departedFrom?.at!==undefined&&c.departedFrom.at>=serverSince)))continue;
       fresh=Math.max(fresh,t.firstSeen);
@@ -1290,9 +1293,12 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
         // A pile changed while this card left and the camera does not show it elsewhere: it is in that pile (GY unless only the banished pile moved), not in the hand.
         const slidSet=!card.faceUp&&linkedSlide(event,snap,true);
         const handDefault=!seen&&defaultProposal.zone==='hand'&&event.removedAt!==undefined;
-        const pileZone=handDefault&&!slidSet?changedPile(snap,sourceAt,current.current.room.state.seats[seat].twin,t=>bindings.current.get(t.id)??t.id,ref=>pileWrites.current.get(ref))??pending?.pile:undefined;
+        const since=departureSince(sourceAt,event.track.lastSeen),twinsNow=current.current.room.state.seats[seat].twin;
+        const pileZone=handDefault&&!slidSet?changedPile(snap,sourceAt,since,twinsNow,t=>bindings.current.get(t.id)??t.id,ref=>pileWrites.current.get(ref))??pending?.pile:undefined;
         const proposal=pileZone?fieldPileDepartureProposal(defaultProposal,pileZone):defaultProposal;
-        if(handDefault&&!pileZone&&(slidSet||pending?.pileWorked||activeDeparturePile(snap,sourceAt,now,fieldActivityWindow(snap)))){
+        // A card landed on a pile after this one was last seen, but the camera cannot tie the two: never guess the hand, the player picks.
+        const pileArrival=twinsNow.some(c=>c.ref!==card.ref&&['graveyard','banished'].includes(c.zone)&&(pileWrites.current.get(c.ref)??-Infinity)>=since);
+        if(handDefault&&!pileZone&&(slidSet||pileArrival||pending?.pileWorked||activeDeparturePile(snap,sourceAt,now,fieldActivityWindow(snap)))){
           if(pending)pending.unresolved=true;
           settlingDepartures.current.delete(event.track.id);pendingLeft.current.delete(event.track.id);
           setDeparture({ref:card.ref,name,zone:'pending'});setNotice(`${name} left the field · choose destination`);return;
