@@ -89,7 +89,14 @@ export class RecognitionChannel {
       let answer: RecognitionAnswer;
       try { answer = await this.recognize(message); } catch { answer = NO_ANSWER; }
       if (this.closed || this.now() - pending.at > this.lifetime(pending.owner)) return;
-      const result = remoteDataMessageSchema.parse({ type: "recognition.result", requestId: message.requestId, ...answer }) as RecognitionResult;
+      // A reader can return a guess with no catalog id (cardId 0) or an odd score. Drop those guesses; a bad answer
+      // becomes "no answer" instead of failing the whole video hub.
+      const candidates = answer.candidates
+        .filter(c => Number.isInteger(c.cardId) && c.cardId > 0 && c.cardId <= 0xffffffff)
+        .map(c => ({ ...c, name: (c.name || `Card ${c.cardId}`).slice(0, 200), score: Number.isFinite(c.score) ? Math.min(1, Math.max(0, c.score)) : 0 }))
+        .slice(0, 5);
+      const checked = remoteDataMessageSchema.safeParse({ type: "recognition.result", requestId: message.requestId, ...answer, candidates });
+      const result = (checked.success ? checked.data : remoteDataMessageSchema.parse({ type: "recognition.result", requestId: message.requestId, ...NO_ANSWER })) as RecognitionResult;
       await this.send(result);
       await this.receive(this.seat, result);
     } else {
