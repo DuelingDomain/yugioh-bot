@@ -170,6 +170,7 @@ function FieldProfilePanel() {
   return <span style={{ left: 8, top: 8, position: "absolute", background: "rgb(0 0 0/.82)", color: "#e8f6ff", fontSize: 10, lineHeight: 1.3, padding: "4px 6px", whiteSpace: "pre", fontFamily: "ui-monospace,monospace" }} data-testid="field-debug-profile">
     {`last ${last.type} ${ms(last.totalMs)} ms   (p50/p90 of ${rows.length})\n`}
     {PROFILE_SEGMENTS.map(k => `${k.padEnd(7)}${ms(last.segments[k]).padStart(6)}  ${stat(r => r.segments[k]).padStart(11)}`).join("\n")}
+    {last.stages && last.emitToSavedMs !== undefined ? `\nsince emit ${Object.entries(last.stages).map(([k, v]) => `${k} ${ms(v)}`).join(" · ")}${last.slow ? `\nSLOW ${last.slow === 2 ? ">2 s" : ">1 s"} · longest step ${last.worst}` : ""}` : ""}
     {`\n${"total".padEnd(7)}${ms(last.totalMs).padStart(6)}  ${stat(r => r.totalMs).padStart(11)}\n`}
     {detail.map(([name, key]) => `${name.padEnd(15)}${ms(d[key]).padStart(5)}  ${stat(r => r.detail[key]).padStart(9)}`).join("\n")}
     {`\npreclean: on, cast=${d.precleanGainR === undefined ? "–" : [d.precleanGainR, d.precleanGainG, d.precleanGainB].map(v => (v ?? 1).toFixed(2)).join(",")}, glare=${d.precleanGlare === undefined ? "–" : d.precleanGlare.toFixed(1)}% (${d.precleanGlareBlobs ?? 0} blobs), shadow=${d.precleanShadow === undefined ? "–" : d.precleanShadow.toFixed(0)}%, used=${d.precleanUsed === undefined ? "–" : d.precleanUsed ? "clean" : "raw"}${d.precleanMs === undefined ? "" : ` (${d.precleanMs.toFixed(1)} ms)`}`}

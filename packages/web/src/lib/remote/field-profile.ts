@@ -14,8 +14,22 @@ import type { FieldTiming } from "@yugidraft/vision";
  *   write    = write start → HTTP reply (server round trip)
  *   render   = HTTP reply → room state rendered
  */
-export interface FieldProfileRow { id: string; type: string; at: number; segments: Record<string, number>; detail: Record<string, number>; totalMs: number; /** The card's own trace: ms from card down to stable, read start, read end and publish, plus search source and tier. */ trace?: { stable?: number; readStart: number; readEnd: number; publish: number; source?: string; tier?: string } }
+export interface FieldProfileRow { id: string; type: string; at: number; segments: Record<string, number>; detail: Record<string, number>; totalMs: number;
+  /** Per action, ms since the watcher emitted the event: each stage the action reached. Keys: handled (the watcher's holds: departure, facts, pile waits), queued, dequeued (chain wait), mutation (waits inside the work: facts reload, stale occupant), writeStart (write gate), sent (reply), rendered. */
+  stages?: Record<string, number>;
+  /** Emit to reply (the write is saved) in ms; 1 = over SLOW_ACTION_MS, 2 = over HARD_SLOW_ACTION_MS. `worst` is the step that took the most of it, as `from→to` (for example dequeued→mutation = the wait inside the work). */
+  emitToSavedMs?: number; slow?: 0 | 1 | 2; worst?: string;
+  /** The card's own trace: ms from card down to stable, read start, read end and publish, plus search source and tier. */ trace?: { stable?: number; readStart: number; readEnd: number; publish: number; source?: string; tier?: string } }
 export const PROFILE_SEGMENTS = ["detect", "gate", "read", "decide", "queue", "write", "render"] as const;
+/** The owner's targets for one automatic board action, from the watcher's emit to the saved reply. */
+export const SLOW_ACTION_MS = 1000, HARD_SLOW_ACTION_MS = 2000;
+/**
+ * The per-action latency log for every action type (not only placements). OFF unless the watcher turns it on, which it does only when
+ * the diagnostics switch is on (`diagnosticsAllowed`: admin with collection enabled). Off, a mark of any other type costs one flag test.
+ */
+let latencyUsers = 0;
+/** Turns the log on for one watcher; the returned function turns that watcher's hold off. The log stays on while any watcher holds it. */
+export const holdFieldLatencyLog = () => { latencyUsers++; let held = true; return () => { if (held) { held = false; latencyUsers--; } }; };
 
 const open = new Map<string, { timing: FieldTiming; type: string; marks: Record<string, number> }>();
 const rows: FieldProfileRow[] = [];
@@ -34,8 +48,16 @@ function build(entry: { timing: FieldTiming; type: string; marks: Record<string,
   };
   const detail: Record<string, number> = {};
   for (const [key, value] of Object.entries(d)) if (Number.isFinite(value)) detail[key] = value;
+  // Stage times since the event's own emit (`commit` is set per emitted event), not since the track's first sighting.
+  const emit = st.commit ?? st.commitLast, stages: Record<string, number> = {};
+  if (emit !== undefined) for (const [name, mark] of [["handled", m.watcher], ["queued", m.queued], ["dequeued", m.dequeued], ["mutation", m.mutation], ["writeStart", m.writeDequeued ?? m.httpStart], ["sent", m.httpResponse ?? m.httpState], ["rendered", m.render]] as const) {
+    if (mark !== undefined) stages[name] = Math.max(0, Math.round(mark - emit));
+  }
+  const emitToSavedMs = stages.sent, slow = emitToSavedMs === undefined ? undefined : emitToSavedMs > HARD_SLOW_ACTION_MS ? 2 : emitToSavedMs > SLOW_ACTION_MS ? 1 : 0;
+  let worst: string | undefined, previous = 0, before = "emit", longest = -1;
+  for (const [name, at] of Object.entries(stages)) { if (name === "rendered") break; if (at - previous > longest) { longest = at - previous; worst = `${before}→${name}`; } previous = at; before = name; }
   const trace = { stable: st.stable, readStart, readEnd: searchDone, publish: commit, source: entry.timing.notes?.source, tier: entry.timing.notes?.tier };
-  return { id: entry.timing.id, type: entry.type, at: Date.now(), segments, detail, totalMs: final ? rendered : commit, trace };
+  return { id: entry.timing.id, type: entry.type, at: Date.now(), segments, detail, totalMs: final ? rendered : commit, trace, stages, ...(emitToSavedMs === undefined ? {} : { emitToSavedMs, slow, worst }) };
 }
 
 if (typeof window !== "undefined") window.addEventListener("remote-field-latency", (raw: Event) => {
@@ -43,8 +65,9 @@ if (typeof window !== "undefined") window.addEventListener("remote-field-latency
   if (!event?.id) return;
   let entry = open.get(event.id);
   if (event.stage === "watcher") {
-    if (event.type !== "placed" && event.type !== "prompt") return;
-    entry = { timing: { id: event.id, originAt: event.originAt, stagesMs: event.stagesMs, durationsMs: event.durationsMs, notes: event.notes }, type: event.type, marks: {} };
+    const always = event.type === "placed" || event.type === "prompt";
+    if (!always && (latencyUsers === 0 || !event.type || event.type === "reading")) return;
+    entry = { timing: { id: event.id, originAt: event.originAt, stagesMs: event.stagesMs, durationsMs: event.durationsMs, notes: event.notes }, type: event.type!, marks: { watcher: event.elapsedMs } };
     open.set(event.id, entry);
     while (open.size > 32) open.delete(open.keys().next().value!);
     rows.push(build(entry, false)); while (rows.length > 50) rows.shift(); publish(); return;
@@ -52,7 +75,14 @@ if (typeof window !== "undefined") window.addEventListener("remote-field-latency
   if (!entry) return;
   entry.marks[event.stage] ??= event.elapsedMs;
   const index = rows.findIndex(r => r.id === event.id);
-  if (index >= 0) { rows[index] = build(entry, event.stage === "render"); publish(); }
+  if (index >= 0) {
+    const before = rows[index].slow;
+    rows[index] = build(entry, event.stage === "render"); publish();
+    const row = rows[index];
+    // One line per slow action, once, when its write is saved. Stage names say where the time went.
+    if (latencyUsers > 0 && row.slow && row.slow > (before ?? 0))
+      console.warn(`[remote latency] ${row.type} ${row.emitToSavedMs} ms (${row.slow === 2 ? ">2 s" : ">1 s"}) longest step: ${row.worst}`, row.stages);
+  }
   if (event.stage === "render") open.delete(event.id);
 });
 
