@@ -52,6 +52,8 @@ const FACTS_WAIT_MS=300;
 const mainDeckOwnRow=(frameClass:string|undefined,zone:string)=>/^M[1-5]$/.test(zone)&&['Normal','Effect','Ritual'].includes(frameClass??'')||/^S[1-5]$/.test(zone)&&['Spell','Trap'].includes(frameClass??'');
 /** Association window for pile or Set evidence around a departure. */
 const PILE_NEAR_MS=1500;
+/** Contact alone (no new pile card) picks a pile only when it began this close before the removal; older contact is a hand that was just passing. */
+const PILE_CONTACT_LEAD_MS=500;
 const pileActivity=(snap:FieldSnapshot|undefined)=>({
   GY:Math.max(snap?.pileContactAt?.GY??-Infinity,snap?.pileTouchedAt?.GY??-Infinity),
   BANISHED:Math.max(snap?.pileContactAt?.BANISHED??-Infinity,snap?.pileTouchedAt?.BANISHED??-Infinity),
@@ -63,7 +65,7 @@ const contactedPile=(snap:FieldSnapshot|undefined,sourceAt:number):'GY'|'BANISHE
   let best:{zone:'GY'|'BANISHED';at:number}|undefined;
   for(const zone of ['GY','BANISHED'] as const){
     const at=snap?.pileContactAt?.[zone]??-Infinity;
-    if(at>=sourceAt-PILE_NEAR_MS&&(!best||at>best.at))best={zone,at};
+    if(at>=sourceAt-PILE_CONTACT_LEAD_MS&&(!best||at>best.at))best={zone,at};
   }
   return best?.zone;
 };
@@ -92,7 +94,7 @@ const changedPile=(snap:FieldSnapshot|undefined,sourceAt:number,twins:readonly T
       if(!twin&&t.cardId&&twins.some(c=>c.zone===pileZone&&String(cardCode(c)??'')===t.cardId&&!(c.departedFrom?.at!==undefined&&c.departedFrom.at>=serverSince)))continue;
       fresh=Math.max(fresh,t.firstSeen);
     }
-    const at=Math.max(fresh,contact>=sourceAt-PILE_NEAR_MS?contact:-Infinity);
+    const at=Math.max(fresh,contact>=sourceAt-PILE_CONTACT_LEAD_MS?contact:-Infinity);
     if(at>-Infinity&&(!best||at>best.at))best={zone,at};
   }
   return best?.zone;
