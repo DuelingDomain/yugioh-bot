@@ -232,6 +232,8 @@ function enqueue<T>(job: () => Promise<T>): Promise<T> {
   chain = run.catch(() => undefined);
   return run;
 }
+/** True while the reader has a job running or queued (the owner's reads and the field watcher). */
+export const readerBusy = () => pendingJobs > 0;
 let sceneChain: Promise<unknown> = Promise.resolve();
 /** Outline passes of a split reader (its own detector worker) queue apart from reads; otherwise they share the reader queue. */
 function enqueueScene<T>(vision: VisionRecognizer, job: () => Promise<T>): Promise<T> {

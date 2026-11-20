@@ -117,7 +117,7 @@ export class RecognitionChannel {
 
 /** Spectator limits on the owner's reader: one request per spectator per second, one read at a time, and a cap for all spectators together. */
 export const SPECTATOR_READ_GAP_MS = 1000;
-const SPECTATOR_READS_PER_WINDOW = 6, SPECTATOR_WINDOW_MS = 10_000;
+const SPECTATOR_READS_PER_WINDOW = 2, SPECTATOR_WINDOW_MS = 10_000;
 /**
  * The feed owner's side of a spectator read. It answers the sender of the request (the SFU-bound identity), never the room, and only for
  * this owner's own feed. A spectator cannot make the owner publish anything but a read result: the same answer a seated player gets.
@@ -128,7 +128,7 @@ export class SpectatorReadResponder {
   private busy = false;
   private closed = false;
   constructor(private seat: number, private send: (result: RecognitionResult, identity: string) => Promise<void>,
-    private recognize: (request: RecognitionRequest) => Promise<RecognitionAnswer>, private now = () => Date.now()) {}
+    private recognize: (request: RecognitionRequest) => Promise<RecognitionAnswer>, private ownerBusy: () => boolean = () => false, private now = () => Date.now()) {}
   async receive(identity: string | undefined, input: unknown) {
     if (this.closed) return;
     // The SFU hides a hidden spectator from the other clients, so its identity can be empty here. The request then names it.
@@ -141,7 +141,10 @@ export class SpectatorReadResponder {
     if (!parsed.success || parsed.data.type !== "recognition.request" || parsed.data.feedOwnerSeat !== this.seat) return;
     const now = this.now();
     this.recent = this.recent.filter(at => now - at < SPECTATOR_WINDOW_MS);
-    if (this.busy || now - (this.last.get(identity) ?? -Infinity) < SPECTATOR_READ_GAP_MS || this.recent.length >= SPECTATOR_READS_PER_WINDOW || this.last.size > 64 && !this.last.has(identity)) return;
+    for (const [name, at] of this.last) if (now - at >= SPECTATOR_WINDOW_MS) this.last.delete(name);
+    // The owner always comes first: a spectator read never starts while the owner has any read in progress or queued.
+    if (this.ownerBusy()) return;
+    if (this.busy || now - (this.last.get(identity) ?? -Infinity) < SPECTATOR_READ_GAP_MS || this.recent.length >= SPECTATOR_READS_PER_WINDOW) return;
     this.last.set(identity, now); this.recent.push(now); this.busy = true;
     // `force` skips the owner's cache: only a seated player may ask for that.
     const request: RecognitionRequest = { ...parsed.data, force: false };

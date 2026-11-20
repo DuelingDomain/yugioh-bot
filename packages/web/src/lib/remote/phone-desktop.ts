@@ -39,6 +39,8 @@ export class DesktopPhoneLink {
     if(p)return this.seat(p)!==undefined?p:undefined;
     return this.rosterPhone(identity)?{identity}:undefined;
   }
+  /** True while a phone read, scan or capture is open: the owner's own work, which nothing else may queue behind. */
+  get busy(){return this.reading||this.scanning||!!this.readyScanId||this.pending.size>0;}
   forSeat(seat:number) {const p=this.phones.find(p=>p.seat===seat && p.paired);return p?this.phone(`remote-phone-${p.id}`):undefined;}
   mode(participant:{identity:string}) {return this.modes.get(participant.identity) ?? this.phones.find(p=>`remote-phone-${p.id}` === participant.identity)?.mode ?? "video";}
   dataOnlyFeeds() {return this.phones.filter(p=>p.paired && this.rosterPhone(`remote-phone-${p.id}`) && this.modes.has(`remote-phone-${p.id}`) && !this.room.remoteParticipants.has(`remote-phone-${p.id}`)).map(p=>({seat:p.seat,mode:this.modes.get(`remote-phone-${p.id}`)!}));}

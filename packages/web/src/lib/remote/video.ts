@@ -61,7 +61,7 @@ export class RemoteVideo {
   private visionBusy = false;
   private visionTimer?: ReturnType<typeof setInterval>;
   private snapshot: VideoSnapshot = { connection: ConnectionState.Disconnected, feeds: [], devices: [], cameraId: "", microphone: false, error: "", videoRate: readVideoRate() };
-  constructor(private options: { slug: string; guildId: string; seat: number; members: VideoMember[]; recognize?: RecognizeRawFeed;
+  constructor(private options: { slug: string; guildId: string; seat: number; members: VideoMember[]; recognize?: RecognizeRawFeed; ownerBusy?: () => boolean;
     readPhone?: (canvas: HTMLCanvasElement, point: {x:number;y:number}, signal: AbortSignal) => Promise<PhoneReading>;
     onPhoneScan?: (scan: PhoneScan | null) => void; onPhonePresence?: () => void;
     /** Another seat asked this client to Scan field. Answer `off` when Auto-detect is not watching. */ onRescan?: (from: number) => RescanReply }) {
@@ -277,6 +277,19 @@ export class RemoteVideo {
         if (!this.rawLocalTrack || !this.options.recognize) return NO_ANSWER; // Attach @yugidraft/vision here via options.recognize.
         return this.options.recognize({ track: this.rawLocalTrack, request, signal: this.scans.signal });
       };
+      /**
+       * A spectator's read: only the published top camera, the same pixels spectators already receive. It never starts the
+       * phone (a phone read or scan can see a hand or deck card the video never showed), and it never runs while the owner has any read.
+       */
+      const spectatorAnswer = async (request: RecognitionRequest): Promise<RecognitionAnswer> => {
+        if (this.phone.forSeat(this.options.seat) || this.phone.busy) return NO_ANSWER;
+        const cached = this.trackedAt(this.options.seat, request.x, request.y);
+        if (cached) return { candidates: [{ cardId: cached.cardId, name: cached.name ?? `Card ${cached.cardId}`, score: 0 }], tier: 'sure', faceDown: false, covered: false };
+        const track = this.rawLocalTrack;
+        if (!track || !this.options.recognize) return NO_ANSWER;
+        const limit = new AbortController(), timer = setTimeout(() => limit.abort(), 6_000);
+        try { return await this.options.recognize({ track, request, signal: AbortSignal.any([this.scans.signal, limit.signal]) }); } finally { clearTimeout(timer); }
+      };
       this.channel = new RecognitionChannel(this.options.seat, async (message, destination, announcement) => {
         const member = this.options.members.find(p => p.seat === destination && p.userId !== null);
         const identity = member ? `remote-user-${member.userId}` : undefined;
@@ -297,7 +310,7 @@ export class RemoteVideo {
         if (bytes.byteLength > 8192) return;
         // To the one spectator who asked. Never the room.
         await this.room.localParticipant.publishData(bytes, { reliable: true, topic: SPECTATOR_READ_TOPIC, destinationIdentities: [identity] });
-      }, answer);
+      }, spectatorAnswer, () => this.phone.busy || !!this.options.ownerBusy?.());
       this.patch({ connection: this.room.state, microphone: false }); this.sync(); if (REMOTE_TABLE_TALK) void this.voice.start(); await this.refreshDevices();
     } catch (error) {
       await this.stopCamera(this.camera); this.camera = undefined; this.readyTrack = undefined; await this.voice.stop(); await this.room.disconnect();
