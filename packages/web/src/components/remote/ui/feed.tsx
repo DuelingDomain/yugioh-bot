@@ -85,7 +85,7 @@ function copyOf(canvas: HTMLCanvasElement) {
   copy.getContext("2d")?.drawImage(canvas, 0, 0); return copy;
 }
 
-export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLive, onAbort, onPoint, onMiss, onSearch, onSelect, onAdd, onReset, onReadBoard, holdSelection, extra, onZoneCard, onPick, hoverTip, onCardMenu, below, emptyText, emptyAction }: {
+export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLive, onAbort, onPoint, onMiss, onSearch, onSelect, onAdd, onReset, onReadBoard, holdSelection, extra, onZoneCard, onPick, hoverTip, onCardMenu, below, emptyText, emptyAction, tournament = false }: {
   seat: number; name: string; you: boolean; health: Health; marks: FeedMark[]; reticles: FeedReticle[];
   /** A click landed on the live feed, before the card is found. Returns the id of this read. No popup opens yet. */
   onBegin: (seat: number, start: FeedStart) => number | void;
@@ -116,6 +116,8 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
   onCardMenu?: (seat: number, at: { x: number; y: number }) => void;
   /** A strip under the video box (camera controls). It never covers the video. */
   below?: ReactNode; emptyText: string; emptyAction?: ReactNode;
+  /** A tournament table: the Auto-detect off strip then gives no reason from this computer's own choice. */
+  tournament?: boolean;
 }) {
   const hub = useVideoHub();
   const backs = useFieldBacks(seat);
@@ -156,7 +158,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
   useEffect(() => { setAuto(readAuto()); }, []);
   // "Show zone grid": off by default, remembered on this device.
   const tapSeat = useTapSeat(seat) && !you;
-  const zoneGrid = useZoneGrid(), canAdjust = you && !!box && zoneGrid.ownSeat === seat && !!zoneGrid.calibrate;
+  const zoneGrid = useZoneGrid(), canAdjust = you && !!box && !!video.current?.videoWidth && zoneGrid.ownSeat === seat && !!zoneGrid.calibrate;
   const [gridOn, setGridOn] = useState(true); useEffect(() => { setGridOn(readGridPref(you)); }, [you]);
   const toggleGrid = () => { const on = !gridOn; setGridOn(on); writeGridPref(you, on); };
   const debugOn = useFieldDebugEnabled(), isDeveloper = useFieldDeveloper(), clipReady = useFieldClipReady();
@@ -575,8 +577,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
       </div> : null}
       {source ? reticles.map(r => <div key={r.id} className={`${s.ret} ${r.state === "done" ? s.done : r.state === "fail" ? s.fail : ""}`} style={rect(r.x, r.y, r.quad)} data-testid="reticle"><i /><b className={s.sr}>{r.text}</b></div>) : null}
     </div>
-    {you && source ? <TapModeBanner /> : null}
-    <div className={s.feedTagRow}><span className={s.ctag}><i /><span className={s.ctagText}>{you ? "YOUR FIELD CAM" : "FIELD CAM"}</span></span>{tapSeat || (!you && peerVision?.detect === "tap") ? <TapModeChip name={name} /> : null}{!you && source ? <PeerVisionChip stats={peerVision} name={name} /> : null}<span className={s.watcherStatusSlot} data-field-watcher-status-slot /></div>
+    <div className={s.feedTagRow}><span className={s.ctag}><i /><span className={s.ctagText}>{you ? "YOUR FIELD CAM" : "FIELD CAM"}</span></span>{!you && source && (tapSeat || peerVision?.detect === "tap") ? <TapModeChip name={name} syncing={tapSeat && peerVision?.detect === "auto"} /> : null}{!you && source ? <PeerVisionChip stats={peerVision} name={name} /> : null}<span className={s.watcherStatusSlot} data-field-watcher-status-slot /></div>
     {source ? <div className={`${s.fctl} ${isFrozen ? s.fctlOn : ""}`} data-feed-toolbar>
       {isFrozen ? <>
         <span className={s.fzchip} role="status" data-testid="freeze-status" data-state={frozen.status}><Icon name={frozen.status === "detecting" ? "cam" : "check"} />{chip}</span>
@@ -587,7 +588,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
         <button type="button" className={s.fzbtn} onClick={() => void freeze(true)} data-testid="freeze-feed" aria-keyshortcuts="F">Freeze <kbd>F</kbd></button>
         <button type="button" className={`${s.fzbtn} ${s.fzauto}`} aria-pressed={gridOn && !tapSeat} disabled={tapSeat} onClick={toggleGrid} data-testid="zone-grid-toggle" title={tapSeat ? "This player uses Tap to identify: no zone grid" : you ? "Show zone grid on my camera" : "Show zone grid on this opponent camera"}>Show zone grid</button>
         {you ? <button type="button" className={`${s.fzbtn} ${s.fzauto}`} disabled={!canAdjust} onClick={() => zoneGrid.calibrate?.()} data-testid="zone-grid-adjust" title={canAdjust ? "Move, resize or turn the zone grid to fit your mat" : "Available once your camera video is showing"}>Adjust zones</button> : null}
-        {you && !tapSeat ? <span className={s.gridHint} data-testid="zone-grid-hint">{gridOn ? "Recommended — keeps card detection accurate." : "Zones off — turning them on helps detection"}</span> : null}
+        {you && !tapSeat ? <span className={s.gridHint} data-testid="zone-grid-hint">{gridOn ? "Recommended — shows where your zones are" : "Zones off"}</span> : null}
         {you && isDeveloper ? <button type="button" className={`${s.fzbtn} ${s.fzauto}`} aria-pressed={debugOn} onClick={() => setFieldDebugEnabled(!debugOn)} data-testid="field-debug-toggle" title="Show what the field watcher sees: detector boxes, scores, tracks and reasons">Debug</button> : null}
         {you && isDeveloper && clipReady ? <button type="button" className={`${s.fzbtn} ${s.fzauto}`} onClick={saveClip} data-testid="field-clip-save" title="Save the last 30 s of your mat camera and watcher events to a file on this computer. Nothing is uploaded. The recording restarts empty when the card reader restarts (backend switch, calibration on or off).">Save last 30 s</button> : null}
         <button type="button" className={`${s.fzbtn} ${s.fzauto}`} aria-pressed={auto} onClick={toggleAuto} title="Freeze the frame when the pointer rests on the feed">Hover freeze {auto ? "on" : "off"}</button>
@@ -597,5 +598,5 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
     </div> : null}
     <div className={s.sr} aria-live="polite" role="status">{say}</div>
     {extra}
-  </div>{below}</div>;
+  </div>{you && source ? <TapModeBanner tournament={tournament} /> : null}{below}</div>;
 }

@@ -1088,10 +1088,9 @@
 .feedTagRow{position:absolute;left:8px;right:8px;top:8px;z-index:3;display:flex;align-items:center;gap:6px;min-width:0;pointer-events:none}
 .feedTagRow .ctag{position:static;flex:none}
 /* Auto-detect off: a banner on my own feed and a chip on every other feed, so a long Tap period is never unseen. */
-.tapBanner{position:absolute;left:8px;right:8px;top:38px;z-index:6;display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;padding:7px 8px 7px 12px;border-radius:8px;border:1px solid rgb(240 178 79/.5);border-left:3px solid var(--warn);background:rgb(7 4 14/.94);box-shadow:0 8px 24px rgb(0 0 0/.5);color:var(--ink);font:600 12.5px/1.25 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif}
-.tapBannerText{display:grid;gap:2px;flex:1 1 180px;min-width:0}
+.tapBanner{flex:none;width:100%;max-width:100%;box-sizing:border-box;display:flex;align-items:center;gap:8px;padding:4px 5px 4px 10px;border-radius:8px;border:1px solid rgb(240 178 79/.5);border-left:3px solid var(--warn);background:rgb(7 4 14/.94);color:var(--ink);font:600 12px/1.25 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif}
+.tapBannerText{flex:1 1 0;min-width:0;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;font-weight:500;color:var(--ink2)}
 .tapBannerText b{font-weight:700;color:var(--gold-ink)}
-.tapBannerText span{font-size:11.5px;font-weight:500;color:var(--ink2)}
 .tapBannerBtn{flex:none;height:28px;padding:0 12px;border-radius:6px;border:1px solid var(--gold);background:var(--gold);color:#1b1204;font:700 12px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;cursor:pointer}
 .tapBannerBtn:hover{background:var(--gold-ink)}
 .feedTagRow .tapChip{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;pointer-events:auto;cursor:default;letter-spacing:.04em;font-size:11px;color:var(--gold-ink);border:1px solid rgb(232 185 79/.5)}

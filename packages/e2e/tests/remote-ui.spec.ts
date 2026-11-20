@@ -408,18 +408,19 @@ test.describe("remote duels screen, solo", () => {
     for (const zone of ["M1", "S5", "EMZ1"]) await expect(dialog.locator(`polygon[data-zone="${zone}"]`)).toHaveCount(1);
     await dialog.getByRole("button", { name: "Cancel calibration" }).click();
     await expect(dialog).toBeHidden();
-    // The toggle starts on with a "Recommended" hint; off is remembered for this device and says why zones help.
+    // The toggle starts on with a "Recommended" hint; off is remembered for this device.
     const toggle = page.getByTestId("zone-grid-toggle").first();
     await page.getByTestId("feed-box-0").hover();
     await expect(toggle).toHaveAttribute("aria-pressed", "true");
-    await expect(page.getByTestId("zone-grid-hint")).toHaveText("Recommended — keeps card detection accurate.");
+    await expect(page.getByTestId("zone-grid-hint")).toHaveText("Recommended — shows where your zones are");
     await toggle.click();
     await expect(toggle).toHaveAttribute("aria-pressed", "false");
-    await expect(page.getByTestId("zone-grid-hint")).toHaveText("Zones off — turning them on helps detection");
+    await expect(page.getByTestId("zone-grid-hint")).toHaveText("Zones off");
     await toggle.click();
     await expect(toggle).toHaveAttribute("aria-pressed", "true");
     await page.reload();
-    await page.getByTestId("camera-on-feed").click();
+    // After a reload the camera may resume by itself, so the button is not always there to click.
+    await page.getByTestId("camera-on-feed").click({ timeout: 4_000 }).catch(() => undefined);
     await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.videoWidth), { timeout: 30_000 }).toBeGreaterThan(0);
     await page.getByTestId("feed-box-0").hover();
     await expect(page.getByTestId("zone-grid-toggle").first()).toHaveAttribute("aria-pressed", "true");
@@ -2513,13 +2514,21 @@ test.describe("remote duels screen, Auto-detect off", () => {
     for (const [width, height] of [[1920, 1080], [2560, 1440], [1366, 768]] as const) {
       await page.setViewportSize({ width, height }); await page.waitForTimeout(250);
       await shot(page, `auto-detect-off-${width}`);
-      const box = await banner.boundingBox(), feed = await page.getByTestId("feed-0").boundingBox();
-      expect(box && feed && box.x >= feed.x && box.x + box.width <= feed.x + feed.width + 1 && box.y + box.height <= feed.y + feed.height, `${width}x${height}`).toBe(true);
+      const box = await banner.boundingBox(), video = await page.getByTestId("feed-box-0").boundingBox();
+      // The strip sits under the video, inside the screen and two lines tall at most: it never covers a card a tap has to reach.
+      expect(box && video && box.y >= video.y + video.height - 1 && box.x >= 0 && box.x + box.width <= width && box.height <= 48, `${width}x${height} strip under video`).toBe(true);
     }
     // Adjust zones opens the same editor as the lobby, from the own feed.
     await page.getByTestId("feed-box-0").hover(); await page.getByTestId("zone-grid-adjust").click();
     const dialog = page.getByRole("dialog", { name: "Calibrate field zones", exact: true }); await expect(dialog).toBeVisible();
     await dialog.getByRole("button", { name: "Cancel calibration" }).click(); await expect(dialog).toBeHidden();
+    // Tap mode: a tap near the top of the feed is the only way to read a card, so it must reach the feed and start a read.
+    await page.setViewportSize({ width: 1366, height: 768 }); await page.waitForTimeout(250);
+    const video = (await page.getByTestId("feed-box-0").boundingBox())!, x = video.x + video.width * 0.85, y = video.y + 60;
+    expect(await page.evaluate(([px, py]) => !!document.elementFromPoint(px, py)?.closest('[data-testid="feed-box-0"]'), [x, y]), "tap target is the feed").toBe(true);
+    await page.mouse.click(x, y);
+    await expect(page.locator('[data-testid="reticle"], [data-testid="no-card"], [role="status"]:has-text("Reading card")')).not.toHaveCount(0, { timeout: 10_000 });
+    await page.keyboard.press("Escape");
     await page.getByTestId("tap-off-turn-on").click();
     await expect(banner).toHaveCount(0);
     expect(await page.evaluate(() => localStorage.getItem("dd-remote-tap-offer:v1"))).toBe("keep");
