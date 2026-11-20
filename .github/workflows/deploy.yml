@@ -753,6 +753,7 @@ jobs:
                  exit 1
                fi
                sh "$DEPLOY_RUNTIME_PREPARE" data
+               # The whole script comes on stdin (sh -s): every docker run/exec in it must read /dev/null, or it eats the rest of the script.
                docker compose -f "$runtime_compose" --project-directory /opt/yugioh-bot run --rm --no-deps --pull never worker node --input-type=module -e '
                  import {openDatabase} from "@yugidraft/shared/db";
                  const db=openDatabase(process.env.DATABASE_PATH);
@@ -761,7 +762,7 @@ jobs:
                    if(db.pragma("integrity_check",{simple:true})!=="ok")throw new Error("Integrity check failed");
                    console.log("identity migration verified");
                  } finally {db.close();}
-               '
+               ' </dev/null
                docker compose -f "$runtime_compose" --project-directory /opt/yugioh-bot down --remove-orphans
                sh "$DEPLOY_RUNTIME_PREPARE" data
                docker compose -f "$runtime_compose" --project-directory /opt/yugioh-bot up -d --no-build ws duel web worker caddy $bot_service
@@ -800,7 +801,7 @@ jobs:
                  Promise.all(["/sign-in", "/sign-up", "/waitlist", "/api/auth/session"].map(get))
                    .then(async responses => { if(responses.some(response => response.status !== 200) || (await responses[3].text()).trim() !== "null") process.exit(1); })
                    .catch(() => process.exit(1));
-               '; then auth_ok=1; break; fi
+               ' </dev/null; then auth_ok=1; break; fi
                sleep 5
              done
              [ "$auth_ok" = 1 ] || { docker compose -f "$runtime_compose" --project-directory /opt/yugioh-bot logs --tail=60 web; echo "The login, sign-up or waitlist check failed." >&2; exit 1; }

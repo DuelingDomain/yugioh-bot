@@ -289,3 +289,17 @@ process.exit(Number(process.env.STUB_NPM_EXIT ?? 0));
   assert.notEqual(run([], 1).status, 0);
   assert.notEqual(run(['tests/host.test.ts', table], 1, { STUB_NPM_EXIT: '7' }).status, 0);
 });
+
+test("every docker run/exec in the stdin deploy script reads /dev/null", () => {
+  // The VM script arrives on stdin (sh -s). A docker run or exec that keeps stdin eats the rest of the script.
+  const text = readFileSync(new URL('../../.github/workflows/deploy.yml', import.meta.url), 'utf8');
+  const script = text.slice(text.indexOf("sh -s\" <<'REMOTE'"), text.indexOf("\n          REMOTE\n"));
+  assert.ok(script.length > 1000);
+  const lines = script.split('\n');
+  lines.forEach((line, i) => {
+    if (!/docker (compose\b[^#]*\b(run|exec)\b|run |exec )/.test(line) || /^\s*#/.test(line)) return;
+    let end = i;
+    if (/ -e '\s*$/.test(line)) { end = i + 1; while (!/^\s*'/.test(lines[end])) end++; }
+    assert.match(lines[end], /<\s*\/dev\/null/, `stdin not closed for: ${line.trim()}`);
+  });
+});
