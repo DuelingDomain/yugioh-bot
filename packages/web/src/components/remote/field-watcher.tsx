@@ -5,7 +5,7 @@ import {useCallback,useEffect,useMemo,useRef,useState} from 'react';
 import {catalogCardId,fieldGlareChoices,fieldZoneLocation,fieldStackUnder,yugioh,type HeldCardEvent,type HeldUnsureEvent,type FieldEvent,type FieldSnapshot,type FieldTrack,type FieldZone,type KnownFieldCard,type FieldCalibration,fieldPacerDevice,FIELD_ACTIVITY_WINDOW_MS,FIELD_SET_RETURN_MS} from '@yugidraft/vision';
 import {useSendHealth} from '@/lib/remote/send-health-store';
 import {markVideoOfferShown,readVideoChoice,VIDEO_OFFER_MS,videoOfferShown} from '@/lib/remote/video-rate';
-import {createSlowWatch,isWeakDevice,markTapOfferShown,readTapChoice,saveTapChoice,tapOfferShown,TAP_OFFER_MS,type TapChoice} from '@/lib/remote/tap-offer';
+import {createSlowWatch,isWeakDevice,markTapOfferShown,noteTapReason,readTapChoice,saveTapChoice,tapOfferShown,TAP_OFFER_MS,type TapChoice} from '@/lib/remote/tap-offer';
 import {isTournamentTable,readTournamentMode,saveTournamentMode,stateMode,ownDetectionMode,type TournamentMode,type TournamentModeReason} from '@/lib/remote/tournament-detection';
 import {RemoteDuelError,remoteActivationLimit,remoteActivationNotice,remoteHandActivationDecision,remoteHandReadDecision,remotePhysicalSlot,REMOTE_HAND_SUGGESTION_EVENT,recentFieldDeparture,REMOTE_UNREAD_PILE_MS,type RemoteRoom,type RemoteSummonKind,type RemoteUndoEntry,type TwinCard} from '@yugidraft/shared/remote';
 import type {RoomMutation,RoomTransaction} from '@/lib/remote/room-mutations';
@@ -1463,7 +1463,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   },[watch.setEnabled,watch.enabled,seat,setSyncHold,tournament,room.slug]);
   const modeReason=useRef<TournamentModeReason>('player');
   // Only a switch is a slow-offer change. Keep changes nothing, so the next manual switch stays a player change.
-  const answerTapOffer=(choice:TapChoice)=>{modeReason.current=choice==='switch'?'slow-offer':'player';setDetection(choice==='keep');};
+  const answerTapOffer=(choice:TapChoice)=>{modeReason.current=choice==='switch'?'slow-offer':'player';if(choice==='switch'&&!tournament)noteTapReason('slow');setDetection(choice==='keep');};
   const offerable=watch.enabled&&ownsSource&&hub.cameraOn&&room.status==='active';
   useEffect(()=>{
     if(tapOffer&&!offerable)setTapOffer(false);

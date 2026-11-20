@@ -10,7 +10,21 @@ export function readTapChoice():TapChoice|null {
 }
 export function saveTapChoice(choice:TapChoice) {
   answer=choice;
-  try{localStorage.setItem(KEY,choice);}catch{/* Memory-only fallback. */}
+  // Only a switch has a reason; the slow-computer offer names it first (noteTapReason), any other switch is the player's own.
+  reason=choice==='switch'?pending??'player':null;pending=null;
+  try{localStorage.setItem(KEY,choice);if(reason)localStorage.setItem(REASON_KEY,reason);else localStorage.removeItem(REASON_KEY);}catch{/* Memory-only fallback. */}
+}
+/** Why Auto-detect is off on this browser: the slow-computer offer, or the player's own switch. */
+export type TapReason='slow'|'player';
+const REASON_KEY='dd-remote-tap-reason:v1';
+let reason:TapReason|null=null,pending:TapReason|null=null;
+/** Names the reason for the next switch to Tap. */
+export const noteTapReason=(value:TapReason)=>{pending=value;};
+/** The reason for the saved Tap choice, or null when it is not known (a choice saved before reasons were kept). */
+export function readTapReason():TapReason|null {
+  if(readTapChoice()!=='switch')return null;
+  if(reason)return reason;
+  try{const value=localStorage.getItem(REASON_KEY);return value==='slow'||value==='player'?value:null;}catch{return null;}
 }
 /** The offer shows once per page. With no answer it can show again on a later visit. */
 let offered=false;

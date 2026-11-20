@@ -464,14 +464,19 @@ test.describe("remote duels screen, solo", () => {
     for (const zone of ["M1", "S5", "EMZ1"]) await expect(dialog.locator(`polygon[data-zone="${zone}"]`)).toHaveCount(1);
     await dialog.getByRole("button", { name: "Cancel calibration" }).click();
     await expect(dialog).toBeHidden();
-    // The toggle starts off, and on stays on for this device; the opponent feed starts without a grid.
+    // The toggle starts on with a "Recommended" hint; off is remembered for this device.
     const toggle = page.getByTestId("zone-grid-toggle").first();
     await page.getByTestId("feed-box-0").hover();
+    await expect(toggle).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByTestId("zone-grid-hint")).toHaveText("Recommended — shows where your zones are");
+    await toggle.click();
     await expect(toggle).toHaveAttribute("aria-pressed", "false");
+    await expect(page.getByTestId("zone-grid-hint")).toHaveText("Zones off");
     await toggle.click();
     await expect(toggle).toHaveAttribute("aria-pressed", "true");
     await page.reload();
-    await page.getByTestId("camera-on-feed").click();
+    // After a reload the camera may resume by itself, so the button is not always there to click.
+    await page.getByTestId("camera-on-feed").click({ timeout: 4_000 }).catch(() => undefined);
     await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.videoWidth), { timeout: 30_000 }).toBeGreaterThan(0);
     await page.getByTestId("feed-box-0").hover();
     await expect(page.getByTestId("zone-grid-toggle").first()).toHaveAttribute("aria-pressed", "true");
@@ -752,8 +757,7 @@ test.describe("remote lobby camera step", () => {
     const status = page.getByTestId("field-watcher-status");
     // Only a state after the record was read with the camera on can show a missing calibration.
     await expect(status).toHaveText(/^(Preparing card reader…|Watching field.*|Reader off|Paused · busy)$/, { timeout: 30_000 });
-    // With the zones calibrated, the grid shows only when the player turns it on.
-    await page.getByTestId("feed-box-0").hover(); await page.getByTestId("zone-grid-toggle").first().click();
+    // With the zones calibrated, the grid shows by default.
     const tableGrid = page.locator('[data-testid="zone-grid"][data-calibrated="true"]');
     await expect(tableGrid.first()).toBeVisible();
     const tableCells = await cells('[data-testid="zone-grid"][data-calibrated="true"] polygon', 1);
@@ -834,7 +838,7 @@ test.describe("remote duels screen, moving cards by hand", () => {
       await page.getByTestId("feed-box-0").hover(); await page.getByRole("button", { name: "Calibrate zones", exact: true }).first().click();
       const dialog = page.getByRole("dialog", { name: "Calibrate field zones", exact: true }); await expect(dialog).toBeVisible();
       await dialog.getByTestId("camera-my-view").click(); await dialog.getByRole("button", { name: "Save calibration", exact: true }).click(); await expect(dialog).toBeHidden();
-      await expect(grid).toHaveCount(0); await page.getByTestId("feed-box-0").hover(); await expect(page.getByTestId("zone-grid-toggle").first()).toHaveAttribute("aria-pressed", "false");
+      await expect(grid).toHaveAttribute("data-calibrated", "true"); await page.getByTestId("feed-box-0").hover(); await expect(page.getByTestId("zone-grid-toggle").first()).toHaveAttribute("aria-pressed", "true");
       await page.keyboard.press("w"); await expect(page.getByTestId("fwrap-0")).toBeHidden();
       await page.reload(); await expect(page.getByTestId("remote-table")).toBeVisible(); await expect(page.getByTestId("fwrap-0")).toBeHidden();
       await page.keyboard.press("w"); await expect(page.getByTestId("fwrap-0")).toBeVisible();
@@ -2003,7 +2007,7 @@ test('field watcher automatic: tap to identify reads every camera on a click, ru
     await b.getByTestId('camera-settings').first().click();await pickSelect(b,'Card detection',{value:'tap'});await b.keyboard.press('Escape');await expect(b.getByLabel('Auto-detect cards',{exact:true})).not.toBeChecked();
     await expect.poll(()=>b.locator('[data-testid="feed-0"] video').evaluate((v:HTMLVideoElement)=>v.videoWidth),{timeout:40_000}).toBeGreaterThan(0);
     // Bob sees Alice's mode on her camera.
-    await expect(b.getByTestId('feed-tap-tag')).toBeVisible();await expect(b.locator('[data-testid="feed-0"]').locator('..').getByTestId('zone-grid-toggle')).toBeDisabled();
+    await expect(b.getByTestId('feed-tap-tag')).toHaveText('Tap mode — auto-detect off');await expect(b.locator('[data-testid="feed-0"]').locator('..').getByTestId('zone-grid-toggle')).toBeDisabled();
     // A normal table logs each mode switch with its reason too: Alice took the slow-computer offer, Bob chose it himself.
     await expect.poll(async()=>((await alice.request.get(`/api/remote/${slug}`).then(r=>r.json())).events as any[]).filter(e=>e.action.type==='detection.mode'&&e.action.mode==='tap').map(e=>`${e.action.actorSeat}:${e.action.reason}`).sort(),{timeout:15_000}).toEqual(['0:slow-offer','1:player']);
     await a.evaluate(()=>((window as any).fieldTest).appear());await a.waitForTimeout(1500);
@@ -2592,5 +2596,41 @@ test.describe("remote duels screen, card logic", () => {
     expect((await room()).state.seats[0].twin.find(card => card.ref === "yd")?.equippedTo).toBeUndefined();
     await dialog.getByTestId("equip-pick").first().click();
     await expect.poll(async () => (await room()).state.seats[0].twin.find(card => card.ref === "yd")).toMatchObject({ zone: "spell-trap", equippedTo: { seat: 0, ref: "dm" } });
+  });
+});
+
+test.describe("remote duels screen, Auto-detect off", () => {
+  test.beforeEach(async ({ context }) => { await authenticatePlayer(context.request, { userId: 101 }, process.env.E2E_AUTH_SECRET!, process.env.E2E_REMOTE_UI_URL!); });
+
+  test("with Auto-detect off my feed says so and why, fits at every size, and Turn on switches it back", async ({ page, context }) => {
+    await fakeCamera(page, "16:9");
+    await page.addInitScript(() => { localStorage.setItem("dd-remote-tap-offer:v1", "switch"); localStorage.setItem("dd-remote-tap-reason:v1", "slow"); });
+    const slug = await soloTable(context.request, 2);
+    await page.goto(`/duels/remote/${slug}`);
+    await page.getByTestId("camera-on-feed").click();
+    const banner = page.getByTestId("tap-off-banner");
+    await expect(banner).toContainText("Auto-detect off — cards are read only when you tap", { timeout: 30_000 });
+    await expect(banner).toContainText("Switched because this computer looked slow");
+    for (const [width, height] of [[1920, 1080], [2560, 1440], [1366, 768]] as const) {
+      await page.setViewportSize({ width, height }); await page.waitForTimeout(250);
+      await shot(page, `auto-detect-off-${width}`);
+      const box = await banner.boundingBox(), video = await page.getByTestId("feed-box-0").boundingBox();
+      // The strip sits under the video, inside the screen and two lines tall at most: it never covers a card a tap has to reach.
+      expect(box && video && box.y >= video.y + video.height - 1 && box.x >= 0 && box.x + box.width <= width && box.height <= 48, `${width}x${height} strip under video`).toBe(true);
+    }
+    // Adjust zones opens the same editor as the lobby, from the own feed.
+    await page.getByTestId("feed-box-0").hover(); await page.getByTestId("zone-grid-adjust").click();
+    const dialog = page.getByRole("dialog", { name: "Calibrate field zones", exact: true }); await expect(dialog).toBeVisible();
+    await dialog.getByRole("button", { name: "Cancel calibration" }).click(); await expect(dialog).toBeHidden();
+    // Tap mode: a tap near the top of the feed is the only way to read a card, so it must reach the feed and start a read.
+    await page.setViewportSize({ width: 1366, height: 768 }); await page.waitForTimeout(250);
+    const video = (await page.getByTestId("feed-box-0").boundingBox())!, x = video.x + video.width * 0.85, y = video.y + 60;
+    expect(await page.evaluate(([px, py]) => !!document.elementFromPoint(px, py)?.closest('[data-testid="feed-box-0"]'), [x, y]), "tap target is the feed").toBe(true);
+    await page.mouse.click(x, y);
+    await expect(page.locator('[data-testid="reticle"], [data-testid="no-card"], [role="status"]:has-text("Reading card")')).not.toHaveCount(0, { timeout: 10_000 });
+    await page.keyboard.press("Escape");
+    await page.getByTestId("tap-off-turn-on").click();
+    await expect(banner).toHaveCount(0);
+    expect(await page.evaluate(() => localStorage.getItem("dd-remote-tap-offer:v1"))).toBe("keep");
   });
 });

@@ -28,6 +28,7 @@ import { matchOf } from "./match-model";
 import { OpeningRollScreen } from "./opening-roll";
 import { cardCode, cardName, cellsFor, COLORS, facingSeat, hasExtraZones, type TwinCard, type ZoneKey } from "./model";
 import { PeerVisionChip } from "./peer-vision-chip";
+import { TapModeChip } from "./tap-mode-banner";
 import { PileViewer, type PileZone } from "./pile-viewer";
 import { FeedCards, FeedCardsProvider } from "./feed-cards";
 import type { PopAt, Rect } from "./popup";
@@ -71,7 +72,7 @@ function SpectatorLobby({ ctl, room }: { ctl: RoomController; room: RemoteRoom }
 
 function SpectatorVisionChip({ video, seat, name }: { video: SpectatorVideo; seat: number; name: string }) {
   const stats = useSyncExternalStore(video.vision.subscribe, () => video.vision.get(seat), () => undefined);
-  return <PeerVisionChip stats={stats} name={name} />;
+  return <>{stats?.detect === "tap" ? <TapModeChip name={name} /> : null}<PeerVisionChip stats={stats} name={name} /></>;
 }
 
 function SpectatorFeed({ seat, name, video, online, stopped, frozen, onCard, format, gridOn }: {
@@ -117,7 +118,7 @@ function SpectatorFeed({ seat, name, video, online, stopped, frozen, onCard, for
 function SpectatorTable({ room }: { room: RemoteRoom }) {
   const layers = useLayers();
   const [webcamOnly, setWebcamOnlyState] = useState(false);
-  const [gridOn, setGridOn] = useState(false);
+  const [gridOn, setGridOn] = useState(true);
   useEffect(() => { try { setWebcamOnlyState(localStorage.getItem(SPECTATOR_WEBCAM_KEY) === "1"); } catch { /* storage blocked: both views */ } setGridOn(readGridPref(false)); }, []);
   const setWebcamOnly = useCallback((next: boolean) => { setWebcamOnlyState(next); try { localStorage.setItem(SPECTATOR_WEBCAM_KEY, next ? "1" : "0"); } catch { /* not remembered */ } }, []);
   const toggleGrid = () => { const next = !gridOn; setGridOn(next); writeGridPref(false, next); };
