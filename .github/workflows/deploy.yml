@@ -132,11 +132,24 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: ${{ env.DEPLOY_REF }}
-          fetch-depth: 0
+          fetch-depth: 1
 
+      # Ask GitHub for the ancestry so the job needs no full history clone.
+      # compare base...head: "ahead" means main is ahead of the deploy ref; "identical" means same commit.
       - name: Verify deploy ref is on main
         if: ${{ steps.superseded.outputs.skip != 'true' && env.VM_DEPLOY_ENABLED == 'true' }}
-        run: git fetch origin main && git merge-base --is-ancestor HEAD FETCH_HEAD
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          commit=$(git rev-parse HEAD)
+          status=$(gh api --method GET "repos/$GITHUB_REPOSITORY/compare/$commit...main" -F per_page=1 --jq '.status')
+          case "$status" in
+            ahead|identical) ;;
+            *)
+              echo "Production deploy refused: $commit is not on main (compare status: $status)." >&2
+              exit 1
+              ;;
+          esac
 
       - name: Record checked-out deploy commit
         id: release
@@ -458,6 +471,12 @@ jobs:
           esac
           printf '%s' "$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY" | grep -Eq '^pk_live_[A-Za-z0-9_-]+$' || exit 1
           bundle_tar=$(mktemp "$RUNNER_TEMP/duel-engine.XXXXXX.tar.gz")
+          # One SSH connection serves every call below. The pinned host keys still apply to it.
+          mux_path=$(mktemp -u "$RUNNER_TEMP/vm-ssh.XXXXXX")
+          ssh_opts=(-o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key
+            -o ControlMaster=auto -o ControlPath="$mux_path" -o ControlPersist=300)
+          vm_ssh() { ssh "${ssh_opts[@]}" -p "$VM_PORT" "$VM_USER@$VM_HOST" "$@"; }
+          vm_scp() { scp "${ssh_opts[@]}" -P "$VM_PORT" "$@"; }
           remote_bundle=
           remote_guard=
           remote_prepare=
@@ -467,66 +486,73 @@ jobs:
           cleanup_transfer() {
             rm -f "$bundle_tar"
             if [ -n "$remote_bundle" ]; then
-              ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -p "$VM_PORT" "$VM_USER@$VM_HOST" \
+              vm_ssh \
                 "rm -f -- '$remote_bundle'" || true
             fi
             if [ -n "$remote_guard" ]; then
-              ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -p "$VM_PORT" "$VM_USER@$VM_HOST" \
+              vm_ssh \
                 "rm -f -- '$remote_guard'" || true
             fi
             if [ -n "$remote_prepare" ]; then
-              ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -p "$VM_PORT" "$VM_USER@$VM_HOST" \
+              vm_ssh \
                 "rm -f -- '$remote_prepare'" || true
             fi
             if [ -n "$remote_images" ]; then
-              ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -p "$VM_PORT" "$VM_USER@$VM_HOST" \
+              vm_ssh \
                 "rm -f -- '$remote_images'" || true
             fi
             if [ -n "$remote_backup" ]; then
-              ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -p "$VM_PORT" "$VM_USER@$VM_HOST" \
+              vm_ssh \
                 "rm -f -- '$remote_backup'" || true
             fi
             if [ -n "$remote_refs" ]; then
-              ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -p "$VM_PORT" "$VM_USER@$VM_HOST" \
+              vm_ssh \
                 "rm -f -- '$remote_refs'" || true
             fi
+            # Close the shared connection after the last cleanup call.
+            ssh "${ssh_opts[@]}" -p "$VM_PORT" -O exit "$VM_USER@$VM_HOST" >/dev/null 2>&1 || true
           }
           trap cleanup_transfer EXIT
-          remote_bundle=$(ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -p "$VM_PORT" "$VM_USER@$VM_HOST" \
+          # Open the shared connection once. If it fails, each call below connects on its own.
+          ssh "${ssh_opts[@]}" -fN -p "$VM_PORT" "$VM_USER@$VM_HOST" || true
+          remote_bundle=$(vm_ssh \
             'mktemp /tmp/yugidraft-duel-engine.XXXXXX.tar.gz')
           printf '%s' "$remote_bundle" | grep -Eq '^/tmp/yugidraft-duel-engine\.[A-Za-z0-9]{6}\.tar\.gz$' || exit 1
-          remote_guard=$(ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -p "$VM_PORT" "$VM_USER@$VM_HOST" \
+          remote_guard=$(vm_ssh \
             'mktemp /tmp/yugidraft-activity-guard.XXXXXX.py')
           printf '%s' "$remote_guard" | grep -Eq '^/tmp/yugidraft-activity-guard\.[A-Za-z0-9]{6}\.py$' || exit 1
-          scp -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -P "$VM_PORT" \
+          vm_scp \
             "$RUNNER_TEMP/check-prod-activity.py" "$VM_USER@$VM_HOST:$remote_guard"
-          remote_prepare=$(ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -p "$VM_PORT" "$VM_USER@$VM_HOST" \
+          remote_prepare=$(vm_ssh \
             'mktemp /tmp/yugidraft-runtime-prepare.XXXXXX.sh')
           printf '%s' "$remote_prepare" | grep -Eq '^/tmp/yugidraft-runtime-prepare\.[A-Za-z0-9]{6}\.sh$' || exit 1
-          scp -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -P "$VM_PORT" \
+          vm_scp \
             "$RUNNER_TEMP/prepare-runtime-data.sh" "$VM_USER@$VM_HOST:$remote_prepare"
-          remote_images=$(ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -p "$VM_PORT" "$VM_USER@$VM_HOST" \
+          remote_images=$(vm_ssh \
             'mktemp /tmp/yugidraft-images.XXXXXX.sh')
           printf '%s' "$remote_images" | grep -Eq '^/tmp/yugidraft-images\.[A-Za-z0-9]{6}\.sh$' || exit 1
-          scp -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -P "$VM_PORT" \
+          vm_scp \
             "$RUNNER_TEMP/production-images.sh" "$VM_USER@$VM_HOST:$remote_images"
-          remote_backup=$(ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -p "$VM_PORT" "$VM_USER@$VM_HOST" \
+          remote_backup=$(vm_ssh \
             'mktemp /tmp/yugidraft-backup.XXXXXX.py')
           printf '%s' "$remote_backup" | grep -Eq '^/tmp/yugidraft-backup\.[A-Za-z0-9]{6}\.py$' || exit 1
-          scp -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -P "$VM_PORT" \
+          vm_scp \
             "$RUNNER_TEMP/dueling-backup" "$VM_USER@$VM_HOST:$remote_backup"
-          remote_refs=$(ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -p "$VM_PORT" "$VM_USER@$VM_HOST" \
+          remote_refs=$(vm_ssh \
             'mktemp /tmp/yugidraft-image-digests.XXXXXX.txt')
           printf '%s' "$remote_refs" | grep -Eq '^/tmp/yugidraft-image-digests\.[A-Za-z0-9]{6}\.txt$' || exit 1
-          scp -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -P "$VM_PORT" \
+          vm_scp \
             "$RUNNER_TEMP/release/image-digests" "$VM_USER@$VM_HOST:$remote_refs"
+          # Start the layer download now. It overlaps the bundle transfer and the VM safety checks, and changes
+          # no tag. It warms only services with a new build-input hash, one at a time, for at most 15 minutes.
+          # The verified pull on the VM stays in the script below and waits for it. A failure here is ignored.
+          vm_ssh \
+            "DEPLOY_IMAGE_INPUTS='$DEPLOY_IMAGE_INPUTS' DEPLOY_ROLLBACK='$DEPLOY_ROLLBACK' nohup timeout 900 sh '$remote_images' warm '$DEPLOY_COMMIT' '$remote_refs' </dev/null >/dev/null 2>&1 &" || true
           tar -C "$RUNNER_TEMP/deploy-bundle" -czf "$bundle_tar" .
-          scp -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key -P "$VM_PORT" \
+          vm_scp \
             "$bundle_tar" \
             "$VM_USER@$VM_HOST:$remote_bundle"
-          ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key \
-            -p "$VM_PORT" \
-            "$VM_USER@$VM_HOST" \
+          vm_ssh \
             "env DEPLOY_COMMIT='$DEPLOY_COMMIT' DEPLOY_BUNDLE='$remote_bundle' DEPLOY_GUARD='$remote_guard' DEPLOY_RUNTIME_PREPARE='$remote_prepare' DEPLOY_IMAGES='$remote_images' DEPLOY_BACKUP='$remote_backup' DEPLOY_IMAGE_REFS='$remote_refs' DEPLOY_FORCE='$DEPLOY_FORCE' DEPLOY_ROLLBACK='$DEPLOY_ROLLBACK' DEPLOY_WAIT_SECONDS='$DEPLOY_WAIT_SECONDS' DEPLOY_LIVE_ONLY='$DEPLOY_LIVE_ONLY' DEPLOY_SENTRY_RELEASE='$DEPLOY_SENTRY_RELEASE' DEPLOY_IMAGE_INPUTS='$DEPLOY_IMAGE_INPUTS' NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY='$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY' sh -s" <<'REMOTE'
              set -eu
              bundle_src=

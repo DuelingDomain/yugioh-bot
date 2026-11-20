@@ -303,3 +303,13 @@ test("every docker run/exec in the stdin deploy script reads /dev/null", () => {
     assert.match(lines[end], /<\s*\/dev\/null/, `stdin not closed for: ${line.trim()}`);
   });
 });
+
+test('PR runs keep the merge ref parent for the tested-tree proof, and a reused web image finds its maps', () => {
+  // A depth-1 PR checkout has no HEAD^1, so no proof was recorded and every merge re-ran the full tests.
+  const checkout = jobs.changes.steps.find(step => step.name === 'Checkout');
+  assert.match(checkout.with['fetch-depth'], /'pull_request' && '2'/);
+  // A download by artifact id lands in a subfolder unless merged; the relabel step reads the maps at the top level.
+  const action = parse(readFileSync(new URL('../../.github/actions/reuse-production-image/action.yml', import.meta.url), 'utf8'));
+  const maps = action.runs.steps.find(step => step.id === 'maps-download');
+  assert.equal(maps.with['merge-multiple'], true);
+});
