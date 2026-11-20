@@ -1906,6 +1906,8 @@ test('field watcher automatic: tap to identify reads every camera on a click, ru
     await expect.poll(()=>b.locator('[data-testid="feed-0"] video').evaluate((v:HTMLVideoElement)=>v.videoWidth),{timeout:40_000}).toBeGreaterThan(0);
     // Bob sees Alice's mode on her camera.
     await expect(b.getByTestId('feed-tap-tag')).toBeVisible();await expect(b.locator('[data-testid="feed-0"]').locator('..').getByTestId('zone-grid-toggle')).toBeDisabled();
+    // A normal table logs each mode switch with its reason too: Alice took the slow-computer offer, Bob chose it himself.
+    await expect.poll(async()=>((await alice.request.get(`/api/remote/${slug}`).then(r=>r.json())).events as any[]).filter(e=>e.action.type==='detection.mode'&&e.action.mode==='tap').map(e=>`${e.action.actorSeat}:${e.action.reason}`).sort(),{timeout:15_000}).toEqual(['0:slow-offer','1:player']);
     await a.evaluate(()=>((window as any).fieldTest).appear());await a.waitForTimeout(1500);
     const calls=(page:Page,type:string)=>page.evaluate(t=>(window as any).visionCalls.filter((c:string)=>c===t).length,type);
     const before=await Promise.all([a,b].flatMap(page=>[calls(page,'detect'),calls(page,'recognize')]));

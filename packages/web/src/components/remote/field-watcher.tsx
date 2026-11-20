@@ -1476,7 +1476,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   useEffect(()=>()=>clearTimeout(retryTimer.current),[]);
   const mode=ownDetectionMode({ownsSource,cameraOn:hub.cameraOn,enabled:watch.enabled});
   useEffect(()=>{
-    if(!tournament||modeSeat<0||!watch.settingsLoaded||room.status!=='active'||sentMode.current===mode)return;
+    if(modeSeat<0||!watch.settingsLoaded||room.status!=='active'||sentMode.current===mode)return;
     // The video hub reports no camera while it connects or reconnects. Say nothing until it settles, so the badge does not flap.
     if(hub.starting)return;
     // Short wait: the camera and the phone link settle a moment after the page opens, and the first answer should be the real one.
@@ -1493,7 +1493,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     },mode==='manual'||sentMode.current===null?1500:0);
     return()=>clearTimeout(timer);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  },[tournament,modeSeat,watch.settingsLoaded,room.status,mode,hub.starting,retry]);
+  },[modeSeat,watch.settingsLoaded,room.status,mode,hub.starting,retry]);
   // Video lag offer: the browser encoder stayed CPU limited (sustained, page visible; see `watchCpuLimit`) and still is when the offer would show.
   // Own state, so it never uses up the Tap offer. `videoOffer` is the wish; it counts as shown (once per page, with its 20 s) only while it is the notice on screen.
   const [videoOffer,setVideoOffer]=useState(false);
@@ -1769,7 +1769,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   }
   useEffect(()=>{
     // Tap to identify: the saved mat grid still goes out (it is not a tracking claim), so the other feeds draw their overlays on this camera. The `tap` mode tells them no card is followed.
-    const message={...fieldTrackMessage(watch.snapshot,entries.current,known(),watch.enabled&&!syncHold?watch.calibration:undefined),...(watch.enabled&&!syncHold?{}:{mode:'tap' as const})},key=JSON.stringify(message);lastMessage.current=message;
+    const message={...fieldTrackMessage(watch.snapshot,entries.current,known(),watch.calibration),...(watch.enabled&&!syncHold?{}:{mode:'tap' as const})},key=JSON.stringify(message);lastMessage.current=message;
     if(key!==published.current){published.current=key;hub.publishFieldTracks(message);}
   },[watch.snapshot,watch.calibration,watch.enabled,syncHold,hub.publishFieldTracks,room.state]);
   // The feeds draw the zone grid from the saved calibration and the cards the watcher sees.
