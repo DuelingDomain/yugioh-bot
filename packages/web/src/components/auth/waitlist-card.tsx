@@ -8,9 +8,7 @@ import { SignInShell } from "./sign-in-shell";
 import { SignInFootLinks, SignInStep } from "./sign-in-step";
 import shell from "./sign-in-shell.module.css";
 
-/** What `/waitlist?s=` can say. "form" is the plain email form; every other value is a finished state from the Discord path. */
-export type WaitlistView = "form" | "joined" | "invited" | "account" | "retry";
-export const WAITLIST_VIEWS: readonly WaitlistView[] = ["form", "joined", "invited", "account", "retry"];
+import type { WaitlistView } from "@/lib/waitlist-views";
 
 const EMAIL_SHAPE = /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/;
 const isEmail = (value: string) => value.length <= 254 && EMAIL_SHAPE.test(value);
