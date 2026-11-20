@@ -7,6 +7,8 @@ import { parsePhaseCommand, ygoBattleAllowed, ygoModule, type AttackResolution, 
 export type VoiceIntent =
   | { kind: "effect"; proposal: RemoteActionProposal }
   | { kind: "wake" }
+  /** "response", "I chain", "chain to that": the speaker chains on top. Any seat may say it. */
+  | { kind: "respond" }
   | { kind: "undo" }
   | { kind: "turn" }
   | { kind: "phase"; phase: string }
@@ -167,6 +169,7 @@ export function interpret(raw: string, ctx: GrammarContext): VoiceIntent {
     // Passing the turn must not replace the attack that is waiting for its confirm.
     if (text === "end turn" && ctx.state.attack) return { kind: "none" };
   }
+  if (text === "chain" || text === "respond") return { kind: "respond" };
   if (/^(respond|chain)\b/.test(text)) return { kind: "wake" };
   const phase = parsePhaseCommand(text === "standby" ? "standby phase" : raw, ctx.state);
   if (phase) {

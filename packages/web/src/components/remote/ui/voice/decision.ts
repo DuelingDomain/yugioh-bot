@@ -3,14 +3,19 @@ import type { VoiceFinal } from "./live-client";
 import type { VoiceReason } from "@/lib/remote/voice-diagnostics";
 
 type PhaseTurn = Extract<VoiceIntent, { kind: "phase" | "turn" }>;
-type Board = Extract<VoiceIntent, { kind: "effect" | "lp" | "attack" }>;
-/** All methods meet the same grammar boundary. Only "asr-names" may also carry effect, LP and attack lines; the others stay phase/turn only. */
+type Board = Extract<VoiceIntent, { kind: "effect" | "lp" | "attack" | "respond" }>;
+/** All methods meet the same grammar boundary. Only "asr-names" may also carry effect, LP and attack lines; the others stay phase/turn only. "asr" and "asr-names" also carry a respond line. */
 export function decideVoice(final: VoiceFinal, context: GrammarContext, accepting: boolean):
   | { accepted: true; intent: PhaseTurn | Board }
   | { accepted: false; reason: VoiceReason } {
   if (!accepting) return { accepted: false, reason: "muted" };
   if (final.method !== "asr" && final.method !== "asr-names" && !final.utterance.hits.length) return { accepted: false, reason: "no-keyword" };
   if (!final.canonical) return { accepted: false, reason: final.utterance.verification?.stage2 === "skipped" && final.utterance.verification.stage1 === "hit" ? "other" : "not-a-command" };
+  // "response", "I chain": any seat may say it, so it comes before the turn-player rule. Only the methods that hear free text carry it.
+  if (final.method === "asr" || final.method === "asr-names") {
+    const spoken = interpret(final.canonical, { ...context, trayOpen: false });
+    if (spoken.kind === "respond") return { accepted: true, intent: spoken };
+  }
   if (final.method === "asr-names") return decideBoard(final.text, final.canonical, context);
   if (context.me !== context.state.turnSeat) return { accepted: false, reason: "not-turn-player" };
   if (final.utterance.verification && final.utterance.verification.stage2 !== "confirmed") return { accepted: false, reason: "illegal-phase" };

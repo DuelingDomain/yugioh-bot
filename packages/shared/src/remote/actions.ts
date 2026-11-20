@@ -130,6 +130,8 @@ export const remoteActionSchema = z.discriminatedUnion("type", [
     .refine(a=>!a.identityUncertain||a.source==='auto'&&!a.faceUp,'Uncertain identity requires a camera Set'),
   z.strictObject({ ...meta, type: z.literal("twin.remove"), seat: remoteSeatSchema, cardRef: id, source: z.literal("auto").optional() }),
   z.strictObject({ ...meta, type: z.literal("log.note"), text: z.string().trim().min(1).max(500) }),
+  /** A player chains or responds ("response", "I chain"). Public room signal only: it changes nothing on the board. */
+  z.strictObject({ ...meta, type: z.literal("chain.respond") }),
   z.strictObject({ ...meta, type: z.literal("undo"), targetActionId: id }),
   z.strictObject({ ...meta, type: z.literal("player.concede") }),
   /** Quit the match. 1v1: the opponent wins the match. FFA: only this seat leaves for good. It cannot be undone. */

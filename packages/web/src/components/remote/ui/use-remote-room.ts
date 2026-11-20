@@ -216,14 +216,14 @@ export function useRemoteRoom(slug: string, options: { watchAsAdmin?: boolean } 
     try {
       const path = `/${slug}/actions`;
       const http = remoteApi<RemoteRoom>(path, input, stop?.signal).catch(async error => {
-        if (error?.code !== "STALE_SEQUENCE" || payload.type !== "log.note" || tableKey.current !== slug || !mounted.current) throw error;
+        if (error?.code !== "STALE_SEQUENCE" || (payload.type !== "log.note" && payload.type !== "chain.respond") || tableKey.current !== slug || !mounted.current) throw error;
         if ((roomRef.current?.lastSeq ?? 0) <= input.baseSeq) {
           try { await refreshAfterWrite(); } catch { throw error; }
         }
         const held = roomRef.current;
         if (stop?.signal.aborted || !mounted.current || !held || held.slug !== slug || held.status !== "active" || held.lastSeq <= input.baseSeq ||
           held.state.gameId !== current.state.gameId || hasPendingTwinConfirmation(current) || hasPendingTwinConfirmation(held)) throw error;
-        // Retry a log note with its original stamp. Camera retries revalidate physical evidence in the watcher.
+        // Retry a log note or a response with its original stamp. Camera retries revalidate physical evidence in the watcher.
         attemptedSeq = held.lastSeq;
         return remoteApi<RemoteRoom>(path, { ...input, baseSeq: attemptedSeq }, stop?.signal);
       });

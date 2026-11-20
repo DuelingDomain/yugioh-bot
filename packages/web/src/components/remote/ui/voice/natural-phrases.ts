@@ -32,6 +32,7 @@ export const NATURAL_PHRASES: readonly Natural[] = [
   ["GO DIRECT", "direct attack"], ["GOING DIRECT", "direct attack"],
   // Chain and response (the table notes a response; "chain" also wakes an idle microphone)
   ["CHAIN", "chain"], ["I CHAIN", "chain"], ["RESPOND", "chain"], ["I RESPOND", "chain"], ["IN RESPONSE", "chain"],
+  ["RESPONSE", "chain"], ["CHAIN TO THAT", "chain"], ["I CHAIN TO THAT", "chain"], ["RESPOND TO THAT", "chain"], ["I RESPOND TO THAT", "chain"], ["IN RESPONSE TO THAT", "chain"],
   // Sets (flip summon needs a card name and a face-down monster, so only the grammar reads it)
   ["SET", "set"], ["SET A CARD", "set"], ["SET IT", "set"], ["I SET", "set"], ["I SET ONE", "set"], ["I SET A CARD", "set"], ["I SET ONE FACE DOWN", "set"], ["I SET A CARD FACE DOWN", "set"],
   // Said at the table but with no action in the app yet. They are listed so the listener hears "no response" as itself and not as "in response".
@@ -96,7 +97,8 @@ export function naturalCommand(text: string, state: { phase: string; turnSeat: n
   const attacker = /^i (?:ll )?(attack\b.*)$/.exec(text);
   if (attacker) return { text: attacker[1] };
 
-  if (/^(?:i )?(?:ll )?(?:chain|respond)$|^(?:in )?response(?: to (?:that|this|it))?$/.test(text)) return { text: "chain" };
+  // "I can't respond" and "no response" are not here: the pattern is anchored, so they stay table talk.
+  if (/^(?:i )?(?:ll )?(?:chain|respond)(?: to (?:that|this|it))?$|^(?:in )?response(?: to (?:that|this|it))?$/.test(text)) return { text: "chain" };
 
   // "I set two face down" would set only one card, so it is left for the player to do by hand.
   if (/^(?:i )?(?:ll )?set (?:two|2|three|3|four|4|five|5|some|a few) /.test(text)) return { ignore: "sets more than one card" };
