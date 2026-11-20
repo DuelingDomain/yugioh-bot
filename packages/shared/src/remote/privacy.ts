@@ -89,7 +89,7 @@ function projectEvent(event:RemoteEvent,seats:ReadonlySet<number>):RemoteEvent {
  */
 const SPECTATOR_EVENTS:ReadonlySet<string>=new Set(["table.created","table.configured","table.started","table.ended","idle.warning","admin.watching","seat.joined","seat.left","seat.ready","seat.deck",
   "phase.set","phase.advance","turn.end","lp.change","detection.mode","attack.declare","attack.resolve","player.concede","player.leave","match.declare","match.confirm","match.continue","match.first","side.ready","side.unready","side.timeout",
-  "hand.draw","hand.count","twin.place","twin.move","twin.flip","twin.remove","twin.attach","twin.detach","twin.equip","twin.control","monsters.tribute","pile.lift","pile.order","effect.activated"]);
+  "hand.draw","hand.count","twin.place","twin.move","twin.flip","twin.remove","twin.attach","twin.detach","twin.equip","twin.control","monsters.tribute","pile.lift","pile.order","effect.activated","card.identified","cards.identified"]);
 const PUBLIC_ZONE = (card: TwinCard) => card.faceUp !== false && !["hand", "deck", "extra"].includes(card.zone) ||
   !!card.knownFaceDown && !!card.publicIdentity && remoteFieldZone(card.zone);
 /** Twin refs can hold the card id ("c0-<id>-..."). A ref that is not of a card public now becomes a name with no meaning for one snapshot. */
@@ -139,6 +139,14 @@ function spectatorEvent(event:RemoteEvent,refs:SpectatorRefs):RemoteEvent {
   const a=projected.action;
   const actor=event.actorSeat ?? -1;
   if(!SPECTATOR_EVENTS.has(a.type)) return {...projected,action:{type:"log.note",actorSeat:actor,text:a.type==="undo" ? "Undid an action" : "Updated a private card",idempotencyKey:event.id}};
+  if(a.type==="card.identified" || a.type==="cards.identified") {
+    // A read of a card on a camera is what the spectator can see in the video. It is shown only when it names no hidden card: no hand, Deck or Extra Deck zone,
+    // no card that is not public on the board now, and never a typed or spoken name (the person may have named a card nobody can see).
+    const sightings=(a.type==="card.identified" ? [a] : a.cards) as {cardRef?:string;zone?:string;nameCandidates?:unknown}[];
+    const open=(a.source==="click" || a.source==="auto") && sightings.every(s=>(!s.cardRef || refs.open.has(s.cardRef)) && !["hand","deck","extra"].includes(s.zone ?? ""));
+    if(!open) return {...projected,action:{type:"log.note",actorSeat:actor,text:"Updated a private card",idempotencyKey:event.id}};
+    for(const s of sightings) delete s.nameCandidates;
+  }
   if(a.type==="twin.flip" && !a.faceUp) { delete a.cardId; }
   if(a.type==="twin.place" && (a.zone==="hand" || a.zone==="deck")) return {...projected,action:{type:"log.note",actorSeat:actor,text:"Updated a private card",idempotencyKey:event.id}};
   // Historic events may name only cards whose identity is public on the current board.

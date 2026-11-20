@@ -1,5 +1,6 @@
 import { ConnectionState, DisconnectReason, Room, RoomEvent, Track, VideoQuality, type RemoteTrackPublication, type RemoteVideoTrack } from "livekit-client";
-import { participantSeat, type VideoMember } from "./video-protocol";
+import { remoteDataMessageSchema } from "@yugidraft/shared/remote";
+import { NO_ANSWER, SPECTATOR_READ_GAP_MS, SPECTATOR_READ_TOPIC, participantSeat, type RecognitionAnswer, type VideoMember } from "./video-protocol";
 import { FIELD_TRACKS_TOPIC, FieldTrackCache } from "./field-track-cache";
 import { CAMERA_PUBLISH } from "./video-profile";
 import { PEER_VISION_TOPIC, PeerVisionCache } from "./peer-vision";
@@ -17,8 +18,9 @@ function phoneSeat(identity: string, metadata: string | undefined, guildId: stri
 }
 
 /**
- * Receive only: cameras and the public field outlines. It holds no local track, no card reader, no recognition channel and no microphone
- * subscription. Its token has no publish rights, so the SFU refuses anything else.
+ * Receive only: cameras and the public field outlines. It holds no local track, no card reader and no microphone subscription. Its token
+ * cannot publish a track. It may send data, and sends only one thing: a read request to the owner of a feed, which the owner answers to
+ * this spectator alone (`requestRead`).
  */
 export class SpectatorVideo {
   private room = new Room({ adaptiveStream: false, dynacast: false, disconnectOnPageLeave: true });
@@ -31,6 +33,8 @@ export class SpectatorVideo {
   private layer = spectatorLayer();
   private attempts = 0;
   private timer?: ReturnType<typeof setTimeout>;
+  private reads = new Map<string, { owner: number; resolve: (answer: RecognitionAnswer) => void; timer: ReturnType<typeof setTimeout> }>();
+  private lastRead = -Infinity;
   constructor(private options: { slug: string; guildId: string; members: VideoMember[] }) {
     const sync = () => this.sync();
     for (const event of [RoomEvent.TrackPublished, RoomEvent.TrackSubscribed, RoomEvent.TrackUnsubscribed, RoomEvent.TrackUnpublished, RoomEvent.ParticipantConnected, RoomEvent.ParticipantDisconnected, RoomEvent.ParticipantMetadataChanged, RoomEvent.ConnectionStateChanged]) this.room.on(event, sync);
@@ -39,7 +43,8 @@ export class SpectatorVideo {
       if (reason === DisconnectReason.DUPLICATE_IDENTITY) this.patch({ error: "This table is open in another tab. Video plays there.", needsClick: true });
       else this.later();
     });
-    this.room.on(RoomEvent.DataReceived, (bytes, participant, _kind, topic) => {
+    this.room.on(RoomEvent.DataReceived, (bytes, participant, _kind, topic, _encryption, identity) => {
+      if (topic === SPECTATOR_READ_TOPIC) { this.receiveRead(bytes, participant, identity); return; }
       if ((topic !== FIELD_TRACKS_TOPIC && topic !== PEER_VISION_TOPIC) || bytes.byteLength > 8192 || !participant) return;
       const seat = this.seatOf(participant);
       if (seat === undefined) return;
@@ -54,6 +59,40 @@ export class SpectatorVideo {
   private seatOf(participant: { identity: string; metadata?: string }) {
     const { guildId, slug, members } = this.options;
     return phoneSeat(participant.identity, participant.metadata, guildId, slug, members) ?? participantSeat(participant.identity, participant.metadata, guildId, slug, members);
+  }
+  /** The sender must be the SFU-bound identity of the seat that owns the feed asked. */
+  private receiveRead(bytes: Uint8Array, participant: { identity: string; metadata?: string } | undefined, identity: string | undefined) {
+    if (bytes.byteLength > 8192) return;
+    try {
+      const parsed = remoteDataMessageSchema.safeParse(JSON.parse(new TextDecoder().decode(bytes)));
+      if (!parsed.success || parsed.data.type !== "recognition.result") return;
+      const pending = this.reads.get(parsed.data.requestId); if (!pending) return;
+      const from = participant ? this.seatOf(participant) : this.options.members.find(m => m.userId !== null && identity === `remote-user-${m.userId}`)?.seat;
+      if (from !== pending.owner) return;
+      clearTimeout(pending.timer); this.reads.delete(parsed.data.requestId);
+      const { candidates, tier, faceDown, covered } = parsed.data;
+      pending.resolve({ candidates, tier, faceDown, covered });
+    } catch { /* Invalid data is ignored. */ }
+  }
+  /**
+   * Asks the player who owns a feed to read the card at a point of the frame (0..1). Same reader and same answer as a seated player's click.
+   * One request at a time per spectator, at most one a second; the owner checks the same limit.
+   */
+  async requestRead(owner: number, x: number, y: number): Promise<RecognitionAnswer> {
+    const member = this.options.members.find(m => m.seat === owner && m.userId !== null);
+    if (!member || this.room.state !== ConnectionState.Connected) return NO_ANSWER;
+    const now = Date.now();
+    if (this.reads.size || now - this.lastRead < SPECTATOR_READ_GAP_MS) throw new Error("Wait before reading another card");
+    this.lastRead = now;
+    const message = remoteDataMessageSchema.parse({ type: "recognition.request", feedOwnerSeat: owner, x, y, requestId: crypto.randomUUID() });
+    const answer = new Promise<RecognitionAnswer>(resolve => {
+      const timer = setTimeout(() => { this.reads.delete(message.requestId); resolve(NO_ANSWER); }, 12_000);
+      this.reads.set(message.requestId, { owner, resolve, timer });
+    });
+    try {
+      await this.room.localParticipant.publishData(new TextEncoder().encode(JSON.stringify({ from: this.room.localParticipant.identity, request: message })), { reliable: true, topic: SPECTATOR_READ_TOPIC, destinationIdentities: [`remote-user-${member.userId}`] });
+    } catch (error) { const pending = this.reads.get(message.requestId); if (pending) { clearTimeout(pending.timer); this.reads.delete(message.requestId); } throw error; }
+    return answer;
   }
   setMembers(members: VideoMember[]) { this.options.members = members; this.sync(); }
   private patch(value: Partial<SpectatorVideoSnapshot>) {
@@ -93,5 +132,5 @@ export class SpectatorVideo {
     this.timer = setTimeout(() => void this.connect(), Math.min(30_000, 2000 * 2 ** this.attempts++));
   }
   retry() { clearTimeout(this.timer); this.attempts = 0; this.patch({ needsClick: false }); void this.connect(); }
-  dispose() { clearTimeout(this.timer); this.closed = true; this.listeners.clear(); this.tracks.clear(); this.vision.clear(); void this.room.disconnect(); }
+  dispose() { clearTimeout(this.timer); this.closed = true; for (const read of this.reads.values()) { clearTimeout(read.timer); read.resolve(NO_ANSWER); } this.reads.clear(); this.listeners.clear(); this.tracks.clear(); this.vision.clear(); void this.room.disconnect(); }
 }

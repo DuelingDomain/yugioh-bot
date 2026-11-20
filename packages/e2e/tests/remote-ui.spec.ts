@@ -1312,6 +1312,43 @@ test.describe("remote duels, spectators", () => {
     } finally { await Promise.all([alice, bob, carol].map(context => context!.close())); }
   });
 
+  test("a spectator clicks a card on a player's camera and the feed owner's reader answers", async ({ browser }) => {
+    test.skip(!HAVE_LIVEKIT, `needs LiveKit at ${LIVEKIT.origin} (LIVEKIT_URL)`);
+    test.setTimeout(300_000);
+    const url = process.env.E2E_REMOTE_UI_URL ?? "http://localhost:3310";
+    const [alice, bob, carol] = await Promise.all([1, 2, 3].map(() => browser.newContext({ baseURL: url })));
+    await Promise.all([alice!, bob!, carol!].map(bothView));
+    try {
+      for (const [context, userId] of [[alice, 101], [bob, 102], [carol, 103]] as const) await authenticatePlayer(context!.request, { userId }, process.env.E2E_AUTH_SECRET!, url);
+      const slug = await startTwoPlayerTable(alice!.request, bob!.request, "public");
+      const [a, b, c] = await Promise.all([alice!.newPage(), bob!.newPage(), carol!.newPage()]);
+      // Alice's card reader is a stand-in (the stack has no vision models): it answers Dark Magician for any point on her feed.
+      await a.addInitScript(() => { (window as unknown as { __e2eRecognize: unknown }).__e2eRecognize = async () => ({ candidates: [{ cardId: 46986414, name: "Dark Magician", score: .95 }], tier: "sure", faceDown: false, covered: false }); });
+      await fakeCamera(a); await fakeCamera(b);
+      await Promise.all([a.goto(`/duels/remote/${slug}`), b.goto(`/duels/remote/${slug}`), c.goto(`/duels/remote/${slug}`)]);
+      for (const page of [a, b]) { await expect(page.getByTestId("remote-table")).toBeVisible(); await page.getByTestId("camera-on-feed").click(); }
+      await expect(c.getByTestId("spectator-table")).toBeVisible({ timeout: 30_000 });
+      const video = c.locator('[data-testid="feed-0"] video');
+      await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.videoWidth).catch(() => 0), { timeout: 60_000 }).toBeGreaterThan(0);
+      await c.getByTestId("feed-0").hover(); await c.waitForTimeout(500);
+      const p = await video.evaluate((v: HTMLVideoElement) => {
+        const r = v.getBoundingClientRect(); const sc = Math.min(r.width / v.videoWidth, r.height / v.videoHeight);
+        const w = v.videoWidth * sc; const h = v.videoHeight * sc;
+        return { x: r.left + (r.width - w) / 2 + 0.338 * w, y: r.top + (r.height - h) / 2 + 0.486 * h };
+      });
+      await c.mouse.click(p.x, p.y);
+      // The spectator sees the same card reading a player gets, in the read-only inspector.
+      await expect(c.getByTestId("card-popover")).toBeVisible({ timeout: 60_000 });
+      await expect(c.getByTestId("popover-name")).toHaveText("Dark Magician");
+      await shot(c, "spectator-tap-read");
+      // A tap-mode read of a player (no board place) is a public read, so the spectator sees it in the recent reads of that seat.
+      const room = await (await alice!.request.get(`/api/remote/${slug}`)).json();
+      const tapped = await alice!.request.post(`/api/remote/${slug}/actions`, { data: { baseSeq: room.lastSeq, action: { type: "card.identified", actorSeat: 0, seat: 0, cardId: 46986414, source: "click", idempotencyKey: crypto.randomUUID() } } });
+      expect(tapped.status(), await tapped.text()).toBe(200);
+      await expect(c.getByTestId("tap-reads-0")).toContainText("Dark Magician", { timeout: 15_000 });
+    } finally { await Promise.allSettled([alice!, bob!, carol!].map(context => context.close())); }
+  });
+
   test("a spectator watches a public table, cannot act, sees nothing hidden, and a private table refuses", async ({ browser }) => {
     test.setTimeout(480_000);
     const url = process.env.E2E_REMOTE_UI_URL ?? "http://localhost:3310";
@@ -1371,7 +1408,7 @@ test.describe("remote duels, spectators", () => {
       const media = await carol!.request.post(`${path}/livekit`);
       expect(media.status(), await media.text()).toBe(200);
       const grant = JSON.parse(Buffer.from((await media.json()).token.split(".")[1], "base64url").toString()).video;
-      expect(grant).toMatchObject({ canPublish: false, canPublishData: false, canSubscribe: true, hidden: true, room: `remote-${slug}` });
+      expect(grant).toMatchObject({ canPublish: false, canPublishData: true, canSubscribe: true, hidden: true, room: `remote-${slug}` });
       const grantOf = (token: string) => JSON.parse(Buffer.from(token.split(".")[1]!, "base64url").toString()).video;
       // Voice: a spectator gets no token for its room, and no seated token can put a microphone in the room a spectator enters.
       const noVoice = await carol!.request.post(`${path}/livekit?voice=1`);

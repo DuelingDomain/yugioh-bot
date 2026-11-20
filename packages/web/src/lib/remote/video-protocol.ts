@@ -8,6 +8,10 @@ export const NO_ANSWER: RecognitionAnswer = { candidates: [], tier: "low match",
 export type VideoMember = { seat: number; userId: number | null };
 export const RECOGNITION_TOPIC = "remote.recognition.v1";
 export const PENDING_TOPIC = "remote.recognition.pending.v1";
+/** A spectator asks the feed owner to read a card, and the owner answers that spectator only. Data only: the spectator token has no track rights. */
+export const SPECTATOR_READ_TOPIC = "remote.recognition.watch.v1";
+/** The identity the token route gives a spectator. Only the SFU sets the sender identity of a data packet, so this is trusted like a seat. */
+export const isSpectatorIdentity = (identity: string | undefined): identity is string => !!identity && /^remote-spectator-\d{1,12}$/.test(identity);
 
 /** Metadata is signed by the token route; canUpdateOwnMetadata is disabled. */
 export function participantSeat(identity: string, metadata: string | undefined, guildId: string, tableId: string, members: VideoMember[]) {
@@ -17,6 +21,16 @@ export function participantSeat(identity: string, metadata: string | undefined, 
       members.some(member => member.seat === value.seat && member.userId === value.userId && member.userId !== null)) return value.seat as number;
   } catch { /* Untrusted/missing metadata never identifies a seat. */ }
   return undefined;
+}
+
+/** A reader can return a guess with no catalog id (cardId 0) or an odd score. Those guesses are dropped, so a bad answer becomes "no answer" and never fails the video hub. */
+export function recognitionResult(requestId: string, answer: RecognitionAnswer): RecognitionResult {
+  const candidates = answer.candidates
+    .filter(c => Number.isInteger(c.cardId) && c.cardId > 0 && c.cardId <= 0xffffffff)
+    .map(c => ({ ...c, name: (c.name || `Card ${c.cardId}`).slice(0, 200), score: Number.isFinite(c.score) ? Math.min(1, Math.max(0, c.score)) : 0 }))
+    .slice(0, 5);
+  const checked = remoteDataMessageSchema.safeParse({ type: "recognition.result", requestId, ...answer, candidates });
+  return (checked.success ? checked.data : remoteDataMessageSchema.parse({ type: "recognition.result", requestId, ...NO_ANSWER })) as RecognitionResult;
 }
 
 export class FrameHealth {
@@ -89,14 +103,7 @@ export class RecognitionChannel {
       let answer: RecognitionAnswer;
       try { answer = await this.recognize(message); } catch { answer = NO_ANSWER; }
       if (this.closed || this.now() - pending.at > this.lifetime(pending.owner)) return;
-      // A reader can return a guess with no catalog id (cardId 0) or an odd score. Drop those guesses; a bad answer
-      // becomes "no answer" instead of failing the whole video hub.
-      const candidates = answer.candidates
-        .filter(c => Number.isInteger(c.cardId) && c.cardId > 0 && c.cardId <= 0xffffffff)
-        .map(c => ({ ...c, name: (c.name || `Card ${c.cardId}`).slice(0, 200), score: Number.isFinite(c.score) ? Math.min(1, Math.max(0, c.score)) : 0 }))
-        .slice(0, 5);
-      const checked = remoteDataMessageSchema.safeParse({ type: "recognition.result", requestId: message.requestId, ...answer, candidates });
-      const result = (checked.success ? checked.data : remoteDataMessageSchema.parse({ type: "recognition.result", requestId: message.requestId, ...NO_ANSWER })) as RecognitionResult;
+      const result = recognitionResult(message.requestId, answer);
       await this.send(result);
       await this.receive(this.seat, result);
     } else {
@@ -106,6 +113,44 @@ export class RecognitionChannel {
     }
   }
   close() { this.closed = true; this.pending.clear(); this.lastAccepted.clear(); }
+}
+
+/** Spectator limits on the owner's reader: one request per spectator per second, one read at a time, and a cap for all spectators together. */
+export const SPECTATOR_READ_GAP_MS = 1000;
+const SPECTATOR_READS_PER_WINDOW = 6, SPECTATOR_WINDOW_MS = 10_000;
+/**
+ * The feed owner's side of a spectator read. It answers the sender of the request (the SFU-bound identity), never the room, and only for
+ * this owner's own feed. A spectator cannot make the owner publish anything but a read result: the same answer a seated player gets.
+ */
+export class SpectatorReadResponder {
+  private last = new Map<string, number>();
+  private recent: number[] = [];
+  private busy = false;
+  private closed = false;
+  constructor(private seat: number, private send: (result: RecognitionResult, identity: string) => Promise<void>,
+    private recognize: (request: RecognitionRequest) => Promise<RecognitionAnswer>, private now = () => Date.now()) {}
+  async receive(identity: string | undefined, input: unknown) {
+    if (this.closed) return;
+    // The SFU hides a hidden spectator from the other clients, so its identity can be empty here. The request then names it.
+    // A claimed name can only steer the answer to another spectator or share the global limit: it never reaches a seated player.
+    const body = input && typeof input === "object" ? input as { from?: unknown; request?: unknown } : {};
+    const sender = identity || (typeof body.from === "string" ? body.from : undefined);
+    if (!isSpectatorIdentity(sender)) return;
+    identity = sender;
+    const parsed = remoteDataMessageSchema.safeParse(body.request);
+    if (!parsed.success || parsed.data.type !== "recognition.request" || parsed.data.feedOwnerSeat !== this.seat) return;
+    const now = this.now();
+    this.recent = this.recent.filter(at => now - at < SPECTATOR_WINDOW_MS);
+    if (this.busy || now - (this.last.get(identity) ?? -Infinity) < SPECTATOR_READ_GAP_MS || this.recent.length >= SPECTATOR_READS_PER_WINDOW || this.last.size > 64 && !this.last.has(identity)) return;
+    this.last.set(identity, now); this.recent.push(now); this.busy = true;
+    // `force` skips the owner's cache: only a seated player may ask for that.
+    const request: RecognitionRequest = { ...parsed.data, force: false };
+    let answer: RecognitionAnswer;
+    try { answer = await this.recognize(request); } catch { answer = NO_ANSWER; } finally { this.busy = false; }
+    if (this.closed) return;
+    await this.send(recognitionResult(request.requestId, answer), identity);
+  }
+  close() { this.closed = true; this.last.clear(); this.recent = []; }
 }
 
 export const RESCAN_TOPIC = "remote.rescan.v1";

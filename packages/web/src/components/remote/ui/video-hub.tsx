@@ -20,6 +20,7 @@ import { recognitionBackendNow, subscribeRecognitionBackend } from './recognitio
 import type { PeerVision } from '@/lib/remote/peer-vision';
 import { readVideoRate, saveVideoRate, type VideoRate } from '@/lib/remote/video-rate';
 import { loadFieldCalibrationRecord } from '@/lib/remote/use-field-watcher';
+import { e2eRecognize } from "@/lib/remote/e2e-field-hook";
 import { makeRecognizeRawFeed, readCard, askAi, recordFeedback, peekCard, readBoard, disposeRecognizer, prewarmRecognizer, type AiAnswer, type BoardAnswer, type FeedbackSource, type PeekAnswer, type ReadCard, type ReadResult } from "./recognizer";
 
 export type Health = { q: "good" | "warn" | "bad" | "off"; label: string; detail: string };
@@ -183,7 +184,7 @@ export function VideoHubProvider({ room, children }: { room: RemoteRoom; childre
       slug: room.slug, guildId: room.guildId, seat: mySeat, members: JSON.parse(members),
       onPhoneScan: setPhoneScan, onPhonePresence: () => { void roster.mutate(); }, onRescan: from => rescanHandler.current?.(from) ?? "off",
       readPhone: (canvas,point,signal) => readCard(null,point,recognitionPriorsFor(roomRef.current,mySeat),signal,undefined,[canvas]),
-      recognize: makeRecognizeRawFeed(
+      recognize: e2eRecognize() ?? makeRecognizeRawFeed(
         async ids => { await loadCards(ids); return new Map(ids.flatMap(id => { const info = cardInfo(id); return info ? [[id, info.name] as const] : []; })); }, () => recognitionPriorsFor(roomRef.current,mySeat)),
     });
     setController(video); setSnap(video.getSnapshot());
