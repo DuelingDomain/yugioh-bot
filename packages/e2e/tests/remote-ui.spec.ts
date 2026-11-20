@@ -1901,8 +1901,8 @@ test('field watcher automatic: tap to identify reads every camera on a click, ru
     const offer=a.getByTestId('tap-identify-offer');await expect(offer).toContainText('Switch to tap-to-identify?',{timeout:60_000});
     const boxes=async()=>a.evaluate(()=>['feed-box-0','remote-table'].map(id=>{const r=document.querySelector(`[data-testid="${id}"]`)!.getBoundingClientRect();return [r.left,r.top,r.width,r.height];}));
     await offer.getByRole('button',{name:'Switch',exact:true}).click();await expect(offer).toHaveCount(0);await expect(a.getByTestId('field-watcher-status')).toHaveText('Tap to identify');
-    // Tap to identify starts with the virtual field hidden, so the camera may move once. After that it stays put.
-    await expect(a.getByTestId('field-toggle-0')).toContainText('Show virtual field');
+    // Tap to identify turns my board off, so the camera may move once. After that it stays put.
+    await expect(a.getByTestId('tap-off-banner')).toContainText('Your board is off');
     const settled=await boxes();await a.waitForTimeout(800);expect(await boxes()).toEqual(settled);
     await expect(a.getByLabel('Auto-detect cards',{exact:true})).not.toBeChecked();expect(await a.evaluate(()=>localStorage.getItem('dd-remote-tap-offer:v1'))).toBe('switch');
     // Bob changes the mode in the Settings menu; the checkbox follows.
@@ -2532,5 +2532,36 @@ test.describe("remote duels screen, Auto-detect off", () => {
     await page.getByTestId("tap-off-turn-on").click();
     await expect(banner).toHaveCount(0);
     expect(await page.evaluate(() => localStorage.getItem("dd-remote-tap-offer:v1"))).toBe("keep");
+  });
+  test("a Tap mode player's board is off for everyone, with a note, LP and piles kept, and it comes back with Auto-detect", async ({ browser }) => {
+    test.setTimeout(240_000);
+    const url = process.env.E2E_REMOTE_UI_URL!;
+    const alice = await browser.newContext({ baseURL: url }), bob = await browser.newContext({ baseURL: url });
+    try {
+      for (const [who, userId] of [[alice, 101], [bob, 102]] as const) { await authenticatePlayer(who.request, { userId }, process.env.E2E_AUTH_SECRET!, url); await bothView(who); }
+      const slug = await startTwoPlayerTable(alice.request, bob.request);
+      const a = await alice.newPage(), b = await bob.newPage();
+      for (const page of [a, b]) await expect(async () => { await page.goto(`/duels/remote/${slug}`); await expect(page.getByTestId("rail")).toBeVisible({ timeout: 15_000 }); }).toPass({ timeout: 150_000 });
+      await expect(b.getByTestId("fwrap-0")).toBeVisible(); await expect(b.getByTestId("tap-board-off")).toHaveCount(0);
+      // Alice announces Tap mode. The table state carries it, so Bob needs no camera signal.
+      const mode = async (value: "tap" | "auto") => {
+        const { lastSeq } = await (await alice.request.get(`/api/remote/${slug}`)).json();
+        const sent = await alice.request.post(`/api/remote/${slug}/actions`, { data: { baseSeq: lastSeq, action: { type: "detection.mode", actorSeat: 0, mode: value, reason: "player", idempotencyKey: crypto.randomUUID() } } });
+        expect(sent.ok(), await sent.text()).toBe(true);
+      };
+      await mode("tap");
+      const note = b.getByTestId("tap-board-off");
+      await expect(note).toContainText("Board off — Tap mode. Cards are read only when tapped.", { timeout: 20_000 });
+      await expect(b.getByTestId("fwrap-0")).toBeHidden(); await expect(b.getByTestId("fwrap-1")).toBeVisible();
+            // LP and the piles stay. The note fits inside the screen at every size.
+      await expect(b.getByTestId("lp-value-0")).toBeVisible(); await expect(b.getByTestId("wc-piles-0")).toBeVisible();
+      for (const [width, height] of [[1920, 1080], [2560, 1440], [1366, 768]] as const) {
+        await b.setViewportSize({ width, height }); await b.waitForTimeout(250); await shot(b, `tap-board-off-${width}`);
+        const box = await note.boundingBox(), lp = await b.getByTestId("lp-value-0").boundingBox();
+        expect(box && lp && box.x >= 0 && box.y >= 0 && box.x + box.width <= width && box.y + box.height <= height && lp.y + lp.height <= height, `${width}x${height} note and LP inside the screen`).toBe(true);
+      }
+      await mode("auto");
+      await expect(note).toHaveCount(0, { timeout: 20_000 }); await expect(b.getByTestId("fwrap-0")).toBeVisible();
+    } finally { await Promise.allSettled([alice.close(), bob.close()]); }
   });
 });

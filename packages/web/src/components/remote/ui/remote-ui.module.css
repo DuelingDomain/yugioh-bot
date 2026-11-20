@@ -1093,6 +1093,10 @@
 .tapBannerText b{font-weight:700;color:var(--gold-ink)}
 .tapBannerBtn{flex:none;height:28px;padding:0 12px;border-radius:6px;border:1px solid var(--gold);background:var(--gold);color:#1b1204;font:700 12px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;cursor:pointer}
 .tapBannerBtn:hover{background:var(--gold-ink)}
+/* The note where a Tap mode seat's board would be. It stacks in the narrow side column and sits in one row when there is room. */
+.tapBoardOff{flex:none;box-sizing:border-box;width:100%;display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;padding:7px 10px;border-radius:8px;border:1px solid rgb(240 178 79/.5);border-left:3px solid var(--warn);background:rgb(7 4 14/.94);color:var(--ink2);font:500 12px/1.3 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif}
+.tapBoardText{flex:1 1 140px;min-width:0}
+.tapBoardText b{font-weight:700;color:var(--gold-ink)}
 .feedTagRow .tapChip{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;pointer-events:auto;cursor:default;letter-spacing:.04em;font-size:11px;color:var(--gold-ink);border:1px solid rgb(232 185 79/.5)}
 .watcherStatusSlot{display:block;min-width:0;max-width:300px;pointer-events:auto}
 .watcherControlsSlot{display:flex;flex:none}

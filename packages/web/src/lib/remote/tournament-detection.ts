@@ -36,3 +36,11 @@ export const ownDetectionMode=(input:{ownsSource:boolean;cameraOn:boolean;enable
 export const modeLabel=(mode:TournamentMode|undefined)=>mode==='tap'?'Tap to identify':mode==='auto'?'Auto-detect':mode==='manual'?'Manual':'Unknown';
 /** The nameplate badge: a short word so a long player name stays readable on a phone. The full label is the tooltip and the screen reader text. */
 export const modeShort=(mode:TournamentMode|undefined)=>mode==='tap'?'Tap':mode==='auto'?'Auto':mode==='manual'?'Manual':'Unknown';
+
+/**
+ * Another player's seat whose board is off: Auto-detect is off, so the camera does not keep it up to date.
+ * Any of the signals is enough. The table state keeps the last announced mode (a tournament table, and later every table),
+ * the field tracks say "tap" while the player is in Tap mode or still syncing the board after switching back,
+ * and the peer vision chip says it for a seat that sends no tracks yet. My own seat uses my own switch, never these.
+ */
+export const seatBoardOff=(input:{stateMode?:TournamentMode;tracksTap:boolean;visionTap:boolean})=>input.stateMode==='tap'||input.tracksTap||input.visionTap;
