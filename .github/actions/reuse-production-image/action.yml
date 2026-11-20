@@ -1,0 +1,111 @@
+name: Reuse production image
+description: Reuse an ARM64 image already built from the same inputs, stamp it with this commit and record its digest
+inputs:
+  service:
+    description: Runtime service name
+    required: true
+  inputs-hash:
+    description: Build-input hash from scripts/ci/image-inputs.mjs
+    required: true
+  artifact-suffix:
+    description: Producer attempt suffix for Test artifacts
+    default: ""
+outputs:
+  reused:
+    description: "true when the image was reused and the digest artifact is uploaded; anything else means build normally"
+    value: ${{ steps.relabel.outputs.reused }}
+runs:
+  using: composite
+  steps:
+    # Every step fails open: no usable image or maps means a normal build. Nothing here may fail the release.
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+    - name: Log in to GHCR
+      uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+
+    - name: Find the image built from the same inputs
+      id: find
+      shell: bash
+      env:
+        INPUTS_HASH: ${{ inputs.inputs-hash }}
+      run: |
+        printf '%s' "$INPUTS_HASH" | grep -Eq '^[0-9a-f]{64}$' || exit 0
+        digest=$(docker buildx imagetools inspect --format '{{json .Manifest}}' "$IMAGE:inputs-$INPUTS_HASH" 2>/dev/null |
+          python3 -c 'import json,sys; print(json.load(sys.stdin)["digest"])' 2>/dev/null) || { echo "No image for these inputs yet; build."; exit 0; }
+        printf '%s' "$digest" | grep -Eq '^sha256:[0-9a-f]{64}$' || exit 0
+        echo "digest=$digest" >> "$GITHUB_OUTPUT"
+
+    - name: Find the web source maps of that image
+      id: maps
+      if: inputs.service == 'web' && steps.find.outputs.digest != ''
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        INPUTS_HASH: ${{ inputs.inputs-hash }}
+      run: |
+        found=$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=web-maps-$INPUTS_HASH&per_page=5" \
+          --jq '[.artifacts[] | select(.expired == false)][0] | "\(.id) \(.workflow_run.id)"' 2>/dev/null) || exit 0
+        set -- $found
+        printf '%s' "${1:-}" | grep -Eq '^[1-9][0-9]*$' && printf '%s' "${2:-}" | grep -Eq '^[1-9][0-9]*$' || { echo "No source maps kept for these inputs; build."; exit 0; }
+        echo "artifact=$1" >> "$GITHUB_OUTPUT"
+        echo "run=$2" >> "$GITHUB_OUTPUT"
+
+    - name: Download the web source maps of that image
+      id: maps-download
+      if: steps.maps.outputs.artifact != ''
+      continue-on-error: true
+      uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+      with:
+        artifact-ids: ${{ steps.maps.outputs.artifact }}
+        run-id: ${{ steps.maps.outputs.run }}
+        github-token: ${{ github.token }}
+        path: ${{ runner.temp }}/reused-maps
+
+    - name: Stamp the reused image with this commit
+      id: relabel
+      if: steps.find.outputs.digest != '' && (inputs.service != 'web' || steps.maps-download.outcome == 'success')
+      shell: bash
+      env:
+        SERVICE: ${{ inputs.service }}
+        INPUTS_HASH: ${{ inputs.inputs-hash }}
+        FOUND_DIGEST: ${{ steps.find.outputs.digest }}
+      run: |
+        set -u
+        out="$RUNNER_TEMP/image-digests"
+        if [ "$SERVICE" = web ]; then
+          maps="$RUNNER_TEMP/reused-maps"
+          [ "$(cat "$maps/image-digest" 2>/dev/null)" = "$FOUND_DIGEST" ] || { echo "Kept maps belong to another image; build."; exit 0; }
+          release=$(cat "$maps/sentry-release")
+          printf '%s' "$release" | grep -Eq '^[0-9a-f]{40}$' && [ -s "$maps/web-sourcemaps.tar.gz" ] || { echo "Kept maps are incomplete; build."; exit 0; }
+        fi
+        # Only the image config changes (revision label), so no layer is rebuilt or pulled.
+        empty=$(mktemp -d)
+        printf 'FROM %s@%s\n' "$IMAGE" "$FOUND_DIGEST" |
+          docker buildx build --platform linux/arm64 --provenance=false --sbom=false --push \
+            --label "org.opencontainers.image.revision=$DEPLOY_COMMIT" --label "dev.duelingdomain.inputs=$INPUTS_HASH" \
+            -t "$IMAGE:$DEPLOY_COMMIT" --metadata-file "$RUNNER_TEMP/relabel.json" -f - "$empty" || { echo "Relabel failed; build."; exit 0; }
+        digest=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["containerimage.digest"])' "$RUNNER_TEMP/relabel.json" 2>/dev/null) || exit 0
+        printf '%s' "$digest" | grep -Eq '^sha256:[0-9a-f]{64}$' || exit 0
+        mkdir -p "$out"
+        printf '%s %s\n' "$SERVICE" "$digest" > "$out/$SERVICE.digest"
+        printf '%s %s\n' "$SERVICE" "$INPUTS_HASH" > "$out/$SERVICE.inputs"
+        if [ "$SERVICE" = web ]; then
+          cp "$maps/web-sourcemaps.tar.gz" "$maps/sentry-release" "$out/"
+        fi
+        printf '%s@%s (reused %s)\n' "$IMAGE" "$digest" "$FOUND_DIGEST" >> "$GITHUB_STEP_SUMMARY"
+        echo "reused=true" >> "$GITHUB_OUTPUT"
+
+    - name: Upload runtime image digest
+      if: steps.relabel.outputs.reused == 'true'
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      with:
+        name: production-image-${{ inputs.service }}-${{ env.DEPLOY_COMMIT }}${{ inputs.artifact-suffix }}
+        path: ${{ runner.temp }}/image-digests/*
+        if-no-files-found: error
+        retention-days: 1
+        overwrite: true

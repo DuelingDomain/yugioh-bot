@@ -406,6 +406,24 @@ jobs:
             if [ "$service" = bot ] && ! git show "$DEPLOY_COMMIT:docker-compose.yml" | grep -q '^  bot:'; then continue; fi
             cat "$RUNNER_TEMP/image-digests/$service.digest" >> "$RUNNER_TEMP/release/image-digests"
           done
+          # Build-input hashes let the VM restart only the services whose images changed.
+          # A rollback or an image from an older workflow has none, so the VM restarts everything.
+          image_inputs=
+          for service in duel web worker ws bot; do
+            [ -f "$RUNNER_TEMP/image-digests/$service.inputs" ] || continue
+            hash=$(awk -v service="$service" '$1 == service { print $2 }' "$RUNNER_TEMP/image-digests/$service.inputs")
+            printf '%s' "$hash" | grep -Eq '^[0-9a-f]{64}$' || { image_inputs=; break; }
+            image_inputs="$image_inputs $service=$hash"
+          done
+          echo "DEPLOY_IMAGE_INPUTS=${image_inputs# }" >> "$GITHUB_ENV"
+          # A reused web image carries the Sentry release of the commit that built it. Keep that value
+          # so runtime events and the uploaded source maps share one release.
+          sentry_release=$DEPLOY_COMMIT
+          if [ -f "$RUNNER_TEMP/image-digests/sentry-release" ]; then
+            candidate=$(cat "$RUNNER_TEMP/image-digests/sentry-release")
+            if printf '%s' "$candidate" | grep -Eq '^[0-9a-f]{40}$'; then sentry_release=$candidate; fi
+          fi
+          echo "DEPLOY_SENTRY_RELEASE=$sentry_release" >> "$GITHUB_ENV"
 
       - name: Configure SSH key
         if: ${{ env.VM_DEPLOY_ENABLED == 'true' }}
@@ -509,7 +527,7 @@ jobs:
           ssh -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key \
             -p "$VM_PORT" \
             "$VM_USER@$VM_HOST" \
-            "env DEPLOY_COMMIT='$DEPLOY_COMMIT' DEPLOY_BUNDLE='$remote_bundle' DEPLOY_GUARD='$remote_guard' DEPLOY_RUNTIME_PREPARE='$remote_prepare' DEPLOY_IMAGES='$remote_images' DEPLOY_BACKUP='$remote_backup' DEPLOY_IMAGE_REFS='$remote_refs' DEPLOY_FORCE='$DEPLOY_FORCE' DEPLOY_ROLLBACK='$DEPLOY_ROLLBACK' DEPLOY_WAIT_SECONDS='$DEPLOY_WAIT_SECONDS' DEPLOY_LIVE_ONLY='$DEPLOY_LIVE_ONLY' NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY='$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY' sh -s" <<'REMOTE'
+            "env DEPLOY_COMMIT='$DEPLOY_COMMIT' DEPLOY_BUNDLE='$remote_bundle' DEPLOY_GUARD='$remote_guard' DEPLOY_RUNTIME_PREPARE='$remote_prepare' DEPLOY_IMAGES='$remote_images' DEPLOY_BACKUP='$remote_backup' DEPLOY_IMAGE_REFS='$remote_refs' DEPLOY_FORCE='$DEPLOY_FORCE' DEPLOY_ROLLBACK='$DEPLOY_ROLLBACK' DEPLOY_WAIT_SECONDS='$DEPLOY_WAIT_SECONDS' DEPLOY_LIVE_ONLY='$DEPLOY_LIVE_ONLY' DEPLOY_SENTRY_RELEASE='$DEPLOY_SENTRY_RELEASE' DEPLOY_IMAGE_INPUTS='$DEPLOY_IMAGE_INPUTS' NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY='$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY' sh -s" <<'REMOTE'
              set -eu
              bundle_src=
              installer=
@@ -573,9 +591,39 @@ jobs:
                exit 1
              fi
              rm -rf "$installer"
-             # Pull all five immutable release digests before backups, retagging or stopping any service.
+             # Restart only the services whose build inputs changed. Every doubt means a full restart:
+             # a rollback, no recorded inputs, a changed duel (engine, bundle or schema work), or any kept
+             # container that is not running healthy on the confirmed image.
+             all_services="duel web worker ws bot"
+             deploy_services=
+             partial=0
+             for service in $all_services; do
+               awk -v service="$service" '$1 == service { found=1 } END { exit !found }' "$DEPLOY_IMAGE_REFS" && deploy_services="$deploy_services $service"
+             done
+             if [ "$DEPLOY_ROLLBACK" != true ] && [ -n "$DEPLOY_IMAGE_INPUTS" ] && [ -f data/production-image-inputs ] && [ -f data/production-image-ids ]; then
+               changed=
+               for service in $deploy_services; do
+                 new_hash=$(printf '%s\n' $DEPLOY_IMAGE_INPUTS | awk -F= -v service="$service" '$1 == service { print $2 }')
+                 old_hash=$(awk -v service="$service" '$1 == service { print $2 }' data/production-image-inputs)
+                 confirmed_id=$(awk -v service="$service" '$1 == service { print $2 }' data/production-image-ids)
+                 container=$(docker compose -f docker-compose.yml ps -q "$service" 2>/dev/null | head -n 1)
+                 keep=0
+                 if [ -n "$new_hash" ] && [ "$new_hash" = "$old_hash" ] && [ -n "$confirmed_id" ] && [ -n "$container" ] &&
+                   [ "$(docker inspect -f '{{.Image}}' "$container")" = "$confirmed_id" ] &&
+                   [ "$(docker inspect -f '{{.State.Status}} {{.RestartCount}} {{.State.Health.Status}}' "$container")" = "running 0 healthy" ]; then
+                   keep=1
+                 fi
+                 if [ "$keep" = 0 ]; then changed="$changed $service"; fi
+               done
+               case " $changed " in
+                 *" duel "*) ;;
+                 *) if [ -n "$changed" ]; then partial=1; deploy_services=${changed# }; fi ;;
+               esac
+             fi
+             echo "Services to restart: $deploy_services (partial=$partial)"
+             # Pull the release digests before backups, retagging or stopping any service.
              # Public GHCR packages need no VM login. A pull failure leaves live tags unchanged.
-             sh "$DEPLOY_IMAGES" pull "$DEPLOY_COMMIT" "$DEPLOY_IMAGE_REFS"
+             DEPLOY_SERVICES="$deploy_services" sh "$DEPLOY_IMAGES" pull "$DEPLOY_COMMIT" "$DEPLOY_IMAGE_REFS"
              # Preserve matching rollback code/env and the actual container image IDs before checkout/promotion.
              # Record the previous service set, including its bot image for PR 1 rollback.
              umask 077
@@ -618,9 +666,9 @@ jobs:
              # marketing domain. A failure keeps the previous zip online and must not stop the release.
              python3 tools/engine-source/build-zip.py site/public/source/dueling-domain-engine.zip "$DEPLOY_COMMIT" \
                || echo "WARNING: engine source zip not updated; see docs/deployment/vm-runbook.md" >&2
-             export SENTRY_RELEASE="$DEPLOY_COMMIT"
+             export SENTRY_RELEASE="${DEPLOY_SENTRY_RELEASE:-$DEPLOY_COMMIT}"
              sh scripts/ensure-env-secrets.sh .env DUEL_INTERNAL_SECRET
-             sh "$DEPLOY_IMAGES" promote "$DEPLOY_COMMIT" "$DEPLOY_IMAGE_REFS"
+             DEPLOY_SERVICES="$deploy_services" sh "$DEPLOY_IMAGES" promote "$DEPLOY_COMMIT" "$DEPLOY_IMAGE_REFS"
              # Remove build definitions even from an older rollback checkout. Compose run has no --no-build option.
              # config resolves bind paths against /opt/yugioh-bot; keep the private runtime values in a 0600 temp file.
              runtime_compose=$(mktemp /tmp/yugidraft-runtime-compose.XXXXXX.json)
@@ -663,32 +711,61 @@ jobs:
              fi
              # Retire the bot container before migration, including rollback to a release without it.
              project=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["name"])' "$runtime_compose")
-             retired_ids=$(docker ps -q --filter "label=com.docker.compose.project=$project" --filter label=com.docker.compose.service=bot)
-             for container in $retired_ids; do docker stop "$container"; done
-             docker compose -f "$runtime_compose" --project-directory /opt/yugioh-bot stop web duel worker ws
+             if [ "$partial" = 1 ]; then
+               stop_services=
+               case " $deploy_services " in *" bot "*) retire_bot=1 ;; *) retire_bot=0 ;; esac
+               for service in web worker ws; do
+                 case " $deploy_services " in *" $service "*) stop_services="$stop_services $service" ;; esac
+               done
+             else
+               stop_services="web duel worker ws"
+               retire_bot=1
+             fi
+             if [ "$retire_bot" = 1 ]; then
+               retired_ids=$(docker ps -q --filter "label=com.docker.compose.project=$project" --filter label=com.docker.compose.service=bot)
+               for container in $retired_ids; do docker stop "$container"; done
+             fi
+             if [ -n "$stop_services" ]; then
+               docker compose -f "$runtime_compose" --project-directory /opt/yugioh-bot stop $stop_services
+             fi
              # Once schema work can begin, failure must leave traffic stopped. Never restart old binaries.
              trap cleanup EXIT
-             DUELING_BACKUP_DIR="$release_dir/drained" python3 scripts/backup/dueling-backup
-             # With all gameplay services stopped, cancel stale forks and interrupt other stale casual duels without winners.
-             # The earlier preflight and gameplay guard only read activity; replay journals survive cleanup.
-             if ! DUEL_IDLE_CLOSE=1 DUEL_BUNDLE_SRC="$bundle_src" DUEL_DATA_DIR=/opt/yugioh-bot/data/duel-engine \
-               sh packages/duel-server/scripts/install-engine-bundle.sh; then
-               exit 1
-             fi
-             sh "$DEPLOY_RUNTIME_PREPARE" data
-             docker compose -f "$runtime_compose" --project-directory /opt/yugioh-bot run --rm --no-deps --pull never worker node --input-type=module -e '
-               import {openDatabase} from "@yugidraft/shared/db";
-               const db=openDatabase(process.env.DATABASE_PATH);
-               try {
-                 if(db.pragma("foreign_key_check").length)throw new Error("Foreign key check failed");
-                 if(db.pragma("integrity_check",{simple:true})!=="ok")throw new Error("Integrity check failed");
-                 console.log("identity migration verified");
-               } finally {db.close();}
-             '
-             docker compose -f "$runtime_compose" --project-directory /opt/yugioh-bot down --remove-orphans
-             sh "$DEPLOY_RUNTIME_PREPARE" data
              bot_service=$(python3 -c 'import json,sys; print("bot" if "bot" in json.load(open(sys.argv[1])).get("services", {}) else "")' "$runtime_compose")
-             docker compose -f "$runtime_compose" --project-directory /opt/yugioh-bot up -d --no-build ws duel web worker caddy $bot_service
+             if [ "$partial" = 1 ]; then
+               # Duel keeps running with the same engine, bundle and database schema: no drain, no
+               # idle-close pass and no migration check are needed. Only the changed services restart.
+               up_bot=$bot_service
+               case " $deploy_services " in *" bot "*) ;; *) up_bot= ;; esac
+               up_services=
+               for service in web worker ws; do
+                 case " $deploy_services " in *" $service "*) up_services="$up_services $service" ;; esac
+               done
+               # Caddy is recreated as before, which refreshes its Caddyfile bind mount.
+               docker compose -f "$runtime_compose" --project-directory /opt/yugioh-bot rm -f -s $up_services caddy
+               sh "$DEPLOY_RUNTIME_PREPARE" data
+               docker compose -f "$runtime_compose" --project-directory /opt/yugioh-bot up -d --no-build --no-deps $up_services caddy $up_bot
+             else
+               DUELING_BACKUP_DIR="$release_dir/drained" python3 scripts/backup/dueling-backup
+               # With all gameplay services stopped, cancel stale forks and interrupt other stale casual duels without winners.
+               # The earlier preflight and gameplay guard only read activity; replay journals survive cleanup.
+               if ! DUEL_IDLE_CLOSE=1 DUEL_BUNDLE_SRC="$bundle_src" DUEL_DATA_DIR=/opt/yugioh-bot/data/duel-engine \
+                 sh packages/duel-server/scripts/install-engine-bundle.sh; then
+                 exit 1
+               fi
+               sh "$DEPLOY_RUNTIME_PREPARE" data
+               docker compose -f "$runtime_compose" --project-directory /opt/yugioh-bot run --rm --no-deps --pull never worker node --input-type=module -e '
+                 import {openDatabase} from "@yugidraft/shared/db";
+                 const db=openDatabase(process.env.DATABASE_PATH);
+                 try {
+                   if(db.pragma("foreign_key_check").length)throw new Error("Foreign key check failed");
+                   if(db.pragma("integrity_check",{simple:true})!=="ok")throw new Error("Integrity check failed");
+                   console.log("identity migration verified");
+                 } finally {db.close();}
+               '
+               docker compose -f "$runtime_compose" --project-directory /opt/yugioh-bot down --remove-orphans
+               sh "$DEPLOY_RUNTIME_PREPARE" data
+               docker compose -f "$runtime_compose" --project-directory /opt/yugioh-bot up -d --no-build ws duel web worker caddy $bot_service
+             fi
              docker compose -f "$runtime_compose" --project-directory /opt/yugioh-bot ps
              docker compose -f "$runtime_compose" --project-directory /opt/yugioh-bot logs --tail=40
              for service in duel ws worker; do
@@ -710,14 +787,30 @@ jobs:
                done
                [ "$healthy" = 1 ] || { docker compose -f "$runtime_compose" --project-directory /opt/yugioh-bot logs --tail=60 "$service"; exit 1; }
              done
-             # Anonymous auth checks: no redirects, no cookies and exact null body.
-             # Next listens on the container's HOSTNAME, not on 127.0.0.1.
-             docker compose -f "$runtime_compose" --project-directory /opt/yugioh-bot exec -T web node -e '
-               const base = `http://${process.env.HOSTNAME}:3000`;
-               Promise.all([fetch(`${base}/sign-in`, {redirect:"manual"}), fetch(`${base}/api/auth/session`, {redirect:"manual"})])
-                 .then(async ([page, session]) => { if(page.status !== 200 || session.status !== 200 || (await session.text()).trim() !== "null") process.exit(1); })
-                 .catch(() => process.exit(1));
-             '
+             # Anonymous login and sign-up checks, on the full and the partial path: no redirects, exact 200
+             # for /sign-in, /sign-up, /waitlist and /api/auth/session, and an exact null session body.
+             # Next listens on the container's HOSTNAME, not on 127.0.0.1. A restarted web needs time to
+             # listen, so retry for up to three minutes. Failure keeps traffic as it is, the same as every
+             # other failed check here, and fails the deploy.
+             auth_ok=0
+             for _attempt in $(seq 1 36); do
+               if docker compose -f "$runtime_compose" --project-directory /opt/yugioh-bot exec -T web node -e '
+                 const base = `http://${process.env.HOSTNAME}:3000`;
+                 const get = path => fetch(`${base}${path}`, {redirect:"manual", signal: AbortSignal.timeout(10000)});
+                 Promise.all(["/sign-in", "/sign-up", "/waitlist", "/api/auth/session"].map(get))
+                   .then(async responses => { if(responses.some(response => response.status !== 200) || (await responses[3].text()).trim() !== "null") process.exit(1); })
+                   .catch(() => process.exit(1));
+               '; then auth_ok=1; break; fi
+               sleep 5
+             done
+             [ "$auth_ok" = 1 ] || { docker compose -f "$runtime_compose" --project-directory /opt/yugioh-bot logs --tail=60 web; echo "The login, sign-up or waitlist check failed." >&2; exit 1; }
+             # The web container must also still run with no restarts (it has no Compose healthcheck).
+             web_state=$(docker inspect -f '{{.State.Status}} {{.RestartCount}}' "$(docker compose -f "$runtime_compose" --project-directory /opt/yugioh-bot ps -q web)")
+             if [ "$web_state" != "running 0" ]; then
+               docker compose -f "$runtime_compose" --project-directory /opt/yugioh-bot logs --tail=60 web
+               echo "The web container is not running with zero restarts: $web_state" >&2
+               exit 1
+             fi
              # Duel must still be healthy with no restarts after the other checks,
              # immediately before confirming any images as good for rollback.
              duel_state=$(docker inspect -f '{{.State.Status}} {{.RestartCount}} {{.State.Health.Status}}' "$(docker compose -f "$runtime_compose" --project-directory /opt/yugioh-bot ps -q duel)")
@@ -740,6 +833,13 @@ jobs:
                printf '%s %s\n' "$service" "$image_id" >> data/production-image-ids.tmp
              done
              mv data/production-image-ids.tmp data/production-image-ids
+             # The inputs behind the confirmed images. Without them the next deploy restarts everything.
+             if [ "$DEPLOY_ROLLBACK" != true ] && [ -n "$DEPLOY_IMAGE_INPUTS" ]; then
+               printf '%s\n' $DEPLOY_IMAGE_INPUTS | tr '=' ' ' > data/production-image-inputs.tmp
+               mv data/production-image-inputs.tmp data/production-image-inputs
+             else
+               rm -f data/production-image-inputs
+             fi
              printf '%s\n' "$DEPLOY_COMMIT" > data/production-image-commit.tmp
              mv data/production-image-commit.tmp data/production-image-commit
              # Everything is healthy and recorded: free the disk. Rollbacks pull from GHCR, so the local :prev
@@ -762,6 +862,7 @@ jobs:
           printf '%s\n' "$GITHUB_RUN_ATTEMPT" > "$RUNNER_TEMP/release/confirmed-attempt"
           if [ "$DEPLOY_ROLLBACK" != true ]; then
             cp "$RUNNER_TEMP/image-digests/web-sourcemaps.tar.gz" "$RUNNER_TEMP/release/"
+            printf '%s\n' "$DEPLOY_SENTRY_RELEASE" > "$RUNNER_TEMP/release/sentry-release"
           fi
 
       - name: Upload healthy deployment record
@@ -773,6 +874,7 @@ jobs:
             ${{ runner.temp }}/release/image-digests
             ${{ runner.temp }}/release/confirmed-attempt
             ${{ runner.temp }}/release/web-sourcemaps.tar.gz
+            ${{ runner.temp }}/release/sentry-release
           if-no-files-found: error
           retention-days: 1
 
@@ -910,6 +1012,11 @@ jobs:
           if [ -z "$SENTRY_AUTH_TOKEN" ] || [ -z "$SENTRY_ORG" ] || [ -z "$SENTRY_PROJECT" ]; then
             echo "Sentry upload is not configured; skip release reporting."
             exit 0
+          fi
+          # A reused web image keeps the release its source maps were built for.
+          if [ -f "$RUNNER_TEMP/deployed-release/sentry-release" ]; then
+            candidate=$(cat "$RUNNER_TEMP/deployed-release/sentry-release")
+            if printf '%s' "$candidate" | grep -Eq '^[0-9a-f]{40}$'; then SENTRY_RELEASE=$candidate; fi
           fi
           mkdir -p "$RUNNER_TEMP/sentry-maps"
           tar -C "$RUNNER_TEMP/sentry-maps" -xzf "$RUNNER_TEMP/deployed-release/web-sourcemaps.tar.gz"

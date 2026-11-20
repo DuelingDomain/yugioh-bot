@@ -26,6 +26,8 @@ jobs:
             const org = context.repo.owner;
             const sha = /^[0-9a-f]{40}$/;
             const release = /^release-[0-9a-f]{40}$/;
+            // Build-input tags let a later build reuse an image. They expire with the image and never protect it.
+            const inputs = /^inputs-[0-9a-f]{64}$/;
             // Fixed release-tag cutover date; preserve the legacy rollback window across later runs.
             const releaseTagCutover = Date.parse("2026-10-21T00:00:00Z");
             const manifestTypes = new Set([
@@ -48,7 +50,7 @@ jobs:
                   const names = tags(version);
                   if (names.length === 0) return Date.parse(version.created_at) < cutoff;
                   // Owner tags, production/previous and rolling caches protect the whole version.
-                  if (names.some(tag => !sha.test(tag) && !release.test(tag))) return false;
+                  if (names.some(tag => !sha.test(tag) && !release.test(tag) && !inputs.test(tag))) return false;
                   if (names.some(tag => release.test(tag))) return !kept.has(version.id);
                   // Pre-cutover SHA versions may be healthy releases without release tags: keep the newest ten.
                   if (Date.parse(version.created_at) < releaseTagCutover) return !legacyKept.has(version.id);

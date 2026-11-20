@@ -74,6 +74,19 @@ test('pull validates all five ARM64 images and accepts an older four-image relea
   assert.doesNotMatch(old.commands(), /yugioh-bot-bot/);
 });
 
+test('a partial deploy pulls and promotes only the named services and refuses unknown names', t => {
+  const f = fixture(t);
+  const env = { DEPLOY_SERVICES: 'web ws' };
+  assert.equal(f.run('pull', sha, env).status, 0);
+  assert.equal(f.run('promote', sha, env).status, 0);
+  assert.match(f.commands(), new RegExp(`pull --platform=linux/arm64 ${registry}-web@${digest}`));
+  assert.match(f.commands(), new RegExp(`tag ${registry}-ws@${digest} yugioh-bot-ws:latest`));
+  assert.doesNotMatch(f.commands(), /-(duel|worker|bot)[@:]/);
+  const bad = fixture(t);
+  assert.notEqual(bad.run('pull', sha, { DEPLOY_SERVICES: 'web caddy' }).status, 0);
+  assert.doesNotMatch(bad.commands(), /pull|tag/);
+});
+
 test('a failed pull, wrong architecture or wrong revision cannot promote any image', t => {
   for (const extra of [{ TEST_FAIL_IMAGE: `${registry}-web@${digest}` }, { TEST_ARCH: 'amd64' }, { TEST_REVISION: 'b'.repeat(40) }]) {
     const f = fixture(t);

@@ -1200,7 +1200,7 @@ jobs:
 
   production-voice-assets:
     needs: changes
-    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name != 'push' && needs.changes.outputs.prod_build == 'true')
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name != 'push' && (needs.changes.outputs.prod_build == 'true' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.tests_only != 'true')))
     uses: ./.github/workflows/prepare-voice-assets.yml
     with:
       ref: ${{ github.sha }}
@@ -1214,6 +1214,7 @@ jobs:
     permissions:
       contents: read
       packages: write
+      actions: read
     timeout-minutes: 90
     strategy:
       fail-fast: false
@@ -1238,6 +1239,117 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: ${{ github.sha }}
+      # Fingerprint the engine bundle: the duel image holds its files, so identical files mean an identical image.
+      # The *.SOURCE sidecars only record the deploy commit, so they stay out of the fingerprint (checked: they are the only files that differ between commits).
+      - name: Fingerprint the engine bundle
+        if: matrix.service == 'duel'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: ${{ needs.production-bundle.outputs.artifact }}
+          path: ${{ runner.temp }}/release
+      - name: Compute build-input hash
+        id: inputs
+        env:
+          IMAGE_SERVICE: ${{ matrix.service }}
+          IMAGE_SALT_ENV: ${{ matrix.service == 'web' && 'NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY,NEXT_PUBLIC_POSTHOG_KEY,NEXT_PUBLIC_SENTRY_DSN,SENTRY_ORG,SENTRY_PROJECT' || '' }}
+          IMAGE_SALT_EXTRA: target:${{ matrix.target }}
+          NEXT_PUBLIC_POSTHOG_KEY: ${{ vars.NEXT_PUBLIC_POSTHOG_KEY }}
+          NEXT_PUBLIC_SENTRY_DSN: ${{ vars.NEXT_PUBLIC_SENTRY_DSN }}
+          SENTRY_ORG: ${{ vars.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
+        run: |
+          if [ "$IMAGE_SERVICE" = duel ]; then
+            mkdir -p "$RUNNER_TEMP/bundle-files"
+            tar -C "$RUNNER_TEMP/bundle-files" -xzf "$RUNNER_TEMP/release/deploy-bundle.tar.gz"
+            IMAGE_SALT_EXTRA="$IMAGE_SALT_EXTRA bundle:$(cd "$RUNNER_TEMP/bundle-files" && find . -type f ! -name '*.SOURCE' -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)"
+            export IMAGE_SALT_EXTRA
+          fi
+          node scripts/ci/image-inputs.mjs
+      # Same inputs as an image built earlier (often on the PR): stamp it with this commit instead of building.
+      - name: Reuse an image built from the same inputs
+        id: reuse
+        uses: ./.github/actions/reuse-production-image
+        with:
+          service: ${{ matrix.service }}
+          inputs-hash: ${{ steps.inputs.outputs.hash }}
+          artifact-suffix: -${{ github.run_attempt }}
+      - name: Download pinned voice inputs for web
+        if: steps.reuse.outputs.reused != 'true' && matrix.service == 'web' && needs.production-voice-assets.outputs.enabled == 'true'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: ${{ needs.production-voice-assets.outputs.artifact }}
+          path: ${{ runner.temp }}/voice-inputs
+      - name: Unpack voice image inputs
+        if: steps.reuse.outputs.reused != 'true' && matrix.service == 'web' && needs.production-voice-assets.outputs.enabled == 'true'
+        run: |
+          mkdir -p data/voice-assets
+          tar -C data/voice-assets -xzf "$RUNNER_TEMP/voice-inputs/voice-assets.tar.gz"
+      - name: Build production image
+        if: steps.reuse.outputs.reused != 'true'
+        uses: ./.github/actions/build-production-image
+        with:
+          service: ${{ matrix.service }}
+          target: ${{ matrix.target }}
+          bundle-artifact: ${{ needs.production-bundle.outputs.artifact }}
+          artifact-suffix: -${{ github.run_attempt }}
+          inputs-hash: ${{ steps.inputs.outputs.hash }}
+        env:
+          NEXT_PUBLIC_POSTHOG_KEY: ${{ vars.NEXT_PUBLIC_POSTHOG_KEY }}
+          NEXT_PUBLIC_SENTRY_DSN: ${{ vars.NEXT_PUBLIC_SENTRY_DSN }}
+          SENTRY_ORG: ${{ vars.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
+
+  # Builds the images a PR changes, so the merge to main only stamps them with the merge commit.
+  # Skipped for forks (no package write access). A failure never blocks the PR: main then builds as before.
+  image-prebuild:
+    name: Prebuild ARM64 ${{ matrix.service }} image
+    needs: [changes, production-voice-assets]
+    if: >-
+      github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository &&
+      needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.tests_only != 'true'
+    runs-on: ubuntu-24.04-arm
+    continue-on-error: true
+    permissions:
+      contents: read
+      packages: write
+      actions: read
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: web
+            target: web
+          - service: bot
+            target: bot
+          - service: ws
+            target: ws
+          - service: worker
+            target: worker
+    env:
+      DEPLOY_COMMIT: ${{ github.sha }}
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ vars.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
+      IMAGE: ghcr.io/duelingdomain/yugioh-bot-${{ matrix.service }}
+    steps:
+      - name: Checkout merge commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Compute build-input hash
+        id: inputs
+        env:
+          IMAGE_SERVICE: ${{ matrix.service }}
+          IMAGE_SALT_ENV: ${{ matrix.service == 'web' && 'NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY,NEXT_PUBLIC_POSTHOG_KEY,NEXT_PUBLIC_SENTRY_DSN,SENTRY_ORG,SENTRY_PROJECT' || '' }}
+          IMAGE_SALT_EXTRA: target:${{ matrix.target }}
+          NEXT_PUBLIC_POSTHOG_KEY: ${{ vars.NEXT_PUBLIC_POSTHOG_KEY }}
+          NEXT_PUBLIC_SENTRY_DSN: ${{ vars.NEXT_PUBLIC_SENTRY_DSN }}
+          SENTRY_ORG: ${{ vars.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
+        run: node scripts/ci/image-inputs.mjs
+      - name: Log in to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
       - name: Download pinned voice inputs for web
         if: matrix.service == 'web' && needs.production-voice-assets.outputs.enabled == 'true'
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
@@ -1249,13 +1361,16 @@ jobs:
         run: |
           mkdir -p data/voice-assets
           tar -C data/voice-assets -xzf "$RUNNER_TEMP/voice-inputs/voice-assets.tar.gz"
+      # Always builds: the tag is overwritten, so a broken earlier push of this PR is never reused.
       - name: Build production image
         uses: ./.github/actions/build-production-image
         with:
           service: ${{ matrix.service }}
           target: ${{ matrix.target }}
-          bundle-artifact: ${{ needs.production-bundle.outputs.artifact }}
-          artifact-suffix: -${{ github.run_attempt }}
+          bundle-artifact: unused
+          inputs-hash: ${{ steps.inputs.outputs.hash }}
+          publish-artifacts: 'false'
+          write-caches: 'false'
         env:
           NEXT_PUBLIC_POSTHOG_KEY: ${{ vars.NEXT_PUBLIC_POSTHOG_KEY }}
           NEXT_PUBLIC_SENTRY_DSN: ${{ vars.NEXT_PUBLIC_SENTRY_DSN }}
@@ -1309,7 +1424,7 @@ jobs:
   ci-result:
     name: CI result
     if: always()
-    needs: [changes, core-cache, core-build, cores, new-card-smoke-status-pending, new-card-smoke, new-card-smoke-report, new-card-smoke-status, effect-protocol, unit-web-build, unit-shared, unit-bot, unit-ws, unit-worker, unit-duel, unit-web, unit-e2e, ci-scripts, engine-app, engine-shards, engine-legacy-shards, engine-differential, native, rule-coverage, nduel-nightly, production-bundle, production-voice-assets, production-images, production-dry-run]
+    needs: [changes, core-cache, core-build, cores, new-card-smoke-status-pending, new-card-smoke, new-card-smoke-report, new-card-smoke-status, effect-protocol, unit-web-build, unit-shared, unit-bot, unit-ws, unit-worker, unit-duel, unit-web, unit-e2e, ci-scripts, engine-app, engine-shards, engine-legacy-shards, engine-differential, native, rule-coverage, nduel-nightly, production-bundle, production-voice-assets, production-images, image-prebuild, production-dry-run]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:

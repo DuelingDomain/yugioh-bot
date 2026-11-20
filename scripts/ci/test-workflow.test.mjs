@@ -109,7 +109,7 @@ test('slow jobs are required only for their selected inputs; main uses real prod
   assert.equal(gate(main, 'push'), 0);
   const voice = jobs['production-voice-assets'];
   assert.equal(voice.needs, 'changes');
-  assert.equal(voice.if, "(github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name != 'push' && needs.changes.outputs.prod_build == 'true')");
+  assert.equal(voice.if, "(github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name != 'push' && (needs.changes.outputs.prod_build == 'true' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.tests_only != 'true')))");
   assert.equal(voice.with['save-cache'], "${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}");
   for (const job of ['production-bundle', 'production-images']) {
     main[job].result = 'skipped';
@@ -177,6 +177,30 @@ test('production builds only run on main pushes and cannot deploy', () => {
   assert.equal(jobs['production-bundle'].steps.find(step => step.name === 'Upload production image bundle').with.overwrite, true);
   assert.equal(jobs['production-images'].permissions.packages, 'write');
   assert.equal(jobs['production-images'].strategy.matrix.include.length, 5);
+});
+
+test('PR image prebuild is non-blocking, same-repo only and skipped for docs and test-only changes', () => {
+  const job = jobs['image-prebuild'];
+  assert.equal(job['continue-on-error'], true);
+  assert.deepEqual(job.needs, ['changes', 'production-voice-assets']);
+  assert.match(job.if, /github\.event\.pull_request\.head\.repo\.full_name == github\.repository/);
+  assert.match(job.if, /docs_only != 'true'/);
+  assert.deepEqual(job.strategy.matrix.include.map(entry => entry.service), ['web', 'bot', 'ws', 'worker']);
+  const build = job.steps.find(step => step.name === 'Build production image');
+  assert.equal(build.with['publish-artifacts'], 'false');
+  // PR builds never touch the shared main caches, and always overwrite their own inputs tag.
+  assert.equal(build.with['write-caches'], 'false');
+  assert.equal(build.if, undefined);
+  assert.equal(job.steps.some(step => step.id === 'existing'), false);
+  for (const name of ['production-images', 'image-prebuild']) {
+    const hashStep = jobs[name].steps.find(step => step.id === 'inputs');
+    assert.equal(hashStep.env.IMAGE_SALT_EXTRA, 'target:${{ matrix.target }}');
+  }
+  assert.doesNotMatch(JSON.stringify(job), /VM_|ssh|deploy-production/);
+  // Main reuses the prebuilt image only through the checked reuse action, and every build step is gated on it.
+  const main = jobs['production-images'].steps;
+  assert.equal(main.find(step => step.id === 'reuse').uses, './.github/actions/reuse-production-image');
+  assert.equal(main.find(step => step.name === 'Build production image').if, "steps.reuse.outputs.reused != 'true'");
 });
 
 test('automatic releases consume bundle and digests from the exact triggering Test run', () => {

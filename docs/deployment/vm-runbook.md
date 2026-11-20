@@ -135,6 +135,19 @@ Deploy jobs run in the `production` GitHub Environment and require these GitHub 
    added because the Dockerfile has no syntax directive and cache mounts are not exported automatically.
    Each build records its output digest in a one-day artifact. Production pulls `image@sha256:...`,
    so a later build of the same SHA cannot change the images selected by this run.
+   Images are identified by their build inputs (`scripts/ci/image-inputs.mjs`: a hash of every tracked file
+   that can reach the image, plus the week number, the baked public build settings and, for duel, the bundle files).
+   A same-repo PR with app changes prebuilds `web`, `bot`, `ws` and `worker` (job `image-prebuild`, never blocking)
+   and tags them `inputs-<hash>`. On main, `production-images` finds that tag and only stamps the image with the
+   merge commit (`.github/actions/reuse-production-image`, config-only, no layers move); otherwise it builds as before.
+   Reused web images keep their source maps in a 7-day private artifact `web-maps-<hash>`, never in the image.
+   The hash follows `.dockerignore` exactly: only root `*.md` and `packages/<name>/test(s)/` are left out, so nested
+   paths such as `packages/web/app/api/duels/test/` and `packages/vision/src/licenses/*.md` count. It also covers the
+   workflow build inputs (`test.yml`, `prepare-voice-assets.yml`, `domain-core/pins.json`) and the build target.
+   The PR prebuild always builds and overwrites its own `inputs-<hash>` tag, and it never writes the shared
+   `:depscache`, `:buildcache` or `:nextcache` (`write-caches: 'false'`); only main refreshes them.
+   To invalidate every stored image, raise `HASH_VERSION` in `image-inputs.mjs`. The weekly rotation also refreshes base images.
+   The reuse rule never skips tests: the image is stamped only inside the main run that passed Test.
    Runtime and cache build steps set `provenance: false` and `sbom: false` to avoid extra attestation manifests.
    All deployment actions are pinned to full commit SHAs, with version comments.
    Deploy workflow concurrency covers manual preparation/builds and all VM deployment work.
@@ -206,7 +219,14 @@ Deploy jobs run in the `production` GitHub Environment and require these GitHub 
    A refusal there leaves prod containers running, but the checkout/images may already be updated.
    The job prints: **Do not run compose up. Run Deploy again.** Wait for downtime, then run the full workflow again.
    This is a snapshot guard, not an admission lock: the owner must prevent new games during the downtime window.
-   It stops web/duel/worker and WS, captures a final drained backup, installs the engine bundle,
+   The VM records the build-input hash of each confirmed image (`data/production-image-inputs`). When the duel
+   inputs are unchanged and every other unchanged service runs healthy (zero restarts) on its confirmed image,
+   only the changed services restart: no drained backup, no idle-close pass, no migration check; duel stays up.
+   Any doubt (rollback, missing record, duel changed, unhealthy kept container) takes the full path below.
+   Both paths end with the same checks: duel/ws/worker healthy with zero restarts, then anonymous GET of `/sign-in`,
+   `/sign-up`, `/waitlist` and `/api/auth/session` (all exactly 200, session body `null`, retried for up to 3 minutes),
+   then web running with zero restarts. Any failure fails the deploy before images are confirmed.
+   The full path stops web/duel/worker and WS, captures a final drained backup, installs the engine bundle,
    runs `sh scripts/deployment/prepare-runtime-data.sh data`, and runs one migration with the new worker image before starting consumers. FK and integrity
    failures abort. The EXIT trap only cleans temporary files; after the coordinated stop, failure
    leaves traffic stopped and backups intact. Never restart old binaries against the migrated schema.
