@@ -1905,7 +1905,7 @@ test('field watcher automatic: tap to identify reads every camera on a click, ru
     await b.getByTestId('camera-settings').first().click();await pickSelect(b,'Card detection',{value:'tap'});await b.keyboard.press('Escape');await expect(b.getByLabel('Auto-detect cards',{exact:true})).not.toBeChecked();
     await expect.poll(()=>b.locator('[data-testid="feed-0"] video').evaluate((v:HTMLVideoElement)=>v.videoWidth),{timeout:40_000}).toBeGreaterThan(0);
     // Bob sees Alice's mode on her camera.
-    await expect(b.getByTestId('feed-tap-tag')).toBeVisible();await expect(b.locator('[data-testid="feed-0"]').locator('..').getByTestId('zone-grid-toggle')).toBeDisabled();
+    await expect(b.getByTestId('feed-tap-tag')).toHaveText('Tap mode — auto-detect off');await expect(b.locator('[data-testid="feed-0"]').locator('..').getByTestId('zone-grid-toggle')).toBeDisabled();
     await a.evaluate(()=>((window as any).fieldTest).appear());await a.waitForTimeout(1500);
     const calls=(page:Page,type:string)=>page.evaluate(t=>(window as any).visionCalls.filter((c:string)=>c===t).length,type);
     const before=await Promise.all([a,b].flatMap(page=>[calls(page,'detect'),calls(page,'recognize')]));
@@ -2492,5 +2492,29 @@ test.describe("remote duels screen, card logic", () => {
     expect((await room()).state.seats[0].twin.find(card => card.ref === "yd")?.equippedTo).toBeUndefined();
     await dialog.getByTestId("equip-pick").first().click();
     await expect.poll(async () => (await room()).state.seats[0].twin.find(card => card.ref === "yd")).toMatchObject({ zone: "spell-trap", equippedTo: { seat: 0, ref: "dm" } });
+  });
+});
+
+test.describe("remote duels screen, Auto-detect off", () => {
+  test.beforeEach(async ({ context }) => { await authenticatePlayer(context.request, { userId: 101 }, process.env.E2E_AUTH_SECRET!, process.env.E2E_REMOTE_UI_URL!); });
+
+  test("with Auto-detect off my feed says so and why, fits at every size, and Turn on switches it back", async ({ page, context }) => {
+    await fakeCamera(page, "16:9");
+    await page.addInitScript(() => { localStorage.setItem("dd-remote-tap-offer:v1", "switch"); localStorage.setItem("dd-remote-tap-reason:v1", "slow"); });
+    const slug = await soloTable(context.request, 2);
+    await page.goto(`/duels/remote/${slug}`);
+    await page.getByTestId("camera-on-feed").click();
+    const banner = page.getByTestId("tap-off-banner");
+    await expect(banner).toContainText("Auto-detect off — cards are read only when you tap", { timeout: 30_000 });
+    await expect(banner).toContainText("Switched because this computer looked slow");
+    for (const [width, height] of [[1920, 1080], [2560, 1440], [1366, 768]] as const) {
+      await page.setViewportSize({ width, height }); await page.waitForTimeout(250);
+      await shot(page, `auto-detect-off-${width}`);
+      const box = await banner.boundingBox(), feed = await page.getByTestId("feed-0").boundingBox();
+      expect(box && feed && box.x >= feed.x && box.x + box.width <= feed.x + feed.width + 1 && box.y + box.height <= feed.y + feed.height, `${width}x${height}`).toBe(true);
+    }
+    await page.getByTestId("tap-off-turn-on").click();
+    await expect(banner).toHaveCount(0);
+    expect(await page.evaluate(() => localStorage.getItem("dd-remote-tap-offer:v1"))).toBe("keep");
   });
 });

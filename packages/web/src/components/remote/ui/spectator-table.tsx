@@ -27,6 +27,7 @@ import { matchOf } from "./match-model";
 import { OpeningRollScreen } from "./opening-roll";
 import { cardCode, cardName, cellsFor, COLORS, facingSeat, hasExtraZones, type TwinCard, type ZoneKey } from "./model";
 import { PeerVisionChip } from "./peer-vision-chip";
+import { TapModeChip } from "./tap-mode-banner";
 import { PileViewer, type PileZone } from "./pile-viewer";
 import { FeedCards, FeedCardsProvider } from "./feed-cards";
 import type { PopAt, Rect } from "./popup";
@@ -69,7 +70,7 @@ function SpectatorLobby({ ctl, room }: { ctl: RoomController; room: RemoteRoom }
 
 function SpectatorVisionChip({ video, seat, name }: { video: SpectatorVideo; seat: number; name: string }) {
   const stats = useSyncExternalStore(video.vision.subscribe, () => video.vision.get(seat), () => undefined);
-  return <PeerVisionChip stats={stats} name={name} />;
+  return <>{stats?.detect === "tap" ? <TapModeChip name={name} /> : null}<PeerVisionChip stats={stats} name={name} /></>;
 }
 
 function SpectatorFeed({ seat, name, video, online, stopped, frozen, onCard, format, gridOn }: {

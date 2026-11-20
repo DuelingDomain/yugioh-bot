@@ -11,6 +11,7 @@ import { attachOwnFeed, detachOwnFeed, detectCards, ownFeedFrames, type BoardRea
 import { hitTest, neighbour, readableCards, toFeedCards, type FeedCard, type Pt } from "./quads";
 import { useVideoHub, useFieldBacks, useTapSeat, usePeerVision, type Health } from "./video-hub";
 import { PeerVisionChip } from "./peer-vision-chip";
+import { TapModeBanner, TapModeChip } from "./tap-mode-banner";
 import { ZoneGridOverlay, FieldDebugOverlay } from "./zone-grid";
 import { HubFeedCards } from "./feed-cards";
 import {fieldZoneLocation,mapFieldZone} from '@yugidraft/vision';
@@ -573,7 +574,8 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
       </div> : null}
       {source ? reticles.map(r => <div key={r.id} className={`${s.ret} ${r.state === "done" ? s.done : r.state === "fail" ? s.fail : ""}`} style={rect(r.x, r.y, r.quad)} data-testid="reticle"><i /><b className={s.sr}>{r.text}</b></div>) : null}
     </div>
-    <div className={s.feedTagRow}><span className={s.ctag}><i /><span className={s.ctagText}>{you ? "YOUR FIELD CAM" : "FIELD CAM"}</span></span>{tapSeat ? <span className={s.ctag} data-testid="feed-tap-tag">Tap to identify</span> : null}{!you && source ? <PeerVisionChip stats={peerVision} name={name} /> : null}<span className={s.watcherStatusSlot} data-field-watcher-status-slot /></div>
+    {you && source ? <TapModeBanner /> : null}
+    <div className={s.feedTagRow}><span className={s.ctag}><i /><span className={s.ctagText}>{you ? "YOUR FIELD CAM" : "FIELD CAM"}</span></span>{tapSeat || (!you && peerVision?.detect === "tap") ? <TapModeChip name={name} /> : null}{!you && source ? <PeerVisionChip stats={peerVision} name={name} /> : null}<span className={s.watcherStatusSlot} data-field-watcher-status-slot /></div>
     {source ? <div className={`${s.fctl} ${isFrozen ? s.fctlOn : ""}`} data-feed-toolbar>
       {isFrozen ? <>
         <span className={s.fzchip} role="status" data-testid="freeze-status" data-state={frozen.status}><Icon name={frozen.status === "detecting" ? "cam" : "check"} />{chip}</span>
