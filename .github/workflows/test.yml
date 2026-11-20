@@ -70,23 +70,25 @@ jobs:
       pull-requests: read
       actions: read
     outputs:
-      web: ${{ steps.diff.outputs.web }}
-      bot: ${{ steps.diff.outputs.bot }}
-      ws: ${{ steps.diff.outputs.ws }}
-      worker: ${{ steps.diff.outputs.worker }}
-      shared: ${{ steps.diff.outputs.shared }}
-      duel_unit: ${{ steps.diff.outputs.duel_unit }}
-      e2e: ${{ steps.diff.outputs.e2e }}
-      ci_scripts: ${{ steps.diff.outputs.ci_scripts }}
+      web: ${{ steps.reuse.outputs.web || steps.diff.outputs.web }}
+      bot: ${{ steps.reuse.outputs.bot || steps.diff.outputs.bot }}
+      ws: ${{ steps.reuse.outputs.ws || steps.diff.outputs.ws }}
+      worker: ${{ steps.reuse.outputs.worker || steps.diff.outputs.worker }}
+      shared: ${{ steps.reuse.outputs.shared || steps.diff.outputs.shared }}
+      duel_unit: ${{ steps.reuse.outputs.duel_unit || steps.diff.outputs.duel_unit }}
+      e2e: ${{ steps.reuse.outputs.e2e || steps.diff.outputs.e2e }}
+      ci_scripts: ${{ steps.reuse.outputs.ci_scripts || steps.diff.outputs.ci_scripts }}
       docs_only: ${{ steps.diff.outputs.docs_only }}
       data_only: ${{ steps.diff.outputs.data_only }}
-      effects: ${{ steps.diff.outputs.effects }}
+      effects: ${{ steps.reuse.outputs.effects || steps.diff.outputs.effects }}
       prod_build: ${{ steps.diff.outputs.prod_build }}
-      engine: ${{ steps.diff.outputs.engine }}
-      engine_app: ${{ steps.diff.outputs.engine_app }}
-      core: ${{ steps.diff.outputs.core }}
-      golden: ${{ steps.diff.outputs.golden }}
+      engine: ${{ steps.reuse.outputs.engine || steps.diff.outputs.engine }}
+      engine_app: ${{ steps.reuse.outputs.engine_app || steps.diff.outputs.engine_app }}
+      core: ${{ steps.reuse.outputs.core || steps.diff.outputs.core }}
+      golden: ${{ steps.reuse.outputs.golden || steps.diff.outputs.golden }}
       tests_only: ${{ steps.diff.outputs.tests_only }}
+      reused: ${{ steps.reuse.outputs.reused }}
+      tree: ${{ steps.reuse.outputs.tree }}
       base: ${{ steps.diff.outputs.base }}
       head: ${{ steps.diff.outputs.head }}
       smoke_enabled: ${{ steps.smoke.outputs.smoke_enabled }}
@@ -120,6 +122,16 @@ jobs:
           PUSH_BEFORE: ${{ steps.baseline.outputs.base }}
           PUSH_AFTER: ${{ github.sha }}
         run: node scripts/ci/changed-layers.mjs
+
+      # A main push whose tree a passing PR run already tested (same areas selected) skips the repeated
+      # test jobs; production images are still built. Fails open. PRs record the tested tree in ci-result.
+      - name: Reuse passing PR result for an identical tree
+        id: reuse
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          DIFF: ${{ toJSON(steps.diff.outputs) }}
+        run: prlimit --core=0 -- node scripts/ci/reuse-pr-result.mjs
 
       - name: Resolve new-card smoke PR
         id: smoke
@@ -1331,6 +1343,26 @@ jobs:
           if (process.env.EVENT === 'push') ['production-bundle', 'production-voice-assets', 'production-images'].forEach(requireSuccess);
           if (process.env.EVENT !== 'push' && selected.prod_build === 'true') requireSuccess('production-dry-run');
           JS
+      # Proof for the main push of this exact tree (scripts/ci/reuse-pr-result.mjs). Only a passing PR run
+      # of this repository writes it; the gate above already failed the job otherwise.
+      - name: Record tested tree for the merge
+        if: success() && github.event_name == 'pull_request' && needs.changes.outputs.tree != ''
+        env:
+          PROOF: ${{ toJSON(needs.changes.outputs) }}
+          RUN: ${{ github.run_id }}
+          TREE: ${{ needs.changes.outputs.tree }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/pr-proof"
+          node -e 'const f=JSON.parse(process.env.PROOF);require("fs").writeFileSync(process.argv[1],JSON.stringify({tree:process.env.TREE,run:process.env.RUN,result:"success",flags:f}))' "$RUNNER_TEMP/pr-proof/proof.json"
+      - name: Upload tested tree proof
+        if: success() && github.event_name == 'pull_request' && needs.changes.outputs.tree != ''
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: pr-tested-tree-${{ needs.changes.outputs.tree }}
+          path: ${{ runner.temp }}/pr-proof/proof.json
+          if-no-files-found: error
+          retention-days: 7
+          overwrite: true
       - name: Report nightly failure
         if: failure() && github.event_name == 'schedule'
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0

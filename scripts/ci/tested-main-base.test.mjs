@@ -86,3 +86,11 @@ process.stdout.write(JSON.stringify(data));
   assert.equal(selected.core, 'false');
   assert.equal(selected.golden, 'false');
 });
+test('a PR proof covers a push only when it passed every area the push selects', async () => {
+  const { covers } = await import('./reuse-pr-result.mjs');
+  const f = o => ({ web: 'false', engine: 'false', data_only: 'false', ...o });
+  assert.equal(covers({ flags: f({ web: 'true', engine: 'true' }) }, f({ web: 'true' })), true);
+  assert.equal(covers({ flags: f({ web: 'true' }) }, f({ engine: 'true' })), false);
+  assert.equal(covers({ flags: f({ web: 'true', data_only: 'true' }) }, f({ web: 'true' })), false);
+  assert.equal(covers(null, f({ web: 'true' })), false);
+});

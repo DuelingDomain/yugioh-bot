@@ -65,7 +65,7 @@ test('TS engine changes allow skipped core checks; core selection requires both 
     results[name].result = 'success';
   }
   assert.equal(gate(results, 'pull_request'), 0);
-  assert.equal(jobs.changes.outputs.core, '${{ steps.diff.outputs.core }}');
+  assert.equal(jobs.changes.outputs.core, '${{ steps.reuse.outputs.core || steps.diff.outputs.core }}');
   assert.equal(jobs['engine-shards'].strategy.matrix.include.some(leg => leg.suite === 'differential'), false);
   assert.deepEqual(jobs['engine-differential'].strategy.matrix.shard, [1, 2]);
   assert.equal(jobs['engine-differential'].strategy['fail-fast'], false);
@@ -136,7 +136,7 @@ test('application engine coverage shards affected tests and cannot select the fu
   assert.equal(gate(results, 'pull_request'), 0);
   results['engine-app'].result = 'skipped';
   assert.notEqual(gate(results, 'pull_request'), 0);
-  assert.equal(jobs.changes.outputs.engine_app, '${{ steps.diff.outputs.engine_app }}');
+  assert.equal(jobs.changes.outputs.engine_app, '${{ steps.reuse.outputs.engine_app || steps.diff.outputs.engine_app }}');
   assert.match(jobs['core-cache'].if, /needs\.changes\.outputs\.engine_app == 'true'/);
   const job = jobs['engine-app'];
   assert.equal(job.strategy['fail-fast'], false);
