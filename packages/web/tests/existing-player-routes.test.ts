@@ -106,7 +106,18 @@ describe("Discord recovery start and cookies", () => {
   });
 });
 describe("Discord recovery callback", () => {
-  it.each(["access_denied", "cancelled"])("returns Discord error=%s to a friendly sign-in page", async error => {
+  it("retries a refused silent try once with the consent screen; a Cancel there shows the cancelled banner", async () => {
+    const p = await proof("/decks");
+    const retry = await callback(request(`/api/auth/callback/discord?state=${p.state}&error=consent_required`, { cookie: p.cookie }));
+    const url = new URL(retry.headers.get("location")!);
+    expect(url.origin).toBe("https://discord.com"); expect(url.searchParams.has("prompt")).toBe(false);
+    expect(url.searchParams.get("state")).not.toBe(p.state);
+    const next = openCookie<{ interactive?: boolean; returnTo?: string }>("oauth", retry.cookies.get(OAUTH_COOKIE)!.value)!;
+    expect(next).toMatchObject({ interactive: true, returnTo: "/decks" });
+    const cancel = await callback(request(`/api/auth/callback/discord?state=${url.searchParams.get("state")}&error=access_denied`, { cookie: `${OAUTH_COOKIE}=${retry.cookies.get(OAUTH_COOKIE)!.value}` }));
+    expect(cancel.headers.get("location")).toBe(`${ORIGIN}/sign-in?error=discord_recovery_cancelled`);
+  });
+  it.each(["cancelled"])("returns Discord error=%s to a friendly sign-in page", async error => {
     const p = await proof();
     const res = await callback(request(`/api/auth/callback/discord?state=${p.state}&error=${error}`, { cookie: p.cookie }));
     expect(res.status).toBe(303); expect(res.headers.get("location")).toBe(`${ORIGIN}/sign-in?error=discord_recovery_cancelled`);

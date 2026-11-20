@@ -11,7 +11,8 @@ export const TICKET_COOKIE = "__Host-dd_existing_player_ticket";
 const TTL = 600;
 type Purpose = "oauth" | "identity" | "ticket";
 export type ProvenIdentity = { userId: number; discordId: string; email: string; discordUsername: string; returnTo?: string };
-export type OAuthProof = { state: string; verifier: string; returnTo?: string };
+/** `interactive`: the silent (prompt=none) try was refused, so this trip shows Discord's consent screen. It is never retried again. */
+export type OAuthProof = { state: string; verifier: string; returnTo?: string; interactive?: boolean };
 const cookieOptions = { httpOnly: true, secure: true, sameSite: "lax" as const, path: "/" };
 
 export function webOrigin(): string {
@@ -59,6 +60,13 @@ export function validEmail(email: string): boolean {
   return email.length <= 254 && /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/.test(email);
 }
 export function newOAuthProof(): OAuthProof { return { state: randomBytes(32).toString("base64url"), verifier: randomBytes(32).toString("base64url") }; }
+/** The Discord authorize URL for a proof. Silent (prompt=none) unless the proof is interactive. */
+export function discordAuthorizeUrl(clientId: string, proof: OAuthProof): URL {
+  const url = new URL("https://discord.com/oauth2/authorize");
+  url.search = new URLSearchParams({ client_id: clientId, redirect_uri: `${webOrigin()}/api/auth/callback/discord`, response_type: "code",
+    scope: "identify email", ...(proof.interactive ? {} : { prompt: "none" }), state: proof.state, code_challenge: pkceChallenge(proof.verifier), code_challenge_method: "S256" }).toString();
+  return url;
+}
 export function pkceChallenge(verifier: string): string { return createHash("sha256").update(verifier).digest("base64url"); }
 export function setRecoveryCookie(response: NextResponse, purpose: Purpose, value: object): void {
   const name = purpose === "oauth" ? OAUTH_COOKIE : purpose === "identity" ? IDENTITY_COOKIE : TICKET_COOKIE;

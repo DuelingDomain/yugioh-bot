@@ -3,9 +3,25 @@ import type { NextRequest } from "next/server";
 import { createUserService } from "@yugidraft/shared/services";
 import { getDb } from "@/lib/db";
 import { joinWaitlist } from "@/lib/waitlist-join";
-import { clearRecoveryCookies, OAUTH_COOKIE, openCookie, recoveryRateLimit, recoveryRedirect, setRecoveryCookie, signInRecovery, validEmail, webOrigin, type OAuthProof } from "@/lib/existing-player";
+import { clearRecoveryCookies, discordAuthorizeUrl, newOAuthProof, OAUTH_COOKIE, openCookie, recoveryRateLimit, recoveryRedirect, setRecoveryCookie, signInRecovery, validEmail, webOrigin, type OAuthProof } from "@/lib/existing-player";
 
 export const runtime = "nodejs";
+// Discord refuses the silent try (prompt=none) for a person who never authorized the app. Retry once with the consent
+// screen. The retry is marked in its sealed proof, so a refusal there (a real Cancel) shows the cancelled banner.
+const SILENT_REFUSALS = ["consent_required", "interaction_required", "login_required", "access_denied"];
+function retryInteractive(request: NextRequest) {
+  const proof = openCookie<OAuthProof>("oauth", request.cookies.get(OAUTH_COOKIE)?.value);
+  const state = request.nextUrl.searchParams.get("state");
+  const clientId = process.env.DISCORD_CLIENT_ID;
+  if (!proof || proof.interactive || !clientId || !SILENT_REFUSALS.includes(request.nextUrl.searchParams.get("error") ?? "")
+    || typeof proof.state !== "string" || !state || state.length !== proof.state.length || !timingSafeEqual(Buffer.from(state), Buffer.from(proof.state))) return null;
+  try {
+    const next: OAuthProof = { ...newOAuthProof(), interactive: true, ...(proof.returnTo === undefined ? {} : { returnTo: proof.returnTo }) };
+    const response = recoveryRedirect(discordAuthorizeUrl(clientId, next).href);
+    clearRecoveryCookies(response); setRecoveryCookie(response, "oauth", next);
+    return response;
+  } catch { return null; }
+}
 const WAITLIST_FORM_PATH = "/waitlist?s=form";
 /** `/waitlist?s=...` shows the result without any email in the URL. */
 async function waitlistPath(email: string, userAgent: string | null): Promise<string> {
@@ -14,8 +30,8 @@ async function waitlistPath(email: string, userAgent: string | null): Promise<st
   return outcome === "error" ? WAITLIST_FORM_PATH : `/waitlist?s=${outcome}`;
 }
 export async function GET(request: NextRequest) {
-  if (request.nextUrl.searchParams.has("error")) return clearRecoveryCookies(recoveryRedirect("/sign-in?error=discord_recovery_cancelled"));
   const limited = recoveryRateLimit(request, "callback"); if (limited) return clearRecoveryCookies(limited);
+  if (request.nextUrl.searchParams.has("error")) return retryInteractive(request) ?? clearRecoveryCookies(recoveryRedirect("/sign-in?error=discord_recovery_cancelled"));
   const proof = openCookie<OAuthProof>("oauth", request.cookies.get(OAUTH_COOKIE)?.value);
   const state = request.nextUrl.searchParams.get("state");
   const code = request.nextUrl.searchParams.get("code");
