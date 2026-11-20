@@ -43,7 +43,7 @@ import { useVoiceDiagnostics } from "./use-voice-diagnostics";
 import { VoiceControls } from "./voice-controls";
 import { decideVoice } from "./voice/decision";
 import type { VoiceFinal } from "./voice/live-client";
-import { utteranceRecord, voiceCommands, type VoiceContext, type VoiceDecision } from "@/lib/remote/voice-diagnostics";
+import { utteranceRecord, voiceCommands, type VoiceContext, type VoiceDecision, type VoiceMethod } from "@/lib/remote/voice-diagnostics";
 import { faceDownInFrame, tapMemoryFor, type TapSpot } from '@/lib/remote/tap-memory';
 import { VideoHubProvider, useVideoHub } from "./video-hub";
 import { gpuLossReason, setHybridReaderEnabled, useRecognitionBackend } from "./recognition-backend";
@@ -1062,7 +1062,8 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
         if (intent.proposal.type !== "effect.activated" || !intent.proposal.source.cardRef) {
           setProposal(null); set("Which card? Say its name with ‘effect’, or activate it from its card view.", true); break;
         }
-        set("Effect activated"); void act(intent.proposal); break;
+        // Through the voice action when there is one, so it is stamped, logged and recorded like phase.
+        set("Effect activated"); if (voiceAction) voiceAction(intent.proposal); else void act(intent.proposal); break;
       case "undo": set("Undone"); void doUndo(); break;
       case "phase":
         if (!now.solo && now.mySeat !== current.turnSeat) { set(`Only ${name(current.turnSeat)} can change phase`, true); break; }
@@ -1073,11 +1074,11 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
         // The attack chip comes first: a spoken pass must not replace it.
         if (current.attack) { set("Resolve the attack first", true); break; }
         set("Needs a confirm"); propose("Pass the turn", `${name(current.turnSeat)} to ${name(nextSeat)}`, "Pass turn", () => { if (voiceAction) voiceAction({ type: "turn.end", actorSeat: me }); else passTurn(); }, requestId); break;
-      case "lp": set("Needs a confirm"); propose(`${name(intent.seat)} ${sg(intent.delta)} LP`, `${lpOf(intent.seat)} to ${Math.max(0, lpOf(intent.seat) + intent.delta)}`, "Apply", () => void changeLp(intent.seat, intent.delta, "Voice adjustment"), requestId); break;
+      case "lp": set("Needs a confirm"); propose(`${name(intent.seat)} ${sg(intent.delta)} LP`, `${lpOf(intent.seat)} to ${Math.max(0, lpOf(intent.seat) + intent.delta)}`, "Apply", () => { if (voiceAction) voiceAction({ type: "lp.change", actorSeat: now.mySeat, seat: intent.seat, delta: intent.delta, reason: "Voice adjustment" }); else void changeLp(intent.seat, intent.delta, "Voice adjustment"); }, requestId); break;
       case "attack": {
         const best = intent.resolution.candidates[0]; if (!best) { set("No attacker found", true); break; }
         set(intent.resolution.status === "unique" ? "Needs a confirm" : "Best of several matches");
-        propose(`${best.attacker.name ?? "Monster"} attacks ${best.target?.name ?? name(best.proposal.targetSeat)}`, intent.resolution.status === "unique" ? `Said: “${text}”` : `${intent.resolution.candidates.length} matches. Best guess shown.`, "Declare", () => void act(best.proposal), requestId);
+        propose(`${best.attacker.name ?? "Monster"} attacks ${best.target?.name ?? name(best.proposal.targetSeat)}`, intent.resolution.status === "unique" ? `Said: “${text}”` : `${intent.resolution.candidates.length} matches. Best guess shown.`, "Declare", () => { if (voiceAction) voiceAction(best.proposal); else void act(best.proposal); }, requestId);
         break;
       }
       case "move": { const result = spokenMove(intent.move, requestId, text); set(result.text, result.ignored); break; }
@@ -1087,9 +1088,11 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [act, doUndo, moveCard]);
   const pendingVoice = useRef<{ id: string; method: VoiceFinal["method"]; context: VoiceContext } | null>(null);
-  const voiceContext = () => {
+  // Card names feed only the speech-model + names method; the other methods keep their own phrase lists.
+  const voiceContext = (method?: VoiceMethod) => {
     const { room: now, state: current } = R.current;
-    return { state: current, players: now.seats, me: now.solo ? current.turnSeat : now.mySeat, trayOpen: false, cardNames: voiceCardNames(now, id => { const card = info(id); return card ? { name: card.name } : undefined; }) };
+    return { state: current, players: now.seats, me: now.solo ? current.turnSeat : now.mySeat, trayOpen: false,
+      ...(method === "asr-names" ? { cardNames: voiceCardNames(now, id => { const card = info(id); return card ? { name: card.name } : undefined; }) } : {}) };
   };
   const onFinal = useCallback((final: VoiceFinal, gate: MicState) => {
     const { room: now, state: current } = R.current;
@@ -1101,27 +1104,30 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     if (!decision.accepted) { record({ outcome: "rejected", reason: decision.reason, actionId: null }); return; }
     if (pendingVoice.current) { record({ outcome: "rejected", reason: "unconfirmed", actionId: null }); return; }
     const baseSeq = now.lastSeq;
-    if (decision.intent.kind === "turn") {
-      pendingVoice.current = { id: final.id, method: final.method, context };
+    // Turn, LP and attack lines wait for a chip; their later outcome is a decision record. Only the turn chip locks out the next line.
+    const chipLine = decision.intent.kind === "turn" || decision.intent.kind === "lp" || decision.intent.kind === "attack";
+    if (chipLine) {
+      if (decision.intent.kind === "turn") pendingVoice.current = { id: final.id, method: final.method, context };
       record({ outcome: "rejected", reason: "needs-confirm", actionId: null });
     }
     let submitted = false;
     apply(decision.intent, final.text, final.id, proposal => {
       if (submitted) return; submitted = true;
-      pendingVoice.current = null;
+      if (decision.intent.kind === "turn") pendingVoice.current = null;
       const latest = R.current;
       // A confirm belongs to the position and microphone choice that produced it.
       const stillLegal = decideVoice(final, { state: latest.state, players: latest.room.seats, me: latest.room.solo ? latest.state.turnSeat : latest.room.mySeat, trayOpen: false }, voiceAccept.current);
-      if (latest.room.lastSeq !== baseSeq || !stillLegal.accepted) {
+      // LP and attack chips may wait while other events arrive; the server still checks the action. Other lines keep the strict rule.
+      if (decision.intent.kind !== "lp" && decision.intent.kind !== "attack" && (latest.room.lastSeq !== baseSeq || !stillLegal.accepted)) {
         const result: VoiceDecision = { outcome: "rejected", reason: stillLegal.accepted ? "unconfirmed" : stillLegal.reason, actionId: null };
-        if (decision.intent.kind === "turn") diagnosticsRef.current.record({ kind: "decision", at: Date.now(), method: final.method, utteranceId: final.id, context, decision: result }); else record(result);
+        if (chipLine) diagnosticsRef.current.record({ kind: "decision", at: Date.now(), method: final.method, utteranceId: final.id, context, decision: result }); else record(result);
         setTranscript(old => ({ ...old, result: "Table changed. Say the command again.", ignored: true })); return;
       }
       const actionId = crypto.randomUUID();
       const sentAt = Date.now();
       void act({ ...proposal, cam: playerStamp("voice") }, actionId).then(updated => {
         const result: VoiceDecision = updated ? { outcome: "acted", reason: null, actionId } : { outcome: "rejected", reason: "other", actionId };
-        if (decision.intent.kind === "turn") diagnosticsRef.current.record({ kind: "decision", at: sentAt, method: final.method, utteranceId: final.id, context, decision: result }); else record(result);
+        if (chipLine) diagnosticsRef.current.record({ kind: "decision", at: sentAt, method: final.method, utteranceId: final.id, context, decision: result }); else record(result);
         if (updated) addVoiceLog(`${name(now.mySeat)} used voice: ${final.canonical}`);
         else setTranscript(old => old.requestId === final.id ? { ...old, result: "Command was not accepted", ignored: true } : old);
       });

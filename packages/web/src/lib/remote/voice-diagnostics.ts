@@ -41,7 +41,7 @@ export function utteranceRecord(input: {
 }): Extract<VoiceRecord, { kind: "utterance" }> {
   const u = input.utterance;
   return { kind: "utterance", at: input.at ?? Date.now(), method: input.method, utteranceId: input.id, text: input.text.slice(0, 2000), canonical: input.canonical.slice(0, 200), context: input.context, decision: input.decision,
-    stage1: { hits: u.hits.slice(0, 100).map(hit => ({ keyword: hit.keyword.slice(0, 200), score: hit.score ?? null })), busyMs: u.stage1BusyMs ?? (input.method === "asr" ? 0 : u.busyMs) },
-    stage2: { transcript: u.text?.slice(0, 2000) ?? null, busyMs: u.stage2BusyMs ?? (input.method === "asr" ? u.busyMs : 0), passes: u.passes ?? 0 },
+    stage1: { hits: u.hits.slice(0, 100).map(hit => ({ keyword: hit.keyword.slice(0, 200), score: hit.score ?? null })), busyMs: u.stage1BusyMs ?? (input.method === "asr" || input.method === "asr-names" ? 0 : u.busyMs) },
+    stage2: { transcript: u.text?.slice(0, 2000) ?? null, busyMs: u.stage2BusyMs ?? (input.method === "asr" || input.method === "asr-names" ? u.busyMs : 0), passes: u.passes ?? 0 },
     speechMs: u.speechMs, audioMs: u.audioMs, decisionMs: u.decisionMs ?? 0 };
 }
