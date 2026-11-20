@@ -15,10 +15,9 @@ type HeardFromInput = { heardFrom?: string; heardFromDetail?: string };
 type AccountInput = { username: string; password: string; legalAccepted: boolean } & HeardFromInput;
 type Actions = {
   submitAccount(input: AccountInput): Promise<void>;
-  continueWithDiscord(input: { username: string; legalAccepted: boolean } & HeardFromInput): Promise<void>;
+  /** Discord needs only the consent: the username is filled from the Discord profile when the person comes back. */
+  continueWithDiscord(input: { legalAccepted: boolean } & HeardFromInput): Promise<void>;
   submitCode(code: string): Promise<void>; resendCode(): Promise<void>;
-  /** The Discord-first invite card: stop the automatic Discord trip and show the email form. */
-  useEmailInstead(): void;
 };
 type ResumeKind = "sign-in" | "sign-up" | null;
 type Resume = { kind?: ResumeKind; returnTo?: unknown; attemptId?: string; auto?: boolean };
@@ -39,7 +38,7 @@ export function discordUsernameCandidates(source: string, random: () => number =
   return [base, `${base.slice(0, 16)}${suffix()}`, `${base.slice(0, 16)}${suffix()}`, `player${suffix()}${suffix()}`];
 }
 
-function useAccountFlow(opts: { ticket: string | null; returnTo: string; callback: boolean; discordFirst?: boolean }, signUpSignal: ReturnType<typeof useSignUp>, signInSignal?: ReturnType<typeof useSignIn>): {
+function useAccountFlow(opts: { ticket: string | null; returnTo: string; callback: boolean }, signUpSignal: ReturnType<typeof useSignUp>, signInSignal?: ReturnType<typeof useSignIn>): {
   state: AuthFlowState; resumeKind: ResumeKind; actions: Actions;
 } {
   const router = useRouter();
@@ -52,8 +51,6 @@ function useAccountFlow(opts: { ticket: string | null; returnTo: string; callbac
   const mounted = useRef(true);
   const recovering = useRef(false);
   const lockedEmail = useRef<string | null>(null);
-  const emailInstead = useRef(false);
-  const tripStarted = useRef(false);
   const destination = useRef(state.returnTo);
   const fetching = signUpSignal.fetchStatus === "fetching" || signInSignal?.fetchStatus === "fetching";
   // Before Clerk loads, these hooks return gated proxies with idle fetchStatus,
@@ -161,19 +158,6 @@ function useAccountFlow(opts: { ticket: string | null; returnTo: string; callbac
     }
     return false;
   };
-  const startDiscordInvite = async (signUp: NonNullable<typeof signUpSignal.signUp>) => {
-    lockedEmail.current = signUp.emailAddress!;
-    dispatch({ type: "discord-invite", lockedEmail: signUp.emailAddress! });
-    // Give the card a moment so "Use email instead" can be reached before the page leaves.
-    await new Promise(resolve => setTimeout(resolve, 1500));
-    if (emailInstead.current || !mounted.current) return;
-    tripStarted.current = true;
-    const current = latest.current.signUpSignal.signUp!;
-    if (!await call(() => current.update({ legalAccepted: true }), "signup")) return;
-    try { sessionStorage.setItem("dd_auth_resume", JSON.stringify({ kind: "sign-up", returnTo: state.returnTo, attemptId: current.id, auto: true })); } catch { /* Clerk preserves the accepted attempt even without storage. */ }
-    await call(() => current.sso({ strategy: "oauth_discord", redirectUrl: state.returnTo, redirectCallbackUrl: ssoCallbackPath(state.returnTo) }), "sso");
-  };
-
   useEffect(() => {
     if (started.current || recovering.current || fetching || loading) return;
     started.current = true;
@@ -200,31 +184,28 @@ function useAccountFlow(opts: { ticket: string | null; returnTo: string; callbac
         if (!opts.ticket) { dispatch({ type: "error", view: { kind: "step", step: "err-signup" } }); return; }
         if (!await call(() => signUp.ticket({ ticket: opts.ticket! }), "ticket", "sign-up", () => Boolean(latest.current.signUpSignal.signUp!.emailAddress))) return;
         setResumeKind("sign-up");
-        const ready = latest.current.signUpSignal.signUp!;
-        if (opts.discordFirst && ready.emailAddress && ready.missingFields.every(field => ["username", "password", "legal_accepted"].includes(field))) { await startDiscordInvite(ready); return; }
         await advanceSignup();
       }
     }, true);
   }, [fetching, loading]);
 
-  const validAccount = (input: { username: string; legalAccepted: boolean }) => {
+  const validAccount = (input: { username?: string; legalAccepted: boolean }, needsUsername: boolean) => {
     if (!input.legalAccepted) { dispatch({ type: "error", view: { kind: "field", field: "legal", message: "Accept the terms and privacy policy to continue." } }); return false; }
-    if (!input.username.trim()) { dispatch({ type: "error", view: { kind: "field", field: "username", message: "Enter a username." } }); return false; }
+    if (needsUsername && !input.username?.trim()) { dispatch({ type: "error", view: { kind: "field", field: "username", message: "Enter a username." } }); return false; }
     return true;
   };
-  const updateAccount = async (input: { username: string; legalAccepted: boolean } & HeardFromInput) => {
+  const updateAccount = async (input: { username?: string; legalAccepted: boolean } & HeardFromInput, needsUsername = true) => {
     const signUp = latest.current.signUpSignal.signUp!;
     if (!lockedEmail.current || signUp.emailAddress !== lockedEmail.current) { dispatch({ type: "error", view: { kind: "step", step: "err-signup" } }); return false; }
     // Survey data only: sent as unsafe metadata, and only when the person picked an answer (the server checks it again).
     const heard = parseHeardFrom(input.heardFrom, input.heardFromDetail);
     const survey = heard ? { unsafeMetadata: { heardFrom: heard.heardFrom, ...(heard.detail ? { heardFromDetail: heard.detail } : {}) } } : {};
-    return validAccount(input) && await call(() => signUp.update({ username: input.username, legalAccepted: input.legalAccepted, ...survey }), "signup");
+    return validAccount(input, needsUsername) && await call(() => signUp.update({ ...(needsUsername ? { username: input.username } : {}), legalAccepted: input.legalAccepted, ...survey }), "signup");
   };
 
   return {
     state: { ...state, pending: pending || busy.current }, resumeKind,
     actions: {
-      useEmailInstead: () => { if (tripStarted.current) return; emailInstead.current = true; void advanceSignup(); },
       submitAccount: async (input) => {
         if (state.step !== "invite") return;
         await run("signup", async () => {
@@ -243,9 +224,10 @@ function useAccountFlow(opts: { ticket: string | null; returnTo: string; callbac
       continueWithDiscord: async (input) => {
         if (state.step !== "invite") return;
         await run("sso", async () => {
-          if (!await updateAccount(input)) return;
+          if (!await updateAccount(input, false)) return;
           const signUp = latest.current.signUpSignal.signUp!;
-          try { sessionStorage.setItem("dd_auth_resume", JSON.stringify({ kind: "sign-up", returnTo: state.returnTo, attemptId: signUp.id })); } catch { /* Clerk preserves the accepted attempt even without storage. */ }
+          // auto: the callback fills the username from the Discord profile, so a Discord joiner never sees a username form.
+          try { sessionStorage.setItem("dd_auth_resume", JSON.stringify({ kind: "sign-up", returnTo: state.returnTo, attemptId: signUp.id, auto: true })); } catch { /* Clerk preserves the accepted attempt even without storage. */ }
           await call(() => signUp.sso({ strategy: "oauth_discord", redirectUrl: state.returnTo, redirectCallbackUrl: ssoCallbackPath(state.returnTo) }), "sso");
         });
       },
@@ -261,7 +243,7 @@ function useAccountFlow(opts: { ticket: string | null; returnTo: string; callbac
   };
 }
 
-export function useSignUpFlow(opts: { ticket: string | null; returnTo: string; discordFirst?: boolean }): { state: AuthFlowState; actions: Actions; passwordRequired: boolean } {
+export function useSignUpFlow(opts: { ticket: string | null; returnTo: string }): { state: AuthFlowState; actions: Actions; passwordRequired: boolean } {
   const signal = useSignUp();
   const { state, actions } = useAccountFlow({ ...opts, callback: false }, signal);
   // Email sign-up always shows the password field; Discord never reaches this card.

@@ -9,7 +9,6 @@ import { AuthFlowShell } from "./flow-shell";
 import { hardNavigate } from "./navigate";
 import { APP_WAITLIST_PATH, signInHref } from "./marketing-links";
 import { AccountUnavailableStep } from "./steps/account-unavailable-step";
-import { DiscordInviteStep } from "./steps/discord-invite-step";
 import { CheckingInviteStep } from "./steps/checking-invite-step";
 import { CodeStep } from "./steps/code-step";
 import { CreateAccountStep } from "./steps/create-account-step";
@@ -95,8 +94,6 @@ export function AccountView({ flow: { state, actions, passwordRequired: required
           case "code":
             // The invitation email is locked, so there is no way back to a different one.
             return <CodeStep purpose={state.codePurpose ?? "signup"} identifier={state.lockedEmail ?? state.identifier} error={fieldErrors.code} banner={banner} pending={pending} resendAvailableAt={state.resendAvailableAt} onSubmit={actions.submitCode} onResend={actions.resendCode} />;
-          case "discord-invite":
-            return <DiscordInviteStep lockedEmail={state.lockedEmail ?? ""} onUseEmail={actions.useEmailInstead} />;
           case "signing":
             return <SigningStep banner={banner} onRetry={restart} />;
           case "recovering":

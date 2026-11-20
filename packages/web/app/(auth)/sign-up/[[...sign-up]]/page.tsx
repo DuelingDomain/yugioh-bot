@@ -13,5 +13,5 @@ export const dynamic = "force-dynamic";
 export default async function SignUpPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const params = await searchParams;
   // Creator invitations redirect to `/sign-up?via=creator`; it only hides the "How did you hear about us?" question.
-  return <SignUpCard ticket={firstParam(params.__clerk_ticket) || null} returnTo={await returnToFromParams(params)} marketingUrl={marketingUrlFromEnv()} creatorInvite={firstParam(params.via) === "creator"} discordFirst={firstParam(params.method) !== "email"} />;
+  return <SignUpCard ticket={firstParam(params.__clerk_ticket) || null} returnTo={await returnToFromParams(params)} marketingUrl={marketingUrlFromEnv()} creatorInvite={firstParam(params.via) === "creator"} />;
 }

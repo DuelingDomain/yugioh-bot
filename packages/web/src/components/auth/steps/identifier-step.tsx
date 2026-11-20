@@ -44,11 +44,11 @@ export function IdentifierStep({ identifier, error, banner, pending, onSubmit, o
         <TextField
           id="f-email"
           name="identifier"
-          type="email"
-          label="Email address"
+          type="text"
+          label="Email or username"
           autoComplete="username"
           inputMode="email"
-          placeholder="you@email.com"
+          placeholder="you@email.com or username"
           defaultValue={identifier}
           error={error}
         />

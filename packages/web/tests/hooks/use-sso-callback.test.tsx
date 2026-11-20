@@ -95,7 +95,7 @@ describe("SSO callback", () => {
   it("preserves invitation and return context across the Discord callback", async () => {
     const invited = renderHook(() => useSignUpFlow({ ticket: "invitation", returnTo: "/drafts/a?join=1#seat" }));
     await act(async () => {});
-    await act(() => invited.result.current.actions.continueWithDiscord({ username: "duelist", legalAccepted: true }));
+    await act(() => invited.result.current.actions.continueWithDiscord({ legalAccepted: true }));
     invited.unmount();
     const callback = await mount();
     expect(callback.result.current.state).toMatchObject({ step: "invite", lockedEmail: "invited@test.dev", returnTo: "/drafts/a?join=1#seat" });

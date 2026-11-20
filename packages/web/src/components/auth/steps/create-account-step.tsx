@@ -14,7 +14,7 @@ export interface CreateAccountStepProps {
   pending: boolean;
   /** `heardFrom` / `heardFromDetail` are present only when the person picked an answer. */
   onSubmit(v: { username: string; password: string; legalAccepted: boolean } & HeardFromValue): void;
-  onDiscord(v: { username: string; legalAccepted: boolean } & HeardFromValue): void;
+  onDiscord(v: { legalAccepted: boolean } & HeardFromValue): void;
   /**
    * True on the SSO-callback missing-requirements card: the person already chose Discord, so only username and consent
    * are asked. The password field and the Discord button are left out and `onSubmit` gets an empty password.
@@ -55,8 +55,8 @@ export function CreateAccountStep({ lockedEmail, errors, banner, pending, onSubm
 
   function handleDiscord() {
     if (pending || !formRef.current) return;
-    const { username, legalAccepted } = readForm(formRef.current);
-    onDiscord({ username, legalAccepted, ...readHeardFrom(new FormData(formRef.current)) });
+    const { legalAccepted } = readForm(formRef.current);
+    onDiscord({ legalAccepted, ...readHeardFrom(new FormData(formRef.current)) });
   }
 
   return (

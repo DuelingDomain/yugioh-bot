@@ -33,7 +33,7 @@ export function mapClerkError(error: unknown, context: Context): AuthErrorView {
   if (context === "ticket" && ["ticket_invalid_code", "ticket_expired", "ticket_expired_code", "form_identifier_not_found"].includes(code ?? "")) return { kind: "step", step: "err-signup" };
   if (context === "identifier") {
     if (code === "form_identifier_not_found") return { kind: "step", step: "err-invite" };
-    if (code === "form_param_format_invalid" && ["email_address", "identifier"].includes(String(param))) return field("identifier", "Enter a valid email.");
+    if (code === "form_param_format_invalid" && ["email_address", "identifier"].includes(String(param))) return field("identifier", "Enter a valid email or username.");
   }
   if ((context === "signup" || context === "sso" || context === "ticket") && ["sign_up_restricted_waitlist", "not_allowed_access", "sign_up_mode_restricted"].includes(code ?? "")) return { kind: "step", step: "err-signup" };
   if (context === "password" && code === "form_password_incorrect") return field("password", "That password doesn't match. Try again or reset it.");
