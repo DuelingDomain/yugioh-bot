@@ -1,5 +1,6 @@
 "use client";
 
+import { JoinWithDiscordLink, OrDivider } from "../fields";
 import { SignInFootLinks, SignInStep } from "../sign-in-step";
 import shell from "../sign-in-shell.module.css";
 
@@ -18,6 +19,8 @@ export function SignupClosedStep({ waitlistUrl, onRetry }: SignupClosedStepProps
       foot={<SignInFootLinks waitlist={false} />}
     >
       <div className={shell.form} data-clerk="sign-up-no-invite">
+        <JoinWithDiscordLink />
+        <OrDivider />
         <a className={`${shell.btn} ${shell["btn-primary"]}`} href={waitlistUrl}>Join the waitlist</a>
         <button type="button" className={`${shell.btn} ${shell["btn-alt"]}`} onClick={onRetry}>Back to sign in</button>
       </div>

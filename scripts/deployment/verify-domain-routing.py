@@ -290,6 +290,7 @@ def main():
         assert headers.get("x-robots-tag") == "noindex", headers
         assert headers["cache-control"] == "no-store", headers
     check(p, "marketing.localhost", "/login", status=302, location="https://app.localhost/login")
+    check(p, "marketing.localhost", "/join-with-discord", status=302, location="https://app.localhost/api/auth/existing-player/start")
     check(p, "marketing.localhost", "/api/waitlist", method="POST", body="web POST /api/waitlist")
     for path in ("/api/anything-else", "/api/waitlist", "/socket.io/", "/api/waitlistx"):
         check(p, "marketing.localhost", path, status=404, body="marketing custom 404")

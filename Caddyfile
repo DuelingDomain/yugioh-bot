@@ -229,6 +229,9 @@ www.{$SITE_DOMAIN}, http:// {
     handle /login {
         redir https://{$SITE_DOMAIN}/login 302
     }
+    handle /join-with-discord {
+        redir https://{$SITE_DOMAIN}/api/auth/existing-player/start 302
+    }
     @notFound path /404 /404.html
     handle @notFound {
         error 404

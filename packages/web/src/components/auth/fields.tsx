@@ -321,6 +321,17 @@ export function DiscordButton({ onClick, pending, fineId }: { onClick: () => voi
   );
 }
 
+/** Sign-up side of Discord: a plain link to our own OAuth start (no session needed). A not-invited person lands on the waitlist. */
+export const DISCORD_JOIN_PATH = "/api/auth/existing-player/start";
+export function JoinWithDiscordLink() {
+  return (
+    <a className={`${shell.btn} ${shell["btn-alt"]}`} href={DISCORD_JOIN_PATH} data-clerk="join-discord">
+      <DiscordGlyph />
+      <span>Join with Discord</span>
+    </a>
+  );
+}
+
 /** The divider with "or" between the two ways in. */
 export function OrDivider() {
   return (
