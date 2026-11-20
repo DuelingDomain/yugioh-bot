@@ -115,10 +115,10 @@ describe("sign-in page", () => {
 
     readCookie.mockImplementation((name) => name === "__Host-dd_tournament_return" ? { value: "1" } : undefined);
     const approval = await renderSignUp(state("invite"), { __clerk_ticket: "waitlist-ticket" });
-    expect(signUpFlow).toHaveBeenLastCalledWith({ ticket: "waitlist-ticket", returnTo: start });
+    expect(signUpFlow).toHaveBeenLastCalledWith({ ticket: "waitlist-ticket", returnTo: start, discordFirst: true });
     approval.unmount();
     const creator = await renderSignUp(state("invite"), { __clerk_ticket: "creator-ticket", via: "creator" });
-    expect(signUpFlow).toHaveBeenLastCalledWith({ ticket: "creator-ticket", returnTo: "/dashboard" });
+    expect(signUpFlow).toHaveBeenLastCalledWith({ ticket: "creator-ticket", returnTo: "/dashboard", discordFirst: true });
     creator.unmount();
     const ordinary = await renderSignIn(state("signin"));
     expect(signInFlow).toHaveBeenLastCalledWith({ returnTo: start, marketingUrl: MARKETING });
@@ -128,7 +128,7 @@ describe("sign-in page", () => {
     expect(signInFlow).toHaveBeenLastCalledWith({ returnTo: "/cubes", marketingUrl: MARKETING });
     explicit.unmount();
     const unsafe = await renderSignUp(state("invite"), { __clerk_ticket: "another-ticket", redirect_url: "/a%3f/..//outside.example" });
-    expect(signUpFlow).toHaveBeenLastCalledWith({ ticket: "another-ticket", returnTo: "/dashboard" });
+    expect(signUpFlow).toHaveBeenLastCalledWith({ ticket: "another-ticket", returnTo: "/dashboard", discordFirst: true });
     unsafe.unmount();
 
     vi.stubEnv("TOURNAMENT_BRIDGE_SECRET", "short");
@@ -267,7 +267,7 @@ describe("sign-in page", () => {
 describe("sign-up page", () => {
   it("passes the ticket and safe return path to the hook", async () => {
     await renderSignUp(state("invite", { lockedEmail: "sam@example.com" }), { __clerk_ticket: "tkt", redirect_url: "/drafts" });
-    expect(signUpFlow).toHaveBeenCalledWith({ ticket: "tkt", returnTo: "/drafts" });
+    expect(signUpFlow).toHaveBeenCalledWith({ ticket: "tkt", returnTo: "/drafts", discordFirst: true });
   });
 
   it("passes a null ticket and the default return path when the query is missing or unsafe", async () => {
@@ -520,7 +520,7 @@ describe("already signed in", () => {
     expect(window.location.pathname + window.location.search + window.location.hash).toBe(url);
     view.unmount();
     await renderSignUp(state("invite", { lockedEmail: "invited@example.com" }), params);
-    expect(signUpFlow).toHaveBeenCalledWith({ ticket: "secret+ticket", returnTo: "/cubes" });
+    expect(signUpFlow).toHaveBeenCalledWith({ ticket: "secret+ticket", returnTo: "/cubes", discordFirst: true });
     expect(screen.getByLabelText("Email address")).toHaveValue("invited@example.com");
   });
 
@@ -586,7 +586,7 @@ describe("already signed in", () => {
     expect(signUpFlow).not.toHaveBeenCalled();
     authState.isLoaded = true;
     view.rerender(await SignUpPage({ searchParams: Promise.resolve({ __clerk_ticket: "ticket" }) }));
-    expect(signUpFlow).toHaveBeenCalledWith({ ticket: "ticket", returnTo: "/dashboard" });
+    expect(signUpFlow).toHaveBeenCalledWith({ ticket: "ticket", returnTo: "/dashboard", discordFirst: true });
     authState.isSignedIn = true;
     signUpFlow.mockReturnValue({ state: state("success"), actions: signUpActions() });
     view.rerender(await SignUpPage({ searchParams: Promise.resolve({ __clerk_ticket: "ticket" }) }));

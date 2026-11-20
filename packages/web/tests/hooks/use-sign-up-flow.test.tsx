@@ -233,3 +233,13 @@ describe("invited sign-up flow", () => {
     expect(mock.signal.signUp.password).not.toHaveBeenCalled();
   });
 });
+
+describe("discord invite username", () => {
+  it("makes a safe, unique-on-collision username from the Discord name", async () => {
+    const { discordUsernameCandidates } = await import("@/hooks/use-sign-up-flow");
+    const [first, second] = discordUsernameCandidates("Ünï Kaiba!! #1", () => 0.5);
+    expect(first).toBe("unikaiba1");
+    expect(second).toBe("unikaiba15500");
+    expect(discordUsernameCandidates("é", () => 0)[0]).toBe("e000");
+  });
+});

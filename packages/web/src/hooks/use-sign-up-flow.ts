@@ -17,9 +17,11 @@ type Actions = {
   submitAccount(input: AccountInput): Promise<void>;
   continueWithDiscord(input: { username: string; legalAccepted: boolean } & HeardFromInput): Promise<void>;
   submitCode(code: string): Promise<void>; resendCode(): Promise<void>;
+  /** The Discord-first invite card: stop the automatic Discord trip and show the email form. */
+  useEmailInstead(): void;
 };
 type ResumeKind = "sign-in" | "sign-up" | null;
-type Resume = { kind?: ResumeKind; returnTo?: unknown; attemptId?: string };
+type Resume = { kind?: ResumeKind; returnTo?: unknown; attemptId?: string; auto?: boolean };
 
 function readResume(): Resume {
   try {
@@ -30,7 +32,14 @@ function readResume(): Resume {
 
 // Both entry points use the same signup actions so the callback can fill missing
 // username/consent without replacing the invitation attempt or requiring a password.
-function useAccountFlow(opts: { ticket: string | null; returnTo: string; callback: boolean }, signUpSignal: ReturnType<typeof useSignUp>, signInSignal?: ReturnType<typeof useSignIn>): {
+/** Clerk needs 4+ characters of letters, numbers, underscore or hyphen. A taken name gets a numeric suffix. */
+export function discordUsernameCandidates(source: string, random: () => number = Math.random): string[] {
+  const base = source.normalize("NFKD").toLowerCase().replace(/[^a-z0-9_-]+/g, "").replace(/^[-_]+/, "").slice(0, 20).padEnd(4, "0");
+  const suffix = () => String(Math.floor(random() * 9000) + 1000);
+  return [base, `${base.slice(0, 16)}${suffix()}`, `${base.slice(0, 16)}${suffix()}`, `player${suffix()}${suffix()}`];
+}
+
+function useAccountFlow(opts: { ticket: string | null; returnTo: string; callback: boolean; discordFirst?: boolean }, signUpSignal: ReturnType<typeof useSignUp>, signInSignal?: ReturnType<typeof useSignIn>): {
   state: AuthFlowState; resumeKind: ResumeKind; actions: Actions;
 } {
   const router = useRouter();
@@ -43,6 +52,7 @@ function useAccountFlow(opts: { ticket: string | null; returnTo: string; callbac
   const mounted = useRef(true);
   const recovering = useRef(false);
   const lockedEmail = useRef<string | null>(null);
+  const emailInstead = useRef(false);
   const destination = useRef(state.returnTo);
   const fetching = signUpSignal.fetchStatus === "fetching" || signInSignal?.fetchStatus === "fetching";
   // Before Clerk loads, these hooks return gated proxies with idle fetchStatus,
@@ -139,6 +149,29 @@ function useAccountFlow(opts: { ticket: string | null; returnTo: string; callbac
     } else dispatch(event);
   };
 
+  // The invite came back from Discord needing only a username: take it from the Discord account (Clerk's own fill, then the
+  // profile name, then the email name), made safe and unique. Ask the person only if every try collides.
+  const fillUsername = async (signUp: NonNullable<typeof signUpSignal.signUp>) => {
+    const source = signUp.username || signUp.firstName || (signUp.emailAddress ?? "").split("@")[0] || "player";
+    for (const username of discordUsernameCandidates(source)) {
+      const result = await latest.current.signUpSignal.signUp!.update({ username });
+      if (!result?.error) return true;
+      if (!/form_identifier_exists|form_username_invalid|form_param_format_invalid/.test(JSON.stringify(result.error))) return false;
+    }
+    return false;
+  };
+  const startDiscordInvite = async (signUp: NonNullable<typeof signUpSignal.signUp>) => {
+    lockedEmail.current = signUp.emailAddress!;
+    dispatch({ type: "discord-invite", lockedEmail: signUp.emailAddress! });
+    // Give the card a moment so "Use email instead" can be reached before the page leaves.
+    await new Promise(resolve => setTimeout(resolve, 1500));
+    if (emailInstead.current || !mounted.current) return;
+    const current = latest.current.signUpSignal.signUp!;
+    if (!await call(() => current.update({ legalAccepted: true }), "signup")) return;
+    try { sessionStorage.setItem("dd_auth_resume", JSON.stringify({ kind: "sign-up", returnTo: state.returnTo, attemptId: current.id, auto: true })); } catch { /* Clerk preserves the accepted attempt even without storage. */ }
+    await call(() => current.sso({ strategy: "oauth_discord", redirectUrl: state.returnTo, redirectCallbackUrl: ssoCallbackPath(state.returnTo) }), "sso");
+  };
+
   useEffect(() => {
     if (started.current || recovering.current || fetching || loading) return;
     started.current = true;
@@ -154,11 +187,19 @@ function useAccountFlow(opts: { ticket: string | null; returnTo: string; callbac
           dispatch({ type: "error", view: { kind: "step", step: "err-signup" } }); return;
         }
         setResumeKind("sign-up");
+        if (resume.auto && signUp.missingFields.includes("username") && !signUp.missingFields.includes("password")) {
+          if (!await fillUsername(signUp)) { await advanceSignup(); return; }
+          // Re-read: the update changed the attempt, which may now be complete or only need a code.
+          await advanceSignup();
+          return;
+        }
         await advanceSignup();
       } else {
         if (!opts.ticket) { dispatch({ type: "error", view: { kind: "step", step: "err-signup" } }); return; }
         if (!await call(() => signUp.ticket({ ticket: opts.ticket! }), "ticket", "sign-up", () => Boolean(latest.current.signUpSignal.signUp!.emailAddress))) return;
         setResumeKind("sign-up");
+        const ready = latest.current.signUpSignal.signUp!;
+        if (opts.discordFirst && ready.emailAddress && ready.missingFields.every(field => ["username", "password", "legal_accepted"].includes(field))) { await startDiscordInvite(ready); return; }
         await advanceSignup();
       }
     }, true);
@@ -181,6 +222,7 @@ function useAccountFlow(opts: { ticket: string | null; returnTo: string; callbac
   return {
     state: { ...state, pending: pending || busy.current }, resumeKind,
     actions: {
+      useEmailInstead: () => { emailInstead.current = true; void advanceSignup(); },
       submitAccount: async (input) => {
         if (state.step !== "invite") return;
         await run("signup", async () => {
@@ -188,7 +230,8 @@ function useAccountFlow(opts: { ticket: string | null; returnTo: string; callbac
           const signUp = latest.current.signUpSignal.signUp!;
           // OAuth callbacks already have an external account; collect only the
           // outstanding fields. A password is needed only when Clerk asks for it.
-          if ((!opts.callback || signUp.missingFields.includes("password")) && !await call(() => signUp.password({ password: input.password }), "signup", "sign-up", () => latest.current.signUpSignal.signUp!.status === "complete" || !latest.current.signUpSignal.signUp!.missingFields.includes("password"))) return;
+          // A password is collected only when Clerk still asks for it (email-code sign-up needs none).
+          if (signUp.missingFields.includes("password") && !await call(() => signUp.password({ password: input.password }), "signup", "sign-up", () => latest.current.signUpSignal.signUp!.status === "complete" || !latest.current.signUpSignal.signUp!.missingFields.includes("password"))) return;
           await advanceSignup();
         });
       },
@@ -213,10 +256,10 @@ function useAccountFlow(opts: { ticket: string | null; returnTo: string; callbac
   };
 }
 
-export function useSignUpFlow(opts: { ticket: string | null; returnTo: string }): { state: AuthFlowState; actions: Actions } {
+export function useSignUpFlow(opts: { ticket: string | null; returnTo: string; discordFirst?: boolean }): { state: AuthFlowState; actions: Actions; passwordRequired: boolean } {
   const signal = useSignUp();
   const { state, actions } = useAccountFlow({ ...opts, callback: false }, signal);
-  return { state, actions };
+  return { state, actions, passwordRequired: signal.signUp?.missingFields?.includes("password") ?? true };
 }
 
 export function useSsoCallback(): { state: AuthFlowState; resumeKind: ResumeKind; actions: ReturnType<typeof useSignUpFlow>["actions"] } {

@@ -17,7 +17,7 @@ const signInActions = {
   submitIdentifier: noop, continueWithDiscord: noop, submitPassword: noop, forgotPassword: noop,
   submitCode: noop, resendCode: noop, submitNewPassword: noop, back: () => {},
 };
-const accountActions = { submitAccount: noop, continueWithDiscord: noop, submitCode: noop, resendCode: noop };
+const accountActions = { submitAccount: noop, continueWithDiscord: noop, submitCode: noop, resendCode: noop, useEmailInstead: noop };
 
 export type PreviewView = "sign-in" | "sign-up" | "sso-callback" | "signing-stuck" | "invite-stuck" | "join-signed-in" | "sign-up-signed-in";
 

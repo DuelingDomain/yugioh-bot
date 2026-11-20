@@ -1,7 +1,7 @@
 import { mapClerkError, type AuthErrorView } from "./auth-errors";
 import { safeReturnPath } from "./auth-return";
 
-export type AuthStep = "signin" | "password" | "code" | "newpw" | "invite" | "signing" | "recovering" | "success" | "err-invite" | "err-signup" | "err-banned";
+export type AuthStep = "signin" | "password" | "code" | "newpw" | "invite" | "signing" | "recovering" | "discord-invite" | "success" | "err-invite" | "err-signup" | "err-banned";
 export type CodePurpose = "signup" | "reset" | "client-trust";
 export type FieldName = "identifier" | "password" | "code" | "newPassword" | "confirm" | "username" | "legal";
 export interface AuthBanner { tone: "bad" | "info"; body: string; code?: string }
@@ -20,7 +20,7 @@ export type AuthEvent =
   | { type: "submit" } | { type: "settled" }
   | { type: "identified"; identifier: string } | { type: "needs-password" }
   | { type: "code-sent"; purpose: CodePurpose; now: number } | { type: "needs-new-password" }
-  | { type: "invite-ready"; lockedEmail: string } | { type: "complete" } | { type: "finalized" } | { type: "recovering" }
+  | { type: "invite-ready"; lockedEmail: string } | { type: "complete" } | { type: "finalized" } | { type: "recovering" } | { type: "discord-invite"; lockedEmail: string }
   | { type: "error"; view: AuthErrorView } | { type: "back" };
 
 /**
@@ -67,6 +67,7 @@ export function reduceAuth(state: AuthFlowState, event: AuthEvent): AuthFlowStat
     }
     case "complete": return { ...state, step: "signing", pending: true, fieldErrors: {}, banner: null };
     case "finalized": return state.step === "signing" ? { ...state, step: "success", pending: false } : state;
+    case "discord-invite": return { ...state, step: "discord-invite", lockedEmail: state.lockedEmail ?? event.lockedEmail, identifier: event.lockedEmail, pending: false, fieldErrors: {}, banner: null };
     case "recovering": return { ...state, step: "recovering", pending: false, fieldErrors: {}, banner: null };
     case "error": {
       const view = event.view;
