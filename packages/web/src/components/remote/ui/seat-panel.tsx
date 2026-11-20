@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState, type ComponentProps, type ReactNode } from "react";
 import { CircleHelp, Hand, Pencil, RefreshCw, ScanLine } from "lucide-react";
 import { useFieldScan, useMissingPiles, useTapToIdentify } from "@/lib/remote/zone-grid";
+import { useScanAdvice } from "@/lib/remote/scan-advice";
 import { Feed, type BoardReading, type FeedHit, type FeedMark, type FeedPoint, type FeedReticle, type FeedStart } from "./feed";
 import { HoloField, type FieldDrag } from "./holo-field";
 import { Icon } from "./icons";
@@ -80,7 +81,7 @@ function useFieldView(key: string) {
 export function SeatPanel(p: SeatPanelProps) {
   const [fieldViewPref, setFieldView, swapping] = useFieldView(`dd-remote-view:${p.viewScope ?? "x"}:${p.seat}`);
   const fieldView = fieldViewPref && !p.webcamOnly;
-  const scan = useFieldScan(p.seat), missingPiles = useMissingPiles(p.seat);
+  const scan = useFieldScan(p.seat), missingPiles = useMissingPiles(p.seat), advice = useScanAdvice(p.seat);
   const [rescanNote, setRescanNote] = useState("");
   useEffect(() => { if (!rescanNote) return; const timer = setTimeout(() => setRescanNote(""), 4000); return () => clearTimeout(timer); }, [rescanNote]);
   // The Scan button goes in Tap to identify; its space stays, so the camera does not move.
@@ -97,9 +98,12 @@ export function SeatPanel(p: SeatPanelProps) {
   // My Scan field button sits in the tool row under the camera, so the virtual field is centred and the button never covers a zone.
   // Only the large-field view keeps it beside the field.
   const inTools = typeof p.cameraControl === "function" && !fieldView;
-  const scanButton = scan ? <button type="button" className={s.scanbtn} aria-disabled={scan.scanning || !scan.ready} aria-keyshortcuts="S" aria-label={scan.scanning ? "Scanning field" : scan.ready ? "Scan field" : "Scan field, camera off"} onClick={() => { if (scan.ready && !scan.scanning) scan.scan?.(); }} data-testid="field-scan"
-          title={scan.ready ? "Compare the camera with the board now and fix differences (S)" : "Turn the camera on to scan the field"}>
-          <ScanLine size={15} strokeWidth={1.8} aria-hidden="true" /><span>{scan.scanning ? "Scanning…" : "Scan field"}</span>
+  // The primary action of my camera tools. While the camera and the board disagree it glows and says why (the reason is also the tooltip and the screen reader text).
+  const need = scan && scan.ready && !scan.scanning ? advice.reason : null;
+  const scanButton = scan ? <button type="button" className={s.scanbtn} aria-disabled={scan.scanning || !scan.ready} aria-keyshortcuts="S" aria-label={scan.scanning ? "Scanning field" : scan.ready ? (need ? `Scan field. ${need}` : "Scan field") : "Scan field, camera off"}
+          onClick={() => { if (scan.ready && !scan.scanning) scan.scan?.(); }} data-testid="field-scan" data-need={need ? "" : undefined} data-scan-ms={advice.last?.totalMs} data-scan-sweep-ms={advice.last?.sweepMs}
+          title={scan.ready ? (need ? `${need}. Press to compare the camera with the board now and fix it (S)` : "Compare the camera with the board now and fix differences (S)") : "Turn the camera on to scan the field"}>
+          <ScanLine size={16} strokeWidth={2} aria-hidden="true" /><span>{scan.scanning ? "Scanning…" : "Scan field"}</span>
           {scan.ready ? <kbd aria-hidden="true">S</kbd> : <small>Camera off</small>}</button> : null;
   const previous = useRef(p.lp); const [delta, setDelta] = useState(0); const [input, setInput] = useState("");
   useEffect(() => {
