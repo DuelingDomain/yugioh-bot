@@ -30,6 +30,17 @@ export interface QuietInput {
   zoneOf: (card: TwinCard) => FieldZone | undefined;
   /** A card the player holds, moved by hand or brought back with Undo: never checked. */
   held: (ref: string) => boolean;
+  /** Pile zones (GY, banished, Deck, Extra): the pile watcher owns them, so the check never looks there. */
+  isPile: (zone: FieldZone) => boolean;
+  /** The same skip rules as the re-sync (placeholder, unnamed face-up track, card in the hand, recent field departure, held face). */
+  skipTrack: (track: FieldTrack, card: TwinCard | undefined) => boolean;
+  skipCard: (card: TwinCard) => boolean;
+  /** Global motion gate: any hand or card still moving anywhere means no check at all. */
+  lastMotionAt?: number;
+  handZones?: readonly FieldZone[];
+  fieldActive?: boolean;
+  /** False while the 20 s auto scan limit has not passed: a sure gap then only shows as a hint. */
+  scanAllowed: boolean;
   /** An owner read or job is queued, the CPU is busy, the tab is hidden, a prompt is open, a scan runs. The check yields and keeps its state. */
   busy: boolean;
 }
@@ -40,17 +51,20 @@ export interface QuietResult {
   gaps: QuietGap[];
   reason?: string;
 }
-export interface QuietOptions { minGapMs?: number; settleMs?: number; sureChecks?: number }
+export interface QuietOptions { minGapMs?: number; settleMs?: number; sureChecks?: number; motionMs?: number }
 const FIELD = (zone: string) => ['monster', 'spell-trap', 'field', 'pendulum', 'extra-monster'].includes(zone);
 const gapKey = (g: QuietGap) => `${g.zone}:${g.kind}:${g.ref ?? ''}`;
 const plural = (n: number) => `${n} card${n === 1 ? '' : 's'}`;
 const WORDS: Record<QuietGapKind, string> = { face: 'face-up/face-down differs', zone: 'in another zone', extra: 'not on the board', missing: 'not seen by the camera' };
 
-export function createQuietCheck({ minGapMs = 2000, settleMs = 1500, sureChecks = 2 }: QuietOptions = {}) {
+// minGapMs is a little under the 2 s timer so a tick is never skipped by jitter.
+export function createQuietCheck({ minGapMs = 1800, settleMs = 1500, sureChecks = 2, motionMs = 3000 }: QuietOptions = {}) {
   const confirmed = new Map<FieldZone, number>();
   const seen = new Map<string, { checks: number; activity: number }>();
   /** Gaps one gentle scan already tried: not scanned again until the zone moves, only hinted. */
   const tried = new Map<string, number>();
+  /** Gaps a 'fix' verdict asked a scan for; they count as tried only after `scanned()` says a scan really started. */
+  const asked = new Map<string, number>();
   let last = -Infinity;
   return {
     check(input: QuietInput): QuietResult {
@@ -60,10 +74,12 @@ export function createQuietCheck({ minGapMs = 2000, settleMs = 1500, sureChecks 
       if (input.busy) return idle('wait');
       if (now - last < minGapMs) return idle('wait');
       if (input.lastFullAt === undefined || now - input.lastFullAt > 3000) return idle('wait');
+      // Global motion gate: a hand carrying a card anywhere, or any recent pixel motion, means the board is not still.
+      if (input.fieldActive || input.handZones?.length || (input.lastMotionAt !== undefined && now - input.lastMotionAt < motionMs)) return idle('wait');
       last = now;
       const zones = new Set<FieldZone>();
-      for (const t of input.tracks) if (t.visible && !t.removed) zones.add(t.zone);
-      for (const c of input.twins) { const z = FIELD(c.zone) ? input.zoneOf(c) : undefined; if (z) zones.add(z); }
+      for (const t of input.tracks) if (t.visible && !t.removed && !input.isPile(t.zone)) zones.add(t.zone);
+      for (const c of input.twins) { const z = FIELD(c.zone) ? input.zoneOf(c) : undefined; if (z && !input.isPile(z)) zones.add(z); }
       const gaps: QuietGap[] = [], inspected: FieldZone[] = [];
       let skipped = 0;
       for (const zone of zones) {
@@ -77,14 +93,14 @@ export function createQuietCheck({ minGapMs = 2000, settleMs = 1500, sureChecks 
         for (const t of input.tracks) {
           if (t.zone !== zone || t.removed || !t.visible || t.state !== 'identified' || input.lastFullAt - t.firstSeen < settleMs) continue;
           const ref = input.refOf(t.id), card = input.twins.find(c => c.ref === ref);
-          if (input.held(ref)) continue;
+          if (input.held(ref) || input.skipTrack(t, card)) continue;
           if (!card || !FIELD(card.zone)) here.push({ zone, kind: 'extra', ref });
           else if (input.zoneOf(card) !== zone) here.push({ zone, kind: 'zone', ref });
           else if (card.faceUp === t.faceDown) here.push({ zone, kind: 'face', ref });
         }
         for (const ref of input.missing) {
           const card = input.twins.find(c => c.ref === ref);
-          if (card && FIELD(card.zone) && input.zoneOf(card) === zone && !input.held(ref)) here.push({ zone, kind: 'missing', ref });
+          if (card && FIELD(card.zone) && input.zoneOf(card) === zone && !input.held(ref) && !input.skipCard(card)) here.push({ zone, kind: 'missing', ref });
         }
         if (!here.length) { confirmed.set(zone, now); for (const key of [...seen.keys()]) if (key.startsWith(`${zone}:`)) { seen.delete(key); tried.delete(key); } continue; }
         gaps.push(...here);
@@ -93,27 +109,28 @@ export function createQuietCheck({ minGapMs = 2000, settleMs = 1500, sureChecks 
       const open = new Set(gaps.map(gapKey));
       for (const key of [...seen.keys()]) if (!open.has(key)) { seen.delete(key); tried.delete(key); }
       let sure = false, unsure = false;
+      asked.clear();
       for (const gap of gaps) {
         const key = gapKey(gap), activity = input.activityAt[gap.zone] ?? -Infinity, before = seen.get(key);
         const entry = before && before.activity === activity ? { checks: before.checks + 1, activity } : { checks: 1, activity };
         seen.set(key, entry);
-        if (tried.get(key) === activity) unsure = true;
-        else if (entry.checks >= sureChecks) sure = true;
+        // A face gap is a hint only: the face check owns turning cards.
+        if (gap.kind === 'face' || tried.get(key) === activity) unsure = true;
+        else if (entry.checks >= sureChecks) { sure = true; asked.set(key, activity); }
         else unsure = true;
       }
-      if (sure) {
-        // One gentle scan per gap and per zone motion. The caller reports back with `scanned()`.
-        for (const gap of gaps) { const key = gapKey(gap); if ((seen.get(key)?.checks ?? 0) >= sureChecks && tried.get(key) !== (input.activityAt[gap.zone] ?? -Infinity)) tried.set(key, input.activityAt[gap.zone] ?? -Infinity); }
-        return idle('fix', inspected, skipped, gaps);
-      }
+      if (sure && input.scanAllowed) return idle('fix', inspected, skipped, gaps);
+      if (sure) { asked.clear(); unsure = true; }
       if (unsure) {
         const kinds = [...new Set(gaps.map(g => g.kind))].map(k => WORDS[k]).join(', ');
         return idle('hint', inspected, skipped, gaps, `Camera and board may differ (${plural(gaps.length)}: ${kinds})`);
       }
       return idle('idle', inspected, skipped, gaps);
     },
+    /** The caller started the scan a 'fix' verdict asked for: those gaps are tried (hint only until their zone moves). */
+    scanned() { for (const [key, activity] of asked) tried.set(key, activity); asked.clear(); },
     /** Zones the check last confirmed (for tests and the debug overlay). */
     confirmedAt: () => new Map(confirmed),
-    reset() { confirmed.clear(); seen.clear(); tried.clear(); last = -Infinity; },
+    reset() { confirmed.clear(); seen.clear(); tried.clear(); asked.clear(); last = -Infinity; },
   };
 }

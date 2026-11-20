@@ -1955,7 +1955,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   useEffect(()=>{const timer=setInterval(()=>faceCheck.current(),200);return()=>clearInterval(timer);},[]);
   /** `manualScan` = a Scan field pass (fresh sweep, no 2 s wait). `gentle` = it was not the player's own press (auto resync, a Rescan request): it
    *  keeps Undo-kept cards, face holds and hand-moved cards, and says nothing when the board already matches. */
-  function resync(manualScan=false,gentle=false,provenOnly=false) {
+  function resync(manualScan=false,gentle=false,provenOnly=false,keepWait=false) {
     const strict=manualScan&&!gentle;
     if(resyncing.current||!live()||calibrationBusy.current){if(manualScan)setScanning(false);if(strict){setNotice(resyncing.current?'Board check already running':calibrationBusy.current?'Finish calibration first':'Camera is not watching the field');}return;}
     resyncing.current=true;resyncStarted.current=performance.now();let note='';
@@ -2048,7 +2048,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
         const currentSnap=watch.getSnapshot?.(),zone=knownZone(card);
         const proofAt=zone&&fieldEmptyProofs(currentSnap)?.[zone];
         const proven=proofAt!==undefined&&!currentSnap?.tracks.some(t=>!t.removed&&t.visible&&(t.zone===zone||refOf(t)===ref));
-        if(provenOnly&&!proven||!manualScan&&!proven&&performance.now()-since<2000)continue;
+        if(provenOnly&&!proven||(!manualScan||keepWait)&&!proven&&performance.now()-since<2000)continue;
         if(!strict&&zone&&currentSnap?.blindZones?.includes(zone))continue;
         const now=performance.now();
         if(!strict&&proven&&now<proofAt!+DEPARTURE_WAIT_MS)continue;
@@ -2142,20 +2142,20 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   useEffect(()=>()=>{clearInterval(scanTimer.current);clearTimeout(scanGuard.current);},[]);
   // The guard has done its job as soon as the scan has ended.
   useEffect(()=>{if(!scanning)clearTimeout(scanGuard.current);},[scanning]);
-  /** `manual` is the player's own press. `auto` and `remote` (a Rescan request) never end the sync hold and are silent unless they change the board. Returns false when it did not start. */
-  const scanField=useCallback((origin:'manual'|'auto'|'remote'='manual'):boolean=>{
-    const gentle=origin==='auto'||origin==='remote';clipAction('scan',{origin});
+  /** `manual` is the player's own press. `auto`, `quiet` (the background check) and `remote` (a Rescan request) never end the sync hold and are silent unless they change the board. `quiet` keeps the 2 s proof before a removal. Returns false when it did not start. */
+  const scanField=useCallback((origin:'manual'|'auto'|'remote'|'quiet'='manual'):boolean=>{
+    const gentle=origin!=='manual';clipAction('scan',{origin});
     if(scanTimer.current!==undefined||resyncing.current){if(!gentle)setNotice(resyncing.current&&performance.now()-resyncStarted.current>15000?'Board check is stuck. Reload the page.':'Board check already running');return false;}
     if(watcherError){if(!gentle)setNotice('Scan field cannot run: the card reader is not running. Reload the page or use Tap to identify.');return false;}
     if(gentle&&(syncHoldRef.current||calibrationBusy.current))return false;
     if(!gentle&&syncHold){setSyncHold(false);placeHeldCards.current();}
-    setScanning(true);const asked=performance.now();scanMark.current={asked,sweepMs:0,origin};scanChanges.current=0;watch.scanNow?.({gentle});
+    setScanning(true);const asked=performance.now();scanMark.current={asked,sweepMs:0,origin:origin==='quiet'?'auto':origin};scanChanges.current=0;watch.scanNow?.({gentle});
         clearTimeout(scanGuard.current);
     // The button never stays on Scanning… for longer than this. The re-sync lock (resyncing) stays until its own save ends, so a new scan cannot start over a running one.
     scanGuard.current=setTimeout(()=>{console.info('[remote field] scan guard ended the scan',{resyncing:resyncing.current,sweeping:scanTimer.current!==undefined});clearInterval(scanTimer.current);scanTimer.current=undefined;setScanning(false);if(!gentle)setNotice('Scan did not finish. Try again.');},15000);
     scanTimer.current=setInterval(()=>{
       const swept=watch.getSnapshot?.()?.lastScanAt??-Infinity;
-      if(swept>=asked-50||performance.now()-asked>=5000){clearInterval(scanTimer.current);scanTimer.current=undefined;scanMark.current.sweepMs=performance.now()-asked;resyncRef.current(true,gentle);
+      if(swept>=asked-50||performance.now()-asked>=5000){clearInterval(scanTimer.current);scanTimer.current=undefined;scanMark.current.sweepMs=performance.now()-asked;resyncRef.current(true,gentle,false,origin==='quiet');
         // A card on a zone the camera only half sees cannot be checked: say so instead of leaving it on the board silently.
         // Shown after the re-sync has had time to post its own notices, so they do not overwrite it.
         const offFrame=gentle?[]:watch.getSnapshot?.()?.lastScanOffFrame??[];
@@ -2218,23 +2218,33 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[room.slug,seat,readMismatch]);
   // Quiet background check (on by default; kill switches in quietCheckEnabled). Not in Tap mode (watch off). Every 2 s it compares the watcher's own tracks with the board, but only in zones whose pixels moved after
-  // their last confirmed read; no detector pass, no queue job. It yields to any owner read (readerBusy) and to everything the auto scan waits for. A gap
-  // that stays for two checks starts one gentle scan (the auto scan path, same 20 s limit); anything less sure only shows the hint on Scan field.
+  // their last confirmed read; no detector pass, no queue job. Pile zones are left to the pile watcher. It yields to any owner read (readerBusy), to any motion
+  // or hand anywhere, and to everything the auto scan waits for. A gap that stays for two checks starts one gentle scan (same 20 s limit as the auto scan, and a
+  // removal still waits for its normal 2 s proof); anything less sure, and every face gap, only shows the hint on Scan field.
+  const quietRef=useRef<ReturnType<typeof createQuietCheck>|null>(null);
+  const quietOn=quietCheckEnabled();
   useEffect(()=>{
-    if(!quietCheckEnabled())return;
-    const quiet=createQuietCheck();quietHint.current=null;
+    if(!quietOn)return;
+    const quiet=createQuietCheck();quietRef.current=quiet;quietHint.current=null;
     const timer=setInterval(()=>{
       const snap=watch.getSnapshot?.();if(!snap)return;
       const now=performance.now();
+      // Tap mode, a hidden tab, a stopped or restarting watcher: forget everything the check knew.
+      if(document.hidden||!enabledRef.current||(snap.status!=='watching'&&snap.status!=='budget')){quiet.reset();quietHint.current=null;return;}
       const result=quiet.check({now,tracks:snap.tracks,twins:current.current.room.state.seats[seat].twin,activityAt:snap.lastFieldActivityAtByZone??{},lastFullAt:snap.lastFullAt,missing:snap.missingTwins??[],
-        refOf:id=>bindings.current.get(id)??id,zoneOf:knownZone,held:ref=>undoKept.current.has(ref)||manual.current.has(ref),
-        busy:document.hidden||!live()||!enabledRef.current||readerBusy()||syncHoldRef.current||scanTimer.current!==undefined||resyncing.current||calibrationBusy.current||!autoIdle.current||pointerHeld.current||(snap.status!=='watching'&&snap.status!=='budget')});
+        refOf:id=>bindings.current.get(id)??id,zoneOf:knownZone,held:ref=>undoKept.current.has(ref)||manual.current.has(ref),isPile:zone=>piles.has(zone),
+        skipTrack:(t,card)=>placeholders.current.has(t.id)||!t.faceDown&&!t.cardId||card?.zone==='hand'||!!card&&recentFieldDeparture(card,serverNow())||!!card&&face.current.held(card.ref),
+        skipCard:card=>recentFieldDeparture(card,serverNow()),
+        lastMotionAt:snap.lastMotionAt,handZones:snap.handZones,fieldActive:snap.fieldActive,scanAllowed:now-autoScanAt.current>=20_000,
+        busy:!live()||readerBusy()||syncHoldRef.current||scanTimer.current!==undefined||resyncing.current||calibrationBusy.current||!autoIdle.current||pointerHeld.current});
       if(result.verdict!=='wait')quietHint.current=result.verdict==='hint'?result.reason??null:null;
-      if(result.verdict==='fix'&&now-autoScanAt.current>=20_000){autoScanAt.current=now;scanFieldRef.current('auto');}
+      if(result.verdict==='fix'&&now-autoScanAt.current>=20_000&&scanFieldRef.current('quiet')){autoScanAt.current=now;quiet.scanned();quietHint.current=null;}
     },2000);
-    return()=>{clearInterval(timer);quietHint.current=null;};
+    return()=>{clearInterval(timer);quietHint.current=null;quietRef.current=null;};
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  },[room.slug,seat]);
+  },[room.slug,seat,quietOn]);
+  // A new calibration or a baseline reset clears the pixel activity the ledger compares with: start the check over.
+  useEffect(()=>{quietRef.current?.reset();quietHint.current=null;},[watch.calibration,watch.calibrationNeeded,lockKey]);
   // Rescan from another seat: run my own gentle Scan field on my full-resolution camera and the normal placement flow. It never ends my sync hold,
   // and waits while calibration is open (open prompts do not pause it). The answer says what happened: started, off (Auto-detect is not watching), busy or paused.
   const rescanRef=useRef<(from:number)=>RescanReply>(()=>'off');
