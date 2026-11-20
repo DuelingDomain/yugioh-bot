@@ -19,6 +19,12 @@ inputs:
   push:
     description: Publish runtime images and private artifacts (false for PR dry runs)
     default: "true"
+  inputs-hash:
+    description: Build-input hash from scripts/ci/image-inputs.mjs; tags the image inputs-<hash> so later runs can reuse it
+    default: ""
+  publish-artifacts:
+    description: Upload the digest artifact for Deploy (false for PR prebuilds, which only publish the reusable image)
+    default: "true"
 runs:
   using: composite
   steps:
@@ -104,7 +110,9 @@ runs:
         load: ${{ inputs.push != 'true' }}
         provenance: false
         sbom: false
-        tags: ${{ env.IMAGE }}:${{ env.DEPLOY_COMMIT }}
+        tags: |
+          ${{ env.IMAGE }}:${{ env.DEPLOY_COMMIT }}
+          ${{ inputs.inputs-hash != '' && format('{0}:inputs-{1}', env.IMAGE, inputs.inputs-hash) || '' }}
         build-args: |
           NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=${{ env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
           NEXT_PUBLIC_POSTHOG_KEY=${{ env.NEXT_PUBLIC_POSTHOG_KEY }}
@@ -120,6 +128,7 @@ runs:
         labels: |
           org.opencontainers.image.source=https://github.com/DuelingDomain/yugioh-bot
           org.opencontainers.image.revision=${{ env.DEPLOY_COMMIT }}
+          ${{ inputs.inputs-hash != '' && format('dev.duelingdomain.inputs={0}', inputs.inputs-hash) || '' }}
         cache-from: ${{ inputs.push == 'true' && format('type=registry,ref={0}:buildcache', env.IMAGE) || '' }}
         # Web intermediate layers include private maps; export final runtime layers only.
         cache-to: ${{ inputs.push == 'true' && format('type=registry,ref={0}:buildcache,mode={1}', env.IMAGE, inputs.service == 'web' && 'min' || 'max') || '' }}
@@ -129,11 +138,15 @@ runs:
       env:
         SERVICE: ${{ inputs.service }}
         IMAGE_DIGEST: ${{ steps.runtime-image.outputs.digest }}
+        INPUTS_HASH: ${{ inputs.inputs-hash }}
       shell: bash
       run: |
         printf '%s' "$IMAGE_DIGEST" | grep -Eq '^sha256:[0-9a-f]{64}$' || exit 1
         mkdir -p "$RUNNER_TEMP/image-digests"
         printf '%s %s\n' "$SERVICE" "$IMAGE_DIGEST" > "$RUNNER_TEMP/image-digests/$SERVICE.digest"
+        # Deploy restarts only services whose inputs changed. A full build bakes its own commit as the Sentry release.
+        if [ -n "$INPUTS_HASH" ]; then printf '%s %s\n' "$SERVICE" "$INPUTS_HASH" > "$RUNNER_TEMP/image-digests/$SERVICE.inputs"; fi
+        if [ "$SERVICE" = web ]; then printf '%s' "$DEPLOY_COMMIT" > "$RUNNER_TEMP/image-digests/sentry-release"; fi
         printf '%s@%s\n' "$IMAGE" "$IMAGE_DIGEST" >> "$GITHUB_STEP_SUMMARY"
 
     - name: Export exact web source maps to private artifact
@@ -165,8 +178,34 @@ runs:
         tar -czf "$RUNNER_TEMP/image-digests/web-sourcemaps.tar.gz" --files-from /dev/null
         echo "Older Dockerfile has no private source-map export; skip Next cache publication and source-map upload." >> "$GITHUB_STEP_SUMMARY"
 
+    # A later run that reuses this image needs its exact source maps and release name. The maps stay in a
+    # private artifact: the GHCR packages are public and must never hold them.
+    - name: Keep reusable web source maps
+      if: inputs.service == 'web' && inputs.push == 'true' && inputs.inputs-hash != '' && steps.map-export.outputs.supported == 'true'
+      continue-on-error: true
+      shell: bash
+      env:
+        IMAGE_DIGEST: ${{ steps.runtime-image.outputs.digest }}
+      run: |
+        set -eu
+        mkdir -p "$RUNNER_TEMP/web-maps"
+        cp "$RUNNER_TEMP/image-digests/web-sourcemaps.tar.gz" "$RUNNER_TEMP/image-digests/sentry-release" "$RUNNER_TEMP/web-maps/"
+        # The reuse step checks that these maps belong to the image it found.
+        printf '%s' "$IMAGE_DIGEST" > "$RUNNER_TEMP/web-maps/image-digest"
+
+    - name: Upload reusable web source maps
+      if: inputs.service == 'web' && inputs.push == 'true' && inputs.inputs-hash != '' && steps.map-export.outputs.supported == 'true'
+      continue-on-error: true
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      with:
+        name: web-maps-${{ inputs.inputs-hash }}
+        path: ${{ runner.temp }}/web-maps/*
+        if-no-files-found: error
+        retention-days: 7
+        overwrite: true
+
     - name: Upload runtime image digest
-      if: inputs.push == 'true'
+      if: inputs.push == 'true' && inputs.publish-artifacts == 'true'
       uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
       with:
         name: production-image-${{ inputs.service }}-${{ env.DEPLOY_COMMIT }}${{ inputs.artifact-suffix }}

@@ -37,6 +37,13 @@ case "$operation" in
       services='duel web worker ws'
     fi
     # Validate every release image before any Docker operation, including disk inspection.
+    # A partial deploy names the services it restarts. Unknown or undeclared services are refused.
+    if [ -n "${DEPLOY_SERVICES:-}" ]; then
+      for service in $DEPLOY_SERVICES; do
+        case " $services " in *" $service "*) ;; *) echo "Unknown service in DEPLOY_SERVICES: $service" >&2; exit 1 ;; esac
+      done
+      services=$DEPLOY_SERVICES
+    fi
     for service in $services; do image_reference "$service" >/dev/null; done
     ;;
 esac
