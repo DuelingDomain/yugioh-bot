@@ -4,6 +4,9 @@ import { remoteMatchActionSchemas } from "./match-contract.js";
 import type { RemotePosition } from "./types.js";
 export { remoteSetEvidenceSchema, remoteSeatSchema, remoteCameraStampSchema, type RemoteCameraStamp } from "./action-meta.js";
 
+/** One seat may send a response this often (server rule); the browser disables its button for the same time. */
+export const REMOTE_RESPOND_COOLDOWN_MS = 8000;
+
 const id = z.string().min(1).max(100);
 const zone = z.string().min(1).max(40);
 const cardId = z.number().int().positive().max(0xffffffff);

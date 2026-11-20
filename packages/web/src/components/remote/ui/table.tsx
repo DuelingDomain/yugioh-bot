@@ -3,14 +3,14 @@
 import {announceNotACard} from '@/lib/remote/set-card-diagnostics';
 import { REMOTE_TABLE_TALK } from "@/lib/remote/table-talk";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
-import { REMOTE_FORMATS, REMOTE_HAND_SUGGESTION_EVENT, type RemoteHandSuggestionEvent, matchCardsByName, previousYgoPhase, normalizeRemoteFormat, remoteRecognitionRef, remoteRecognitionRefs, type RemoteActionProposal, type RemoteEvent, type RemoteRoom, type RemoteUndoEntry } from "@yugidraft/shared/remote";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
+import { REMOTE_RESPOND_COOLDOWN_MS, REMOTE_FORMATS, REMOTE_HAND_SUGGESTION_EVENT, type RemoteHandSuggestionEvent, matchCardsByName, previousYgoPhase, normalizeRemoteFormat, remoteRecognitionRef, remoteRecognitionRefs, type RemoteActionProposal, type RemoteEvent, type RemoteRoom, type RemoteUndoEntry } from "@yugidraft/shared/remote";
 import { cardInfo, isLinkInfo, isMonsterInfo, loadCards, searchCards, useCardInfo } from "./catalog";
 import { EffectControls, EffectPicker } from "./effect-controls";
 import { Rail, LpStrip, TopBar, AdminWatchStrip, type Player } from "./chrome";
 import { CardPopover, InspectorBody, type CardActions, type CardEdit, type CardSource, type Subject } from "./card-view";
 import { RespondBanner, useRespondHold } from "./respond-banner";
-import { activeRespond, heldByResponse } from "./respond";
+import { heldByResponse, mayRespond, respondCoolingDown } from "./respond";
 import { MicSection, UndoSection, VoxSection, type Proposal } from "./dock";
 import { describeEvent, undoLabel, type LogKind } from "./describe";
 import { ownUndoEntries, phaseBackAction, shortUndoLabel } from "./undo-ui";
@@ -1098,8 +1098,8 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
   /** The Respond button and the R key: the same event as the spoken "response". Players only; own response is not repeated while it shows. */
   const respondNow = useCallback(() => {
     const { room: now, state: current } = R.current; const me = now.solo ? current.turnSeat : now.mySeat;
-    if (now.status !== "active" || current.ended || now.spectator || me < 0) return;
-    if (activeRespond(now.events, serverNow())?.seat === me) return;
+    if (now.status !== "active" || now.spectator || !mayRespond(current, me)) return;
+    if (respondCoolingDown(now.events, me, serverNow())) return;
     void act({ type: "chain.respond", actorSeat: me });
   }, [act]);
   const pendingVoice = useRef<{ id: string; method: VoiceFinal["method"]; context: VoiceContext } | null>(null);
@@ -1118,13 +1118,18 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     setTranscript({ requestId: final.id, text: final.text || "(no keyword)", result: decision.accepted ? "" : decision.reason, ignored: !decision.accepted });
     if (!decision.accepted) { record({ outcome: "rejected", reason: decision.reason, actionId: null }); return; }
     // A response holds the phase and turn lines for a few seconds, so the responder can name an effect first. Other lines go on.
-    const holding = heldByResponse(decision.intent, now.events, serverNow());
+    // A response line is not a phase line, so a pending turn chip does not reject it. The responder's own cooldown still ends it quietly.
+    const respondLine = decision.intent.kind === "respond";
+    if (respondLine && respondCoolingDown(now.events, now.solo ? current.turnSeat : now.mySeat, serverNow())) {
+      record({ outcome: "rejected", reason: "other", actionId: null }); setTranscript(old => ({ ...old, result: "Response already sent", ignored: true })); return;
+    }
+    const holding = heldByResponse(decision.intent, now.events, serverNow(), now.solo ? current.turnSeat : now.mySeat);
     if (holding) {
       record({ outcome: "rejected", reason: "response-hold", actionId: null });
       const note = `${name(holding.seat)} responded. Phase change ignored.`;
       setTranscript(old => ({ ...old, result: note, ignored: true })); toast(note); return;
     }
-    if (pendingVoice.current) { record({ outcome: "rejected", reason: "unconfirmed", actionId: null }); return; }
+    if (pendingVoice.current && !respondLine) { record({ outcome: "rejected", reason: "unconfirmed", actionId: null }); return; }
     const baseSeq = now.lastSeq;
     // Turn, LP and attack lines wait for a chip; their later outcome is a decision record. Only the turn chip locks out the next line.
     const chipLine = decision.intent.kind === "turn" || decision.intent.kind === "lp" || decision.intent.kind === "attack";
@@ -1137,6 +1142,13 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
       if (submitted) return; submitted = true;
       if (decision.intent.kind === "turn") pendingVoice.current = null;
       const latest = R.current;
+      // A turn chip confirmed by click inside a response window waits like a spoken line would.
+      const heldNow = heldByResponse(decision.intent, latest.room.events, serverNow(), latest.room.solo ? latest.state.turnSeat : latest.room.mySeat);
+      if (heldNow) {
+        record({ outcome: "rejected", reason: "response-hold", actionId: null });
+        const note = `${name(heldNow.seat)} responded. Phase change ignored.`;
+        setTranscript(old => ({ ...old, result: note, ignored: true })); toast(note); return;
+      }
       // A confirm belongs to the position and microphone choice that produced it.
       const stillLegal = decideVoice(final, { state: latest.state, players: latest.room.seats, me: latest.room.solo ? latest.state.turnSeat : latest.room.mySeat, trayOpen: false }, voiceAccept.current);
       // LP and attack chips may wait while other events arrive; the server still checks the action. Other lines keep the strict rule.
@@ -1174,7 +1186,19 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
 
   // ---- keyboard ----
   const toggleView = () => setWebcamOnly(!webcamOnly);
-  const respond = live && (solo || mySeat >= 0) ? respondNow : null;
+  const respondSeat = solo ? state.turnSeat : mySeat;
+  const respondShown = live && (solo || mySeat >= 0) && mayRespond(state, respondSeat);
+  const respondCooling = respondShown && respondCoolingDown(room.events, respondSeat, serverNow());
+  // The button wakes again when the cooldown ends.
+  const [, respondTick] = useReducer((n: number) => n + 1, 0);
+  const lastOwnRespond = respondCooling ? room.events.findLast(e => e.action.type === "chain.respond" && e.actorSeat === respondSeat)?.id : undefined;
+  useEffect(() => {
+    if (!lastOwnRespond) return;
+    const last = R.current.room.events.find(e => e.id === lastOwnRespond);
+    const timer = setTimeout(respondTick, Math.max(0, (last?.at ?? 0) + REMOTE_RESPOND_COOLDOWN_MS - serverNow()) + 20);
+    return () => clearTimeout(timer);
+  }, [lastOwnRespond]);
+  const respond = respondShown && !respondCooling ? respondNow : null;
   const latest = useRef({ chip, cancelChip, doUndo, picking, ptt, toggleView, respond }); latest.current = { chip, cancelChip, doUndo, picking, ptt, toggleView, respond };
   useEffect(() => {
     function down(event: KeyboardEvent) {
@@ -1612,7 +1636,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
         onPhase={setPhase} onPhaseBack={phaseBack} onPass={passTurn} turnIn={turnIn} backTo={previousYgoPhase(state)} />
       <footer ref={dockRef} className={`${s.dock} ${micSection ? "" : s.nomic}`} aria-label={micSection ? "Voice and undo" : "Commands and undo"}>
         {live && mySeat >= 0 ? <button type="button" className={`${s.btn} ${s.sm} ${s.q} ${s.myfield}`} onClick={() => { setWebcamOnly(false); document.querySelector(`[data-testid="field-${mySeat}"]`)?.scrollIntoView?.({ block: 'center' }); }}>My field</button> : null}
-        {respond ? <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} onClick={respondNow} title="Respond: chain on top of the last action" data-testid="respond-button">Respond <kbd>R</kbd></button> : null}
+        {respondShown ? <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} onClick={respondNow} disabled={respondCooling} title="Respond: chain on top of the last action" data-testid="respond-button">Respond <kbd>R</kbd></button> : null}
         {micSection ? <MicSection recognition={voiceRecognition} chat={solo || !REMOTE_TABLE_TALK ? "none" : hub.cameraOn ? "on" : hub.starting ? "connecting" : "off"} state={micState} level={voice.level} speaking={voice.speaking} muted={muted} ptt={ptt} held={held} service={voice.service} error={voice.micError}
           onMute={() => setMuted(v => !v)} onPtt={() => { setPtt(v => !v); setHeld(false); }} offTurn={!myTurn} /> : null}
         <VoxSection recognition={voiceRecognition} transcript={shownTranscript} proposal={chip} samples={voiceRecognition ? [...voiceCommands] : []} onConfirm={() => { chip?.run(); setProposal(null); }} onCancel={cancelChip}

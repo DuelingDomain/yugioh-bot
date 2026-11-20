@@ -5,7 +5,7 @@ import { ygoModule, type RemoteEvent } from "@yugidraft/shared/remote";
 import { decideVoice } from "@/components/remote/ui/voice/decision";
 import type { VoiceFinal } from "@/components/remote/ui/voice/live-client";
 import { RespondBanner } from "@/components/remote/ui/respond-banner";
-import { heldByResponse, RESPOND_HOLD_MS } from "@/components/remote/ui/respond";
+import { heldByResponse, respondCoolingDown, RESPOND_HOLD_MS } from "@/components/remote/ui/respond";
 import { createHotListMatcher } from "@/components/remote/ui/voice/hot-list";
 
 afterEach(cleanup);
@@ -28,13 +28,25 @@ it("a spoken response from any seat shows the banner and holds the turn player's
   expect(ygoModule.reduce(state, action).phase).toBe("main1");
   const events = [{ id: "e1", seq: 1, actorSeat: 1, userId: 2, at, action }] as RemoteEvent[];
 
-  render(<RespondBanner hold={heldByResponse({ kind: "phase" }, events, at + 500)} name={seat => players[seat].displayName} />);
+  render(<RespondBanner hold={heldByResponse({ kind: "phase" }, events, at + 500, 0)} name={seat => players[seat].displayName} />);
   expect(screen.getByTestId("respond-banner").textContent).toBe("KaibaResponse!");
 
   // The turn player's phase line is accepted by the voice rules but waits during the hold, and goes through after it.
   const phase = decideVoice(final("battle phase", "battle phase"), { state, players, me: 0, trayOpen: false }, true);
   expect(phase).toEqual({ accepted: true, intent: { kind: "phase", phase: "battle" } });
-  expect(heldByResponse(phase.accepted ? phase.intent : { kind: "none" }, events, at + 500)?.seat).toBe(1);
-  expect(heldByResponse({ kind: "phase" }, events, at + RESPOND_HOLD_MS + 1)).toBeNull();
-  expect(heldByResponse({ kind: "lp" }, events, at + 500)).toBeNull();
+  expect(heldByResponse(phase.accepted ? phase.intent : { kind: "none" }, events, at + 500, 0)?.seat).toBe(1);
+  expect(heldByResponse({ kind: "phase" }, events, at + RESPOND_HOLD_MS + 1, 0)).toBeNull();
+  expect(heldByResponse({ kind: "lp" }, events, at + 500, 0)).toBeNull();
+  // The responder's own lines never wait for their own response, and the button cools down for the server's 8 seconds.
+  expect(heldByResponse({ kind: "phase" }, events, at + 500, 1)).toBeNull();
+  expect(respondCoolingDown(events, 1, at + 7000)).toBe(true);
+  expect(respondCoolingDown(events, 1, at + 8001)).toBe(false);
+  // Bare "chain" and the turn player's question are not a response from the turn player; "I chain" is.
+  const asTurn = (said: string) => decideVoice(final(said, hot.canonical(said, 800, [])), { state, players, me: 0, trayOpen: false }, true);
+  expect(asTurn("chain").accepted).toBe(false);
+  expect(asTurn("any response").accepted).toBe(false);
+  expect(asTurn("any responses").accepted).toBe(false);
+  expect(asTurn("I chain")).toEqual({ accepted: true, intent: { kind: "respond" } });
+  // No response after the game ended (the die roll and siding use the same guard).
+  expect(decideVoice(final("response", "chain"), { state: { ...state, ended: true } as typeof state, players, me: 1, trayOpen: false }, true).accepted).toBe(false);
 });

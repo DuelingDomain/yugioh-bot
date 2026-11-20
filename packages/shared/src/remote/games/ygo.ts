@@ -183,8 +183,9 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
   next.deckChecks ??= initialDeckChecks();
   // Given cards (control proxies): replays recorded without the flag keep the older rules.
   const givenCardsOn = !context?.replay || context.givenCards === 1;
-  if (!context?.replay || (context.twinPlacementGuard ?? 0) >= 3) { delete next.twinConfirmation; delete next.twinConfirmationQueue; }
-  else if (context.twinPlacementGuard !== 2 && action.type !== "log.note" && action.type !== "chain.respond") delete next.twinConfirmation;
+  if (action.type === "chain.respond") { /* a public signal: it never settles or cancels a pending twin confirmation */ }
+  else if (!context?.replay || (context.twinPlacementGuard ?? 0) >= 3) { delete next.twinConfirmation; delete next.twinConfirmationQueue; }
+  else if (context.twinPlacementGuard !== 2 && action.type !== "log.note") delete next.twinConfirmation;
   const ownTurn = () => remoteAssert(action.actorSeat === state.turnSeat || state.seats[state.turnSeat].eliminated, "Only the turn player can advance", 403);
   const seat = (n: number) => {
     const s = next.seats[n]; remoteAssert(s && !s.eliminated, "Target seat is unavailable", 409); return s;

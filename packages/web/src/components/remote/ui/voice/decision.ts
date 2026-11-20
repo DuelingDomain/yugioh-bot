@@ -1,6 +1,8 @@
 import { interpret, type GrammarContext, type VoiceIntent } from "../grammar";
 import type { VoiceFinal } from "./live-client";
 import type { VoiceReason } from "@/lib/remote/voice-diagnostics";
+import { mayRespond } from "../respond";
+import { RESPOND_LINE } from "./natural-phrases";
 
 type PhaseTurn = Extract<VoiceIntent, { kind: "phase" | "turn" }>;
 type Board = Extract<VoiceIntent, { kind: "effect" | "lp" | "attack" | "respond" }>;
@@ -14,7 +16,15 @@ export function decideVoice(final: VoiceFinal, context: GrammarContext, acceptin
   // "response", "I chain": any seat may say it, so it comes before the turn-player rule. Only the methods that hear free text carry it.
   if (final.method === "asr" || final.method === "asr-names") {
     const spoken = interpret(final.canonical, { ...context, trayOpen: false });
-    if (spoken.kind === "respond") return { accepted: true, intent: spoken };
+    if (spoken.kind === "respond") {
+      // The listener matches phrases loosely, so "any response?" can arrive as "chain". Only the words actually heard count.
+      const heard = final.text.toLowerCase().replace(/['’]/g, " ").replace(/[^a-z ]/g, "").replace(/\s+/g, " ").trim();
+      if (!RESPOND_LINE.test(heard)) return { accepted: false, reason: "not-a-command" };
+      if (!mayRespond(context.state, context.me)) return { accepted: false, reason: "illegal-phase" };
+      // A bare "chain" is also what a turn player says while building a chain, so only the other seats may say it that way.
+      if (heard === "chain" && context.me === context.state.turnSeat) return { accepted: false, reason: "not-turn-player" };
+      return { accepted: true, intent: spoken };
+    }
   }
   if (final.method === "asr-names") return decideBoard(final.text, final.canonical, context);
   if (context.me !== context.state.turnSeat) return { accepted: false, reason: "not-turn-player" };
