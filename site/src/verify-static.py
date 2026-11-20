@@ -143,7 +143,7 @@ def main():
                 parsed = urlsplit(value)
                 if parsed.scheme and parsed.scheme not in ('http', 'https'): continue
                 if parsed.netloc and parsed.netloc != 'duelingdomain.com': continue
-                if parsed.path in ('/login', '/api/waitlist'):
+                if parsed.path in ('/login', '/join-with-discord', '/api/waitlist'):
                     assert attr == ('action' if parsed.path == '/api/waitlist' else 'href'), (name, value)
                     continue  # Explicit Caddy endpoints, checked by the routing script.
                 if parsed.path == '/source/dueling-domain-engine.zip':
@@ -279,17 +279,20 @@ def main():
     for attr in ('og:site_name', 'og:image:alt'):
         assert game not in index.find('meta', property=attr)[0]['attrs']['content'], attr
     assert all(game not in node.get('name', '') for node in graph), 'brand names stay free of the game name'
-    # The app's sign-in providers stay off these pages. The homepage may name Discord only in
-    # its four community links (href + visible label), the shared glyph symbol, and the JSON-LD
-    # sameAs. Strip exactly those, then fail on any other "discord" text.
+    # The app's sign-in providers stay off these pages, except the two "Join with Discord" links under the
+    # waitlist forms. The homepage may name Discord only in its four community links (href + visible label),
+    # those two join links, the shared glyph symbol, and the JSON-LD sameAs. Strip exactly those, then fail
+    # on any other "discord" text.
     for name in ('index.html', '404.html', 'terms.html'):
         text = pages[name].file.read_text()
         if name == 'index.html':
             assert text.count(DISCORD_INVITE) == 5, 'invite expected in four links and sameAs'
-            assert text.count('discord-glyph') == 5, 'glyph symbol id expected once plus four uses'
+            assert text.count('discord-glyph') == 7, 'glyph symbol id expected once plus six uses'
             label = '<span>Join our Discord</span><span class="sr-only"> (opens in a new tab)</span>'
             assert text.count(label) == 4, 'four exact link labels expected'
-            text = text.replace(DISCORD_INVITE, '').replace('discord-glyph', '').replace(label, '')
+            join = '<a class="soc soc-join" href="/join-with-discord">'
+            assert text.count(join) == 2 and text.count('<span>Join with Discord</span>') == 2, 'two join-with-discord links expected'
+            text = text.replace(DISCORD_INVITE, '').replace('discord-glyph', '').replace(label, '').replace('/join-with-discord', '').replace('Join with Discord', '').replace('<option value="discord">Discord</option>', '')
         assert 'discord' not in text.lower(), (name, 'unexpected Discord text')
     homepage_links = [e for e in pages['index.html'].find('a') if e['attrs'].get('href') == DISCORD_INVITE]
     assert len(homepage_links) == 4, 'Discord invite expected in nav, hero, join section and footer'

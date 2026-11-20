@@ -42,6 +42,7 @@ The app and marketing host blocks import the same `(posthog_ingest)` Caddy snipp
 - `/llms.txt` serves a short product overview and public source links as `text/plain; charset=utf-8`, using the static file cache policy. It is optional context for agents; Google does not require it for AI Search features.
 - Only exact `POST /api/waitlist` is proxied to the app; other APIs and socket paths return 404.
 - `/login` returns 302 to `https://app.duelingdomain.com/login`.
+- `/join-with-discord` returns 302 to `https://app.duelingdomain.com/api/auth/existing-player/start` (the "Join with Discord" buttons under the waitlist forms). Not-invited Discord users land on the app's `/waitlist`.
 - Missing files and direct `/404` or `/404.html` requests use `404.html` with status 404, `X-Robots-Tag: noindex` and `Cache-Control: no-store`. The HTML also carries `noindex`.
 - Static responses negotiate Zstandard or gzip compression. Home HTML stays `private, no-store`; other static files revalidate after five minutes, images cache for a day and versioned font files for a year.
 - CSP restricts resources to self (data images and inline styles allowed), forbids framing, and uses self-hosted fonts. HSTS is `max-age=31536000`, without `includeSubDomains` or `preload`.
@@ -147,6 +148,7 @@ curl -sS -i https://www.app.duelingdomain.com/path
 curl -sS -i 'https://duelistskingdom.com/draft/example?from=shared-link'
 curl -sS -i 'https://www.duelistskingdom.com/draft/example?from=shared-link'
 curl -sS -i https://duelingdomain.com/login
+curl -sS -i https://duelingdomain.com/join-with-discord
 curl -sS -i https://duelingdomain.com/api/waitlist -H 'Content-Type: application/json' --data '{"email":"test@example.com","company":"verification"}'
 ```
 

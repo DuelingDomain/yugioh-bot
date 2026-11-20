@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { DoneRow, HeardFromSelect, TextField, readHeardFrom } from "./fields";
+import { DoneRow, HeardFromSelect, JoinWithDiscordLink, OrDivider, TextField, readHeardFrom } from "./fields";
 import { signInHref } from "./marketing-links";
 import { SignInBanner } from "./sign-in-error";
 import { SignInShell } from "./sign-in-shell";
@@ -83,6 +83,9 @@ export function WaitlistCard({ marketingUrl, initial }: { marketingUrl: string |
     step = (
       <SignInStep eyebrow="Closed alpha" title={<>Join the <em>waitlist</em></>} screen="waitlist-form" foot={<SignInFootLinks waitlist={false} />}
         lede="Access opens in waves. Enter your email and we’ll write when it’s your turn. You can use any email, not only your Discord one.">
+        <div className={shell.form}>
+        <JoinWithDiscordLink />
+        <OrDivider />
         <form className={shell.form} data-clerk="waitlist-form" noValidate aria-busy={pending} onSubmit={submit}>
           {banner && <SignInBanner tone="bad" code="waitlist">{banner}</SignInBanner>}
           <TextField id="f-waitlist-email" name="email" type="email" label="Email address" autoComplete="email" inputMode="email" placeholder="you@email.com" error={fieldError} autoFocus />
@@ -93,6 +96,7 @@ export function WaitlistCard({ marketingUrl, initial }: { marketingUrl: string |
           </button>
           {back}
         </form>
+        </div>
       </SignInStep>
     );
   }
