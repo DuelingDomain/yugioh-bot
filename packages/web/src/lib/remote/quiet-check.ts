@@ -102,18 +102,20 @@ export function createQuietCheck({ minGapMs = 1800, settleMs = 1500, sureChecks 
           const card = input.twins.find(c => c.ref === ref);
           if (card && FIELD(card.zone) && input.zoneOf(card) === zone && !input.held(ref) && !input.skipCard(card)) here.push({ zone, kind: 'missing', ref });
         }
-        if (!here.length) { confirmed.set(zone, now); for (const key of [...seen.keys()]) if (key.startsWith(`${zone}:`)) { seen.delete(key); tried.delete(key); } continue; }
+        // `tried` survives a clean flicker: it is dropped only when the zone's activity moves on (below).
+        if (!here.length) { confirmed.set(zone, now); for (const key of [...seen.keys()]) if (key.startsWith(`${zone}:`)) seen.delete(key); continue; }
         gaps.push(...here);
       }
       // Forget gaps that closed on their own.
       const open = new Set(gaps.map(gapKey));
-      for (const key of [...seen.keys()]) if (!open.has(key)) { seen.delete(key); tried.delete(key); }
+      for (const key of [...seen.keys()]) if (!open.has(key)) seen.delete(key);
       let sure = false, unsure = false;
       asked.clear();
       for (const gap of gaps) {
         const key = gapKey(gap), activity = input.activityAt[gap.zone] ?? -Infinity, before = seen.get(key);
         const entry = before && before.activity === activity ? { checks: before.checks + 1, activity } : { checks: 1, activity };
         seen.set(key, entry);
+        if (tried.has(key) && tried.get(key) !== activity) tried.delete(key);
         // A face gap is a hint only: the face check owns turning cards.
         if (gap.kind === 'face' || tried.get(key) === activity) unsure = true;
         else if (entry.checks >= sureChecks) { sure = true; asked.set(key, activity); }

@@ -2234,7 +2234,8 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       const result=quiet.check({now,tracks:snap.tracks,twins:current.current.room.state.seats[seat].twin,activityAt:snap.lastFieldActivityAtByZone??{},lastFullAt:snap.lastFullAt,missing:snap.missingTwins??[],
         refOf:id=>bindings.current.get(id)??id,zoneOf:knownZone,held:ref=>undoKept.current.has(ref)||manual.current.has(ref),isPile:zone=>piles.has(zone),
         skipTrack:(t,card)=>placeholders.current.has(t.id)||!t.faceDown&&!t.cardId||card?.zone==='hand'||!!card&&recentFieldDeparture(card,serverNow())||!!card&&face.current.held(card.ref),
-        skipCard:card=>recentFieldDeparture(card,serverNow()),
+        // Same waits as the re-sync removal step: a departure in flight, a zone the camera only half sees, a proof that is still inside its wait.
+        skipCard:card=>{const zone=knownZone(card),proofAt=zone?fieldEmptyProofs(snap)?.[zone]:undefined;return recentFieldDeparture(card,serverNow())||[...pendingDepartures.current.values()].some(({origin})=>origin.ref===card.ref)||!!zone&&!!snap.blindZones?.includes(zone)||proofAt!==undefined&&now<proofAt+DEPARTURE_WAIT_MS;},
         lastMotionAt:snap.lastMotionAt,handZones:snap.handZones,fieldActive:snap.fieldActive,scanAllowed:now-autoScanAt.current>=20_000,
         busy:!live()||readerBusy()||syncHoldRef.current||scanTimer.current!==undefined||resyncing.current||calibrationBusy.current||!autoIdle.current||pointerHeld.current});
       if(result.verdict!=='wait')quietHint.current=result.verdict==='hint'?result.reason??null:null;
