@@ -417,6 +417,14 @@ describe("POST /api/waitlist", () => {
     expect(await (await post(json())).json()).toEqual({ status: "joined" });
   });
 
+  it("does not call a pending entry with an old revoked invitation invited (Discord path shows that state)", async () => {
+    const { joinWaitlist } = await import("../src/lib/waitlist-join");
+    state.createWaitlistEntry.mockResolvedValue({ id: "w3", email_address: "player@example.com", status: "pending", invitation: { id: "inv_1", email_address: "player@example.com", status: "revoked" } });
+    expect(await joinWaitlist("player@example.com", { source: "app-not-invited" })).toBe("joined");
+    state.createWaitlistEntry.mockResolvedValue({ id: "w3", email_address: "player@example.com", status: "invited", invitation: { id: "inv_2", email_address: "player@example.com", status: "pending" } });
+    expect(await joinWaitlist("player@example.com", { source: "app-not-invited" })).toBe("invited");
+  });
+
   it("heals a partial failure on the next duplicate signup, retaining the first metadata", async () => {
     state.createWaitlistEntry.mockRejectedValueOnce(new ClerkBackendError("unavailable", 503, null, null));
     expect((await post(json({ email: "player@example.com", source: "hero" }))).status).toBe(503);
