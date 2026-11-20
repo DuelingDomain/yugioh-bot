@@ -1,46 +1,16 @@
 import { recordEmailConsent } from "@yugidraft/shared/email";
 import { clientIpKey, createRateLimiter } from "@/lib/rate-limit";
-import { createWaitlistService } from "@yugidraft/shared/services";
-import { createCreatorAccessService } from "@yugidraft/shared/services/creator-access";
-import { createClerkBackend } from "@yugidraft/shared/clerk";
-import { log } from "@yugidraft/shared/observability";
-import { emailKey } from "@yugidraft/shared/util/email-key";
 import { normalizeJoinEmail } from "@yugidraft/shared/util/join-email";
 import { waitForAnswerFloor } from "@/lib/answer-floor";
-import { releaseOwnerSends, reserveOwnerSends } from "@/lib/creator-send-limit";
 import { getDb } from "@/lib/db";
 import { readSmallBody } from "@/lib/read-small-body";
+import { joinWaitlist } from "@/lib/waitlist-join";
 
 const MAX_BODY_BYTES = 2048;
 const take = createRateLimiter(10 * 60 * 1000);
 
 function retryAfter(request: Request): number | null {
   return take([[clientIpKey(request), 5]]);
-}
-
-/**
- * An email with a live allowlist grant (creator fast-track) gets its Clerk invitation again in place of a waitlist
- * entry, and the waitlist join is skipped. Returns "joined"/"retry" (the same answers as a normal join) when the grant
- * handled the email, or null to continue with the normal waitlist.
- */
-async function handledByAllowlist(email: string): Promise<"joined" | "retry" | null> {
-  try {
-    const creators = createCreatorAccessService(getDb());
-    // A re-send uses the shared Clerk budget. Over budget: skip the re-send, but still keep a granted email off the
-    // waitlist (Clerk entry and Discord alert would ask the owner to approve a person who is already in).
-    if (reserveOwnerSends(1) !== null) {
-      const key = emailKey(email);
-      return key !== null && creators.grantedEmailKeys().has(key) ? "joined" : null;
-    }
-    const result = await creators.resendAllowlistForWaitlist(email);
-    if (result === "none" || result === "not_due") releaseOwnerSends(1);
-    // A failed re-send sent nothing: ask for a retry, as a failed Clerk waitlist call does on the normal path.
-    return result === "none" ? null : result === "failed" ? "retry" : "joined";
-  } catch {
-    // Fall back to the normal waitlist. Never log the email.
-    log("warn", "[waitlist] allowlist check failed");
-    return null;
-  }
 }
 
 type Outcome = "joined" | "invalid" | "limited" | "retry" | "error";
@@ -92,33 +62,14 @@ export async function POST(request: Request): Promise<Response> {
   // This form explicitly offers alpha news under the current public privacy notice. Do not infer consent for old rows.
   try { recordEmailConsent(getDb(), email, { provenance: "public-waitlist-form", textVersion: "alpha-news-2026-11-04" }); }
   catch { return respond("error"); }
-  const allowlisted = await handledByAllowlist(email);
-  if (allowlisted) return respond(allowlisted);
-
-  try {
-    createWaitlistService(getDb()).join(email, {
-      source: typeof data.source === "string" ? data.source : "form",
-      userAgent: request.headers.get("user-agent"),
-      // Untrusted survey answer: the service checks it against the list and drops unknown values.
-      heardFrom: data.heardFrom,
-      heardFromDetail: data.heardFromDetail,
-    });
-  } catch {
-    // Never return/log request data or database errors containing an email address.
-    return respond("error");
-  }
-
-  // The atomic local join has committed before any HTTP call. Retry even on
-  // "exists" so a previous Clerk failure can heal without replacing metadata.
-  const secretKey = process.env.CLERK_SECRET_KEY;
-  if (!secretKey) return respond("retry");
-  try {
-    await createClerkBackend({ secretKey }).createWaitlistEntry({ emailAddress: email, notify: true });
-  } catch {
-    // Keep the local row for retries/reconciliation; never expose upstream data.
-    return respond("retry");
-  }
-  return respond("joined");
+  const outcome = await joinWaitlist(email, {
+    source: typeof data.source === "string" ? data.source : "form",
+    userAgent: request.headers.get("user-agent"),
+    heardFrom: data.heardFrom,
+    heardFromDetail: data.heardFromDetail,
+  });
+  // The public form never reveals whether an email is invited or already has an account.
+  return respond(outcome === "retry" || outcome === "error" ? outcome : "joined");
 }
 
 export const runtime = "nodejs";
