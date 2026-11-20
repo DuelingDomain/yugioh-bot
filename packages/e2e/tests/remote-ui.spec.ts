@@ -1278,6 +1278,40 @@ for (const showCardsSetFromDeck of [true]) test(`two browsers honor Deck publici
 
 
 test.describe("remote duels, spectators", () => {
+  test("a spectator sees the siding screen without cameras between games", async ({ browser }) => {
+    test.setTimeout(240_000);
+    const url = process.env.E2E_REMOTE_UI_URL ?? "http://localhost:3310";
+    const [alice, bob, carol] = await Promise.all([1, 2, 3].map(() => browser.newContext({ baseURL: url })));
+    try {
+      for (const [context, userId] of [[alice, 101], [bob, 102], [carol, 103]] as const) await authenticatePlayer(context!.request, { userId }, process.env.E2E_AUTH_SECRET!, url);
+      const slug = await startTwoPlayerTable(alice!.request, bob!.request, "public", 3), path = `/api/remote/${slug}`;
+      const c = await carol!.newPage();
+      await c.goto(`/duels/remote/${slug}`);
+      await expect(c.getByTestId("spectator-table")).toBeVisible({ timeout: 30_000 });
+      const act = async (action: Record<string, unknown>) => {
+        const room = await (await alice!.request.get(path)).json();
+        const done = await alice!.request.post(`${path}/actions`, { data: { baseSeq: room.lastSeq, action: { actorSeat: 0, idempotencyKey: crypto.randomUUID(), ...action } } });
+        expect(done.status(), await done.text()).toBe(200);
+      };
+      await act({ type: "player.concede" });
+      await act({ type: "match.continue" });
+      // Same screen as the players, read only: next game, score and who is ready. No deck, no buttons, no camera.
+      const siding = c.getByTestId("siding");
+      await expect(siding).toBeVisible({ timeout: 15_000 });
+      await expect(siding).toContainText("Game 2 of 3 is next");
+      await expect(siding).toContainText("0–1");
+      await expect(c.getByTestId("siding-ready-0")).toBeVisible();
+      await expect(c.getByTestId("siding-ready")).toHaveCount(0);
+      await expect(c.locator('[data-testid^="feed-"] video')).toHaveCount(0);
+      // The screen covers the table, so Stop watching is the one button, and it leaves.
+      await expect(siding.getByRole("button")).toHaveCount(1);
+      await expect(c.getByTestId("siding-stop-watching")).toBeFocused();
+      await shot(c, "spectator-siding");
+      await c.getByTestId("siding-stop-watching").click();
+      await expect(c).toHaveURL(/\/duels(\?|$)/, { timeout: 15_000 });
+    } finally { await Promise.all([alice, bob, carol].map(context => context!.close())); }
+  });
+
   test("a spectator watches a public table, cannot act, sees nothing hidden, and a private table refuses", async ({ browser }) => {
     test.setTimeout(480_000);
     const url = process.env.E2E_REMOTE_UI_URL ?? "http://localhost:3310";
@@ -1547,7 +1581,15 @@ test.describe("remote duels, spectators", () => {
       // A spectator never holds a table open: the idle close ends it with the spectator still there, and she sees the end.
       await a.close(); await b.close();
       db.prepare("update remote_tables set last_event_at=?,started_at=? where id=?").run(Date.now() - 11 * 60_000, Date.now() - 20 * 60_000, tableId);
-      await expect(c.getByTestId("spectator-note")).toContainText("This table has ended", { timeout: 60_000 });
+      // The end covers the table: result, winner and score, nothing behind it can be used, and Leave is the only way on.
+      await expect(c.getByTestId("spectator-end")).toBeVisible({ timeout: 60_000 });
+      await expect(c.getByTestId("spectator-end")).toContainText("Leave");
+      await expect(c.getByTestId("spectator-end").getByRole("button")).toHaveCount(1);
+      expect(await c.getByTestId("spectator-table").locator("div[inert]").count()).toBeGreaterThan(0);
+      await c.keyboard.press("Escape"); await expect(c.getByTestId("spectator-end")).toBeVisible();
+      await shot(c, "spectator-end");
+      await c.getByTestId("spectator-end-leave").click();
+      await expect(c).toHaveURL(/\/duels(\?|$)/, { timeout: 15_000 });
       await c.close();
 
       // Private: no spectators by list, by link, by socket or by video. The invite link still seats a player.
