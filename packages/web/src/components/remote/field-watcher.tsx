@@ -16,6 +16,7 @@ import {fieldPositionMatches,applyFieldFaceFlip,fieldFaceProposal,fieldSetMove,f
 import {OutageGaveUpError,onOutageEnd,outageDown} from '@/lib/remote/outage';
 import {createFieldFaceCheck,type FieldFaceFix} from '@/lib/remote/field-face';
 import {fieldTrackMessage} from '@/lib/remote/field-track-cache';
+import {givenSpotHolds,type GivenSpot} from '@/lib/remote/given-hold';
 import {onManualMove,requestManualZone} from '@/lib/remote/manual-moves';
 import {correctionsFor,cameraCorrectionBlocked} from '@/lib/remote/manual-corrections';
 import {createChangedZones} from '@/lib/remote/changed-zones';
@@ -404,11 +405,31 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     const twins=room.state.seats[seat].twin;
     holdReplacedFieldCards(previousTwins.current,twins);
     holdTributedCards(previousTwins.current,twins);
+    rememberGiven(previousTwins.current);
     previousTwins.current=twins;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[room.state,seat]);
   /** My card an opponent holds as a proxy: its paper card leaves my zone or stays on the mat, and the camera does nothing about it. Read from the live state, so a reload, a take back, an Undo and a return to my Graveyard all end it. */
-  const givenAway=(ref:string)=>current.current.room.state.seats.some((s,i)=>i!==seat&&s.twin.some(c=>c.ref===ref&&c.ownerSeat===seat));
+  const givenCopy=(ref:string)=>{for(const [i,s] of current.current.room.state.seats.entries()){if(i===seat)continue;const c=s.twin.find(c=>c.ref===ref&&c.ownerSeat===seat);if(c)return c;}};
+  const givenAway=(ref:string)=>!!givenCopy(ref);
+  /** The same card by identity: the camera may start a new track (a new ref) for the paper card that stays on my mat. The mat spot and card id of each given card are kept while it is given, and a track of that card on that spot is held too, until the paper card leaves it (see `givenSpotHolds`). */
+  const givenSpots=useRef(new Map<string,GivenSpot>());
+  const rememberGiven=(before:readonly TwinCard[])=>{
+    const given=new Map<string,TwinCard>();
+    current.current.room.state.seats.forEach((s,i)=>{if(i!==seat)for(const c of s.twin)if(c.ownerSeat===seat)given.set(c.ref,c);});
+    for(const ref of givenSpots.current.keys())if(!given.has(ref))givenSpots.current.delete(ref);
+    for(const [ref,card] of given){
+      if(givenSpots.current.has(ref))continue;
+      const mine=before.find(c=>c.ref===ref),zone=mine&&publicField(mine.zone)?knownZone(mine):physical.current!.zones.get(ref)??observedFieldZone(room.slug,seat,ref);
+      const code=cardCode(card)??(mine&&cardCode(mine))??card.ownerIdentity?.cardId;
+      if(zone&&/^(M[1-5]|S[1-5]|EMZ[12]|FIELD)$/.test(zone))givenSpots.current.set(ref,{zone,cardId:code?String(code):undefined,at:performance.now()});
+    }
+  };
+  /** True for a track of my given card: the same ref, or the same card (an unread track counts) on the mat spot where it was given. */
+  const givenHold=(track:Pick<FieldTrack,'id'|'zone'|'cardId'|'faceDown'>)=>{
+    if(givenAway(bindings.current.get(track.id)??track.id))return true;
+    return givenSpotHolds(givenSpots.current,track,givenCopy,zone=>fieldEmptyProofs(watch.getSnapshot?.())?.[zone as FieldZone]);
+  };
   const undoCards=useRef(new Map<string,Pick<RemoteUndoEntry,'action'|'cards'>>()),undoSeq=useRef<number|null>(null);
   useEffect(()=>{undoCards.current.clear();undoSeq.current=null;},[room.slug,seat]);
   useEffect(()=>{
@@ -463,6 +484,8 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
           if(proposal.type==='undo')return true;
           if(!live())return false;
           if(!event)return true;
+          // A write that waited (facts, a retry) stops when its card was given away in the meantime.
+          if(givenHold(event.track))return false;
           if(event.type==='removed')return watch.isRemoved(event.track.id)&&
             (proposal.type!=='twin.move'||proposal.zone!=='hand'||!linkedSlide(event,watch.getSnapshot?.(),true));
           if(event.type==='placed'&&proposal.type==='twin.flip'&&!proposal.faceUp&&
@@ -639,7 +662,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     if(!after||after.removed||after.revision!==event.track.revision)await removePlaceholder(event.track.id,act);
   }
   async function apply(event:FieldEvent,act:RoomMutation,chosen?:string,attempt=0,slideUntil?:number) {
-    if(givenAway(bindings.current.get(event.track.id)??event.track.id))return;
+    if(givenHold(event.track))return;
     console.info('[remote field] identify',event.track.id,chosen??event.track.cardId,event.track.zone,event.type);
     const humanChoice=event.type==='prompt'&&(!!chosen||event.reason==='card-presence');
     const matchesEvidence=(track:FieldTrack|undefined)=>fieldEvidenceMatches(event,trackForChoice(event,track),humanChoice);
@@ -1047,7 +1070,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   }
   function handle(event:FieldEvent,departureOrigin?:Pick<TwinCard,'ref'|'zone'|'slot'>,factsStarted=false,moveRetry=0) {
     const observedRef=bindings.current.get(event.track.id)??event.track.id;
-    if(givenAway(observedRef))return;
+    if(givenHold(event.track))return;
     if(!factsStarted&&live()&&event.type!=='removed'){
       const waiting=fieldFacts(event);
       if(waiting){void waiting.then(()=>{if(live())handle(event,departureOrigin,true);});return;}
@@ -1447,14 +1470,14 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     const at=performance.now();slowWatch.current.see(at,watch.snapshot.metrics);
     if((recognition.backend==='wasm'&&isWeakDevice(fieldPacerDevice()))||slowWatch.current.slow(at)){markTapOfferShown();setTapOffer(true);}
   },[watch.snapshot,offerable,recognition.backend,tapOffer]);
-  // Tournament: the table state keeps my detection mode. I send it when it differs from the state (table start, a switch, the camera turning off or on), never again after a reload. The tell is public and changes no board.
+  // The table state keeps my detection mode on every table (a tournament table also shows it to the opponent; a normal table keeps it in the log). I send it when it differs from the state (table start, a switch, the camera turning off or on), never again after a reload. The tell is public and changes no board.
   const sentMode=useRef<TournamentMode|null>(null),modeSeat=room.spectator?-1:seat;
   // A failed send is tried again after 2, 4 and 8 s (then it stops); `retry` re-runs the effect below.
   const [retry,setRetry]=useState(0),attempts=useRef(0),retryTimer=useRef<ReturnType<typeof setTimeout>|undefined>(undefined);
   useEffect(()=>()=>clearTimeout(retryTimer.current),[]);
   const mode=ownDetectionMode({ownsSource,cameraOn:hub.cameraOn,enabled:watch.enabled});
   useEffect(()=>{
-    if(!tournament||modeSeat<0||!watch.settingsLoaded||room.status!=='active'||sentMode.current===mode)return;
+    if(modeSeat<0||!watch.settingsLoaded||room.status!=='active'||sentMode.current===mode)return;
     // The video hub reports no camera while it connects or reconnects. Say nothing until it settles, so the badge does not flap.
     if(hub.starting)return;
     // Short wait: the camera and the phone link settle a moment after the page opens, and the first answer should be the real one.
@@ -1471,7 +1494,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     },mode==='manual'||sentMode.current===null?1500:0);
     return()=>clearTimeout(timer);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  },[tournament,modeSeat,watch.settingsLoaded,room.status,mode,hub.starting,retry]);
+  },[modeSeat,watch.settingsLoaded,room.status,mode,hub.starting,retry]);
   // Video lag offer: the browser encoder stayed CPU limited (sustained, page visible; see `watchCpuLimit`) and still is when the offer would show.
   // Own state, so it never uses up the Tap offer. `videoOffer` is the wish; it counts as shown (once per page, with its 20 s) only while it is the notice on screen.
   const [videoOffer,setVideoOffer]=useState(false);
@@ -1746,8 +1769,8 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     });
   }
   useEffect(()=>{
-    // Tap to identify: no mat grid goes out, so other players read this camera and do not trust the board's zones.
-    const message={...fieldTrackMessage(watch.snapshot,entries.current,known(),watch.enabled&&!syncHold?watch.calibration:undefined),...(watch.enabled&&!syncHold?{}:{mode:'tap' as const})},key=JSON.stringify(message);lastMessage.current=message;
+    // Tap to identify: the saved mat grid still goes out (it is not a tracking claim), so the other feeds draw their overlays on this camera. The `tap` mode tells them no card is followed.
+    const message={...fieldTrackMessage(watch.snapshot,entries.current,known(),watch.calibration),...(watch.enabled&&!syncHold?{}:{mode:'tap' as const})},key=JSON.stringify(message);lastMessage.current=message;
     if(key!==published.current){published.current=key;hub.publishFieldTracks(message);}
   },[watch.snapshot,watch.calibration,watch.enabled,syncHold,hub.publishFieldTracks,room.state]);
   // The feeds draw the zone grid from the saved calibration and the cards the watcher sees.
