@@ -249,6 +249,8 @@ test("production carries the workflow revision's runtime helper through artifact
 for arg do command=$arg; done
 case "$command" in
   *" sh -s") cat >/dev/null; command=\${command%sh -s}; exec sh -c "$command sh '$TEST_REMOTE_ENTRY'" ;;
+  *" warm "*) exit 0 ;; # the background image warm-up must not reach the host Docker
+  "$VM_USER@$VM_HOST") exit 0 ;; # the shared-connection open and close carry no command
   *) exec sh -c "$command" ;;
 esac
 `);

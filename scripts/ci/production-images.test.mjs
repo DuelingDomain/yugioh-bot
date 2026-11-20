@@ -51,7 +51,7 @@ esac
   chmodSync(docker, 0o755);
   return {
     dir,
-    run: (mode, commit = sha, extra = {}, args = []) => spawnSync('sh', [script, mode, commit, ...(['pull', 'promote'].includes(mode) ? [refs] : args)], {
+    run: (mode, commit = sha, extra = {}, args = []) => spawnSync('sh', [script, mode, commit, ...(['pull', 'warm', 'promote'].includes(mode) ? [refs] : args)], {
       encoding: 'utf8', env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, TEST_LOG: log, ...extra },
     }),
     commands: () => readFileSync(log, 'utf8'),
@@ -252,4 +252,16 @@ test('a failed rebuild of a confirmed SHA cannot replace the good rollback image
   }, ['failed-rebuild-id', 'yugioh-bot-web:prev']);
   assert.equal(result.status, 0, result.stderr);
   assert.doesNotMatch(f.commands(), /tag failed-rebuild-id/);
+});
+
+test('warm only downloads missing images, never tags, and ignores pull failures', t => {
+  const f = fixture(t);
+  const missing = f.run('warm', sha, { TEST_PREV_EXISTS: 'false', TEST_FAIL_IMAGE: `${registry}-web@${digest}` });
+  assert.equal(missing.status, 0, missing.stderr);
+  const pulls = f.commands().split('\n').filter(line => line.startsWith('pull '));
+  assert.equal(pulls.length, 5);
+  assert.ok(!f.commands().includes('tag '), 'warm must not change tags');
+  const present = fixture(t);
+  assert.equal(present.run('warm', sha, { TEST_PREV_EXISTS: 'true' }).status, 0);
+  assert.ok(!present.commands().includes('pull '), 'an image that is already local is not pulled');
 });

@@ -10,14 +10,14 @@ registry=ghcr.io/duelingdomain/yugioh-bot
 services='duel web worker ws bot'
 
 case "$operation" in
-  pull|promote|preserve)
+  pull|warm|promote|preserve)
     printf '%s' "$commit" | grep -Eq '^[0-9a-f]{40}$' || {
       echo 'A full lowercase commit SHA is required.' >&2
       exit 1
     }
     ;;
   prune|drop-prev) ;;
-  *) echo 'Usage: production-images.sh pull|promote <sha> <digest-file> | preserve <sha> <image> <prev-tag> | prune | drop-prev' >&2; exit 1 ;;
+  *) echo 'Usage: production-images.sh pull|warm|promote <sha> <digest-file> | preserve <sha> <image> <prev-tag> | prune | drop-prev' >&2; exit 1 ;;
 esac
 
 image_reference() {
@@ -30,7 +30,7 @@ image_reference() {
 }
 
 case "$operation" in
-  pull|promote)
+  pull|warm|promote)
     references=${3:?Release digest file is required}
     # Old releases have no bot image. The workflow requires its digest for releases with a bot service.
     if ! awk '$1 == "bot" { found=1 } END { exit !found }' "$references"; then
@@ -56,17 +56,34 @@ verify_image() {
   }
 }
 
+check_free_disk() {
+  # Pulls share the disk with SQLite. Refuse before downloading any layers.
+  docker_root=$(docker info --format '{{.DockerRootDir}}')
+  [ -n "$docker_root" ] || { echo 'Cannot find the Docker disk.' >&2; exit 1; }
+  free_kib=$(df -Pk "$docker_root" | awk 'NR == 2 { print $4 }')
+  case "$free_kib" in ''|*[!0-9]*) echo 'Cannot read free disk space.' >&2; exit 1 ;; esac
+  [ "$free_kib" -ge 6291456 ] || {
+    echo 'Deploy stopped before pull: at least 6 GiB of free Docker disk space is required.' >&2
+    exit 1
+  }
+}
+
 case "$operation" in
+  warm)
+    # Best effort, started early while the deploy transfer and the safety checks still run.
+    # It only downloads layers: no tag changes, no verification, no effect on the running release.
+    # The later pull stays the verified step; Docker joins a layer download that is still running.
+    check_free_disk
+    for service in $services; do
+      image=$(image_reference "$service")
+      # An image that is already here (an unchanged service) needs no download.
+      docker image inspect "$image" >/dev/null 2>&1 && continue
+      docker pull --platform=linux/arm64 "$image" >/dev/null 2>&1 &
+    done
+    wait
+    ;;
   pull)
-    # Pulls share the disk with SQLite. Refuse before downloading any layers.
-    docker_root=$(docker info --format '{{.DockerRootDir}}')
-    [ -n "$docker_root" ] || { echo 'Cannot find the Docker disk.' >&2; exit 1; }
-    free_kib=$(df -Pk "$docker_root" | awk 'NR == 2 { print $4 }')
-    case "$free_kib" in ''|*[!0-9]*) echo 'Cannot read free disk space.' >&2; exit 1 ;; esac
-    [ "$free_kib" -ge 6291456 ] || {
-      echo 'Deploy stopped before pull: at least 6 GiB of free Docker disk space is required.' >&2
-      exit 1
-    }
+    check_free_disk
     for service in $services; do
       image=$(image_reference "$service")
       docker pull --platform=linux/arm64 "$image"

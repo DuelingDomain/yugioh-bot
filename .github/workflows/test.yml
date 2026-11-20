@@ -100,7 +100,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: ${{ github.event_name == 'pull_request' && '1' || '0' }}
+          # Depth 2 keeps the merge ref's first parent, which the tested-tree proof records (HEAD^1).
+          fetch-depth: ${{ github.event_name == 'pull_request' && '2' || '0' }}
 
       - name: Check admin spectate service configuration
         run: prlimit --core=0 -- node scripts/ci/check-admin-spectate-compose.mjs

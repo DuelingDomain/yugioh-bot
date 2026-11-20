@@ -195,6 +195,10 @@ Deploy jobs run in the `production` GitHub Environment and require these GitHub 
    The VM pulls all four recorded digests with `--platform=linux/arm64`, then checks each image's
    platform and revision label. Packages must be public; there is no GHCR login on the VM.
    A failed pull leaves the checkout, local `:latest`/`:prev` tags and running services unchanged.
+   To save time, the workflow starts `production-images.sh warm` in the background right after it uploads the
+   helper scripts. It only downloads layers that are missing (no tags, no checks, failures ignored), so it
+   overlaps the bundle transfer and the guard and preflight checks. This verified pull then finds the layers
+   already present. The SSH calls share one connection (`ControlMaster`) and still use the pinned host keys.
    The workflow then saves matching checkout/deploy commits, image digests and actual container image IDs
    for duel/web/bot/WS/worker, protected env and a WAL-safe online backup under
    `/var/backups/yugioh-bot/pr2-<UTC timestamp>` (directory 0700, env 0600). It tags those image IDs
