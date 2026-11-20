@@ -4,6 +4,7 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState, type C
 import { fieldMatPoint, hasExtraMonsterZones, type FieldCalibration, type FieldFormat } from "@yugidraft/vision";
 import { fieldGridCells, useZoneGrid } from "@/lib/remote/zone-grid";
 import type { CardInfo } from "./catalog";
+import { cardArt } from "./catalog";
 import { cardCode, cardName, cellsFor, type TwinCard } from "./model";
 import { statsOf, type CardStats } from "./card-stats";
 import { useVideoHub } from "./video-hub";
@@ -52,12 +53,25 @@ function useCalibration(read: () => FieldCalibration | undefined): FieldCalibrat
   return value;
 }
 
-type Item = { key: string; card: TwinCard; stats: CardStats; cell: { x: number; y: number; w: number; h: number } };
+type Cell = { x: number; y: number; w: number; h: number };
+type Item = { key: string; card: TwinCard; stats: CardStats; cell: Cell };
+type Proxy = { key: string; card: TwinCard; cell: Cell };
+const ZONE_OF: Record<string, string> = { m1: "M1", m2: "M2", m3: "M3", m4: "M4", m5: "M5", e1: "EMZ1", e2: "EMZ2", s1: "S1", s2: "S2", s3: "S3", s4: "S4", s5: "S5", f: "FIELD" };
 
 /**
- * Over one camera feed: the ATK / DEF of each face-up monster, and each token as a card drawn in its zone. Everything is
- * placed through the calibration, so it follows the mat's perspective. A token lies turned in Defense. The text is plain
- * HTML, so it reads upright for whoever looks at the feed. Without a saved calibration (zones placed on the mat) nothing is drawn.
+ * A card this seat controls but does not own (given to it, or taken: `ownerSeat` names the real owner). Its paper card
+ * lies on the owner's mat, so nothing on this seat's own mat shows it. It is drawn as a proxy in its zone on this feed.
+ */
+const isControlled = (card: TwinCard, seat: number) => card.ownerSeat !== undefined && card.ownerSeat !== seat && !card.token;
+
+/** Maps the unit square (an image's corners) to a card's corners as an SVG affine matrix; the card is small, so perspective across it is negligible. */
+const matrixOf = ([a, b, , d]: Point[]) => `matrix(${b.x - a.x} ${b.y - a.y} ${d.x - a.x} ${d.y - a.y} ${a.x} ${a.y})`;
+
+/**
+ * Over one camera feed: the ATK / DEF of each face-up monster, each token as a card drawn in its zone, and each card the
+ * seat controls for another player as a proxy (art, ATK / DEF and a Controlled tag). Everything is placed through the
+ * calibration, so it follows the mat's perspective. A token or proxy lies turned in Defense. The text is plain HTML, so
+ * it reads upright for whoever looks at the feed. Without a saved calibration (zones placed on the mat) nothing is drawn.
  */
 export function FeedCards({ seat, frame, format, read }: { seat: number; frame: CSSProperties | null; format: FieldFormat; read: () => FieldCalibration | undefined }) {
   const data = useContext(Ctx);
@@ -65,17 +79,19 @@ export function FeedCards({ seat, frame, format, read }: { seat: number; frame: 
   const emz = hasExtraMonsterZones(format);
   const cells = useMemo(() => fieldGridCells(format, calibration?.zoneSpacing, calibration?.zones), [format, calibration?.zoneSpacing, calibration?.zones]);
   const twin = data?.seats[seat]?.twin;
-  const items = useMemo<Item[]>(() => {
-    if (!twin || !data) return [];
+  const { items, proxies } = useMemo<{ items: Item[]; proxies: Proxy[] }>(() => {
+    if (!twin || !data) return { items: [], proxies: [] };
     const placed = cellsFor(twin, emz);
-    return (["m1", "m2", "m3", "m4", "m5", "e1", "e2"] as const).flatMap(key => {
-      const card = placed[key]?.card; if (!card) return [];
-      const stats = statsOf(card, data.info(cardCode(card))); if (!stats) return [];
-      const zone = key[0] === "m" ? `M${key[1]}` : `EMZ${key[1]}`;
-      const cell = cells.find(item => item.zone === zone); return cell ? [{ key: card.ref, card, stats, cell }] : [];
-    });
-  }, [twin, data, emz, cells]);
-  if (!frame || !calibration?.orientation || !items.length) return null;
+    const items: Item[] = [], proxies: Proxy[] = [];
+    for (const key of Object.keys(ZONE_OF) as (keyof typeof ZONE_OF)[]) {
+      const card = placed[key as keyof typeof placed]?.card; const cell = cells.find(item => item.zone === ZONE_OF[key]);
+      if (!card || !cell) continue;
+      if (isControlled(card, seat)) proxies.push({ key: card.ref, card, cell });
+      const stats = key[0] === "m" || key[0] === "e" ? statsOf(card, data.info(cardCode(card))) : null; if (stats) items.push({ key: card.ref, card, stats, cell });
+    }
+    return { items, proxies };
+  }, [twin, data, emz, cells, seat]);
+  if (!frame || !calibration?.orientation || !(items.length || proxies.length)) return null;
   const tokens = items.filter(item => item.card.token);
   return <div className={t.feedLayer} style={frame} aria-hidden="true" data-testid={`feed-cards-${seat}`}>
     <svg viewBox="0 0 1 1" preserveAspectRatio="none">
@@ -88,7 +104,22 @@ export function FeedCards({ seat, frame, format, read }: { seat: number; frame: 
           <line className={t.tokenFront} x1={a.x} y1={a.y} x2={b.x} y2={b.y} />
         </g>;
       })}
+      {proxies.map(({ key, card, cell }) => {
+        const shape = cardInCell(card.position === "defense");
+        const pts = shape.corners.map(p => through(calibration, cell, p));
+        const code = card.faceUp ? cardCode(card) : undefined;
+        return <g key={key} data-testid="feed-proxy" data-position={card.position === "defense" ? "defense" : "attack"} data-face={code ? "up" : "down"}>
+          <polygon className={t.tokenFill} points={pts.map(p => `${p.x},${p.y}`).join(" ")} />
+          {code ? <image href={cardArt(code)} width="1" height="1" preserveAspectRatio="none" transform={matrixOf(pts)} /> : null}
+          <polygon className={t.proxyEdge} points={pts.map(p => `${p.x},${p.y}`).join(" ")} />
+        </g>;
+      })}
     </svg>
+    {proxies.map(({ key, card, cell }) => {
+      const at = through(calibration, cell, { x: .5, y: card.position === "defense" ? .22 : .02 });
+      if (!inView(at)) return null;
+      return <span key={key} className={`${t.label} ${t.tag}`} style={{ left: `${at.x * 100}%`, top: `${at.y * 100}%` }} data-testid="feed-proxy-tag">Controlled</span>;
+    })}
     {items.map(({ key, card, stats, cell }) => {
       // A token's label sits at the middle of its card; a real card keeps its picture clear, so its label goes near the lower edge.
       const at = through(calibration, cell, card.token ? { x: .5, y: .5 } : { x: .5, y: .86 });
