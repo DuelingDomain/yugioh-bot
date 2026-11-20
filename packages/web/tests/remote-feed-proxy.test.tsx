@@ -11,14 +11,18 @@ const card = (extra: Partial<TwinCard>): TwinCard => ({ ref: "c", zone: "monster
 
 it("draws a card another seat gave to this seat as a proxy on this seat's feed: art, ATK/DEF and a Controlled tag; its own card gets none; no calibration draws nothing", () => {
   const info = () => ({ id: 86673403, name: "Angelechy Seneschal", type: "Effect Monster", atk: 1800, def: 1000 }) as never;
-  const seats = [{ twin: [card({ ref: "own", cardId: 1, slot: 1 })] }, { twin: [card({ ref: "given", cardId: 86673403, ownerSeat: 0 }), card({ ref: "mine", cardId: 2, slot: 2 })] }];
+  const seats = [{ twin: [card({ ref: "own", cardId: 1, slot: 1 })] }, { twin: [card({ ref: "given", cardId: 86673403, ownerSeat: 0 }), card({ ref: "mine", cardId: 2, slot: 2 }), card({ ref: "down", slot: 4, faceUp: false, ownerSeat: 0 })] }];
   const view = (seat: number, read: () => typeof calibration | undefined) => render(
     <FeedCardsProvider seats={seats} info={info}><FeedCards seat={seat} frame={{ position: "absolute", inset: 0 }} format="normal" read={read} /></FeedCardsProvider>);
   const receiver = view(1, () => calibration);
-  expect(screen.getAllByTestId("feed-proxy")).toHaveLength(1);
-  expect(screen.getByTestId("feed-proxy").getAttribute("data-face")).toBe("up");
-  expect(screen.getByTestId("feed-proxy").querySelector("image")?.getAttribute("href")).toContain("/api/cards/86673403/image");
-  expect(screen.getByTestId("feed-proxy-tag").textContent).toBe("Controlled");
+  const [up, down] = screen.getAllByTestId("feed-proxy");
+  expect(screen.getAllByTestId("feed-proxy")).toHaveLength(2);
+  expect(up.getAttribute("data-face")).toBe("up");
+  expect(down.getAttribute("data-face")).toBe("down"); expect(down.querySelector("image")).toBeNull();
+  expect(up.querySelector("image")?.getAttribute("href")).toContain("/api/cards/86673403/image");
+  const art = up.querySelector("image")!;
+  expect(art.parentElement?.getAttribute("clip-path")).toMatch(/^url\(#.+\)$/);
+  expect(screen.getAllByTestId("feed-proxy-tag").map(node => node.textContent)).toEqual(["Controlled", "Controlled"]);
   expect(screen.getAllByTestId("feed-stats").map(node => node.textContent)).toContain("1800/1000");
   receiver.unmount();
   view(0, () => calibration);

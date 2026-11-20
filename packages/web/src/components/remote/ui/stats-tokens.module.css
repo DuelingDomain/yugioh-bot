@@ -13,7 +13,7 @@
 .label em{font-style:normal;color:#f0d98a}
 .tokenFill{fill:rgb(42 38 60/.82);stroke:rgb(232 185 79/.95);stroke-width:.0035}
 .proxyEdge{fill:none;stroke:rgb(232 185 79/.95);stroke-width:.004;stroke-linejoin:round}
-.tag{transform:translate(-50%,-100%);padding:0 3px;background:rgb(232 185 79/.94);color:#1a1405;font:700 8px/1.2 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;letter-spacing:.04em;text-transform:uppercase;text-shadow:none}
+.tag{transform:translate(-50%,-100%);max-width:none;padding:0 3px;background:rgb(232 185 79/.94);color:#1a1405;font:700 8px/1.2 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;letter-spacing:.04em;text-transform:uppercase;text-shadow:none}
 .tokenFront{stroke:#fff2cd;stroke-width:.008;stroke-linecap:round;fill:none}
 
 /* The token dialog and menu. */

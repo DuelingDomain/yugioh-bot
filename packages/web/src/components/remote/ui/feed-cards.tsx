@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { fieldMatPoint, hasExtraMonsterZones, type FieldCalibration, type FieldFormat } from "@yugidraft/vision";
 import { fieldGridCells, useZoneGrid } from "@/lib/remote/zone-grid";
 import type { CardInfo } from "./catalog";
@@ -75,6 +75,7 @@ const matrixOf = ([a, b, , d]: Point[]) => `matrix(${b.x - a.x} ${b.y - a.y} ${d
  */
 export function FeedCards({ seat, frame, format, read }: { seat: number; frame: CSSProperties | null; format: FieldFormat; read: () => FieldCalibration | undefined }) {
   const data = useContext(Ctx);
+  const clipBase = useId().replace(/\W/g, "");
   const calibration = useCalibration(read);
   const emz = hasExtraMonsterZones(format);
   const cells = useMemo(() => fieldGridCells(format, calibration?.zoneSpacing, calibration?.zones), [format, calibration?.zoneSpacing, calibration?.zones]);
@@ -104,14 +105,16 @@ export function FeedCards({ seat, frame, format, read }: { seat: number; frame: 
           <line className={t.tokenFront} x1={a.x} y1={a.y} x2={b.x} y2={b.y} />
         </g>;
       })}
-      {proxies.map(({ key, card, cell }) => {
+      {proxies.map(({ key, card, cell }, index) => {
         const shape = cardInCell(card.position === "defense");
         const pts = shape.corners.map(p => through(calibration, cell, p));
         const code = card.faceUp ? cardCode(card) : undefined;
+        const points = pts.map(p => `${p.x},${p.y}`).join(" "), clip = `${clipBase}-${index}`;
         return <g key={key} data-testid="feed-proxy" data-position={card.position === "defense" ? "defense" : "attack"} data-face={code ? "up" : "down"}>
-          <polygon className={t.tokenFill} points={pts.map(p => `${p.x},${p.y}`).join(" ")} />
-          {code ? <image href={cardArt(code)} width="1" height="1" preserveAspectRatio="none" transform={matrixOf(pts)} /> : null}
-          <polygon className={t.proxyEdge} points={pts.map(p => `${p.x},${p.y}`).join(" ")} />
+          <polygon className={t.tokenFill} points={points} />
+          {code ? <><clipPath id={clip}><polygon points={points} /></clipPath>
+            <g clipPath={`url(#${clip})`}><image href={cardArt(code)} width="1" height="1" preserveAspectRatio="none" transform={matrixOf(pts)} /></g></> : null}
+          <polygon className={t.proxyEdge} points={points} />
         </g>;
       })}
     </svg>
