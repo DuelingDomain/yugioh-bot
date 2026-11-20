@@ -303,6 +303,6 @@ function SpectatorTable({ room }: { room: RemoteRoom }) {
     {layers.layer === "card" && subject ? <CardPopover subject={subject} info={info(subject.cardId)} at={popAt} actions={NO_ACTIONS} onClose={() => layers.close("card")} /> : null}
     <HandActivation events={room.events} name={name} />
     {ended ? <SpectatorEndScreen room={room} match={match} name={name} onLeave={leave} />
-      : siding ? <SidingScreen room={room} match={match} mySeat={-1} name={name} now={serverNow} act={noAct} readOnly /> : null}
+      : siding ? <SidingScreen room={room} match={match} mySeat={-1} name={name} now={serverNow} act={noAct} readOnly onLeave={leave} /> : null}
   </div></FeedCardsProvider>;
 }

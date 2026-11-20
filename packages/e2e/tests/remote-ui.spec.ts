@@ -1303,8 +1303,12 @@ test.describe("remote duels, spectators", () => {
       await expect(c.getByTestId("siding-ready-0")).toBeVisible();
       await expect(c.getByTestId("siding-ready")).toHaveCount(0);
       await expect(c.locator('[data-testid^="feed-"] video')).toHaveCount(0);
-      await expect(siding.getByRole("button")).toHaveCount(0);
+      // The screen covers the table, so Stop watching is the one button, and it leaves.
+      await expect(siding.getByRole("button")).toHaveCount(1);
+      await expect(c.getByTestId("siding-stop-watching")).toBeFocused();
       await shot(c, "spectator-siding");
+      await c.getByTestId("siding-stop-watching").click();
+      await expect(c).toHaveURL(/\/duels(\?|$)/, { timeout: 15_000 });
     } finally { await Promise.all([alice, bob, carol].map(context => context!.close())); }
   });
 

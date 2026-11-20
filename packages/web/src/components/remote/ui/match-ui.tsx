@@ -214,9 +214,10 @@ export function declareChoices(seats: { seat: number; name: string; out?: boolea
  * the player can also swap cards between Main, Extra and Side like the simulator. When every player is Ready or the clock ends, the
  * next game starts. The loser of the last game chooses who goes first.
  */
-export function SidingScreen({ room, match, mySeat, name, now, act, error: outsideError, readOnly }: {
+export function SidingScreen({ room, match, mySeat, name, now, act, error: outsideError, readOnly, onLeave }: {
   room: RemoteRoom; match: Match; mySeat: number; name: (seat: number) => string; now: () => number; act: Act;
-  /** A spectator: the clock, the ready rows and the score, with no buttons and no deck. */ readOnly?: boolean;
+  /** A spectator: the clock, the ready rows and the score, with no deck and no way to act. */ readOnly?: boolean;
+  /** A spectator's only button: stop watching. The screen covers the table, so it must offer a way out. */ onLeave?: () => void;
   /** The last action was refused (the table passes the server's reason). */ error?: string | null;
 }) {
   const rootRef = useRef<HTMLDivElement>(null);
@@ -229,7 +230,8 @@ export function SidingScreen({ room, match, mySeat, name, now, act, error: outsi
   const error = localError ?? outsideError ?? null;
   const seatNo = mySeat >= 0 ? mySeat : 0;
   const imReady = !!siding?.ready.includes(mySeat);
-  const myEnd = siding ? seatDeadline(siding, seatNo) : 0;
+  // A spectator has no seat: the clock shows the latest end of all seats.
+  const myEnd = siding ? (readOnly ? Math.max(...room.seats.map(item => seatDeadline(siding, item.seat)), siding.deadline) : seatDeadline(siding, seatNo)) : 0;
   const left = siding ? myEnd - clockNow : 0;
   const total = deck ? SIDE_DECK_MS : SIDE_MS;
   const expired = !!siding && left <= 0;
@@ -346,7 +348,9 @@ export function SidingScreen({ room, match, mySeat, name, now, act, error: outsi
       <p className={seriesStyles.firstNote}>{match.firstSeat !== undefined ? `${name(match.firstSeat)} goes first.` : fallbackNote}</p>
     </div> : (firstLine ? <p className={s.firstLine} data-testid="first-line">{firstLine}</p> : null);
 
-  const buttons = readOnly ? null : <div className={s.buttons}>
+  const buttons = readOnly ? (onLeave ? <div className={s.buttons}>
+    <SheetButton kind="secondary" size="lg" data-autofocus onClick={onLeave} data-testid="siding-stop-watching">Stop watching</SheetButton>
+  </div> : null) : <div className={s.buttons}>
     {imReady
       ? <SheetButton kind="secondary" size="lg" disabled={busy || expired || startLeft === 0 || (choiceLeft !== null && choiceLeft <= 0)} onClick={() => void unready()} data-testid="siding-unready">Not ready</SheetButton>
       : <SheetButton kind="primary" size="lg" loading={busy} disabled={busy || expired || mySeat < 0 || (changed && plan.reason != null)} onClick={() => void ready()} data-testid="siding-ready">Ready</SheetButton>}
