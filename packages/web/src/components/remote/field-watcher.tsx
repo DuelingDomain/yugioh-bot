@@ -726,7 +726,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       // A hand passing over the card hides it for a moment. Retry the same
       // evidence quietly; a changed card brings its own fresh event.
       if(live()&&observed&&!observed.removed&&attempt<6&&(observed.revision??0)===(event.track.revision??0)&&observed.cardId===event.track.cardId)
-        setTimeout(()=>{void queue(next=>apply(event,next,undefined,attempt+1,slideUntil),event);},200);
+        setTimeout(()=>{void queue(next=>apply(event,next,undefined,attempt+1,slideUntil,factsWaited),event);},200);
     };
     const observed=watch.getTrack(event.track.id);
     if(!live()||!matchesEvidence(observed)){defer(observed);return;}
@@ -816,7 +816,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       const now=slideInputNow.now,until=slideUntil??Math.min(now+1000,(track.restSince??track.firstSeen)+1750);
       if(until>now){
         // Release the serial write queue while the source's next sample settles.
-        setTimeout(()=>{if(live())void queue(next=>apply(event,next,chosen,attempt,until),event);},Math.min(FLIP_POLL_MS,until-now));
+        setTimeout(()=>{if(live())void queue(next=>apply(event,next,chosen,attempt,until,factsWaited),event);},Math.min(FLIP_POLL_MS,until-now));
         return;
       }
     }
@@ -860,7 +860,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     if(!existing&&!track.faceDown&&entry&&!piles.has(track.zone)&&attempt<3){
       const touched=watch.getSnapshot?.()?.pileTouchedAt;
       const settling=([['GY','graveyard'],['BANISHED','banished']] as const).some(([zone,pileZone])=>performance.now()-(touched?.[zone]??-Infinity)<1000&&!!pileCopy(twins.filter(c=>c.zone===pileZone),entry));
-      if(settling){setTimeout(()=>{if(live())void queue(next=>apply(event,next,chosen,attempt+1),event,humanChoice);},200);return;}
+      if(settling){setTimeout(()=>{if(live())void queue(next=>apply(event,next,chosen,attempt+1,undefined,factsWaited),event,humanChoice);},200);return;}
     }
     if(existing)track={...track,id:existing.ref};
     else if(twins.some(c=>c.ref===track.id))track={...track,id:`fw-${crypto.randomUUID()}`};
@@ -877,7 +877,8 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     const summon=summonType&&materialRefs?{kind:summonType.kind,materialRefs}:undefined;
     const stale=staleFieldOccupant(twins,watch.getTracks().map(track=>({...track,id:bindings.current.get(track.id)??track.id})),track.zone,existing?.ref??track.id);
     // Release a slot only for a card that lands in it: a Trap seen in M4 goes to the Spell/Trap row and leaves the M4 twin alone.
-    const claimsSlot=!fieldSpell&&stale&&projectObserved(track,twins.filter(c=>c.ref!==stale.ref),existing,facts).zone===track.zone;
+    // Facts still missing after the cap: a card in the monster row is placed in its observed cell, the zone-rule effect corrects it later.
+    const claimsSlot=!fieldSpell&&stale&&(factsWaited&&!facts&&/^(M[1-5]|EMZ[12])$/.test(track.zone)||projectObserved(track,twins.filter(c=>c.ref!==stale.ref),existing,facts).zone===track.zone);
     const needsSummonFacts=!existing&&/^M[1-5]$/.test(track.zone)&&/^(fusion|synchro|xyz|link)/i.test(entry?.frameClass??'');
     if(slowFacts&&(stale||track.zone.startsWith('EMZ')||needsSummonFacts)){
       // The retry runs when the facts arrive, or after SLOW_FACTS_CAP_MS at the latest (a failed or slow lookup used to leave the action waiting for the 10 s lookup deadline, or for a later read). Then it goes on with the observed zone, as for a card whose lookup failed.
@@ -897,7 +898,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
         // The latest apply replaces the wait: a player who corrects a choice during it keeps the correction.
         const waiting=departureTimers.current.get(key);if(waiting)clearTimeout(waiting);
         departureTimers.current.set(key,setTimeout(()=>{
-          departureTimers.current.delete(key);if(live())void queue(act=>apply(event,act,chosen,attempt),event,humanChoice);
+          departureTimers.current.delete(key);if(live())void queue(act=>apply(event,act,chosen,attempt,undefined,factsWaited),event,humanChoice);
         },Math.max(1,waitUntil-performance.now())));
         return;
       }
@@ -906,7 +907,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
         if(pending.unresolved)return;
         const key=`stale:${event.track.id}`;
         if(!departureTimers.current.has(key))departureTimers.current.set(key,setTimeout(()=>{
-          departureTimers.current.delete(key);if(live())void queue(act=>apply(event,act,chosen,attempt),event,humanChoice);
+          departureTimers.current.delete(key);if(live())void queue(act=>apply(event,act,chosen,attempt,undefined,factsWaited),event,humanChoice);
         },200));
         return;
       }
@@ -1697,6 +1698,8 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       if(!missing.has(zone)){liftedPiles.current.delete(zone);continue;}
       if(liftedPiles.current.has(zone)||!current.current.room.state.seats[seat].twin.some(c=>c.zone===pileZone))continue;
       liftedPiles.current.add(zone);
+      // The work can merge a pile entry into a camera-made (fw-) field card: both cards and their cells take lanes.
+      const twinsNow=current.current.room.state.seats[seat].twin,fwField=twinsNow.filter(c=>c.ref.startsWith('fw-')&&c.faceUp&&publicField(c.zone));
       void queue(async act=>{
         if(!live()||!current.current.room.state.seats[seat].twin.some(c=>c.zone===pileZone))return;
         // Pile entries that are accounted for: a member the camera placed on the field as a new card while the pile
@@ -1713,7 +1716,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
         const refs=current.current.room.state.seats[seat].twin.filter(c=>c.zone===pileZone).map(c=>c.ref);if(!refs.length||!live())return;
         const updated=await act({type:'pile.lift',actorSeat:seat,seat,zone:pileZone,cardRefs:refs,source:'auto'});
         setDeparture(null);setNotice(`${label} picked up (${refs.length} card${refs.length===1?'':'s'}) · ${updated?'auto':'update failed'}`);if(updated)setUndoId(updated.state.undo?.actionId??'');
-      },undefined,false,false,laneOf([],[zone]));
+      },undefined,false,false,laneOf([...fwField.map(c=>c.ref),...twinsNow.filter(c=>c.zone===pileZone).map(c=>c.ref)],[zone,...fwField.map(c=>knownZone(c))]));
     }
   },[missingKey,seat]);
   useEffect(()=>()=>publishMissingPiles(seat,[]),[seat]);
