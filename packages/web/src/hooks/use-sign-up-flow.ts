@@ -228,12 +228,15 @@ function useAccountFlow(opts: { ticket: string | null; returnTo: string; callbac
       submitAccount: async (input) => {
         if (state.step !== "invite") return;
         await run("signup", async () => {
+          // Email sign-up always sets a username and a password, whatever Clerk lists as missing. An OAuth callback asks
+          // for a password only when Clerk still needs one (a cancelled Discord trip).
+          const askedForPassword = latest.current.signUpSignal.signUp!.missingFields.includes("password");
+          const needsPassword = !opts.callback || askedForPassword;
+          if (needsPassword && !input.password) { dispatch({ type: "error", view: { kind: "field", field: "password", message: "Enter a password." } }); return; }
           if (!await updateAccount(input)) return;
           const signUp = latest.current.signUpSignal.signUp!;
-          // OAuth callbacks already have an external account; collect only the
-          // outstanding fields. A password is needed only when Clerk asks for it.
-          // A password is collected only when Clerk still asks for it (email-code sign-up needs none).
-          if (signUp.missingFields.includes("password") && !await call(() => signUp.password({ password: input.password }), "signup", "sign-up", () => latest.current.signUpSignal.signUp!.status === "complete" || !latest.current.signUpSignal.signUp!.missingFields.includes("password"))) return;
+          const passwordSet = () => latest.current.signUpSignal.signUp!.status === "complete" || !latest.current.signUpSignal.signUp!.missingFields.includes("password");
+          if (needsPassword && !await call(() => signUp.password({ password: input.password }), "signup", "sign-up", askedForPassword ? passwordSet : () => true)) return;
           await advanceSignup();
         });
       },
@@ -261,7 +264,8 @@ function useAccountFlow(opts: { ticket: string | null; returnTo: string; callbac
 export function useSignUpFlow(opts: { ticket: string | null; returnTo: string; discordFirst?: boolean }): { state: AuthFlowState; actions: Actions; passwordRequired: boolean } {
   const signal = useSignUp();
   const { state, actions } = useAccountFlow({ ...opts, callback: false }, signal);
-  return { state, actions, passwordRequired: signal.signUp?.missingFields?.includes("password") ?? true };
+  // Email sign-up always shows the password field; Discord never reaches this card.
+  return { state, actions, passwordRequired: true };
 }
 
 export function useSsoCallback(): { state: AuthFlowState; resumeKind: ResumeKind; actions: ReturnType<typeof useSignUpFlow>["actions"]; passwordRequired: boolean } {

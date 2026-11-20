@@ -25,6 +25,18 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 
 describe("invited sign-up flow", () => {
+  it("email sign-up needs a username and a password, even when Clerk does not list password as missing", async () => {
+    mock.signal.signUp.missingFields = ["legal_accepted"];
+    const { result } = await mount();
+    expect(result.current.passwordRequired).toBe(true);
+    await act(() => result.current.actions.submitAccount({ username: "kaiba", password: "", legalAccepted: true }));
+    expect(result.current.state.fieldErrors.password).toBe("Enter a password.");
+    expect(mock.signal.signUp.update).not.toHaveBeenCalled();
+    await act(() => result.current.actions.submitAccount({ username: "", password: "longpassword", legalAccepted: true }));
+    expect(result.current.state.fieldErrors.username).toBe("Enter a username.");
+    await act(() => result.current.actions.submitAccount({ username: "kaiba", password: "longpassword", legalAccepted: true }));
+    expect(mock.signal.signUp.password).toHaveBeenCalledWith({ password: "longpassword" });
+  });
   it.each(["ticket_invalid_code", "ticket_expired", "ticket_expired_code", "sign_up_restricted_waitlist", "form_identifier_not_found"])("rejects the ticket for %s", async (code) => {
     mock.signal.signUp.ticket.mockResolvedValue({ error: { cause: { errors: [{ code }] } } });
     const { result } = await mount();
