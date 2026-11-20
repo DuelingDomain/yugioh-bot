@@ -787,14 +787,30 @@ jobs:
                done
                [ "$healthy" = 1 ] || { docker compose -f "$runtime_compose" --project-directory /opt/yugioh-bot logs --tail=60 "$service"; exit 1; }
              done
-             # Anonymous auth checks: no redirects, no cookies and exact null body.
-             # Next listens on the container's HOSTNAME, not on 127.0.0.1.
-             docker compose -f "$runtime_compose" --project-directory /opt/yugioh-bot exec -T web node -e '
-               const base = `http://${process.env.HOSTNAME}:3000`;
-               Promise.all([fetch(`${base}/sign-in`, {redirect:"manual"}), fetch(`${base}/api/auth/session`, {redirect:"manual"})])
-                 .then(async ([page, session]) => { if(page.status !== 200 || session.status !== 200 || (await session.text()).trim() !== "null") process.exit(1); })
-                 .catch(() => process.exit(1));
-             '
+             # Anonymous login and sign-up checks, on the full and the partial path: no redirects, exact 200
+             # for /sign-in, /sign-up, /waitlist and /api/auth/session, and an exact null session body.
+             # Next listens on the container's HOSTNAME, not on 127.0.0.1. A restarted web needs time to
+             # listen, so retry for up to three minutes. Failure keeps traffic as it is, the same as every
+             # other failed check here, and fails the deploy.
+             auth_ok=0
+             for _attempt in $(seq 1 36); do
+               if docker compose -f "$runtime_compose" --project-directory /opt/yugioh-bot exec -T web node -e '
+                 const base = `http://${process.env.HOSTNAME}:3000`;
+                 const get = path => fetch(`${base}${path}`, {redirect:"manual", signal: AbortSignal.timeout(10000)});
+                 Promise.all(["/sign-in", "/sign-up", "/waitlist", "/api/auth/session"].map(get))
+                   .then(async responses => { if(responses.some(response => response.status !== 200) || (await responses[3].text()).trim() !== "null") process.exit(1); })
+                   .catch(() => process.exit(1));
+               '; then auth_ok=1; break; fi
+               sleep 5
+             done
+             [ "$auth_ok" = 1 ] || { docker compose -f "$runtime_compose" --project-directory /opt/yugioh-bot logs --tail=60 web; echo "The login, sign-up or waitlist check failed." >&2; exit 1; }
+             # The web container must also still run with no restarts (it has no Compose healthcheck).
+             web_state=$(docker inspect -f '{{.State.Status}} {{.RestartCount}}' "$(docker compose -f "$runtime_compose" --project-directory /opt/yugioh-bot ps -q web)")
+             if [ "$web_state" != "running 0" ]; then
+               docker compose -f "$runtime_compose" --project-directory /opt/yugioh-bot logs --tail=60 web
+               echo "The web container is not running with zero restarts: $web_state" >&2
+               exit 1
+             fi
              # Duel must still be healthy with no restarts after the other checks,
              # immediately before confirming any images as good for rollback.
              duel_state=$(docker inspect -f '{{.State.Status}} {{.RestartCount}} {{.State.Health.Status}}' "$(docker compose -f "$runtime_compose" --project-directory /opt/yugioh-bot ps -q duel)")

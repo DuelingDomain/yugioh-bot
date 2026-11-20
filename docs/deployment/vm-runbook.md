@@ -218,6 +218,9 @@ Deploy jobs run in the `production` GitHub Environment and require these GitHub 
    inputs are unchanged and every other unchanged service runs healthy (zero restarts) on its confirmed image,
    only the changed services restart: no drained backup, no idle-close pass, no migration check; duel stays up.
    Any doubt (rollback, missing record, duel changed, unhealthy kept container) takes the full path below.
+   Both paths end with the same checks: duel/ws/worker healthy with zero restarts, then anonymous GET of `/sign-in`,
+   `/sign-up`, `/waitlist` and `/api/auth/session` (all exactly 200, session body `null`, retried for up to 3 minutes),
+   then web running with zero restarts. Any failure fails the deploy before images are confirmed.
    The full path stops web/duel/worker and WS, captures a final drained backup, installs the engine bundle,
    runs `sh scripts/deployment/prepare-runtime-data.sh data`, and runs one migration with the new worker image before starting consumers. FK and integrity
    failures abort. The EXIT trap only cleans temporary files; after the coordinated stop, failure
