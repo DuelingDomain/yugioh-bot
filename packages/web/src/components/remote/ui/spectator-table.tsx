@@ -116,7 +116,7 @@ function SpectatorFeed({ seat, name, video, online, stopped, frozen, onCard, for
 function SpectatorTable({ room }: { room: RemoteRoom }) {
   const layers = useLayers();
   const [webcamOnly, setWebcamOnlyState] = useState(false);
-  const [gridOn, setGridOn] = useState(false);
+  const [gridOn, setGridOn] = useState(true);
   useEffect(() => { try { setWebcamOnlyState(localStorage.getItem(SPECTATOR_WEBCAM_KEY) === "1"); } catch { /* storage blocked: both views */ } setGridOn(readGridPref(false)); }, []);
   const setWebcamOnly = useCallback((next: boolean) => { setWebcamOnlyState(next); try { localStorage.setItem(SPECTATOR_WEBCAM_KEY, next ? "1" : "0"); } catch { /* not remembered */ } }, []);
   const toggleGrid = () => { const next = !gridOn; setGridOn(next); writeGridPref(false, next); };

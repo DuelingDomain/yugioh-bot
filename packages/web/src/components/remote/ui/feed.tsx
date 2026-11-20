@@ -16,7 +16,7 @@ import { ZoneGridOverlay, FieldDebugOverlay } from "./zone-grid";
 import { HubFeedCards } from "./feed-cards";
 import {fieldZoneLocation,mapFieldZone} from '@yugidraft/vision';
 import { noteTapFrame } from "@/lib/remote/tap-memory";
-import { useTapToIdentify, readGridPref, writeGridPref, currentZoneGrid, useFieldDebugEnabled, setFieldDebugEnabled, useFieldDeveloper } from "@/lib/remote/zone-grid";
+import { useTapToIdentify, useZoneGrid, readGridPref, writeGridPref, currentZoneGrid, useFieldDebugEnabled, setFieldDebugEnabled, useFieldDeveloper } from "@/lib/remote/zone-grid";
 import { saveFieldClip, useFieldClipReady } from "@/lib/remote/clip-capture";
 import s from "./remote-ui.module.css";
 import { isTypingTarget } from "@/lib/typing-target";
@@ -156,7 +156,8 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
   useEffect(() => { setAuto(readAuto()); }, []);
   // "Show zone grid": off by default, remembered on this device.
   const tapSeat = useTapSeat(seat) && !you;
-  const [gridOn, setGridOn] = useState(false); useEffect(() => { setGridOn(readGridPref(you)); }, [you]);
+  const zoneGrid = useZoneGrid(), canAdjust = you && !!box && zoneGrid.ownSeat === seat && !!zoneGrid.calibrate;
+  const [gridOn, setGridOn] = useState(true); useEffect(() => { setGridOn(readGridPref(you)); }, [you]);
   const toggleGrid = () => { const on = !gridOn; setGridOn(on); writeGridPref(you, on); };
   const debugOn = useFieldDebugEnabled(), isDeveloper = useFieldDeveloper(), clipReady = useFieldClipReady();
   // "Saved to your computer" note after a clip download; it clears itself after a few seconds.
@@ -585,6 +586,8 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
       </> : <>
         <button type="button" className={s.fzbtn} onClick={() => void freeze(true)} data-testid="freeze-feed" aria-keyshortcuts="F">Freeze <kbd>F</kbd></button>
         <button type="button" className={`${s.fzbtn} ${s.fzauto}`} aria-pressed={gridOn && !tapSeat} disabled={tapSeat} onClick={toggleGrid} data-testid="zone-grid-toggle" title={tapSeat ? "This player uses Tap to identify: no zone grid" : you ? "Show zone grid on my camera" : "Show zone grid on this opponent camera"}>Show zone grid</button>
+        {you ? <button type="button" className={`${s.fzbtn} ${s.fzauto}`} disabled={!canAdjust} onClick={() => zoneGrid.calibrate?.()} data-testid="zone-grid-adjust" title={canAdjust ? "Move, resize or turn the zone grid to fit your mat" : "Available once your camera video is showing"}>Adjust zones</button> : null}
+        {you && !tapSeat ? <span className={s.gridHint} data-testid="zone-grid-hint">{gridOn ? "Recommended — keeps card detection accurate." : "Zones off — turning them on helps detection"}</span> : null}
         {you && isDeveloper ? <button type="button" className={`${s.fzbtn} ${s.fzauto}`} aria-pressed={debugOn} onClick={() => setFieldDebugEnabled(!debugOn)} data-testid="field-debug-toggle" title="Show what the field watcher sees: detector boxes, scores, tracks and reasons">Debug</button> : null}
         {you && isDeveloper && clipReady ? <button type="button" className={`${s.fzbtn} ${s.fzauto}`} onClick={saveClip} data-testid="field-clip-save" title="Save the last 30 s of your mat camera and watcher events to a file on this computer. Nothing is uploaded. The recording restarts empty when the card reader restarts (backend switch, calibration on or off).">Save last 30 s</button> : null}
         <button type="button" className={`${s.fzbtn} ${s.fzauto}`} aria-pressed={auto} onClick={toggleAuto} title="Freeze the frame when the pointer rests on the feed">Hover freeze {auto ? "on" : "off"}</button>
