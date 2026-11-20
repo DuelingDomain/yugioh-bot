@@ -69,6 +69,7 @@ export type CardActions = {
   materials?: CardMaterial[];
   canAdd: boolean; adding: boolean; onAdd: () => void;
   canAttack: boolean; attackHint: string; onAttack: () => void;
+  /** A spectator's view: no action buttons at all. */ readOnly?: boolean;
   onActivate?: () => void; onReveal?: () => void;
   /** Take control of an opponent's card, or return a taken card to its owner. */
   control?: { label: string; onClick: () => void };
@@ -124,7 +125,7 @@ function Actions({ a, subject }: { a: CardActions; subject: Subject }) {
   return <div className={s.dact}>
     {a.materials?.length ? <MaterialList items={a.materials} /> : null}
     {a.zoneCheck ? <ZoneCheck reason={a.zoneCheck} /> : null}
-    <Group label="Actions">
+    {a.readOnly ? null : <Group label="Actions">
       {addToDeck ? <button type="button" className={BTN} disabled={a.adding} onClick={a.onAdd}>Add to decklist</button> : null}
       {a.onActivate ? <button type="button" className={BTN} onClick={a.onActivate}>Activate</button> : null}
       {a.onAddToHand ? <button type="button" className={BTN} onClick={a.onAddToHand} data-testid="add-to-hand">Add card to hand{"\u2026"}</button> : null}
@@ -132,10 +133,10 @@ function Actions({ a, subject }: { a: CardActions; subject: Subject }) {
       {a.control ? <button type="button" className={BTN} onClick={a.control.onClick} data-testid="card-control">{a.control.label}</button> : null}
       {a.give ? <button type="button" className={BTN} onClick={a.give.onClick} data-testid="card-give">{a.give.label}</button> : null}
       <button type="button" className={BTN} onClick={a.onAttack} disabled={!a.canAttack} title={a.attackHint}>Attack from here</button>
-    </Group>
+    </Group>}
     {edit ? <MoveGroup edit={edit} /> : null}
     {a.attach?.options.length ? <Group label={a.attach.label}><select aria-label={a.attach.label} className={s.inp} value="" onChange={e => { if (e.target.value) a.attach?.onPick(e.target.value); }}><option value="">Choose a card…</option>{a.attach.options.map(o => <option key={o.ref} value={o.ref}>{o.label}</option>)}</select></Group> : null}
-    <Group label="Card">
+    {a.readOnly ? null : <Group label="Card">
       {edit ? <button type="button" className={BTN} onClick={edit.onFlip}>{edit.faceUp ? "Turn face down" : "Turn face up"}</button> : null}
       {edit?.position ? <button type="button" className={BTN} onClick={edit.position.onTurn} data-testid="card-position">{edit.position.defense ? "Change to Attack" : "Change to Defense"}</button> : null}
       {a.undo ? <button type="button" className={`${BTN} ${a.undo.reason ? s.cblocked : ""}`} aria-disabled={!!a.undo.reason} aria-describedby={a.undo.reason ? "card-undo-reason" : undefined}
@@ -149,7 +150,7 @@ function Actions({ a, subject }: { a: CardActions; subject: Subject }) {
           <option value="">No monster</option>
           {edit.equip.options.map(option => <option key={option.key} value={option.key}>{option.label}</option>)}
         </select></label> : null}
-    </Group>
+    </Group>}
   </div>;
 }
 
