@@ -66,6 +66,17 @@ describe("SSO callback", () => {
     expect(result.current.passwordRequired).toBe(false);
     expect(mock.signUpSignal.signUp.update).toHaveBeenCalledWith({ username: "kaiba" });
   });
+  it("fills the username even when Clerk does not list it as missing, and never blocks on a failed fill", async () => {
+    sessionStorage.setItem("dd_auth_resume", JSON.stringify({ kind: "sign-up", attemptId: "sua_invited", auto: true }));
+    mock.signUpSignal.signUp.missingFields = [];
+    mock.signUpSignal.signUp.username = null;
+    mock.signUpSignal.signUp.firstName = "Kaiba";
+    mock.signUpSignal.signUp.update.mockResolvedValue({ error: { errors: [{ code: "something_else" }] } });
+    mock.signUpSignal.signUp.status = "complete";
+    await mount();
+    expect(mock.signUpSignal.signUp.update).toHaveBeenCalledWith({ username: "kaiba" });
+    expect(mock.signUpSignal.signUp.finalize).toHaveBeenCalled();
+  });
   it("sends verification for an otherwise complete signup and resumes code errors", async () => {
     mock.signUpSignal.signUp.missingFields = [];
     mock.signUpSignal.signUp.unverifiedFields = ["email_address"];
@@ -95,7 +106,7 @@ describe("SSO callback", () => {
   it("preserves invitation and return context across the Discord callback", async () => {
     const invited = renderHook(() => useSignUpFlow({ ticket: "invitation", returnTo: "/drafts/a?join=1#seat" }));
     await act(async () => {});
-    await act(() => invited.result.current.actions.continueWithDiscord({ username: "duelist", legalAccepted: true }));
+    await act(() => invited.result.current.actions.continueWithDiscord({ legalAccepted: true }));
     invited.unmount();
     const callback = await mount();
     expect(callback.result.current.state).toMatchObject({ step: "invite", lockedEmail: "invited@test.dev", returnTo: "/drafts/a?join=1#seat" });

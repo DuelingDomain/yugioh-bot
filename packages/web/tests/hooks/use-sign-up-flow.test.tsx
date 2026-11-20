@@ -25,6 +25,18 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 
 describe("invited sign-up flow", () => {
+  it("email sign-up needs a username and a password, even when Clerk does not list password as missing", async () => {
+    mock.signal.signUp.missingFields = ["legal_accepted"];
+    const { result } = await mount();
+    expect(result.current.passwordRequired).toBe(true);
+    await act(() => result.current.actions.submitAccount({ username: "kaiba", password: "", legalAccepted: true }));
+    expect(result.current.state.fieldErrors.password).toBe("Enter a password.");
+    expect(mock.signal.signUp.update).not.toHaveBeenCalled();
+    await act(() => result.current.actions.submitAccount({ username: "", password: "longpassword", legalAccepted: true }));
+    expect(result.current.state.fieldErrors.username).toBe("Enter a username.");
+    await act(() => result.current.actions.submitAccount({ username: "kaiba", password: "longpassword", legalAccepted: true }));
+    expect(mock.signal.signUp.password).toHaveBeenCalledWith({ password: "longpassword" });
+  });
   it.each(["ticket_invalid_code", "ticket_expired", "ticket_expired_code", "sign_up_restricted_waitlist", "form_identifier_not_found"])("rejects the ticket for %s", async (code) => {
     mock.signal.signUp.ticket.mockResolvedValue({ error: { cause: { errors: [{ code }] } } });
     const { result } = await mount();
@@ -118,7 +130,7 @@ describe("invited sign-up flow", () => {
     const { result } = await mount();
     await act(() => result.current.actions.submitAccount({ ...account, legalAccepted: false }));
     expect(result.current.state.fieldErrors.legal).toBeTruthy();
-    await act(() => result.current.actions.continueWithDiscord({ username: "duelist", legalAccepted: false }));
+    await act(() => result.current.actions.continueWithDiscord({ legalAccepted: false }));
     expect(mock.signal.signUp.update).not.toHaveBeenCalled();
     expect(mock.signal.signUp.password).not.toHaveBeenCalled();
     expect(mock.signal.signUp.sso).not.toHaveBeenCalled();
@@ -160,8 +172,9 @@ describe("invited sign-up flow", () => {
   });
   it("keeps the ticket attempt for Discord and saves consent before redirect", async () => {
     const { result } = await mount();
-    await act(() => result.current.actions.continueWithDiscord({ username: "duelist", legalAccepted: true }));
-    expect(mock.signal.signUp.update).toHaveBeenCalledWith({ username: "duelist", legalAccepted: true });
+    await act(() => result.current.actions.continueWithDiscord({ legalAccepted: true }));
+    expect(mock.signal.signUp.update).toHaveBeenCalledWith({ legalAccepted: true });
+    expect(JSON.parse(sessionStorage.getItem("dd_auth_resume")!)).toMatchObject({ kind: "sign-up", auto: true });
     expect(mock.signal.signUp.sso).toHaveBeenCalledWith({ strategy: "oauth_discord", redirectUrl: "/drafts?join=1#seat", redirectCallbackUrl: "/sso-callback" });
     expect(mock.signal.signUp.update.mock.invocationCallOrder[0]).toBeLessThan(mock.signal.signUp.sso.mock.invocationCallOrder[0]);
     expect(mock.signal.signUp.ticket).toHaveBeenCalledTimes(1);
@@ -175,7 +188,7 @@ describe("invited sign-up flow", () => {
     await act(() => result.current.actions.submitAccount(account));
     expect(result.current.state).toMatchObject({ step: "invite", fieldErrors: { username: "That username is taken." } });
     expect(mock.signal.signUp.password).not.toHaveBeenCalled();
-    await act(() => result.current.actions.continueWithDiscord({ username: "duelist", legalAccepted: true }));
+    await act(() => result.current.actions.continueWithDiscord({ legalAccepted: true }));
     expect(mock.signal.signUp.sso).not.toHaveBeenCalled();
   });
   it("never finalizes missing requirements and blocks duplicate signup requests", async () => {
