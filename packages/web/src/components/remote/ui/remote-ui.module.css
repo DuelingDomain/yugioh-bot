@@ -357,14 +357,17 @@
 /* A narrow seat (3-way on a laptop) keeps the board no wider than its camera: the camera is the biggest feed. */
 @container seat (max-width:520px){.seat.mine:not([data-view="field"]) .fwrap{--fmin:.27;--fmax:.27}}
 @container seat (min-width:800px){.seat[data-view="field"] .fboard{flex-direction:row}.seat[data-view="field"] .fwrap[data-rail]{--scanw:172px;--scanh:0px}}
-.toolrow .scanbtn{height:26px;padding:0 9px;font-size:12px}.toolrow .scanbtn kbd{display:none}
-.scanbtn{flex:none;display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 11px;border-radius:8px;border:1px solid rgb(232 185 79/.55);background:rgb(232 185 79/.10);color:var(--gold-ink);font:700 12.5px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;white-space:nowrap}
-.scanbtn:hover:not([aria-disabled="true"]){background:rgb(232 185 79/.2);border-color:var(--gold)}
-.scanbtn[aria-disabled="true"]{opacity:.6;cursor:default}
-.scanbtn small{font:600 10.5px/1 var(--font-duel-ui),system-ui,sans-serif;color:var(--ink2)}
-.scanbtn:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+.toolrow .scanbtn{height:28px;padding:0 10px;font-size:13px}
+/* Scan field is the primary action of my camera tools: a solid gold button, first in the row. It glows and its reason shows in the status chip while the camera and the board disagree. */
+.scanbtn{flex:none;display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 12px;border-radius:8px;border:1px solid var(--gold);background:linear-gradient(180deg,#f0c866,var(--gold));color:#1b1204;font:800 13px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;white-space:nowrap;box-shadow:0 0 0 1px rgb(0 0 0/.35),0 1px 8px rgb(232 185 79/.3)}
+.scanbtn:hover:not([aria-disabled="true"]){background:linear-gradient(180deg,#f8d67e,#eebd52);box-shadow:0 0 0 1px rgb(0 0 0/.35),0 2px 12px rgb(232 185 79/.5)}
+.scanbtn[aria-disabled="true"]{opacity:.55;cursor:default;box-shadow:none}
+.scanbtn small{font:700 10.5px/1 var(--font-duel-ui),system-ui,sans-serif;color:#3a2a0a}
+.scanbtn:focus-visible{outline:2px solid #fff;outline-offset:2px}
 .scanbtn svg{flex:none}
-.scanbtn kbd{padding:1px 5px;border:1px solid var(--line2);border-radius:4px;font:700 10px/1.3 var(--font-duel-ui),system-ui,sans-serif;color:var(--ink2)}
+.scanbtn kbd{padding:1px 5px;border:1px solid rgb(27 18 4/.45);border-radius:4px;font:800 10px/1.3 var(--font-duel-ui),system-ui,sans-serif;color:#3a2a0a;background:rgb(27 18 4/.1)}
+.scanbtn[data-need]{animation:scanNeed 1.6s ease-in-out infinite}
+@keyframes scanNeed{0%,100%{box-shadow:0 0 0 1px rgb(0 0 0/.35),0 0 0 0 rgb(232 185 79/.7),0 1px 8px rgb(232 185 79/.4)}55%{box-shadow:0 0 0 1px rgb(0 0 0/.35),0 0 0 7px rgb(232 185 79/0),0 1px 14px rgb(232 185 79/.7)}}
 .field{--gp:4px}
 .lp{position:relative;display:flex;align-items:center;gap:8px;flex:none;min-height:0;padding:2px 2px 5px}
 .lpmain{display:contents}
@@ -892,6 +895,7 @@
 .fzchipWrap{height:auto;min-height:26px;padding:5px 9px;line-height:1.25;white-space:normal;max-width:100%}
 .fzchipWrap .ic{flex:none}
 .fzbtn{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 9px;border-radius:6px;background:rgb(7 4 14/.86);border:1px solid var(--line2);color:var(--ink2);font:600 11.5px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif}
+.gridHint{display:inline-flex;align-items:center;min-height:26px;padding:0 9px;border-radius:6px;background:rgb(7 4 14/.86);color:var(--ink2);font:500 11.5px/1.2 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif}
 .fzbtn:hover{border-color:var(--gold);color:var(--gold-ink)}
 .fzbtn:disabled{opacity:.5;cursor:default;border-color:var(--line2);color:var(--ink2)}
 /* Own camera controls sit over the bottom left of the feed. They show on hover or focus, and always on touch screens. */
@@ -1086,6 +1090,19 @@
 /* Automatic card detection shares the feed status and existing control overlay. */
 .feedTagRow{position:absolute;left:8px;right:8px;top:8px;z-index:3;display:flex;align-items:center;gap:6px;min-width:0;pointer-events:none}
 .feedTagRow .ctag{position:static;flex:none}
+/* Auto-detect off: a banner on my own feed and a chip on every other feed, so a long Tap period is never unseen. */
+.tapBanner{flex:none;width:100%;max-width:100%;box-sizing:border-box;display:flex;align-items:center;gap:8px;padding:4px 5px 4px 10px;border-radius:8px;border:1px solid rgb(240 178 79/.5);border-left:3px solid var(--warn);background:rgb(7 4 14/.94);color:var(--ink);font:600 12px/1.25 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif}
+.tapBannerText{flex:1 1 0;min-width:0;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;font-weight:500;color:var(--ink2)}
+.tapBannerText b{font-weight:700;color:var(--gold-ink)}
+.tapBannerBtn{flex:none;height:28px;padding:0 12px;border-radius:6px;border:1px solid var(--gold);background:var(--gold);color:#1b1204;font:700 12px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;cursor:pointer}
+.tapBannerBtn:hover{background:var(--gold-ink)}
+/* The note where a Tap mode seat's board would be. It stacks in the narrow side column and sits in one row when there is room. */
+.tapBoardOff{flex:none;box-sizing:border-box;width:100%;display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;padding:7px 10px;border-radius:8px;border:1px solid rgb(240 178 79/.5);border-left:3px solid var(--warn);background:rgb(7 4 14/.94);color:var(--ink2);font:500 12px/1.3 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif}
+.tapBoardText{flex:1 1 140px;min-width:0}
+.tapBoardText b{font-weight:700;color:var(--gold-ink)}
+/* The 128px side column of the wide layout has room for the short line only: the full text is the tooltip. */
+@container seat (min-aspect-ratio:1.55){.seat[data-wc] .tapBoardMore{display:none}.seat[data-wc] .tapBoardOff{padding:5px 8px}.seat[data-wc] .tapBoardText{flex-basis:100%;font-size:11px}}
+.feedTagRow .tapChip{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;pointer-events:auto;cursor:default;letter-spacing:.04em;font-size:11px;color:var(--gold-ink);border:1px solid rgb(232 185 79/.5)}
 .watcherStatusSlot{display:block;min-width:0;max-width:300px;pointer-events:auto}
 .watcherControlsSlot{display:flex;flex:none}
 @container feed (max-width:280px){.ctagText{display:none}.watcherStatusSlot{max-width:calc(100cqw - 54px)}}

@@ -39,6 +39,8 @@ export class DesktopPhoneLink {
     if(p)return this.seat(p)!==undefined?p:undefined;
     return this.rosterPhone(identity)?{identity}:undefined;
   }
+  /** True while a phone read, scan or capture is open: the owner's own work, which nothing else may queue behind. */
+  get busy(){return this.reading||this.scanning||!!this.readyScanId||this.pending.size>0;}
   forSeat(seat:number) {const p=this.phones.find(p=>p.seat===seat && p.paired);return p?this.phone(`remote-phone-${p.id}`):undefined;}
   mode(participant:{identity:string}) {return this.modes.get(participant.identity) ?? this.phones.find(p=>`remote-phone-${p.id}` === participant.identity)?.mode ?? "video";}
   dataOnlyFeeds() {return this.phones.filter(p=>p.paired && this.rosterPhone(`remote-phone-${p.id}`) && this.modes.has(`remote-phone-${p.id}`) && !this.room.remoteParticipants.has(`remote-phone-${p.id}`)).map(p=>({seat:p.seat,mode:this.modes.get(`remote-phone-${p.id}`)!}));}
@@ -62,7 +64,7 @@ export class DesktopPhoneLink {
     if(!this.options.read) throw new Error("The desktop card reader is unavailable");
     signal.throwIfAborted();
     if(this.reading||this.scanning||this.readyScanId)throw new Error("Finish the current phone read first");
-    this.reading=true;
+    this.reading=true;this.options.changed();
     const id=crypto.randomUUID();const abort=()=>this.cancel(id,"Scan cancelled");signal.addEventListener("abort",abort,{once:true});
     try {const still=await this.capture(x,y,id);signal.throwIfAborted();return await this.recognize(still,signal);}
     finally {this.reading=false;signal.removeEventListener("abort",abort);}
@@ -134,7 +136,7 @@ export class DesktopPhoneLink {
   private async scan(participant:{identity:string},id:string,zone:PhoneZone) {
     if(this.reading || this.scanning || this.readyScanId || this.scanIds.has(id) || !this.options.read) {this.answer(id,"A scan is already being read. Try again in a moment.");return;}
     this.scanIds.add(id);if(this.scanIds.size>128)this.scanIds.delete(this.scanIds.values().next().value!);
-    this.scanning=true;const started=performance.now();
+    this.scanning=true;this.options.changed();const started=performance.now();
     const abort=new AbortController();this.activeScan={id,identity:participant.identity,abort};
     const cancel=()=>this.cancel(id,"Scan cancelled");abort.signal.addEventListener("abort",cancel,{once:true});
     const timer=setTimeout(()=>abort.abort(),60_000);

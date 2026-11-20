@@ -226,12 +226,19 @@ let pendingJobs = 0;
 /** Outline (detector) jobs among `pendingJobs`: a new resting card waits only for these, never for a queued read. */
 let pendingDetectJobs = 0;
 /** The reader handles one job at a time (reads and outlines share it). Later jobs wait their turn. */
-function enqueue<T>(job: () => Promise<T>): Promise<T> {
+function enqueue<T>(job: () => Promise<T>, spectator = false): Promise<T> {
+  // Any job that is not a spectator's read is the owner's: it never waits behind a running or queued spectator read.
+  if (!spectator) abortSpectatorReads();
   pendingJobs++;
   const run = chain.then(job, job).finally(() => { pendingJobs--; });
   chain = run.catch(() => undefined);
   return run;
 }
+/** True while the reader has a job running or queued (the owner's reads and the field watcher). */
+export const readerBusy = () => pendingJobs > 0;
+const spectatorJobs = new Set<AbortController>();
+/** Stops every running or queued spectator read at once, so the owner's next job starts without waiting. */
+export function abortSpectatorReads() { for (const job of spectatorJobs) job.abort(); spectatorJobs.clear(); }
 let sceneChain: Promise<unknown> = Promise.resolve();
 /** Outline passes of a split reader (its own detector worker) queue apart from reads; otherwise they share the reader queue. */
 function enqueueScene<T>(vision: VisionRecognizer, job: () => Promise<T>): Promise<T> {
@@ -249,16 +256,19 @@ export function setFeedbackCapture(on: boolean) { feedbackCapture = on; }
  * Reads one card. The time limit starts when the job leaves the reader queue, so a board read ahead of it does not use it up.
  * A read that runs too long answers with the decklist instead of failing.
  */
-export function readCard(track: MediaStreamTrack | null, point: { x: number; y: number }, priors: Priors, outer: AbortSignal, card?: ReadCard, frames?: HTMLCanvasElement[], own = false): Promise<ReadResult> {
+export function readCard(track: MediaStreamTrack | null, point: { x: number; y: number }, priors: Priors, outer: AbortSignal, card?: ReadCard, frames?: HTMLCanvasElement[], own = false, spectator = false): Promise<ReadResult> {
+  const yielded = new AbortController();
+  if (spectator) spectatorJobs.add(yielded);
+  const outerSignal = spectator ? AbortSignal.any([outer, yielded.signal]) : outer;
   return enqueue(async () => {
     const timeout = AbortSignal.timeout(READ_TIMEOUT_MS);
-    const signal = AbortSignal.any([outer, timeout]);
+    const signal = AbortSignal.any([outerSignal, timeout]);
     try { return await readCardNow(track, point, priors, signal, card, frames, own); }
     catch (error) {
-      if (timeout.aborted && !outer.aborted) return fallbackRead(priors, "The read took too long. Showing cards from the decklist.");
+      if (timeout.aborted && !outerSignal.aborted) return fallbackRead(priors, "The read took too long. Showing cards from the decklist.");
       throw error;
-    }
-  });
+    } finally { spectatorJobs.delete(yielded); }
+  }, spectator);
 }
 
 /** Saves a confirmed card as a training sample. One sample per read; never throws. */
@@ -375,8 +385,8 @@ export async function detectCards(frame: ImageBitmap, opts?:import("@yugidraft/v
 
 /** Adapter for RemoteVideo: the feed owner supplies its own scoped knowledge; only image matches leave it. */
 export function makeRecognizeRawFeed(resolveNames: (ids: number[]) => Promise<Map<number, string>>, getPriors: () => Priors = () => ({decklist:[],seen:[]})): RecognizeRawFeed {
-  return async ({ track, request, signal }) => {
-    const result = await readCard(track, { x: request.x, y: request.y }, getPriors(), signal, undefined, undefined, true);
+  return async ({ track, request, signal, spectator }) => {
+    const result = await readCard(track, { x: request.x, y: request.y }, getPriors(), signal, undefined, undefined, true, !!spectator);
     if (result.reader !== "vision") return {candidates:[],tier:"low match",faceDown:!!result.faceDown,covered:!!result.covered};
     const names = await resolveNames(result.guesses.filter(g => !g.name).map(g => g.cardId));
     const candidates = result.guesses.map(g => ({ cardId: g.cardId, name: g.name || names.get(g.cardId) || `Card ${g.cardId}`, score: g.score ?? 0 })).slice(0, 5);

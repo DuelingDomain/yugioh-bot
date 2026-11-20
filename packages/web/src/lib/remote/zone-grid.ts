@@ -148,10 +148,10 @@ export function useZoneGrid(): ZoneGridState {
   return useSyncExternalStore(listener => { listeners.add(listener); return () => { listeners.delete(listener); }; }, () => current, () => empty);
 }
 
-/** "Show zone grid": off by default on every feed, and a choice is remembered per device. Own feeds still draw the grid while the zones need calibration. */
+/** "Show zone grid": on by default on every feed (no saved choice means on), and a choice to turn it off is remembered per device. Own feeds still draw the grid while the zones need calibration. */
 const prefKey = (own: boolean) => `dd-zone-grid:${own ? "own" : "opponent"}`;
 export function readGridPref(own: boolean): boolean {
-  try { return localStorage.getItem(prefKey(own)) === "1"; } catch { return false; }
+  try { return localStorage.getItem(prefKey(own)) !== "0"; } catch { return true; }
 }
 export function writeGridPref(own: boolean, on: boolean) { try { localStorage.setItem(prefKey(own), on ? "1" : "0"); } catch { /* storage may be blocked */ } }
 

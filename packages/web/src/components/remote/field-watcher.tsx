@@ -5,7 +5,7 @@ import {useCallback,useEffect,useMemo,useRef,useState} from 'react';
 import {catalogCardId,fieldGlareChoices,fieldZoneLocation,fieldStackUnder,yugioh,type HeldCardEvent,type HeldUnsureEvent,type FieldEvent,type FieldSnapshot,type FieldTrack,type FieldZone,type KnownFieldCard,type FieldCalibration,fieldPacerDevice,FIELD_ACTIVITY_WINDOW_MS,FIELD_SET_RETURN_MS} from '@yugidraft/vision';
 import {useSendHealth} from '@/lib/remote/send-health-store';
 import {markVideoOfferShown,readVideoChoice,VIDEO_OFFER_MS,videoOfferShown} from '@/lib/remote/video-rate';
-import {createSlowWatch,isWeakDevice,markTapOfferShown,readTapChoice,saveTapChoice,tapOfferShown,TAP_OFFER_MS,type TapChoice} from '@/lib/remote/tap-offer';
+import {createSlowWatch,isWeakDevice,markTapOfferShown,noteTapReason,readTapChoice,saveTapChoice,tapOfferShown,TAP_OFFER_MS,type TapChoice} from '@/lib/remote/tap-offer';
 import {isTournamentTable,readTournamentMode,saveTournamentMode,stateMode,ownDetectionMode,type TournamentMode,type TournamentModeReason} from '@/lib/remote/tournament-detection';
 import {RemoteDuelError,remoteActivationLimit,remoteActivationNotice,remoteHandActivationDecision,remoteHandReadDecision,remotePhysicalSlot,REMOTE_HAND_SUGGESTION_EVENT,recentFieldDeparture,REMOTE_UNREAD_PILE_MS,type RemoteRoom,type RemoteSummonKind,type RemoteUndoEntry,type TwinCard} from '@yugidraft/shared/remote';
 import type {RoomMutation,RoomTransaction} from '@/lib/remote/room-mutations';
@@ -16,6 +16,7 @@ import {fieldPositionMatches,applyFieldFaceFlip,fieldFaceProposal,fieldSetMove,f
 import {OutageGaveUpError,onOutageEnd,outageDown} from '@/lib/remote/outage';
 import {createFieldFaceCheck,type FieldFaceFix} from '@/lib/remote/field-face';
 import {fieldTrackMessage} from '@/lib/remote/field-track-cache';
+import {givenSpotHolds,type GivenSpot} from '@/lib/remote/given-hold';
 import {onManualMove,requestManualZone} from '@/lib/remote/manual-moves';
 import {correctionsFor,cameraCorrectionBlocked} from '@/lib/remote/manual-corrections';
 import {createChangedZones} from '@/lib/remote/changed-zones';
@@ -33,6 +34,7 @@ import {cardCode,sameObservedCard,deckIdsOf,placedTwin} from './ui/model';
 import {FieldCalibrationControl} from './field-calibration';
 import {NOTIFY_OPEN_EVENT} from './ui/notify-dock';
 import {publishZoneGrid,clearZoneGrid,defaultSideFor,fieldDebugEnabled,publishFieldDebug,publishMissingPiles,publishFieldScan} from '@/lib/remote/zone-grid';
+import {publishScanAdvice,clearScanAdvice,scanReason,type ScanAdvice} from '@/lib/remote/scan-advice';
 import {clipAction} from '@/lib/remote/clip-capture';
 import {nextFieldGhosts,setFieldGhosts,blockGhostCell,newGhostState} from '@/lib/remote/field-ghosts';
 import {FieldWatcherUI} from './field-watcher-ui';
@@ -404,11 +406,31 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     const twins=room.state.seats[seat].twin;
     holdReplacedFieldCards(previousTwins.current,twins);
     holdTributedCards(previousTwins.current,twins);
+    rememberGiven(previousTwins.current);
     previousTwins.current=twins;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[room.state,seat]);
   /** My card an opponent holds as a proxy: its paper card leaves my zone or stays on the mat, and the camera does nothing about it. Read from the live state, so a reload, a take back, an Undo and a return to my Graveyard all end it. */
-  const givenAway=(ref:string)=>current.current.room.state.seats.some((s,i)=>i!==seat&&s.twin.some(c=>c.ref===ref&&c.ownerSeat===seat));
+  const givenCopy=(ref:string)=>{for(const [i,s] of current.current.room.state.seats.entries()){if(i===seat)continue;const c=s.twin.find(c=>c.ref===ref&&c.ownerSeat===seat);if(c)return c;}};
+  const givenAway=(ref:string)=>!!givenCopy(ref);
+  /** The same card by identity: the camera may start a new track (a new ref) for the paper card that stays on my mat. The mat spot and card id of each given card are kept while it is given, and a track of that card on that spot is held too, until the paper card leaves it (see `givenSpotHolds`). */
+  const givenSpots=useRef(new Map<string,GivenSpot>());
+  const rememberGiven=(before:readonly TwinCard[])=>{
+    const given=new Map<string,TwinCard>();
+    current.current.room.state.seats.forEach((s,i)=>{if(i!==seat)for(const c of s.twin)if(c.ownerSeat===seat)given.set(c.ref,c);});
+    for(const ref of givenSpots.current.keys())if(!given.has(ref))givenSpots.current.delete(ref);
+    for(const [ref,card] of given){
+      if(givenSpots.current.has(ref))continue;
+      const mine=before.find(c=>c.ref===ref),zone=mine&&publicField(mine.zone)?knownZone(mine):physical.current!.zones.get(ref)??observedFieldZone(room.slug,seat,ref);
+      const code=cardCode(card)??(mine&&cardCode(mine))??card.ownerIdentity?.cardId;
+      if(zone&&/^(M[1-5]|S[1-5]|EMZ[12]|FIELD)$/.test(zone))givenSpots.current.set(ref,{zone,cardId:code?String(code):undefined,at:performance.now()});
+    }
+  };
+  /** True for a track of my given card: the same ref, or the same card (an unread track counts) on the mat spot where it was given. */
+  const givenHold=(track:Pick<FieldTrack,'id'|'zone'|'cardId'|'faceDown'>)=>{
+    if(givenAway(bindings.current.get(track.id)??track.id))return true;
+    return givenSpotHolds(givenSpots.current,track,givenCopy,zone=>fieldEmptyProofs(watch.getSnapshot?.())?.[zone as FieldZone]);
+  };
   const undoCards=useRef(new Map<string,Pick<RemoteUndoEntry,'action'|'cards'>>()),undoSeq=useRef<number|null>(null);
   useEffect(()=>{undoCards.current.clear();undoSeq.current=null;},[room.slug,seat]);
   useEffect(()=>{
@@ -463,6 +485,8 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
           if(proposal.type==='undo')return true;
           if(!live())return false;
           if(!event)return true;
+          // A write that waited (facts, a retry) stops when its card was given away in the meantime.
+          if(givenHold(event.track))return false;
           if(event.type==='removed')return watch.isRemoved(event.track.id)&&
             (proposal.type!=='twin.move'||proposal.zone!=='hand'||!linkedSlide(event,watch.getSnapshot?.(),true));
           if(event.type==='placed'&&proposal.type==='twin.flip'&&!proposal.faceUp&&
@@ -639,7 +663,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     if(!after||after.removed||after.revision!==event.track.revision)await removePlaceholder(event.track.id,act);
   }
   async function apply(event:FieldEvent,act:RoomMutation,chosen?:string,attempt=0,slideUntil?:number) {
-    if(givenAway(bindings.current.get(event.track.id)??event.track.id))return;
+    if(givenHold(event.track))return;
     console.info('[remote field] identify',event.track.id,chosen??event.track.cardId,event.track.zone,event.type);
     const humanChoice=event.type==='prompt'&&(!!chosen||event.reason==='card-presence');
     const matchesEvidence=(track:FieldTrack|undefined)=>fieldEvidenceMatches(event,trackForChoice(event,track),humanChoice);
@@ -1047,7 +1071,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   }
   function handle(event:FieldEvent,departureOrigin?:Pick<TwinCard,'ref'|'zone'|'slot'>,factsStarted=false,moveRetry=0) {
     const observedRef=bindings.current.get(event.track.id)??event.track.id;
-    if(givenAway(observedRef))return;
+    if(givenHold(event.track))return;
     if(!factsStarted&&live()&&event.type!=='removed'){
       const waiting=fieldFacts(event);
       if(waiting){void waiting.then(()=>{if(live())handle(event,departureOrigin,true);});return;}
@@ -1439,7 +1463,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   },[watch.setEnabled,watch.enabled,seat,setSyncHold,tournament,room.slug]);
   const modeReason=useRef<TournamentModeReason>('player');
   // Only a switch is a slow-offer change. Keep changes nothing, so the next manual switch stays a player change.
-  const answerTapOffer=(choice:TapChoice)=>{modeReason.current=choice==='switch'?'slow-offer':'player';setDetection(choice==='keep');};
+  const answerTapOffer=(choice:TapChoice)=>{modeReason.current=choice==='switch'?'slow-offer':'player';if(choice==='switch'&&!tournament)noteTapReason('slow');setDetection(choice==='keep');};
   const offerable=watch.enabled&&ownsSource&&hub.cameraOn&&room.status==='active';
   useEffect(()=>{
     if(tapOffer&&!offerable)setTapOffer(false);
@@ -1447,14 +1471,14 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     const at=performance.now();slowWatch.current.see(at,watch.snapshot.metrics);
     if((recognition.backend==='wasm'&&isWeakDevice(fieldPacerDevice()))||slowWatch.current.slow(at)){markTapOfferShown();setTapOffer(true);}
   },[watch.snapshot,offerable,recognition.backend,tapOffer]);
-  // Tournament: the table state keeps my detection mode. I send it when it differs from the state (table start, a switch, the camera turning off or on), never again after a reload. The tell is public and changes no board.
+  // The table state keeps my detection mode on every table (a tournament table also shows it to the opponent; a normal table keeps it in the log). I send it when it differs from the state (table start, a switch, the camera turning off or on), never again after a reload. The tell is public and changes no board.
   const sentMode=useRef<TournamentMode|null>(null),modeSeat=room.spectator?-1:seat;
   // A failed send is tried again after 2, 4 and 8 s (then it stops); `retry` re-runs the effect below.
   const [retry,setRetry]=useState(0),attempts=useRef(0),retryTimer=useRef<ReturnType<typeof setTimeout>|undefined>(undefined);
   useEffect(()=>()=>clearTimeout(retryTimer.current),[]);
   const mode=ownDetectionMode({ownsSource,cameraOn:hub.cameraOn,enabled:watch.enabled});
   useEffect(()=>{
-    if(!tournament||modeSeat<0||!watch.settingsLoaded||room.status!=='active'||sentMode.current===mode)return;
+    if(modeSeat<0||!watch.settingsLoaded||room.status!=='active'||sentMode.current===mode)return;
     // The video hub reports no camera while it connects or reconnects. Say nothing until it settles, so the badge does not flap.
     if(hub.starting)return;
     // Short wait: the camera and the phone link settle a moment after the page opens, and the first answer should be the real one.
@@ -1471,7 +1495,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     },mode==='manual'||sentMode.current===null?1500:0);
     return()=>clearTimeout(timer);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  },[tournament,modeSeat,watch.settingsLoaded,room.status,mode,hub.starting,retry]);
+  },[modeSeat,watch.settingsLoaded,room.status,mode,hub.starting,retry]);
   // Video lag offer: the browser encoder stayed CPU limited (sustained, page visible; see `watchCpuLimit`) and still is when the offer would show.
   // Own state, so it never uses up the Tap offer. `videoOffer` is the wish; it counts as shown (once per page, with its 20 s) only while it is the notice on screen.
   const [videoOffer,setVideoOffer]=useState(false);
@@ -1746,8 +1770,8 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     });
   }
   useEffect(()=>{
-    // Tap to identify: no mat grid goes out, so other players read this camera and do not trust the board's zones.
-    const message={...fieldTrackMessage(watch.snapshot,entries.current,known(),watch.enabled&&!syncHold?watch.calibration:undefined),...(watch.enabled&&!syncHold?{}:{mode:'tap' as const})},key=JSON.stringify(message);lastMessage.current=message;
+    // Tap to identify: the saved mat grid still goes out (it is not a tracking claim), so the other feeds draw their overlays on this camera. The `tap` mode tells them no card is followed.
+    const message={...fieldTrackMessage(watch.snapshot,entries.current,known(),watch.calibration),...(watch.enabled&&!syncHold?{}:{mode:'tap' as const})},key=JSON.stringify(message);lastMessage.current=message;
     if(key!==published.current){published.current=key;hub.publishFieldTracks(message);}
   },[watch.snapshot,watch.calibration,watch.enabled,syncHold,hub.publishFieldTracks,room.state]);
   // The feeds draw the zone grid from the saved calibration and the cards the watcher sees.
@@ -1811,7 +1835,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   // changed. Each fix is its own undoable action and is tried once per board state.
   // A card the player moved or undid stays until the camera shows a new change.
   const missingSince=useRef(new Map<string,number>());
-  const [scanning,setScanning]=useState(false),resyncing=useRef(false),resyncStarted=useRef(0),resynced=useRef(new Map<string,{board:string;fails:number}>());
+  const [scanning,setScanning]=useState(false),[lastScan,setLastScan]=useState<ScanAdvice['last']>(),scanMark=useRef({asked:0,sweepMs:0,origin:'manual' as 'manual'|'auto'|'remote'}),scanChanges=useRef(0),scanEndedAt=useRef(-Infinity),resyncing=useRef(false),resyncStarted=useRef(0),resynced=useRef(new Map<string,{board:string;fails:number}>());
   useEffect(()=>{resynced.current.clear();},[room.slug,seat]);
   // A fix that failed because the server was out of reach was never really tried: when it is back, every fix may run again.
   useEffect(()=>onOutageEnd(()=>{resynced.current.clear();}),[]);
@@ -1820,6 +1844,8 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   const tryFix=(key:string)=>{const board=boardState(),seen=resynced.current.get(key);if(seen?.board===board)return false;resynced.current.set(key,{board,fails:seen?.fails??0});return true;};
   const fixFailed=(key:string,error:unknown)=>{console.info('[remote field] re-sync write skipped',key,error instanceof Error?error.message:error);if(error instanceof OutageGaveUpError){resynced.current.delete(key);return;}const seen=resynced.current.get(key);if(seen&&++seen.fails<3)seen.board='';};
   // A fresh zoom triggers the face check directly. Older detector evidence uses the still-frame check.
+  /** A scan is over (the two passes and the board writes): keep how long each part took. Dev tools and the e2e check read it from the Scan field button. */
+  const finishScan=()=>{const m=scanMark.current,at=performance.now();scanEndedAt.current=at;const last={origin:m.origin,sweepMs:Math.round(m.sweepMs),totalMs:Math.round(at-m.asked),changes:scanChanges.current};console.info('[remote field] scan timing',last);setLastScan(last);};
   const faceBusy=useRef(false);
   const faceFixes=(at:number,scan:boolean,zoom?:FieldEvent)=>{
     const reading=new Set(placeholders.current.values());
@@ -1871,7 +1897,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   function resync(manualScan=false,gentle=false,provenOnly=false) {
     const strict=manualScan&&!gentle;
     if(resyncing.current||!live()||calibrationBusy.current){if(manualScan)setScanning(false);if(strict){setNotice(resyncing.current?'Board check already running':calibrationBusy.current?'Finish calibration first':'Camera is not watching the field');}return;}
-    resyncing.current=true;resyncStarted.current=performance.now();
+    resyncing.current=true;resyncStarted.current=performance.now();let note='';
     void queue(async act=>{
       let changes=0,lastUndo='';const snap=watch.getSnapshot?.(),fullAt=snap?.lastFullAt;
       if(!snap||!live()||fullAt===undefined&&!provenOnly)return;
@@ -1981,9 +2007,15 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       }
       const text=`Board re-synced (${changes} change${changes===1?'':'s'})`;
       // The note is a log line only: the server keeps it out of the undo history, so Undo reverts the last fix.
-      if(changes){if(!provenOnly)try{await act({type:'log.note',actorSeat:seat,text});}catch(error){console.info('[remote field] re-sync note skipped',error);}setNotice(text);setUndoId(lastUndo);}
+      scanChanges.current=changes;
+      // The log line is saved after the board is done: the scan does not wait one more round trip for it.
+      if(changes){if(!provenOnly)note=text;setNotice(text);setUndoId(lastUndo);}
       else if(strict)setNotice('Board matches the camera');
-    },undefined,false,true).finally(()=>{resyncing.current=false;if(manualScan)setScanning(false);});
+    },undefined,false,true).finally(()=>{
+      resyncing.current=false;
+      if(manualScan){setScanning(false);finishScan();}
+      if(note)void queue(async act=>{try{await act({type:'log.note',actorSeat:seat,text:note});}catch(error){console.info('[remote field] re-sync note skipped',error);}},undefined,false,true);
+    });
   }
   const resyncRef=useRef(resync);resyncRef.current=resync;
   const emptyProofs=fieldEmptyProofs(watch.snapshot);
@@ -2056,44 +2088,73 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     if(watcherError){if(!gentle)setNotice('Scan field cannot run: the card reader is not running. Reload the page or use Tap to identify.');return false;}
     if(gentle&&(syncHoldRef.current||calibrationBusy.current))return false;
     if(!gentle&&syncHold){setSyncHold(false);placeHeldCards.current();}
-    setScanning(true);const asked=performance.now();watch.scanNow?.({gentle});
+    setScanning(true);const asked=performance.now();scanMark.current={asked,sweepMs:0,origin};scanChanges.current=0;watch.scanNow?.({gentle});
         clearTimeout(scanGuard.current);
     // The button never stays on Scanning… for longer than this. The re-sync lock (resyncing) stays until its own save ends, so a new scan cannot start over a running one.
     scanGuard.current=setTimeout(()=>{console.info('[remote field] scan guard ended the scan',{resyncing:resyncing.current,sweeping:scanTimer.current!==undefined});clearInterval(scanTimer.current);scanTimer.current=undefined;setScanning(false);if(!gentle)setNotice('Scan did not finish. Try again.');},15000);
     scanTimer.current=setInterval(()=>{
       const swept=watch.getSnapshot?.()?.lastScanAt??-Infinity;
-      if(swept>=asked-50||performance.now()-asked>=5000){clearInterval(scanTimer.current);scanTimer.current=undefined;resyncRef.current(true,gentle);
+      if(swept>=asked-50||performance.now()-asked>=5000){clearInterval(scanTimer.current);scanTimer.current=undefined;scanMark.current.sweepMs=performance.now()-asked;resyncRef.current(true,gentle);
         // A card on a zone the camera only half sees cannot be checked: say so instead of leaving it on the board silently.
         // Shown after the re-sync has had time to post its own notices, so they do not overwrite it.
         const offFrame=gentle?[]:watch.getSnapshot?.()?.lastScanOffFrame??[];
         if(offFrame.length){const names=offFrame.map(fieldZoneLabel).join(', '),one=offFrame.length===1;setTimeout(()=>setNotice(`${names} ${one?'is':'are'} partly out of view, so ${one?'its card':'their cards'} cannot be checked. Move the camera or mat so ${one?'it fits':'they fit'}.`),1500);}
       }
-    },100);
+    },40);
     return true;
   },[watch.scanNow,watch.getSnapshot,setSyncHold,syncHold,watcherError]);
   useEffect(()=>{publishFieldScan({seat,scanning,enabled:watch.enabled,loaded:watch.settingsLoaded,ready:ownsSource&&hub.cameraOn,scan:scanField,setDetection,error:watcherError});},[seat,scanning,scanField,ownsSource,hub.cameraOn,watch.enabled,watch.settingsLoaded,setDetection,watcherError]);
   useEffect(()=>()=>publishFieldScan({seat:null,scanning:false,enabled:false,ready:false}),[]);
-  // Auto resync: when the board has been still for 3 s and the camera disagrees with it (a board card whose cell shows nothing, or a resting
-  // card inside a zone that no track follows), run a gentle Scan field once by itself, at most every 20 s. Never with the sync hold
-  // waiting; open prompts stay answerable and never pause it. Cards the player brought back with Undo or moved by hand do not count. The same mismatch with no motion in between is not scanned again.
+  // What the camera and the board disagree about (a board card whose cell shows nothing, or a resting card inside a zone that no track follows),
+  // once the board has been still for 3 s and the last full pass is fresh. Cards the player brought back with Undo or moved by hand do not count.
   const scanFieldRef=useRef(scanField);scanFieldRef.current=scanField;
-  const autoSeen=useRef('');
-  useEffect(()=>{autoSeen.current='';},[room.slug,seat]);
+  const readMismatch=useCallback(()=>{
+    const now=performance.now(),snap=watch.getSnapshot?.();
+    if(!snap||(snap.status!=='watching'&&snap.status!=='budget')||snap.lastFullAt===undefined||now-snap.lastFullAt>3000)return null;
+    if(snap.lastMotionAt!==undefined&&now-snap.lastMotionAt<3000)return null;
+    const missing=(snap.missingTwins??[]).filter(ref=>!undoKept.current.has(ref)&&!manual.current.has(ref)),untracked=snap.untracked??0;
+    if(!missing.length&&!untracked)return null;
+    return {missing:missing.length,untracked,key:`${missing.join(',')}|${untracked}|${snap.lastMotionAt??''}`};
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[watch.getSnapshot]);
+  // The reason shown on the Scan field button and the status chip. It shows while the mismatch lasts, never during a scan, and waits 2 s after one so
+  // a stale reading does not flash it again.
+  const [adviceReason,setAdviceReason]=useState<string|null>(null);
   useEffect(()=>{
     const timer=setInterval(()=>{
-      if(document.hidden||!live()||syncHoldRef.current||scanTimer.current!==undefined||resyncing.current||calibrationBusy.current)return;
-      const now=performance.now(),snap=watch.getSnapshot?.();
-      if(now-autoScanAt.current<20_000||!snap||(snap.status!=='watching'&&snap.status!=='budget')||snap.lastFullAt===undefined||now-snap.lastFullAt>3000)return;
-      if(snap.lastMotionAt!==undefined&&now-snap.lastMotionAt<3000)return;
-      const missing=(snap.missingTwins??[]).filter(ref=>!undoKept.current.has(ref)&&!manual.current.has(ref)),untracked=snap.untracked??0;
-      if(!missing.length&&!untracked)return;
-      const mismatch=`${missing.join(',')}|${untracked}|${snap.lastMotionAt??''}`;
-      if(mismatch===autoSeen.current)return;
-      autoSeen.current=mismatch;autoScanAt.current=now;scanFieldRef.current('auto');
+      const now=performance.now();let next:string|null=null;
+      if(!document.hidden&&live()&&scanTimer.current===undefined&&!resyncing.current&&!calibrationBusy.current&&now-scanEndedAt.current>=2000){
+        const m=readMismatch();next=syncHoldRef.current?scanReason({holding:true,untracked:0,missing:0}):m?scanReason(m):null;
+      }
+      setAdviceReason(before=>before===next?before:next);
     },1000);
     return()=>clearInterval(timer);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  },[room.slug,seat,watch.getSnapshot]);
+  },[room.slug,seat,readMismatch]);
+  useEffect(()=>{setAdviceReason(null);},[room.slug,seat]);
+  useEffect(()=>{publishScanAdvice({seat,reason:adviceReason,last:lastScan});},[seat,adviceReason,lastScan]);
+  useEffect(()=>()=>clearScanAdvice(),[]);
+  // Auto resync: a gentle Scan field by itself, at most every 20 s, but only when the player is idle: no card prompt or notice open, no Retry or
+  // recovery banner, no attack or pending table question, no pointer button held (a drag), and never with the sync hold waiting. The same mismatch
+  // with no motion in between is not scanned again. Anything else only shows the reason on the Scan field button and the status chip, and the player decides.
+  const autoSeen=useRef(''),autoIdle=useRef(false),pointerHeld=useRef(false);
+  useEffect(()=>{autoSeen.current='';},[room.slug,seat]);
+  useEffect(()=>{
+    const down=()=>{pointerHeld.current=true;},up=()=>{pointerHeld.current=false;};
+    document.addEventListener('pointerdown',down,true);document.addEventListener('pointerup',up,true);document.addEventListener('pointercancel',up,true);window.addEventListener('blur',up);
+    return()=>{document.removeEventListener('pointerdown',down,true);document.removeEventListener('pointerup',up,true);document.removeEventListener('pointercancel',up,true);window.removeEventListener('blur',up);};
+  },[]);
+  useEffect(()=>{
+    const timer=setInterval(()=>{
+      if(document.hidden||!live()||syncHoldRef.current||scanTimer.current!==undefined||resyncing.current||calibrationBusy.current||!autoIdle.current||pointerHeld.current)return;
+      const now=performance.now();
+      if(now-autoScanAt.current<20_000)return;
+      const m=readMismatch();if(!m||m.key===autoSeen.current)return;
+      autoSeen.current=m.key;autoScanAt.current=now;scanFieldRef.current('auto');
+    },1000);
+    return()=>clearInterval(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[room.slug,seat,readMismatch]);
   // Rescan from another seat: run my own gentle Scan field on my full-resolution camera and the normal placement flow. It never ends my sync hold,
   // and waits while calibration is open (open prompts do not pause it). The answer says what happened: started, off (Auto-detect is not watching), busy or paused.
   const rescanRef=useRef<(from:number)=>RescanReply>(()=>'off');
@@ -2168,9 +2229,11 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
         return {id:candidate.cardId,label:`${observed.faceDown?'Confirm face-down card':entry?.name??candidate.cardId} · ${resolved.blocked?'Another physical card owns this ref':projected.zone?`To ${projected.label}`:projected.reason}`,disabled:resolved.blocked||!projected.zone};
       })};
   });
+  const st=room.state;
+  autoIdle.current=!promptViews.length&&!notice&&!failedUpdate&&!recovery&&!leaveChoice&&!shiftHint&&!tokenPrompt&&!rowPrompts.length&&!heldPick&&!calibrating&&!st.attack&&!st.twinConfirmation&&!(st.twinConfirmationQueue?.length);
   // What waits for the player must never be silent: the chip says it, and a click opens the Card notices dock (or resumes a sync hold).
-  const waiting=syncHold?0:promptViews.length,attention=watch.enabled&&(syncHold||waiting>0);
-  const label=!watch.enabled?'Tap to identify':syncHold?'Auto-detect paused · sync board':waiting>0?`${waiting} card${waiting===1?'':'s'} need${waiting===1?'s':''} you`:watch.aspectChanged?'Camera shape changed · Calibrate zones':watch.calibrationNeeded?(watch.calibration?.orientation?'Calibrate your zones · auto-placement paused':'Choose your side · auto-placement paused'):watch.snapshot.status==='starting'?'Preparing card reader…':watch.snapshot.status==='hidden'?'Paused · tab hidden':watch.snapshot.status==='busy'?'Paused · busy':watcherError?'Reader off':watch.snapshot.status==='budget'?'Watching field · CPU guard':hub.cameraOn?'Watching field':'Camera off';
+  const waiting=syncHold?0:promptViews.length,scanAdvice=watch.enabled&&!syncHold&&!waiting&&!scanning&&!watch.calibrationNeeded&&!watch.aspectChanged&&!watcherError?adviceReason:null,attention=watch.enabled&&(syncHold||waiting>0||!!scanAdvice);
+  const label=!watch.enabled?'Tap to identify':syncHold?'Auto-detect paused · sync board':waiting>0?`${waiting} card${waiting===1?'':'s'} need${waiting===1?'s':''} you`:watch.aspectChanged?'Camera shape changed · Calibrate zones':scanning&&!syncHold?'Scanning field…':scanAdvice?`${scanAdvice} · Scan field`:watch.calibrationNeeded?(watch.calibration?.orientation?'Calibrate your zones · auto-placement paused':'Choose your side · auto-placement paused'):watch.snapshot.status==='starting'?'Preparing card reader…':watch.snapshot.status==='hidden'?'Paused · tab hidden':watch.snapshot.status==='busy'?'Paused · busy':watcherError?'Reader off':watch.snapshot.status==='budget'?'Watching field · CPU guard':hub.cameraOn?'Watching field':'Camera off';
   // Only the "Identify card" prompt needs text injected; the plain "Reading…" card is drawn by the board itself.
   const readingStyles=room.state.seats.flatMap((player,index)=>player.twin.flatMap(card=>{
     if(index!==seat||!card.ref.startsWith('fw-')||cardCode(card)||!card.faceUp||!publicField(card.zone))return [];
@@ -2187,7 +2250,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       correctionsFor(current.current.room,seat).begin(ref,[fieldZoneLocation(event.track.zone)]);
       watch.notACard(id);restingReads.current.delete(id);publishReadings();setPrompts(list=>list.filter(p=>p.track.id!==id));
       void queueHuman('not-a-card',async act=>{const card=current.current.room.state.seats[seat].twin.find(c=>c.ref===ref);if(card&&!card.token&&publicField(card.zone))await act({type:'twin.remove',actorSeat:seat,seat,cardRef:ref});});
-    }} dock={dock} host={host} enabled={watch.enabled} onEnabledChange={setDetection} statusLabel={label} attention={attention} onStatusAction={attention?()=>{if(syncHold)scanField();else window.dispatchEvent(new CustomEvent(NOTIFY_OPEN_EVENT,{detail:{seat}}));}:undefined} statusExtra={<><RecognitionBadge phoneCamera={hub.phones.some(p=>p.seat===seat)}/>{recording?<RecordingBadge/>:null}</>} statusTitle={!watch.enabled?'Auto-detect is off. Click a card in any camera to read it. The board does not follow the cards.':watch.snapshot.error??`Detector ${Math.round(watch.snapshot.metrics.detectorMs)} ms · duty ${watch.snapshot.metrics.dutyPercent.toFixed(1)}%`} calibrated={watch.placed} calibrationDisabled={!video?.videoWidth} onCalibrate={()=>setCalibrating(true)} pending={pending}
+    }} dock={dock} host={host} enabled={watch.enabled} onEnabledChange={setDetection} statusLabel={label} attention={attention} onStatusAction={attention?()=>{if(syncHold||scanAdvice)scanField();else window.dispatchEvent(new CustomEvent(NOTIFY_OPEN_EVENT,{detail:{seat}}));}:undefined} statusExtra={<><RecognitionBadge phoneCamera={hub.phones.some(p=>p.seat===seat)}/>{recording?<RecordingBadge/>:null}</>} statusTitle={!watch.enabled?'Auto-detect is off. Click a card in any camera to read it. The board does not follow the cards.':watch.snapshot.error??`Detector ${Math.round(watch.snapshot.metrics.detectorMs)} ms · duty ${watch.snapshot.metrics.dutyPercent.toFixed(1)}%`} calibrated={watch.placed} calibrationDisabled={!video?.videoWidth} onCalibrate={()=>setCalibrating(true)} pending={pending}
       prompts={syncHold?[]:promptViews}
       onChoose={(id,cardId)=>{
         console.info('[remote field] candidate click',id,cardId);

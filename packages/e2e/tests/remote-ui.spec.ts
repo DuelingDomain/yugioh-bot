@@ -79,6 +79,62 @@ test.describe("remote duels screen, solo", () => {
     await expect(scan).toContainText("Scan field");
   });
 
+  test("Scan field is the primary camera action: first, in view at every size, glows with a reason when the camera and the board differ, runs by itself only when the player is idle, and reports its time", async ({ page, context }) => {
+    test.setTimeout(120_000);
+    await page.setViewportSize({ width: 1366, height: 768 });
+    await fakeCamera(page, "16:9");
+    // A stand-in for the card reader: the camera "sees" `untracked` cards that no track follows. A scan counts itself and, when `fixes` is set, clears the difference.
+    await page.addInitScript(() => {
+      const w = window as unknown as Record<string, unknown>, state = { untracked: 0, scans: 0, scannedAt: -Infinity, fixes: false }; w.__scan = state;
+      w.__e2eFieldWatcher = {
+        getSnapshot: () => ({ status: "watching", tracks: [], lastFullAt: performance.now(), lastScanAt: state.scannedAt, ...(state.untracked ? { untracked: state.untracked } : {}), missingTwins: [], metrics: { detectorMs: 0, recognitionMs: 0, dutyPercent: 0, intervalMs: 333, samples: 0, skipped: 0, placements: 0, latencyMs: 0, errors: 0 } }),
+        confirm() {}, dismiss() {}, forget() {}, resetBaselines() {}, setCalibration() {}, start() {}, dispose() {}, subscribe: () => () => {}, subscribeState: () => () => {},
+        scanNow() { state.scans++; setTimeout(() => { state.scannedAt = performance.now(); if (state.fixes) state.untracked = 0; }, 150); },
+      };
+    });
+    const slug = await soloTable(context.request, 2);
+    await page.goto(`/duels/remote/${slug}`);
+    await page.getByTestId("camera-on-feed").click();
+    await expect.poll(() => page.locator('[data-testid="feed-0"] video').evaluate((v: HTMLVideoElement) => v.videoWidth), { timeout: 30_000 }).toBeGreaterThan(0);
+    await page.getByTestId("feed-box-0").hover(); await page.getByRole("button", { name: "Calibrate zones", exact: true }).first().click();
+    const dialog = page.getByRole("dialog", { name: "Calibrate field zones", exact: true }); await expect(dialog).toBeVisible();
+    await dialog.getByTestId("camera-my-view").click(); await dialog.getByRole("button", { name: "Save calibration", exact: true }).click(); await expect(dialog).toBeHidden();
+    await page.waitForFunction(() => (window as unknown as { __e2eField?: { live: () => boolean } }).__e2eField?.live());
+    const scan = page.getByTestId("field-scan"), chip = page.getByTestId("field-watcher-status"), state = (key: string) => page.evaluate(k => (window as unknown as { __scan: Record<string, number> }).__scan[k], key);
+    await expect(scan).toHaveAttribute("aria-disabled", "false", { timeout: 30_000 });
+    // First in the camera tools, solid and large enough to find, fully in view and clear of the Token button at laptop, 1080p and 1440p sizes.
+    for (const [width, height] of [[1366, 768], [1920, 1080], [2560, 1440]]) {
+      await page.setViewportSize({ width, height });
+      await expect(scan).toBeInViewport({ ratio: 1 });
+      const facts = await scan.evaluate(button => {
+        const token = document.querySelector('[data-testid="token-open-0"]'), a = button.getBoundingClientRect(), b = token?.getBoundingClientRect();
+        return { first: !token || !!(button.compareDocumentPosition(token) & Node.DOCUMENT_POSITION_FOLLOWING), height: a.height, clear: !b || a.right <= b.left + 1 || a.bottom <= b.top + 1 || b.right <= a.left + 1 || b.bottom <= a.top + 1, solid: getComputedStyle(button).backgroundImage !== "none" };
+      });
+      expect(facts, `${width}x${height}`).toMatchObject({ first: true, clear: true, solid: true }); expect(facts.height).toBeGreaterThanOrEqual(28);
+    }
+    await expect(scan).not.toHaveAttribute("data-need", ""); await expect(chip).toHaveText("Watching field");
+    // The camera sees 2 cards the board lacks. While a pointer button is held (a drag) nothing scans by itself: the button glows and says why.
+    await page.evaluate(() => { (window as unknown as { __scan: { untracked: number } }).__scan.untracked = 2; });
+    await page.mouse.move(5, 5); await page.mouse.down();
+    await expect(scan).toHaveAttribute("data-need", "", { timeout: 10_000 });
+    await expect(chip).toHaveText("Camera sees 2 cards not on the board · Scan field");
+    await expect(scan).toHaveAttribute("aria-label", "Scan field. Camera sees 2 cards not on the board");
+    await page.waitForTimeout(2500); expect(await state("scans")).toBe(0);
+    // Idle again: one gentle scan starts by itself. It cannot fix this difference here, so the reason stays for the player.
+    await page.mouse.up();
+    await expect.poll(() => state("scans"), { timeout: 10_000 }).toBe(1);
+    await expect(scan).toHaveAttribute("data-need", "", { timeout: 10_000 });
+    // The player scans: S on the keyboard, the same as a click. The scan reports its time (the stand-in has no detector cost) and the reason goes away.
+    await page.evaluate(() => { (window as unknown as { __scan: { fixes: boolean } }).__scan.fixes = true; });
+    await page.keyboard.press("s");
+    await expect.poll(() => state("scans")).toBe(2);
+    await expect(scan).toHaveAttribute("data-scan-ms", /^\d+$/); await expect(scan).not.toHaveAttribute("data-need", "", { timeout: 10_000 });
+    const [totalMs, sweepMs] = await Promise.all([scan.getAttribute("data-scan-ms"), scan.getAttribute("data-scan-sweep-ms")]);
+    test.info().annotations.push({ type: "scan-ms", description: `sweep ${sweepMs} ms, total ${totalMs} ms (stand-in reader)` });
+    expect(Number(totalMs)).toBeLessThan(2000);
+    await expect(chip).toHaveText("Watching field", { timeout: 10_000 });
+  });
+
   test("1v1 table: phase rail, LP, undo, drawers", async ({ page, context }) => {
     const slug = await soloTable(context.request, 2);
     await page.goto(`/duels/remote/${slug}`);
@@ -408,14 +464,19 @@ test.describe("remote duels screen, solo", () => {
     for (const zone of ["M1", "S5", "EMZ1"]) await expect(dialog.locator(`polygon[data-zone="${zone}"]`)).toHaveCount(1);
     await dialog.getByRole("button", { name: "Cancel calibration" }).click();
     await expect(dialog).toBeHidden();
-    // The toggle starts off, and on stays on for this device; the opponent feed starts without a grid.
+    // The toggle starts on with a "Recommended" hint; off is remembered for this device.
     const toggle = page.getByTestId("zone-grid-toggle").first();
     await page.getByTestId("feed-box-0").hover();
+    await expect(toggle).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByTestId("zone-grid-hint")).toHaveText("Recommended — shows where your zones are");
+    await toggle.click();
     await expect(toggle).toHaveAttribute("aria-pressed", "false");
+    await expect(page.getByTestId("zone-grid-hint")).toHaveText("Zones off");
     await toggle.click();
     await expect(toggle).toHaveAttribute("aria-pressed", "true");
     await page.reload();
-    await page.getByTestId("camera-on-feed").click();
+    // After a reload the camera may resume by itself, so the button is not always there to click.
+    await page.getByTestId("camera-on-feed").click({ timeout: 4_000 }).catch(() => undefined);
     await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.videoWidth), { timeout: 30_000 }).toBeGreaterThan(0);
     await page.getByTestId("feed-box-0").hover();
     await expect(page.getByTestId("zone-grid-toggle").first()).toHaveAttribute("aria-pressed", "true");
@@ -696,8 +757,7 @@ test.describe("remote lobby camera step", () => {
     const status = page.getByTestId("field-watcher-status");
     // Only a state after the record was read with the camera on can show a missing calibration.
     await expect(status).toHaveText(/^(Preparing card reader…|Watching field.*|Reader off|Paused · busy)$/, { timeout: 30_000 });
-    // With the zones calibrated, the grid shows only when the player turns it on.
-    await page.getByTestId("feed-box-0").hover(); await page.getByTestId("zone-grid-toggle").first().click();
+    // With the zones calibrated, the grid shows by default.
     const tableGrid = page.locator('[data-testid="zone-grid"][data-calibrated="true"]');
     await expect(tableGrid.first()).toBeVisible();
     const tableCells = await cells('[data-testid="zone-grid"][data-calibrated="true"] polygon', 1);
@@ -778,7 +838,7 @@ test.describe("remote duels screen, moving cards by hand", () => {
       await page.getByTestId("feed-box-0").hover(); await page.getByRole("button", { name: "Calibrate zones", exact: true }).first().click();
       const dialog = page.getByRole("dialog", { name: "Calibrate field zones", exact: true }); await expect(dialog).toBeVisible();
       await dialog.getByTestId("camera-my-view").click(); await dialog.getByRole("button", { name: "Save calibration", exact: true }).click(); await expect(dialog).toBeHidden();
-      await expect(grid).toHaveCount(0); await page.getByTestId("feed-box-0").hover(); await expect(page.getByTestId("zone-grid-toggle").first()).toHaveAttribute("aria-pressed", "false");
+      await expect(grid).toHaveAttribute("data-calibrated", "true"); await page.getByTestId("feed-box-0").hover(); await expect(page.getByTestId("zone-grid-toggle").first()).toHaveAttribute("aria-pressed", "true");
       await page.keyboard.press("w"); await expect(page.getByTestId("fwrap-0")).toBeHidden();
       await page.reload(); await expect(page.getByTestId("remote-table")).toBeVisible(); await expect(page.getByTestId("fwrap-0")).toBeHidden();
       await page.keyboard.press("w"); await expect(page.getByTestId("fwrap-0")).toBeVisible();
@@ -1312,6 +1372,43 @@ test.describe("remote duels, spectators", () => {
     } finally { await Promise.all([alice, bob, carol].map(context => context!.close())); }
   });
 
+  test("a spectator clicks a card on a player's camera and the feed owner's reader answers", async ({ browser }) => {
+    test.skip(!HAVE_LIVEKIT, `needs LiveKit at ${LIVEKIT.origin} (LIVEKIT_URL)`);
+    test.setTimeout(300_000);
+    const url = process.env.E2E_REMOTE_UI_URL ?? "http://localhost:3310";
+    const [alice, bob, carol] = await Promise.all([1, 2, 3].map(() => browser.newContext({ baseURL: url })));
+    await Promise.all([alice!, bob!, carol!].map(bothView));
+    try {
+      for (const [context, userId] of [[alice, 101], [bob, 102], [carol, 103]] as const) await authenticatePlayer(context!.request, { userId }, process.env.E2E_AUTH_SECRET!, url);
+      const slug = await startTwoPlayerTable(alice!.request, bob!.request, "public");
+      const [a, b, c] = await Promise.all([alice!.newPage(), bob!.newPage(), carol!.newPage()]);
+      // Alice's card reader is a stand-in (the stack has no vision models): it answers Dark Magician for any point on her feed.
+      await a.addInitScript(() => { (window as unknown as { __e2eRecognize: unknown }).__e2eRecognize = async () => ({ candidates: [{ cardId: 46986414, name: "Dark Magician", score: .95 }], tier: "sure", faceDown: false, covered: false }); });
+      await fakeCamera(a); await fakeCamera(b);
+      await Promise.all([a.goto(`/duels/remote/${slug}`), b.goto(`/duels/remote/${slug}`), c.goto(`/duels/remote/${slug}`)]);
+      for (const page of [a, b]) { await expect(page.getByTestId("remote-table")).toBeVisible(); await page.getByTestId("camera-on-feed").click(); }
+      await expect(c.getByTestId("spectator-table")).toBeVisible({ timeout: 30_000 });
+      const video = c.locator('[data-testid="feed-0"] video');
+      await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.videoWidth).catch(() => 0), { timeout: 60_000 }).toBeGreaterThan(0);
+      await c.getByTestId("feed-0").hover(); await c.waitForTimeout(500);
+      const p = await video.evaluate((v: HTMLVideoElement) => {
+        const r = v.getBoundingClientRect(); const sc = Math.min(r.width / v.videoWidth, r.height / v.videoHeight);
+        const w = v.videoWidth * sc; const h = v.videoHeight * sc;
+        return { x: r.left + (r.width - w) / 2 + 0.338 * w, y: r.top + (r.height - h) / 2 + 0.486 * h };
+      });
+      await c.mouse.click(p.x, p.y);
+      // The spectator sees the same card reading a player gets, in the read-only inspector.
+      await expect(c.getByTestId("card-popover")).toBeVisible({ timeout: 60_000 });
+      await expect(c.getByTestId("popover-name")).toHaveText("Dark Magician");
+      await shot(c, "spectator-tap-read");
+      // A tap-mode read of a player (no board place) is a public read, so the spectator sees it in the recent reads of that seat.
+      const room = await (await alice!.request.get(`/api/remote/${slug}`)).json();
+      const tapped = await alice!.request.post(`/api/remote/${slug}/actions`, { data: { baseSeq: room.lastSeq, action: { type: "card.identified", actorSeat: 0, seat: 0, cardId: 46986414, source: "click", idempotencyKey: crypto.randomUUID() } } });
+      expect(tapped.status(), await tapped.text()).toBe(200);
+      await expect(c.getByTestId("tap-reads-0")).toContainText("Dark Magician", { timeout: 15_000 });
+    } finally { await Promise.allSettled([alice!, bob!, carol!].map(context => context.close())); }
+  });
+
   test("a spectator watches a public table, cannot act, sees nothing hidden, and a private table refuses", async ({ browser }) => {
     test.setTimeout(480_000);
     const url = process.env.E2E_REMOTE_UI_URL ?? "http://localhost:3310";
@@ -1327,14 +1424,14 @@ test.describe("remote duels, spectators", () => {
         expect(done.status(), await done.text()).toBe(200);
       };
       await act({ type: "twin.place", seat: 0, zone: "spell-trap", card: { ref: "c0-53582587-set", slot: 1, cardId: 53582587, name: "Torrential Tribute", faceUp: false } });
-      // Face up once, then Set: the old event must not name it.
+      // Face up once, then turned face-down in place: public to every player and spectator (the camera saw it face-up).
       await act({ type: "twin.place", seat: 0, zone: "spell-trap", card: { ref: "c0-70825459-was", slot: 2, cardId: 70825459, name: "Trap Tracks", faceUp: true } });
       await act({ type: "twin.flip", seat: 0, cardRef: "c0-70825459-was", faceUp: false });
       // Added to hand is public table knowledge (the opponent sees it), so the spectator may see it too, never more than the opponent.
       await act({ type: "hand.add", cardId: 47355498, source: "unknown" });
       await act({ type: "twin.place", seat: 0, zone: "banished", card: { ref: "c0-24094653-down", slot: 1, cardId: 24094653, name: "Polymerization", faceUp: false } });
       await act({ type: "twin.place", seat: 0, zone: "monster", card: { ref: "shown", slot: 1, cardId: 900000001, name: "Origin fixture 1", faceUp: true } });
-      const hiddenFree = (text: string) => { for (const secret of ["Torrential", "53582587", "Trap Tracks", "70825459", "24094653", "Polymerization", "\"deck\":{", "savedDeckId", "deckCount", "effectTracking"]) expect(text, secret).not.toContain(secret); };
+      const hiddenFree = (text: string) => { for (const secret of ["Torrential", "53582587", "24094653", "Polymerization", "\"deck\":{", "savedDeckId", "deckCount", "effectTracking"]) expect(text, secret).not.toContain(secret); };
 
       // Listed where normal duels list tables, and the view from the server holds no hidden fact.
       expect((await (await carol!.request.get("/api/remote?scope=open")).json()).tables.some((t: { slug: string }) => t.slug === slug)).toBe(true);
@@ -1345,7 +1442,10 @@ test.describe("remote duels, spectators", () => {
       expect([view.spectator, view.mySeat]).toEqual([true, -1]);
       hiddenFree(viewText);
       expect(view.state.seats[0].twin.find((c: { ref: string }) => c.ref === "shown").name).toBe("Origin fixture 1");
-      expect(view.state.seats[0].twin.filter((c: { ref: string; cardId?: number }) => c.ref.startsWith("private-card-") && c.cardId === undefined)).toHaveLength(3);
+      expect(view.state.seats[0].twin.filter((c: { ref: string; cardId?: number }) => c.ref.startsWith("private-card-") && c.cardId === undefined)).toHaveLength(2);
+      const known = (state: { seats: { twin: { ref: string; name?: string; faceUp?: boolean }[] }[] }) => state.seats[0].twin.find(c => c.ref === "c0-70825459-was");
+      expect(known(view.state)).toMatchObject({ name: "Trap Tracks", faceUp: false });
+      expect(known(view.state)).toEqual(known((await (await bob!.request.get(path)).json()).state));
       expect(view.state.seats[0].knownHand.map((c: { cardId: number }) => c.cardId)).toEqual([47355498]);
       expect(view.state.seats[0].knownHand).toEqual((await (await bob!.request.get(path)).json()).state.seats[0].knownHand);
       expect(view.state.seats[0].handCount).toBeDefined();
@@ -1371,7 +1471,7 @@ test.describe("remote duels, spectators", () => {
       const media = await carol!.request.post(`${path}/livekit`);
       expect(media.status(), await media.text()).toBe(200);
       const grant = JSON.parse(Buffer.from((await media.json()).token.split(".")[1], "base64url").toString()).video;
-      expect(grant).toMatchObject({ canPublish: false, canPublishData: false, canSubscribe: true, hidden: true, room: `remote-${slug}` });
+      expect(grant).toMatchObject({ canPublish: false, canPublishData: true, canSubscribe: true, hidden: true, room: `remote-${slug}` });
       const grantOf = (token: string) => JSON.parse(Buffer.from(token.split(".")[1]!, "base64url").toString()).video;
       // Voice: a spectator gets no token for its room, and no seated token can put a microphone in the room a spectator enters.
       const noVoice = await carol!.request.post(`${path}/livekit?voice=1`);
@@ -1939,15 +2039,17 @@ test('field watcher automatic: tap to identify reads every camera on a click, ru
     const offer=a.getByTestId('tap-identify-offer');await expect(offer).toContainText('Switch to tap-to-identify?',{timeout:60_000});
     const boxes=async()=>a.evaluate(()=>['feed-box-0','remote-table'].map(id=>{const r=document.querySelector(`[data-testid="${id}"]`)!.getBoundingClientRect();return [r.left,r.top,r.width,r.height];}));
     await offer.getByRole('button',{name:'Switch',exact:true}).click();await expect(offer).toHaveCount(0);await expect(a.getByTestId('field-watcher-status')).toHaveText('Tap to identify');
-    // Tap to identify starts with the virtual field hidden, so the camera may move once. After that it stays put.
-    await expect(a.getByTestId('field-toggle-0')).toContainText('Show virtual field');
+    // Tap to identify turns my board off, so the camera may move once. After that it stays put.
+    await expect(a.getByTestId('tap-off-banner')).toContainText('Your board is off');
     const settled=await boxes();await a.waitForTimeout(800);expect(await boxes()).toEqual(settled);
     await expect(a.getByLabel('Auto-detect cards',{exact:true})).not.toBeChecked();expect(await a.evaluate(()=>localStorage.getItem('dd-remote-tap-offer:v1'))).toBe('switch');
     // Bob changes the mode in the Settings menu; the checkbox follows.
     await b.getByTestId('camera-settings').first().click();await pickSelect(b,'Card detection',{value:'tap'});await b.keyboard.press('Escape');await expect(b.getByLabel('Auto-detect cards',{exact:true})).not.toBeChecked();
     await expect.poll(()=>b.locator('[data-testid="feed-0"] video').evaluate((v:HTMLVideoElement)=>v.videoWidth),{timeout:40_000}).toBeGreaterThan(0);
     // Bob sees Alice's mode on her camera.
-    await expect(b.getByTestId('feed-tap-tag')).toBeVisible();await expect(b.locator('[data-testid="feed-0"]').locator('..').getByTestId('zone-grid-toggle')).toBeDisabled();
+    await expect(b.getByTestId('feed-tap-tag')).toHaveText('Tap mode — auto-detect off');await expect(b.locator('[data-testid="feed-0"]').locator('..').getByTestId('zone-grid-toggle')).toBeDisabled();
+    // A normal table logs each mode switch with its reason too: Alice took the slow-computer offer, Bob chose it himself.
+    await expect.poll(async()=>((await alice.request.get(`/api/remote/${slug}`).then(r=>r.json())).events as any[]).filter(e=>e.action.type==='detection.mode'&&e.action.mode==='tap').map(e=>`${e.action.actorSeat}:${e.action.reason}`).sort(),{timeout:15_000}).toEqual(['0:slow-offer','1:player']);
     await a.evaluate(()=>((window as any).fieldTest).appear());await a.waitForTimeout(1500);
     const calls=(page:Page,type:string)=>page.evaluate(t=>(window as any).visionCalls.filter((c:string)=>c===t).length,type);
     const before=await Promise.all([a,b].flatMap(page=>[calls(page,'detect'),calls(page,'recognize')]));
@@ -2534,5 +2636,74 @@ test.describe("remote duels screen, card logic", () => {
     expect((await room()).state.seats[0].twin.find(card => card.ref === "yd")?.equippedTo).toBeUndefined();
     await dialog.getByTestId("equip-pick").first().click();
     await expect.poll(async () => (await room()).state.seats[0].twin.find(card => card.ref === "yd")).toMatchObject({ zone: "spell-trap", equippedTo: { seat: 0, ref: "dm" } });
+  });
+});
+
+test.describe("remote duels screen, Auto-detect off", () => {
+  test.beforeEach(async ({ context }) => { await authenticatePlayer(context.request, { userId: 101 }, process.env.E2E_AUTH_SECRET!, process.env.E2E_REMOTE_UI_URL!); });
+
+  test("with Auto-detect off my feed says so and why, fits at every size, and Turn on switches it back", async ({ page, context }) => {
+    await fakeCamera(page, "16:9");
+    await page.addInitScript(() => { localStorage.setItem("dd-remote-tap-offer:v1", "switch"); localStorage.setItem("dd-remote-tap-reason:v1", "slow"); });
+    const slug = await soloTable(context.request, 2);
+    await page.goto(`/duels/remote/${slug}`);
+    await page.getByTestId("camera-on-feed").click();
+    const banner = page.getByTestId("tap-off-banner");
+    await expect(banner).toContainText("Auto-detect off — cards are read only when you tap", { timeout: 30_000 });
+    await expect(banner).toContainText("Switched because this computer looked slow");
+    for (const [width, height] of [[1920, 1080], [2560, 1440], [1366, 768]] as const) {
+      await page.setViewportSize({ width, height }); await page.waitForTimeout(250);
+      await shot(page, `auto-detect-off-${width}`);
+      const box = await banner.boundingBox(), video = await page.getByTestId("feed-box-0").boundingBox();
+      // The strip sits under the video, inside the screen and two lines tall at most: it never covers a card a tap has to reach.
+      expect(box && video && box.y >= video.y + video.height - 1 && box.x >= 0 && box.x + box.width <= width && box.height <= 48, `${width}x${height} strip under video`).toBe(true);
+    }
+    // Adjust zones opens the same editor as the lobby, from the own feed.
+    await page.getByTestId("feed-box-0").hover(); await page.getByTestId("zone-grid-adjust").click();
+    const dialog = page.getByRole("dialog", { name: "Calibrate field zones", exact: true }); await expect(dialog).toBeVisible();
+    await dialog.getByRole("button", { name: "Cancel calibration" }).click(); await expect(dialog).toBeHidden();
+    // Tap mode: a tap near the top of the feed is the only way to read a card, so it must reach the feed and start a read.
+    await page.setViewportSize({ width: 1366, height: 768 }); await page.waitForTimeout(250);
+    const video = (await page.getByTestId("feed-box-0").boundingBox())!, x = video.x + video.width * 0.85, y = video.y + 60;
+    expect(await page.evaluate(([px, py]) => !!document.elementFromPoint(px, py)?.closest('[data-testid="feed-box-0"]'), [x, y]), "tap target is the feed").toBe(true);
+    await page.mouse.click(x, y);
+    await expect(page.locator('[data-testid="reticle"], [data-testid="no-card"], [role="status"]:has-text("Reading card")')).not.toHaveCount(0, { timeout: 10_000 });
+    await page.keyboard.press("Escape");
+    await page.getByTestId("tap-off-turn-on").click();
+    await expect(banner).toHaveCount(0);
+    expect(await page.evaluate(() => localStorage.getItem("dd-remote-tap-offer:v1"))).toBe("keep");
+  });
+  test("a Tap mode player's board is off for everyone, with a note, LP and piles kept, and it comes back with Auto-detect", async ({ browser }) => {
+    test.setTimeout(240_000);
+    const url = process.env.E2E_REMOTE_UI_URL!;
+    const alice = await browser.newContext({ baseURL: url }), bob = await browser.newContext({ baseURL: url });
+    try {
+      for (const [who, userId] of [[alice, 101], [bob, 102]] as const) { await authenticatePlayer(who.request, { userId }, process.env.E2E_AUTH_SECRET!, url); await bothView(who); }
+      const slug = await startTwoPlayerTable(alice.request, bob.request);
+      const a = await alice.newPage(), b = await bob.newPage();
+      for (const page of [a, b]) await expect(async () => { await page.goto(`/duels/remote/${slug}`); await expect(page.getByTestId("rail")).toBeVisible({ timeout: 15_000 }); }).toPass({ timeout: 150_000 });
+      await expect(b.getByTestId("fwrap-0")).toBeVisible(); await expect(b.getByTestId("tap-board-off")).toHaveCount(0);
+      // Alice announces Tap mode. The table state carries it, so Bob needs no camera signal.
+      const mode = async (value: "tap" | "auto") => {
+        const { lastSeq } = await (await alice.request.get(`/api/remote/${slug}`)).json();
+        const sent = await alice.request.post(`/api/remote/${slug}/actions`, { data: { baseSeq: lastSeq, action: { type: "detection.mode", actorSeat: 0, mode: value, reason: "player", idempotencyKey: crypto.randomUUID() } } });
+        expect(sent.ok(), await sent.text()).toBe(true);
+      };
+      await mode("tap");
+      const note = b.getByTestId("tap-board-off");
+      await expect(note).toContainText("Board off — Tap mode. Cards are read only when tapped.", { timeout: 20_000 });
+      await expect(b.getByTestId("fwrap-0")).toBeHidden(); await expect(b.getByTestId("fwrap-1")).toBeVisible();
+            // LP and the piles stay. The note fits inside the screen at every size.
+      await expect(b.getByTestId("lp-value-0")).toBeVisible(); await expect(b.getByTestId("wc-piles-0")).toBeVisible();
+      // The public-cards list of Webcam only stays on a board-off seat.
+      await expect(b.getByTestId("wc-cards-0")).toHaveCount(1);
+      for (const [width, height] of [[1920, 1080], [2560, 1440], [1366, 768], [1366, 560]] as const) {
+        await b.setViewportSize({ width, height }); await b.waitForTimeout(250); await shot(b, `tap-board-off-${width}`);
+        const box = await note.boundingBox(), lp = await b.getByTestId("lp-value-0").boundingBox();
+        expect(box && lp && box.x >= 0 && box.y >= 0 && box.x + box.width <= width && box.y + box.height <= height && lp.y + lp.height <= height, `${width}x${height} note and LP inside the screen`).toBe(true);
+      }
+      await mode("auto");
+      await expect(note).toHaveCount(0, { timeout: 20_000 }); await expect(b.getByTestId("fwrap-0")).toBeVisible();
+    } finally { await Promise.allSettled([alice.close(), bob.close()]); }
   });
 });

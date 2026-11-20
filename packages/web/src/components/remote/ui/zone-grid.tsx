@@ -18,7 +18,8 @@ const inView = (p: { x: number; y: number }) => p.x > .01 && p.x < .99 && p.y > 
 /**
  * A skeleton playmat over one camera feed: thin outlines and small zone labels, drawn through the saved calibration.
  * It sits on the video's own box, so it follows every resize and every swap of the video with the field.
- * Off by default (`visible`). While auto-detect waits for my zones, my own feed still draws a default grid with the calibrate controls.
+ * Shown by default (`visible`). While auto-detect waits for my zones, my own feed still draws a default grid with the calibrate controls.
+ * Another seat draws only the grid its owner shared.
  * With the grid off, only the "Move into one zone" hint stays: it helps recognition.
  */
 export function ZoneGridOverlay({ seat, box, visible=true, onControlsEnter, spectator }: { seat: number; box: Box | null; visible?:boolean; onControlsEnter?:()=>void;
@@ -69,7 +70,9 @@ export function ZoneGridOverlay({ seat, box, visible=true, onControlsEnter, spec
   const frame: CSSProperties = spectator ? { left: 0, top: 0, width: "100%", height: "100%" } : { left: box!.left, top: box!.top, width: box!.width, height: box!.height };
   const straddle = hints.map(hint => <span key={hint.id} className={s.zghint} style={{ left: `${Math.min(88, Math.max(12, hint.x * 100))}%`, top: `${Math.max(4, hint.y * 100 - 3)}%` }}
     data-testid="zone-straddle" title={`Across ${hint.pair[0]} and ${hint.pair[1]}`}>Move into one zone</span>);
-  if (!visible && !needsCalibration) return hints.length ? <div className={s.zglabels} style={frame} aria-hidden="true">{straddle}</div> : null;
+  // Another seat draws its grid only when its owner shared a calibration: a guessed grid would show zones that are not on their mat.
+  const drawn = own ? visible || needsCalibration : visible && !!calibration;
+  if (!drawn) return hints.length ? <div className={s.zglabels} style={frame} aria-hidden="true">{straddle}</div> : null;
   return <>
     <svg className={s.zgrid} style={frame} viewBox="0 0 1 1" preserveAspectRatio="none" aria-hidden="true" data-testid="zone-grid" data-calibrated={calibrated} data-seat={seat}>
       {projected.map(({ cell, corners }) => <polygon key={cell.zone} data-zone={cell.zone} data-glow={!!glow[cell.zone]} className={s.zgcell}
@@ -81,7 +84,6 @@ export function ZoneGridOverlay({ seat, box, visible=true, onControlsEnter, spec
       {straddle}
 
     </div>
-    {!own&&!spectator&&!calibration&&box?<div className={s.zgcontrols} style={{left:box.left+8,top:box.top+36}}>Default grid · waiting for owner calibration</div>:null}
     {own&&box&&grid.setCalibration?<div className={s.zgcontrols} style={{left:box.left+5,top:box.top+33,padding:3,maxWidth:Math.max(0,box.width-10)}}>
       <FieldOrientationSelect calibration={calibration} defaultSide={defaultSide} onChange={grid.setCalibration} onPointerEnter={onControlsEnter}/>
       {/* Calibrate zones lives in the bar under the feed, one button for both states. */}
