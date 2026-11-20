@@ -459,19 +459,13 @@ describe("access page", () => {
   it("explains the invite-only alpha with the waitlist, sign-in and legal links", async () => {
     const { container } = render(await AccessPage());
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(/invite-only/i);
-    expect(screen.getByRole("link", { name: "Join the waitlist" })).toHaveAttribute("href", `${MARKETING}/?home=1#join`);
+    expect(screen.getByRole("link", { name: "Join the waitlist" })).toHaveAttribute("href", "/waitlist");
     expect(screen.getByRole("link", { name: "Sign in" })).toHaveAttribute("href", "/sign-in");
     expect(container).toHaveTextContent("Invited? Use the link in your email.");
     const foot = container.querySelector('[data-slot="foot"]') as HTMLElement;
     expect(within(foot).getByRole("link", { name: "Terms" })).toHaveAttribute("href", "https://duelingdomain.com/terms");
     expect(within(foot).getByRole("link", { name: "Privacy" })).toHaveAttribute("href", "https://duelingdomain.com/privacy");
     expect(root(container)).toHaveAttribute("data-pack-state", "sealed");
-  });
-
-  it("falls back to the public marketing site when MARKETING_URL is unset", async () => {
-    vi.stubEnv("MARKETING_URL", "");
-    render(await AccessPage());
-    expect(screen.getByRole("link", { name: "Join the waitlist" })).toHaveAttribute("href", "https://duelingdomain.com/?home=1#join");
   });
 
   it("imports nothing from Clerk and has no client code", () => {

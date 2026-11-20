@@ -7,7 +7,7 @@ import type { AuthFlowState } from "@/lib/auth-flow";
 import { isTournamentBridgeReturn } from "@/lib/auth-return";
 import { AuthFlowShell } from "./flow-shell";
 import { hardNavigate } from "./navigate";
-import { signInHref, waitlistHref } from "./marketing-links";
+import { APP_WAITLIST_PATH, signInHref } from "./marketing-links";
 import { AccountUnavailableStep } from "./steps/account-unavailable-step";
 import { CheckingInviteStep } from "./steps/checking-invite-step";
 import { CodeStep } from "./steps/code-step";
@@ -53,9 +53,9 @@ export function SignInView({ flow: { state, actions }, marketingUrl }: ViewProps
           case "success":
             return <SuccessStep />;
           case "err-invite":
-            return <NotInvitedStep identifier={state.identifier ?? ""} waitlistUrl={waitlistHref(marketingUrl)} onRetry={actions.back} onJoined={() => setWaitlisted(true)} />;
+            return <NotInvitedStep identifier={state.identifier ?? ""} waitlistUrl={APP_WAITLIST_PATH} onRetry={actions.back} onJoined={() => setWaitlisted(true)} />;
           case "err-signup":
-            return <SignupClosedStep waitlistUrl={waitlistHref(marketingUrl)} onRetry={restart} />;
+            return <SignupClosedStep waitlistUrl={APP_WAITLIST_PATH} onRetry={restart} />;
           case "err-banned":
             return <AccountUnavailableStep onBack={restart} />;
           default:
@@ -101,7 +101,7 @@ export function AccountView({ flow: { state, actions }, marketingUrl, callback =
           case "err-banned":
             return <AccountUnavailableStep onBack={restart} />;
           default:
-            return <SignupClosedStep waitlistUrl={waitlistHref(marketingUrl)} onRetry={restart} />;
+            return <SignupClosedStep waitlistUrl={APP_WAITLIST_PATH} onRetry={restart} />;
         }
       })()}
     </AuthFlowShell>

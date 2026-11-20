@@ -2,9 +2,17 @@ import { timingSafeEqual } from "node:crypto";
 import type { NextRequest } from "next/server";
 import { createUserService } from "@yugidraft/shared/services";
 import { getDb } from "@/lib/db";
+import { joinWaitlist } from "@/lib/waitlist-join";
 import { clearRecoveryCookies, OAUTH_COOKIE, openCookie, recoveryRateLimit, recoveryRedirect, setRecoveryCookie, signInRecovery, validEmail, webOrigin, type OAuthProof } from "@/lib/existing-player";
 
 export const runtime = "nodejs";
+const WAITLIST_FORM_PATH = "/waitlist?s=form";
+/** `/waitlist?s=...` shows the result without any email in the URL. */
+async function waitlistPath(email: string, userAgent: string | null): Promise<string> {
+  if (!validEmail(email)) return WAITLIST_FORM_PATH;
+  const outcome = await joinWaitlist(email, { source: "app-not-invited", userAgent });
+  return outcome === "error" ? WAITLIST_FORM_PATH : `/waitlist?s=${outcome}`;
+}
 export async function GET(request: NextRequest) {
   if (request.nextUrl.searchParams.has("error")) return clearRecoveryCookies(recoveryRedirect("/sign-in?error=discord_recovery_cancelled"));
   const limited = recoveryRateLimit(request, "callback"); if (limited) return clearRecoveryCookies(limited);
@@ -31,11 +39,13 @@ export async function GET(request: NextRequest) {
     if (typeof profile.id !== "string" || !/^[0-9]{1,25}$/.test(profile.id)) throw new Error("Discord identity unavailable");
     const user = createUserService(getDb()).findByDiscordId(profile.id);
     const email = typeof profile.email === "string" ? profile.email.trim().toLowerCase() : "";
-    if (!user) return clearRecoveryCookies(recoveryRedirect("/access"));
+    // Not an existing player. Clerk refused this Discord sign-in (waitlist mode), so put the verified Discord email on
+    // the waitlist here instead of asking for it again. Without a verified email, show the one-step email form.
+    if (!user) return clearRecoveryCookies(recoveryRedirect(await waitlistPath(profile.verified === true ? email : "", request.headers.get("user-agent"))));
     // A repeat recovery uses only this proven Discord row's stored Clerk ID.
     // Never select a Clerk account using email alone.
     if (user.clerkUserId) return await signInRecovery(request, user.clerkUserId, profile.id, proof.returnTo);
-    if (profile.verified !== true || !validEmail(email)) return clearRecoveryCookies(recoveryRedirect("/access"));
+    if (profile.verified !== true || !validEmail(email)) return clearRecoveryCookies(recoveryRedirect(WAITLIST_FORM_PATH));
     const response = clearRecoveryCookies(recoveryRedirect("/welcome-back"));
     setRecoveryCookie(response, "identity", { userId: user.id, discordId: profile.id, email, returnTo: proof.returnTo,
       discordUsername: typeof profile.username === "string" ? profile.username.slice(0, 128) : "" });

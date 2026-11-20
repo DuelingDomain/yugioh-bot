@@ -1,6 +1,6 @@
 import { SignInShell } from "./sign-in-shell";
 import { SignInFootLinks, SignInStep } from "./sign-in-step";
-import { waitlistHref } from "./marketing-links";
+import { APP_WAITLIST_PATH } from "./marketing-links";
 import shell from "./sign-in-shell.module.css";
 
 /**
@@ -18,7 +18,7 @@ export function AccessContent({ marketingUrl }: { marketingUrl: string | null })
         foot={<SignInFootLinks lead={<p>Invited? Use the link in your email.</p>} />}
       >
         <div className={shell.form}>
-          <a className={`${shell.btn} ${shell["btn-primary"]}`} href={waitlistHref(marketingUrl)}>Join the waitlist</a>
+          <a className={`${shell.btn} ${shell["btn-primary"]}`} href={APP_WAITLIST_PATH}>Join the waitlist</a>
           <a className={`${shell.btn} ${shell["btn-alt"]}`} href="/sign-in">Sign in</a>
           <p className={shell.fine}>Already have an account? Sign in with Discord or your email.</p>
         </div>
