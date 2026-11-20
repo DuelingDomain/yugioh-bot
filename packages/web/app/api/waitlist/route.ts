@@ -69,7 +69,7 @@ export async function POST(request: Request): Promise<Response> {
     heardFromDetail: data.heardFromDetail,
   });
   // The public form never reveals whether an email is invited or already has an account.
-  return respond(outcome === "retry" || outcome === "error" ? outcome : "joined");
+  return respond(outcome === "retry" || outcome === "error" ? outcome : outcome === "rejected" ? "invalid" : "joined");
 }
 
 export const runtime = "nodejs";

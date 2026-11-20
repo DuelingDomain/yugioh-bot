@@ -8,9 +8,10 @@ import { getDb } from "@/lib/db";
 
 /**
  * "joined": on the list (new or already there). "invited": the list entry already has an invitation. "account": the email
- * already belongs to a Clerk user. "retry": local row saved, Clerk call failed or is unreachable. "error": nothing saved.
+ * is proven to belong to a Clerk user. "rejected": Clerk refused the email and it is neither listed nor a user.
+ * "retry": local row saved, Clerk call failed or is unreachable. "error": nothing saved.
  */
-export type WaitlistJoinOutcome = "joined" | "invited" | "account" | "retry" | "error";
+export type WaitlistJoinOutcome = "joined" | "invited" | "account" | "rejected" | "retry" | "error";
 export interface WaitlistJoinMeta { source: string; userAgent?: string | null; heardFrom?: unknown; heardFromDetail?: unknown }
 
 /**
@@ -38,13 +39,20 @@ async function handledByAllowlist(email: string): Promise<"joined" | "retry" | n
   }
 }
 
-/** Clerk refuses a second entry (or an email that is already a user) with a 4xx; find out which of the two it is. */
-async function resolveDuplicate(backend: ReturnType<typeof createClerkBackend>, email: string): Promise<WaitlistJoinOutcome> {
+/**
+ * Clerk refused the create with a 4xx. Find out why from facts, not from the status: an exact-email waitlist entry
+ * (paged, like deleteWaitlistEntriesByEmail) or a proven Clerk user. Neither found: "rejected" (Clerk disliked the email).
+ */
+async function resolveRefusal(backend: ReturnType<typeof createClerkBackend>, email: string): Promise<WaitlistJoinOutcome> {
   try {
-    const { data } = await backend.listWaitlistEntries({ query: email, limit: 20 });
-    const entry = data.find(item => item.email_address.trim().toLowerCase() === email);
-    if (!entry) return "account";
-    return entry.status === "invited" || entry.invitation ? "invited" : "joined";
+    for (let offset = 0; ;) {
+      const page = await backend.listWaitlistEntries({ query: email, offset, limit: 100 });
+      const entry = page.data.find(item => item.email_address.trim().toLowerCase() === email);
+      if (entry) return entry.status === "invited" || entry.invitation ? "invited" : "joined";
+      offset += page.data.length;
+      if (page.data.length === 0 || offset >= page.totalCount) break;
+    }
+    return (await backend.listUsers({ emailAddress: email })).length > 0 ? "account" : "rejected";
   } catch {
     return "retry";
   }
@@ -76,15 +84,16 @@ export async function joinWaitlist(email: string, meta: WaitlistJoinMeta): Promi
   if (!secretKey) { log("warn", "[waitlist] CLERK_SECRET_KEY is not set"); return "retry"; }
   const backend = createClerkBackend({ secretKey });
   try {
-    await backend.createWaitlistEntry({ emailAddress: email, notify: true });
-    return "joined";
+    // For an email already on the list Clerk answers 2xx with the existing entry, so its status says whether it is invited.
+    const entry = await backend.createWaitlistEntry({ emailAddress: email, notify: true });
+    return entry?.status === "invited" || entry?.invitation ? "invited" : "joined";
   } catch (error) {
     // Status and Clerk's error code only: never the message, the email or upstream data.
     const failure = error instanceof ClerkBackendError ? `status=${error.status} code=${error.code ?? "none"}` : "unknown";
     log("warn", `[waitlist] Clerk waitlist entry failed ${failure}`);
-    // A repeat join (or an email that is already a user) is 4xx, never a reason to tell the person to retry for ever.
+    // A 4xx is not a reason to tell the person to retry for ever: find out what Clerk objects to.
     if (error instanceof ClerkBackendError && error.status >= 400 && error.status < 500 && error.status !== 429 && error.status !== 401 && error.status !== 403) {
-      return resolveDuplicate(backend, email);
+      return resolveRefusal(backend, email);
     }
     return "retry";
   }

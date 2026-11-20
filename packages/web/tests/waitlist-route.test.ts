@@ -401,6 +401,22 @@ describe("POST /api/waitlist", () => {
     expect(state.createWaitlistEntry).toHaveBeenCalledTimes(2);
   });
 
+  it("does not call a refused email an account without a listed entry or a proven user", async () => {
+    const listWaitlistEntries = vi.fn().mockResolvedValue({ data: [{ id: "w1", email_address: "other@example.com", status: "pending", invitation: null }], totalCount: 1 });
+    const listUsers = vi.fn().mockResolvedValue([]);
+    state.createBackend.mockReturnValue({ createWaitlistEntry: state.createWaitlistEntry, listWaitlistEntries, listUsers });
+    state.createWaitlistEntry.mockRejectedValue(new ClerkBackendError("form_param_format_invalid", 422, "form_param_format_invalid", null));
+    const response = await post(json());
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "invalid_email" });
+    expect(listUsers).toHaveBeenCalledExactlyOnceWith({ emailAddress: "player@example.com" });
+    // A proven user or an invited entry is never revealed on the public form.
+    listUsers.mockResolvedValue([{ id: "user_1" }]);
+    expect((await post(json())).status).toBe(201);
+    state.createWaitlistEntry.mockResolvedValue({ id: "w2", email_address: "player@example.com", status: "invited", invitation: null });
+    expect(await (await post(json())).json()).toEqual({ status: "joined" });
+  });
+
   it("heals a partial failure on the next duplicate signup, retaining the first metadata", async () => {
     state.createWaitlistEntry.mockRejectedValueOnce(new ClerkBackendError("unavailable", 503, null, null));
     expect((await post(json({ email: "player@example.com", source: "hero" }))).status).toBe(503);

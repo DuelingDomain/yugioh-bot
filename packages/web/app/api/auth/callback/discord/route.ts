@@ -27,7 +27,7 @@ const WAITLIST_FORM_PATH = "/waitlist?s=form";
 async function waitlistPath(email: string, userAgent: string | null): Promise<string> {
   if (!validEmail(email)) return WAITLIST_FORM_PATH;
   const outcome = await joinWaitlist(email, { source: "app-not-invited", userAgent });
-  return outcome === "error" ? WAITLIST_FORM_PATH : `/waitlist?s=${outcome}`;
+  return outcome === "error" ? WAITLIST_FORM_PATH : `/waitlist?s=${outcome === "rejected" ? "retry" : outcome}`;
 }
 export async function GET(request: NextRequest) {
   const limited = recoveryRateLimit(request, "callback"); if (limited) return clearRecoveryCookies(limited);
