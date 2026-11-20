@@ -20,6 +20,7 @@ import { ZoneGridOverlay } from "./zone-grid";
 import { Rail, LpStrip } from "./chrome";
 import { tabId } from "./api";
 import { describeEvent } from "./describe";
+import { SidingScreen, SpectatorEndScreen } from "./match-ui";
 import { InspectorDrawer, LogDrawer, type LogEntry } from "./drawers";
 import { Icon } from "./icons";
 import { serverNow } from "./api";
@@ -40,6 +41,7 @@ const NO_ACTIONS: CardActions = { readOnly: true, canAdd: false, adding: false, 
 const fmtTime = (at: number) => new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 const DEFAULT_RATIO = 16 / 9;
 const CARD_H = .24; const CARD_ASPECT = 59 / 86;
+const noAct = async () => null;
 const noop = () => undefined;
 const NO_WARN: ReadonlySet<string> = new Set();
 /** The spectator's own choice (this browser only): the virtual fields (Both, the default) or the cameras alone. */
@@ -131,16 +133,22 @@ function SpectatorTable({ room }: { room: RemoteRoom }) {
   const opening = match.phase === "duel" && match.opening && (match.opening.chosenSeat === undefined || match.opening.auto) && !state.ended && room.status === "active" ? match.opening : null;
   const turnSeat = match.opening && match.opening.chosenSeat === undefined && match.phase === "duel" ? -1 : state.turnSeat;
   const members = JSON.stringify(room.seats.map(({ seat, userId }) => ({ seat, userId })));
-  // One connection for the page. It ends with the table.
+  // Between games the players side deck behind a full screen: a spectator gets no cameras then, and the connection closes with them.
+  const siding = match.phase === "siding" && !!match.siding && room.status === "active";
+  const covered = ended || siding;
+  // A drawer or card popup under the full screen would keep its focus: close them when it opens.
+  useEffect(() => { if (covered) layers.close(); }, [covered]); // eslint-disable-line react-hooks/exhaustive-deps
+  const leave = () => { void stopWatching(room.slug); window.location.assign("/duels"); };
+  // One connection for the page. It ends with the table and while the players side deck.
   const [video, setVideo] = useState<SpectatorVideo | null>(null);
   useEffect(() => {
-    if (ended) return;
+    if (ended || siding) return;
     const controller = new SpectatorVideo({ slug: room.slug, guildId: room.guildId, members: JSON.parse(members) });
     setVideo(controller); void controller.connect();
     return () => { controller.dispose(); setVideo(null); };
     // The roster has its own effect: a change must keep the connection.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [room.slug, room.guildId, ended]);
+  }, [room.slug, room.guildId, ended, siding]);
   useEffect(() => { video?.setMembers(JSON.parse(members)); }, [video, members]);
   const noVideo = { subscribe: () => () => undefined, snapshot: { connection: ConnectionState.Disconnected, feeds: [], error: "" } as ReturnType<SpectatorVideo["getSnapshot"]> };
   const snapshot = useSyncExternalStore(video?.subscribe ?? noVideo.subscribe, video?.getSnapshot ?? (() => noVideo.snapshot), () => noVideo.snapshot);
@@ -214,11 +222,11 @@ function SpectatorTable({ room }: { room: RemoteRoom }) {
   const players = seatIds.map(seat => ({ seat, name: name(seat), color: COLORS[seat], eliminated: !!state.seats[seat]?.eliminated }));
   const startingLp = room.format?.settings.startingLP ?? 8000;
   const formatLabel = REMOTE_FORMATS.find(item => item.value === (room.format ?? normalizeRemoteFormat()).id)?.label ?? "";
-  const note = ended ? `This table has ended.${state.winnerSeat !== null && state.winnerSeat !== undefined ? ` ${name(state.winnerSeat)} won.` : ""}`
-    : match.phase === "siding" ? "The players are side decking." : match.phase === "result" ? "This game is over. The next game starts soon." : snapshot.error || null;
+  // The end and siding screens carry their own words; the note is for a game result and for video problems.
+  const note = ended || siding ? null : match.phase === "result" ? "This game is over. The next game starts soon." : snapshot.error || null;
 
   return <FeedCardsProvider seats={state.seats} info={info}><div className={`${duelFontClasses} ${s.app} ${v.app}`} data-mode={seatCount === 2 ? "1v1" : String(seatCount)} data-wc={webcamOnly ? "1" : undefined} data-testid="spectator-table" data-status={room.status}>
-    <div className={s.shell}>
+    <div className={s.shell} inert={covered ? true : undefined}>
       <header className={s.top}>
         <a className={s.logo} href="/duels" aria-label="Stop watching and return to the Duels page" onClick={() => void stopWatching(room.slug)}><span className={s.gem} /><b>Dueling Domain</b></a>
         <span className={`${s.crumb} ${v.hideNarrow}`}><b>Remote Duel</b> · Table {room.slug.slice(0, 8)}</span>
@@ -294,5 +302,7 @@ function SpectatorTable({ room }: { room: RemoteRoom }) {
     </InspectorDrawer>
     {layers.layer === "card" && subject ? <CardPopover subject={subject} info={info(subject.cardId)} at={popAt} actions={NO_ACTIONS} onClose={() => layers.close("card")} /> : null}
     <HandActivation events={room.events} name={name} />
+    {ended ? <SpectatorEndScreen room={room} match={match} name={name} onLeave={leave} />
+      : siding ? <SidingScreen room={room} match={match} mySeat={-1} name={name} now={serverNow} act={noAct} readOnly /> : null}
   </div></FeedCardsProvider>;
 }

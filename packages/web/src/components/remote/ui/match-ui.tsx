@@ -214,8 +214,9 @@ export function declareChoices(seats: { seat: number; name: string; out?: boolea
  * the player can also swap cards between Main, Extra and Side like the simulator. When every player is Ready or the clock ends, the
  * next game starts. The loser of the last game chooses who goes first.
  */
-export function SidingScreen({ room, match, mySeat, name, now, act, error: outsideError }: {
+export function SidingScreen({ room, match, mySeat, name, now, act, error: outsideError, readOnly }: {
   room: RemoteRoom; match: Match; mySeat: number; name: (seat: number) => string; now: () => number; act: Act;
+  /** A spectator: the clock, the ready rows and the score, with no buttons and no deck. */ readOnly?: boolean;
   /** The last action was refused (the table passes the server's reason). */ error?: string | null;
 }) {
   const rootRef = useRef<HTMLDivElement>(null);
@@ -313,7 +314,9 @@ export function SidingScreen({ room, match, mySeat, name, now, act, error: outsi
   const chooseAs = room.solo && chooser !== null ? chooser : seatNo;
   const seats = room.seats.map(item => item.seat);
   const gameNo = match.games.length + 1;
-  const score = matchScore(match, room.seatCount, mySeat);
+  const wins = winsBySeat(match, room.seatCount);
+  // A spectator has no side: the score names both players.
+  const score = readOnly ? (match.bestOf >= 3 && room.seatCount === 2 ? `${name(0)} ${wins[0]}–${wins[1]} ${name(1)}` : null) : matchScore(match, room.seatCount, mySeat);
   const lastGame = match.games[match.games.length - 1];
   const chooserWhy = room.seatCount === 2 && lastGame?.winnerSeat !== null && lastGame?.winnerSeat !== undefined ? "You lost, so you choose who goes first" : "You choose who goes first";
   const fallbackNote = room.seatCount === 2 && lastGame?.winnerSeat !== null ? "If nobody chooses, the loser goes first." : "If nobody chooses, the table picks a player.";
@@ -343,14 +346,15 @@ export function SidingScreen({ room, match, mySeat, name, now, act, error: outsi
       <p className={seriesStyles.firstNote}>{match.firstSeat !== undefined ? `${name(match.firstSeat)} goes first.` : fallbackNote}</p>
     </div> : (firstLine ? <p className={s.firstLine} data-testid="first-line">{firstLine}</p> : null);
 
-  const buttons = <div className={s.buttons}>
+  const buttons = readOnly ? null : <div className={s.buttons}>
     {imReady
       ? <SheetButton kind="secondary" size="lg" disabled={busy || expired || startLeft === 0 || (choiceLeft !== null && choiceLeft <= 0)} onClick={() => void unready()} data-testid="siding-unready">Not ready</SheetButton>
       : <SheetButton kind="primary" size="lg" loading={busy} disabled={busy || expired || mySeat < 0 || (changed && plan.reason != null)} onClick={() => void ready()} data-testid="siding-ready">Ready</SheetButton>}
   </div>;
   const waitingFirst = everyoneReady && match.firstSeat === undefined && chooser !== null;
   const firstLeft = Math.max(0, Math.ceil((choiceLeft ?? finalLeft) / 1000));
-  const status = startLeft !== null ? `Everyone is ready. The next game starts in ${startLeft} s. Press Not ready to wait.`
+  const status = readOnly ? (startLeft !== null ? `Everyone is ready. The next game starts in ${startLeft} s.` : "The players are side decking. The next game starts when everyone is ready or the clock ends.")
+    : startLeft !== null ? `Everyone is ready. The next game starts in ${startLeft} s. Press Not ready to wait.`
     : waitingFirst ? (iChoose ? `Everyone is ready. Choose who goes first: ${firstLeft} s left, then the default player goes first.` : `Everyone is ready. Waiting for ${name(chooser as number)} to choose who goes first (${firstLeft} s).`)
     : waitsForOthers ? `Your time is up. The next game starts in ${clock(finalLeft)}.`
     : expired ? "Time is up. The next game starts now."
@@ -369,7 +373,7 @@ export function SidingScreen({ room, match, mySeat, name, now, act, error: outsi
   </div>;
 
   if (!deck) {
-    return <div ref={rootRef} className={cx(sheetRoot, s.sidingRoot, s.plainRoot)} role="dialog" aria-modal="true" aria-label="Side decking" tabIndex={-1} data-testid="siding" data-deck="false">
+    return <div ref={rootRef} className={cx(sheetRoot, s.sidingRoot, s.plainRoot)} role="dialog" aria-modal="true" aria-label="Side decking" tabIndex={-1} data-testid="siding" data-deck="false" data-readonly={readOnly ? "true" : undefined}>
       <div className={s.plain}>
         <p className={betweenStyles.eyebrow}>Between games{score ? ` · Score ${score}` : ""}</p>
         <h1 className={s.plainTitle}>Game {gameNo}{match.bestOf === 3 ? " of 3" : ""} is next</h1>
@@ -438,5 +442,50 @@ export function SidingScreen({ room, match, mySeat, name, now, act, error: outsi
         </div>
       </aside>
     </div>
+  </div>;
+}
+
+/**
+ * A table that ended, for a spectator: the result, the winner and the final score. Nothing behind it can be used and it
+ * cannot be dismissed; Leave is the only action.
+ */
+export function SpectatorEndScreen({ room, match, name, onLeave }: { room: RemoteRoom; match: Match; name: (seat: number) => string; onLeave: () => void }) {
+  const rootRef = useRef<HTMLDivElement>(null);
+  useDialogFocus(rootRef);
+  const winner = match.winnerSeat ?? room.state.winnerSeat ?? null;
+  const seats = room.seats.map(seat => seat.seat);
+  const wins = winsBySeat(match, room.seatCount);
+  const series = match.bestOf >= 3 || match.games.length > 1;
+  const titleId = "spectator-end-title";
+  const reason = winner !== null ? `${name(winner)} won${match.bestOf >= 3 ? " the match" : ""}.` : "Nobody won.";
+  return <div ref={rootRef} className={cx(duelFontClasses, resultStyles.root, s.resultRoot)} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}
+    data-testid="spectator-end" data-phase="settled" data-reduced="true" data-title="calm" data-outcome="ended">
+    <div className={resultStyles.backdrop} aria-hidden="true" />
+    <div className={resultStyles.scroll}><div className={resultStyles.col}>
+      <div className={resultStyles.hero}>
+        <div className={resultStyles.light} aria-hidden="true" />
+        <p className={s.kicker}>{series ? "Match over" : "Duel over"}</p>
+        <ResultTitle id={titleId} text={HEADLINE.spectator} outcome="ended" />
+        <p className={resultStyles.reason} data-testid="spectator-end-reason">{reason}</p>
+      </div>
+      {series && room.seatCount === 2 ? <p className={s.matchScore} data-testid="spectator-end-score"><span>Final score</span><b>{wins[0]}–{wins[1]}</b><span>{name(0)} · {name(1)}</span></p> : null}
+      <ul className={resultStyles.scoreboard} aria-label="Result" data-layout={seats.length === 2 ? "duo" : "rows"}>
+        {seats.map(seat => {
+          const lp = room.state.seats[seat]?.resources.lp ?? 0;
+          return <li key={seat} className={resultStyles.score} data-winner={winner === seat ? "true" : "false"} data-out={lp <= 0 ? "true" : "false"} data-seat={seat}>
+            <div className={resultStyles.scoreText}>
+              <span className={resultStyles.scoreName}><span className={resultStyles.name}>{name(seat)}</span>{winner === seat ? <span className={resultStyles.tag} data-tag="winner">{series ? "Match winner" : "Winner"}</span> : null}</span>
+              <span className={resultStyles.scoreLp}>
+                {series ? <><b>{wins[seat]}</b><i className={resultStyles.lpUnit}>{wins[seat] === 1 ? "win" : "wins"}</i></>
+                  : <><b>{formatLp(lp)}</b><i className={resultStyles.lpUnit} aria-hidden="true">LP</i></>}
+              </span>
+            </div>
+          </li>;
+        })}
+      </ul>
+      <div className={resultStyles.actions} data-count={1}>
+        <button type="button" className={resultStyles.btn} data-kind="primary" data-autofocus onClick={onLeave} data-testid="spectator-end-leave">Leave</button>
+      </div>
+    </div></div>
   </div>;
 }
