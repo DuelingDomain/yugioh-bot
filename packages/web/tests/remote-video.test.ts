@@ -264,3 +264,13 @@ it('steps down supported exposure compensation for persistent mat glare and rest
     expect(exposureCompensation).toBe(0);
   } finally { const stopping = lock.release(); await vi.advanceTimersByTimeAsync(1200); await stopping; vi.useRealTimers(); }
 });
+
+it("drops a reader guess with card id 0 instead of failing the video", async () => {
+  const recognize = vi.fn(async () => ({ candidates: [{ cardId: 46986414, name: "Dark Magician", score: .9 }, { cardId: 0, name: "Unknown", score: .1 }], tier: "not sure" as const, faceDown: false, covered: false }));
+  const video = await connected(recognize);
+  try {
+    await video.requestRecognition(0, .4, .4, true);
+    expect(recognize).toHaveBeenCalledOnce();
+    expect(video.getSnapshot().error).toBeFalsy();
+  } finally { await video.stop(); video.dispose(); }
+});
