@@ -20,11 +20,12 @@ import {givenSpotHolds,type GivenSpot} from '@/lib/remote/given-hold';
 import {onManualMove,requestManualZone} from '@/lib/remote/manual-moves';
 import {correctionsFor,cameraCorrectionBlocked} from '@/lib/remote/manual-corrections';
 import {createChangedZones} from '@/lib/remote/changed-zones';
+import {createQuietCheck,quietCheckEnabled} from '@/lib/remote/quiet-check';
 import {projectFieldZone,tokenInCell,freeFieldZones,fieldCandidateFitsZone,hardFieldZone,isFieldSpell,zoneMoveLabel,equipSourceOnField,becomesTrapMonster,nearestFreeMonsterZone,fieldZoneLabel} from '@/lib/remote/field-legality';
 import {bindFieldTiming,markFieldTiming,bindBackTiming,fieldCameraStamp,playerStamp} from '@/lib/remote/field-timing';
 import {behaviourOf} from '@/lib/remote/card-behaviour';
 import {saveLocalFieldDiagnostic} from '@/lib/remote/field-diagnostics';
-import {ownFieldResources,detectCards,prepareOwnReader} from './ui/recognizer';
+import {ownFieldResources,detectCards,prepareOwnReader,readerBusy} from './ui/recognizer';
 import {RecognitionBadge,RecordingBadge} from './ui/recognition-setting';
 import {useTestRecording,type RecordingCalibration} from './ui/use-test-recording';
 import {useRecognitionBackend,gpuLossReason} from './ui/recognition-backend';
@@ -2120,11 +2121,12 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   // The reason shown on the Scan field button and the status chip. It shows while the mismatch lasts, never during a scan, and waits 2 s after one so
   // a stale reading does not flash it again.
   const [adviceReason,setAdviceReason]=useState<string|null>(null);
+  const quietHint=useRef<string|null>(null);
   useEffect(()=>{
     const timer=setInterval(()=>{
       const now=performance.now();let next:string|null=null;
       if(!document.hidden&&live()&&scanTimer.current===undefined&&!resyncing.current&&!calibrationBusy.current&&now-scanEndedAt.current>=2000){
-        const m=readMismatch();next=syncHoldRef.current?scanReason({holding:true,untracked:0,missing:0}):m?scanReason(m):null;
+        const m=readMismatch();next=syncHoldRef.current?scanReason({holding:true,untracked:0,missing:0}):m?scanReason(m):quietHint.current;
       }
       setAdviceReason(before=>before===next?before:next);
     },1000);
@@ -2155,6 +2157,24 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     return()=>clearInterval(timer);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[room.slug,seat,readMismatch]);
+  // Quiet background check (flag, off by default). Every 2 s it compares the watcher's own tracks with the board, but only in zones whose pixels moved after
+  // their last confirmed read; no detector pass, no queue job. It yields to any owner read (readerBusy) and to everything the auto scan waits for. A gap
+  // that stays for two checks starts one gentle scan (the auto scan path, same 20 s limit); anything less sure only shows the hint on Scan field.
+  useEffect(()=>{
+    if(!quietCheckEnabled())return;
+    const quiet=createQuietCheck();quietHint.current=null;
+    const timer=setInterval(()=>{
+      const snap=watch.getSnapshot?.();if(!snap)return;
+      const now=performance.now();
+      const result=quiet.check({now,tracks:snap.tracks,twins:current.current.room.state.seats[seat].twin,activityAt:snap.lastFieldActivityAtByZone??{},lastFullAt:snap.lastFullAt,missing:snap.missingTwins??[],
+        refOf:id=>bindings.current.get(id)??id,zoneOf:knownZone,held:ref=>undoKept.current.has(ref)||manual.current.has(ref),
+        busy:document.hidden||!live()||readerBusy()||syncHoldRef.current||scanTimer.current!==undefined||resyncing.current||calibrationBusy.current||!autoIdle.current||pointerHeld.current||(snap.status!=='watching'&&snap.status!=='budget')});
+      if(result.verdict!=='wait')quietHint.current=result.verdict==='hint'?result.reason??null:null;
+      if(result.verdict==='fix'&&now-autoScanAt.current>=20_000){autoScanAt.current=now;scanFieldRef.current('auto');}
+    },2000);
+    return()=>{clearInterval(timer);quietHint.current=null;};
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[room.slug,seat]);
   // Rescan from another seat: run my own gentle Scan field on my full-resolution camera and the normal placement flow. It never ends my sync hold,
   // and waits while calibration is open (open prompts do not pause it). The answer says what happened: started, off (Auto-detect is not watching), busy or paused.
   const rescanRef=useRef<(from:number)=>RescanReply>(()=>'off');
