@@ -228,6 +228,8 @@ const backOutline=(card:DetectedQuad)=>card.kind==='face-down'&&(card.confidence
  * No limit separates them: this one keeps a .02 gap above the wrong read and turns the weakest correct ones into a question. */
 // Spend another window only on a fast first read; a slow device keeps the ordinary one-frame path.
 const NAME_VOTE_FIRST_READ_MS=500,NAME_VOTE_WINDOW_MS=420,NAME_VOTE_SAMPLE_MS=100;
+/** Pile tops (GY, Banished) are log entries read at once: a short face wait and no name vote, so a send is named about one read after the card rests. */
+const PILE_FACE_WAIT_MS=100,pileZone=(zone:string)=>zone==='GY'||zone==='BANISHED';
 const NAME_RETRY_MIN_MS=1000,NAME_RETRY_ATTEMPTS=4,NAME_ZOOM_DELAY_MS=800;
 export const SIDEWAYS_NAME_MIN=.77;
 export const weakSidewaysRead=(r:RecognitionResult|undefined,position:FieldTrack['position'])=>!!r&&position==='defense'&&r.tier!=='low match'&&!r.quality.faceDown&&(r.candidates[0]?.score??0)<SIDEWAYS_NAME_MIN;
@@ -694,6 +696,8 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
   /** Last full pass's pile-cell scores; motion-crop passes keep showing them. */
   let lastPileScores:FieldDebug['pileScores'];
   const note=(t:InternalTrack,reason:string)=>{t.reason=reason;};
+  /** A GY/Banished top that was seen at rest but never got an entry (no name, no prompt yet). */
+  const unreadPileTop=(t:InternalTrack)=>pileZone(t.view.zone)&&t.view.state==='candidate'&&!t.view.removed&&!t.binding&&!t.view.faceDown&&!t.promptOnly&&!t.identityCheck&&(!!t.read||!!t.lastResult||!!t.appearance?.length)&&t.view.card.kind==='face-up';
   const setDecision=(t:InternalTrack,decision:SetEvidence['decision'],basis?:SetEvidence['basis'])=>{
     const previous=t.view.setEvidence;if(!previous)return;
     t.view.setEvidence={...previous,decision,...(basis?{basis}: {})};
@@ -961,7 +965,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       const priors=options.getPriors?.();
       const readOptions={k:5,maxFrames:1 as const,includeIdentityEmbedding:true,includeDiagnosticCrop:true,includeRaw:true,preferUpright:true,priors,gallery:gallery.entries(),deckFirst:true,deckRescue:!t.view.cardId&&!t.identityCheck&&!t.confirming,earlyExitMargin:options.earlyExitMargin??.02};
       let result=await options.recognizer.recognize([input] as ImageBitmap[]|ImageData[],{...readOptions,card});
-      if(options.nameVoting!==false && now()-start<=NAME_VOTE_FIRST_READ_MS && result.tier!=='sure' && (result.tier==='low match'||weakSidewaysRead(result,t.view.position)) && (t.view.state==='candidate'||pending.background) && !t.binding && !t.identityCheck && !t.confirming && restOk(t) && !pending.moving && !result.quality.faceDown && !result.quality.fallback && !result.quality.partial && !result.quality.covered) {
+      if(options.nameVoting!==false && !pileZone(t.view.zone) && now()-start<=NAME_VOTE_FIRST_READ_MS && result.tier!=='sure' && (result.tier==='low match'||weakSidewaysRead(result,t.view.position)) && (t.view.state==='candidate'||pending.background) && !t.binding && !t.identityCheck && !t.confirming && restOk(t) && !pending.moving && !result.quality.faceDown && !result.quality.fallback && !result.quality.partial && !result.quality.covered) {
         const samples:NameSample[]=[];pending.voting=samples;
         try {
           // The ordinary watcher supplies fresh, clean resting frames. Never sample around its hand/plane gates.
@@ -1819,8 +1823,15 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       }
       // Covered pile history remains in the authoritative twin list, not live
       // detector capacity. Only the freshly observed top keeps a live outline.
-      for(const t of tracks)if((bound(t)||(t.view.state==='identified'||t.view.state==='prompt')&&!!t.identityAppearance?.length)&&['GY','BANISHED'].includes(t.view.zone)&&!matched.has(t)&&
+      for(const t of tracks)if((bound(t)||(t.view.state==='identified'||t.view.state==='prompt')&&!!t.identityAppearance?.length||unreadPileTop(t))&&['GY','BANISHED'].includes(t.view.zone)&&!matched.has(t)&&
         cards.some(c=>mapFieldZone(c,calibration,[],options.format).zone===t.view.zone&&quadIou(c,t.view.card)>.35)){
+        // Two quick sends: a top covered before its read finished still counts. It becomes an entry (named when the last read
+        // was sure, else an unnamed card the player names with one tap); the web side writes it under the new top.
+        if(unreadPileTop(t)){
+          const result=t.read?.result??t.lastResult;
+          t.identityAppearance=t.read?.appearance??t.appearance;t.identityEmbedding=result?.identityEmbedding;t.view.state='prompt';t.view.visible=true;t.askAnyway=true;
+          emit('prompt',t,{...(result?{result:{...result,candidates:result.candidates.slice(0,5)}}:{}),latencyMs:metrics.latencyMs,reason:'pile'});t.askAnyway=undefined;
+        }
         t.view.visible=false;t.view.removed=true;t.pose=undefined;t.read=undefined;t.needsRead=false;t.best=undefined;note(t,'covered by a newer pile top');
       }
       const pileRead=(c:DetectedQuad)=>c.confidence>=.4&&['GY','BANISHED'].includes(mapFieldZone(c,calibration,cards,options.format).zone)&&tracks.some(t=>bound(t)&&!matched.has(t));
@@ -2440,7 +2451,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         // The face gate never waits for ever: after 600 ms a confident detector
         // front (>= .8) decides, unless the pixels clearly show a back.
         if(face.state==='unknown'&&c.kind==='face-up'&&c.confidence>=.8&&!c.partial&&(observation.state!=='down'||graveFront)&&!blocks(t,c)){
-          t.faceWaitAt??=sample.at;if(sample.at-t.faceWaitAt>=600){face={state:'up',confidence:c.confidence};note(t,`face gate timed out after ${Math.round(sample.at-t.faceWaitAt)} ms; detector front ${c.confidence.toFixed(2)}`);}
+          t.faceWaitAt??=sample.at;if(sample.at-t.faceWaitAt>=(pileZone(t.view.zone)?PILE_FACE_WAIT_MS:600)){face={state:'up',confidence:c.confidence};note(t,`face gate timed out after ${Math.round(sample.at-t.faceWaitAt)} ms; detector front ${c.confidence.toFixed(2)}`);}
         }else if(face.state!=='unknown'||c.kind!=='face-up')t.faceWaitAt=undefined;
         // Legacy timeout for the comparison switch and non-field observations. Field Sets with the guard ON
         // require positive crop evidence below; elapsed time alone never makes their pixels a back.
