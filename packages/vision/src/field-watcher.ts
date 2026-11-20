@@ -228,7 +228,7 @@ const backOutline=(card:DetectedQuad)=>card.kind==='face-down'&&(card.confidence
  * No limit separates them: this one keeps a .02 gap above the wrong read and turns the weakest correct ones into a question. */
 // Spend another window only on a fast first read; a slow device keeps the ordinary one-frame path.
 const NAME_VOTE_FIRST_READ_MS=500,NAME_VOTE_WINDOW_MS=420,NAME_VOTE_SAMPLE_MS=100;
-/** Pile tops (GY, Banished) are log entries read at once: a short face wait and no name vote, so a send is named about one read after the card rests. */
+/** Pile tops (GY, Banished) are log entries read at once: no name vote, and the GY (never face-down) waits only 100 ms for the face gate, so a send is named about one read after the card rests. */
 const PILE_FACE_WAIT_MS=100,pileZone=(zone:string)=>zone==='GY'||zone==='BANISHED';
 const NAME_RETRY_MIN_MS=1000,NAME_RETRY_ATTEMPTS=4,NAME_ZOOM_DELAY_MS=800;
 export const SIDEWAYS_NAME_MIN=.77;
@@ -696,8 +696,13 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
   /** Last full pass's pile-cell scores; motion-crop passes keep showing them. */
   let lastPileScores:FieldDebug['pileScores'];
   const note=(t:InternalTrack,reason:string)=>{t.reason=reason;};
-  /** A GY/Banished top that was seen at rest but never got an entry (no name, no prompt yet). */
-  const unreadPileTop=(t:InternalTrack)=>pileZone(t.view.zone)&&t.view.state==='candidate'&&!t.view.removed&&!t.binding&&!t.view.faceDown&&!t.promptOnly&&!t.identityCheck&&(!!t.read||!!t.lastResult||!!t.appearance?.length)&&t.view.card.kind==='face-up';
+  /** A GY/Banished top that was seen at rest (a read ran or finished on a clean card) but never got an entry. */
+  const unreadPileTop=(t:InternalTrack)=>{
+    if(!pileZone(t.view.zone)||t.view.state!=='candidate'||t.view.removed||t.binding||t.view.faceDown||t.promptOnly||t.identityCheck||t.view.card.kind!=='face-up')return false;
+    const quality=(t.read?.result??t.lastResult)?.quality;
+    if(quality&&(quality.faceDown||quality.fallback||quality.partial||quality.covered))return false;
+    return t.observations>=1&&!!(t.lastResult||t.read&&!t.read.error&&!t.read.moving);
+  };
   const setDecision=(t:InternalTrack,decision:SetEvidence['decision'],basis?:SetEvidence['basis'])=>{
     const previous=t.view.setEvidence;if(!previous)return;
     t.view.setEvidence={...previous,decision,...(basis?{basis}: {})};
@@ -965,7 +970,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       const priors=options.getPriors?.();
       const readOptions={k:5,maxFrames:1 as const,includeIdentityEmbedding:true,includeDiagnosticCrop:true,includeRaw:true,preferUpright:true,priors,gallery:gallery.entries(),deckFirst:true,deckRescue:!t.view.cardId&&!t.identityCheck&&!t.confirming,earlyExitMargin:options.earlyExitMargin??.02};
       let result=await options.recognizer.recognize([input] as ImageBitmap[]|ImageData[],{...readOptions,card});
-      if(options.nameVoting!==false && !pileZone(t.view.zone) && now()-start<=NAME_VOTE_FIRST_READ_MS && result.tier!=='sure' && (result.tier==='low match'||weakSidewaysRead(result,t.view.position)) && (t.view.state==='candidate'||pending.background) && !t.binding && !t.identityCheck && !t.confirming && restOk(t) && !pending.moving && !result.quality.faceDown && !result.quality.fallback && !result.quality.partial && !result.quality.covered) {
+      if(options.nameVoting!==false && now()-start<=NAME_VOTE_FIRST_READ_MS && result.tier!=='sure' && (result.tier==='low match'&&!pileZone(t.view.zone)||weakSidewaysRead(result,t.view.position)) && (t.view.state==='candidate'||pending.background) && !t.binding && !t.identityCheck && !t.confirming && restOk(t) && !pending.moving && !result.quality.faceDown && !result.quality.fallback && !result.quality.partial && !result.quality.covered) {
         const samples:NameSample[]=[];pending.voting=samples;
         try {
           // The ordinary watcher supplies fresh, clean resting frames. Never sample around its hand/plane gates.
@@ -1788,7 +1793,10 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       // A blurred frame or a shadow on the card is light, not a new card.
       const lookBlocked=(t:InternalTrack,c:DetectedQuad)=>(!!t.under||c.kind==='face-down'&&tracks.some(o=>o.under===t.view.id&&!!o.view.cardId&&!o.view.faceDown))&&bound(t)&&!followsAppearance(t,c)||(fieldSlot(t.view.zone)&&bound(t)||publicPile(t.view.zone)&&(t.view.state==='identified'||t.view.state==='prompt'))&&!t.view.faceDown&&!!t.identityAppearance?.length&&c.kind==='face-up'&&
         (t.under!==undefined||evidence.motion(c)<=.025&&c.confidence>=.7&&!c.partial&&!removalBlurred&&!blurHold)&&
-        !sameRotatedFieldAppearance(t.identityAppearance,appearance(c))&&!sameShadedFieldAppearance(t.identityAppearance,appearance(c));
+        !sameRotatedFieldAppearance(t.identityAppearance,appearance(c))&&!sameShadedFieldAppearance(t.identityAppearance,appearance(c))||
+        // An unread pile top is not renamed by a different resting card on it: that card is the next send (see the covered top below).
+        unreadPileTop(t)&&c.kind==='face-up'&&c.confidence>=.7&&!c.partial&&evidence.motion(c)<=.025&&!handNear(evidence,c)&&!removalBlurred&&!blurHold&&!!(t.read?.appearance??t.appearance)?.length&&
+        !sameRotatedFieldAppearance(t.read?.appearance??t.appearance,appearance(c))&&!sameShadedFieldAppearance(t.read?.appearance??t.appearance,appearance(c));
       const pairs=tracks.flatMap(t=>cards.filter(c=>{
         const zoom=checkedCells.get(c);
         return !zoom||c.kind==='face-up'||zoom.zone===t.view.zone&&(!zoom.owner||zoom.owner===t);
@@ -2451,7 +2459,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         // The face gate never waits for ever: after 600 ms a confident detector
         // front (>= .8) decides, unless the pixels clearly show a back.
         if(face.state==='unknown'&&c.kind==='face-up'&&c.confidence>=.8&&!c.partial&&(observation.state!=='down'||graveFront)&&!blocks(t,c)){
-          t.faceWaitAt??=sample.at;if(sample.at-t.faceWaitAt>=(pileZone(t.view.zone)?PILE_FACE_WAIT_MS:600)){face={state:'up',confidence:c.confidence};note(t,`face gate timed out after ${Math.round(sample.at-t.faceWaitAt)} ms; detector front ${c.confidence.toFixed(2)}`);}
+          t.faceWaitAt??=sample.at;if(sample.at-t.faceWaitAt>=(t.view.zone==='GY'?PILE_FACE_WAIT_MS:600)){face={state:'up',confidence:c.confidence};note(t,`face gate timed out after ${Math.round(sample.at-t.faceWaitAt)} ms; detector front ${c.confidence.toFixed(2)}`);}
         }else if(face.state!=='unknown'||c.kind!=='face-up')t.faceWaitAt=undefined;
         // Legacy timeout for the comparison switch and non-field observations. Field Sets with the guard ON
         // require positive crop evidence below; elapsed time alone never makes their pixels a back.
