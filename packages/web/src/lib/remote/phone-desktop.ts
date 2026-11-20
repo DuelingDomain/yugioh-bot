@@ -64,7 +64,7 @@ export class DesktopPhoneLink {
     if(!this.options.read) throw new Error("The desktop card reader is unavailable");
     signal.throwIfAborted();
     if(this.reading||this.scanning||this.readyScanId)throw new Error("Finish the current phone read first");
-    this.reading=true;
+    this.reading=true;this.options.changed();
     const id=crypto.randomUUID();const abort=()=>this.cancel(id,"Scan cancelled");signal.addEventListener("abort",abort,{once:true});
     try {const still=await this.capture(x,y,id);signal.throwIfAborted();return await this.recognize(still,signal);}
     finally {this.reading=false;signal.removeEventListener("abort",abort);}
@@ -136,7 +136,7 @@ export class DesktopPhoneLink {
   private async scan(participant:{identity:string},id:string,zone:PhoneZone) {
     if(this.reading || this.scanning || this.readyScanId || this.scanIds.has(id) || !this.options.read) {this.answer(id,"A scan is already being read. Try again in a moment.");return;}
     this.scanIds.add(id);if(this.scanIds.size>128)this.scanIds.delete(this.scanIds.values().next().value!);
-    this.scanning=true;const started=performance.now();
+    this.scanning=true;this.options.changed();const started=performance.now();
     const abort=new AbortController();this.activeScan={id,identity:participant.identity,abort};
     const cancel=()=>this.cancel(id,"Scan cancelled");abort.signal.addEventListener("abort",cancel,{once:true});
     const timer=setTimeout(()=>abort.abort(),60_000);

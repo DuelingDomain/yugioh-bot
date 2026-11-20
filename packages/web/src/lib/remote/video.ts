@@ -29,7 +29,7 @@ export type VideoSnapshot = {
 /** @yugidraft/vision integration point: crop/recognize on this unprocessed local capture track.
  * Honor signal; return at most five candidates, with the reader's tier, within 10 seconds. No frames enter the data channel.
  */
-export type RecognizeRawFeed = (input: { track: MediaStreamTrack; request: RecognitionRequest; signal: AbortSignal }) => Promise<RecognitionAnswer>;
+export type RecognizeRawFeed = (input: { track: MediaStreamTrack; request: RecognitionRequest; signal: AbortSignal; spectator?: boolean }) => Promise<RecognitionAnswer>;
 
 export class RemoteVideo {
   private voice = new RemoteVoice({ slug: () => this.options.slug, guildId: () => this.options.guildId, members: () => this.options.members, changed: () => this.sync(), failed: error => this.fail(error) });
@@ -79,7 +79,7 @@ export class RemoteVideo {
     };
     // beforeunload can be cancelled. Leave only when pagehide confirms the departure.
     if (typeof window !== 'undefined') window.addEventListener('pagehide', this.pagehide);
-    this.phone = new DesktopPhoneLink(this.room, { ...options, read: options.readPhone, onScan: options.onPhoneScan, changed: () => this.sync() });
+    this.phone = new DesktopPhoneLink(this.room, { ...options, read: options.readPhone, onScan: options.onPhoneScan, changed: () => { if (this.phone.busy) this.abortSpectatorRead(); this.sync(); } });
     this.room.on(RoomEvent.ParticipantConnected, () => { this.options.onPhonePresence?.(); this.visionSent = undefined; });
     const sync = () => this.sync();
     for (const event of [RoomEvent.TrackPublished, RoomEvent.TrackSubscribed, RoomEvent.TrackUnsubscribed, RoomEvent.TrackUnpublished, RoomEvent.ParticipantConnected,
@@ -267,6 +267,7 @@ export class RemoteVideo {
       this.scans = new AbortController();
       /** What this client's reader says about a click on its own feed: for a seated player's request and for a spectator's. */
       const answer = async (request: RecognitionRequest): Promise<RecognitionAnswer> => {
+        this.abortSpectatorRead(); // The owner's read never waits behind a spectator's.
         const cached=!request.force?this.trackedAt(this.options.seat,request.x,request.y):undefined;
         if(cached)return {candidates:[{cardId:cached.cardId,name:cached.name??`Card ${cached.cardId}`,score:0}],tier:'sure',faceDown:false,covered:false};
         if (this.phone.forSeat(this.options.seat)) {
@@ -288,7 +289,10 @@ export class RemoteVideo {
         const track = this.rawLocalTrack;
         if (!track || !this.options.recognize) return NO_ANSWER;
         const limit = new AbortController(), timer = setTimeout(() => limit.abort(), 6_000);
-        try { return await this.options.recognize({ track, request, signal: AbortSignal.any([this.scans.signal, limit.signal]) }); } finally { clearTimeout(timer); }
+        this.spectatorLimit = limit;
+        try { return await this.options.recognize({ track, request, spectator: true, signal: AbortSignal.any([this.scans.signal, limit.signal]) }); }
+        catch (error) { if (limit.signal.aborted) return NO_ANSWER; throw error; }
+        finally { clearTimeout(timer); if (this.spectatorLimit === limit) this.spectatorLimit = undefined; }
       };
       this.channel = new RecognitionChannel(this.options.seat, async (message, destination, announcement) => {
         const member = this.options.members.find(p => p.seat === destination && p.userId !== null);
@@ -317,6 +321,9 @@ export class RemoteVideo {
       if (epoch === this.epoch) { this.patch({ connection: ConnectionState.Disconnected, feeds: [], microphone: false }); this.fail(error); }
     } finally { this.starting = false; }
   }
+  private spectatorLimit?: AbortController;
+  /** Stops a spectator's read in progress: the owner's reads, queue jobs and phone actions come first. */
+  private abortSpectatorRead() { this.spectatorLimit?.abort(); this.spectatorLimit = undefined; }
   /** Publish steps (first publish, rate change, republish) run one after the other, so none uses a sender another one is replacing. */
   private publishing: Promise<unknown> = Promise.resolve();
   private serial<T>(work: () => Promise<T>): Promise<T> {
