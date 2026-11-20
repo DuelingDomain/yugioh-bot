@@ -542,6 +542,8 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   };
   const scheduleLift=(trackId:string,topRef:string,track:FieldTrack,pileZone:'graveyard'|'banished',refs:string[])=>{
     const key=`lift:${trackId}`,old=departureTimers.current.get(key);if(old)clearTimeout(old);
+    // The window runs from the moment the lifted cards left the pile top, not from the read of the card below.
+    const since=Math.max(-Infinity,...watch.getTracks().filter(t=>t.removed&&t.zone===track.zone&&refs.includes(bindings.current.get(t.id)??t.id)).map(t=>t.lastSeen));
     departureTimers.current.set(key,setTimeout(()=>{
       departureTimers.current.delete(key);
       if(live())void queue(async act=>{
@@ -558,11 +560,11 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
         const other=Math.max(snap?.deckTouchedAt?.DECK??-Infinity,snap?.deckTouchedAt?.EXTRA??-Infinity);
         const own=Math.max(snap?.pileTouchedAt?.[track.zone as 'GY'|'BANISHED']??-Infinity,snap?.pileContactAt?.[track.zone as 'GY'|'BANISHED']??-Infinity);
         // A hand near the Deck moves with the pile hand: only a touch that comes clearly after the pile touch counts.
-        if(other>=own+DECK_AFTER_MS&&other>=track.firstSeen-PILE_EXIT_MS){setNotice(`${names} left the ${track.zone==='GY'?'Graveyard':'banished pile'} · choose destination`);return;}
+        if(other>=own+DECK_AFTER_MS&&other>=track.firstSeen-PILE_EXIT_MS){setDeparture({ref:still[0],name:names,zone:'pending'});setNotice(`${names} left the ${track.zone==='GY'?'Graveyard':'banished pile'} · choose destination`);return;}
         const moved=await act({type:'pile.lift',actorSeat:seat,seat,zone:pileZone,cardRefs:still,source:'auto'});
         if(moved){setDeparture(null);setNotice(`${names} picked up from the ${track.zone==='GY'?'Graveyard':'banished pile'} · auto`);setUndoId(moved.state.undo?.actionId??'');}
       });
-    },LIFT_WAIT_MS));
+    },Math.max(0,Number.isFinite(since)?since+LIFT_WAIT_MS-performance.now():LIFT_WAIT_MS)));
   };
   const pileCopy=(members:readonly TwinCard[],entry:Entry)=>[...members].reverse().find(c=>c.faceUp&&sameObservedCard(c,{cardId:catalogCardId(entry),name:entry.name}));
   /**
