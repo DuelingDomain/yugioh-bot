@@ -24,7 +24,7 @@ import { beginManualCorrection } from "@/lib/remote/manual-corrections";
 import { ZoneActions } from './zone-actions';
 import { zonePlacement, zoneSet, zoneCardAction, type ZonePick } from './zone-placement';
 import { RecentDepartures } from './recent-departures';
-import { COLORS, battleMath, leavePosition, pileEntryFace, cardCode, cellsFor, isPile, sameObservedCard, cardName, cellKeyOf, deckFlag, deckIdsOf, facingSeat, foundationZone, hasDeck, hasExtraZones, mirrorEmz, PHASES, PHASE_LONG, readCardOf, placedTwin, sg, type TwinCard, type ZoneKey } from "./model";
+import { COLORS, battleMath, leavePosition, pileEntryFace, cardCode, cellsFor, isPile, sameObservedCard, cardName, cellKeyOf, deckFlag, deckIdsOf, voiceCardNames, facingSeat, foundationZone, hasDeck, hasExtraZones, mirrorEmz, PHASES, PHASE_LONG, readCardOf, placedTwin, sg, type TwinCard, type ZoneKey } from "./model";
 import { findTwinGroups } from "./twins";
 import { PileViewer, type PileZone } from "./pile-viewer";
 import { NotifyDock } from "./notify-dock";
@@ -1089,7 +1089,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
   const pendingVoice = useRef<{ id: string; method: VoiceFinal["method"]; context: VoiceContext } | null>(null);
   const voiceContext = () => {
     const { room: now, state: current } = R.current;
-    return { state: current, players: now.seats, me: now.solo ? current.turnSeat : now.mySeat, trayOpen: false };
+    return { state: current, players: now.seats, me: now.solo ? current.turnSeat : now.mySeat, trayOpen: false, cardNames: voiceCardNames(now, id => { const card = info(id); return card ? { name: card.name } : undefined; }) };
   };
   const onFinal = useCallback((final: VoiceFinal, gate: MicState) => {
     const { room: now, state: current } = R.current;

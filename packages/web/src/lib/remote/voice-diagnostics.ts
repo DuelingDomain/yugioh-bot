@@ -1,9 +1,9 @@
 import type { z } from "zod";
 import type { voiceRecordSchema } from "./voice-diagnostics-schema";
 
-export const voiceMethods = ["two-stage", "kws", "asr"] as const;
+export const voiceMethods = ["two-stage", "kws", "asr", "asr-names"] as const;
 export type VoiceMethod = typeof voiceMethods[number];
-export const voiceMethodLabels: Record<VoiceMethod, string> = { "two-stage": "Keyword gate + verify", kws: "Keywords only", asr: "Speech model" };
+export const voiceMethodLabels: Record<VoiceMethod, string> = { "two-stage": "Keyword gate + verify", kws: "Keywords only", asr: "Speech model", "asr-names": "Speech model + card names" };
 export const voiceCommands = ["draw phase", "standby phase", "main phase one", "battle phase", "main phase two", "end phase", "next phase", "go back a phase", "end turn"] as const;
 export const voiceReasons = ["no-keyword", "not-a-command", "illegal-phase", "not-turn-player", "unconfirmed", "needs-confirm", "muted", "other"] as const;
 export type VoiceReason = typeof voiceReasons[number];
