@@ -1571,6 +1571,32 @@ describe('typed watcher zone projection',()=>{
    expect(gy.map((c:any)=>c.name)).toEqual([cards[0].name,cards[1].name]);
   }finally{fixture.dispose();vi.mocked(performance.now).mockRestore();vi.useRealTimers();}
  });
+ it('a field card whose removal proof comes late after a Spell landed on the GY opens the destination picker, never the hand',async()=>{
+  const landed=cards[2];
+  const man={ref:'man',zone:'monster',slot:2,cardId:cards[0].passcode,name:cards[0].name,faceUp:true,position:'attack'};
+  const fixture=await typedWatcherFixture(cards[0],'M2',[man],'moved');
+  let now=performance.now();
+  vi.useFakeTimers();
+  try{
+   vi.spyOn(performance,'now').mockImplementation(()=>now);
+   const advance=(ms:number)=>act(async()=>{now+=ms;await vi.advanceTimersByTimeAsync(ms);});
+   await advance(2500);
+   const watch=state.fieldWatch.watch;
+   watch.getSnapshot=()=>watch.snapshot;watch.isRemoved=(id:string)=>id===man.ref&&fixture.track.removed;
+   Object.assign(fixture.track,{removed:true,visible:false,lastSeen:now});
+   await advance(1300);
+   // Another card lands on the GY 1.3 s after the field card was last seen; the camera cannot say which card is which.
+   const track=fixture.addTrack({id:'landed',zone:'GY',cardId:landed.cardId,state:'identified',removed:false,visible:true,firstSeen:now,lastSeen:now,restSince:now});
+   Object.assign(watch.snapshot,{lastFullAt:now,pileTouchedAt:{GY:now},pileContactAt:{GY:now}});
+   await fixture.emit({type:'placed',track:{...track}});
+   await advance(1600);
+   await fixture.emit({type:'removed',reason:'empty',removedAt:now});
+   await advance(1500);
+   expect(document.body.textContent).toContain('choose destination');
+   expect(fixture.post.mock.calls.map(([p]:any[])=>p).filter((p:any)=>p.type==='twin.move'&&p.cardRef===man.ref)).toEqual([]);
+   expect(fixture.room().state.seats[0].twin.find((c:any)=>c.ref===man.ref)?.zone).toBe('monster');
+  }finally{fixture.dispose();vi.mocked(performance.now).mockRestore();vi.useRealTimers();}
+ });
  it('two field cards sent to the GY one after the other each land there within 2 s, newest on top',async()=>{
   const a={ref:'send-a',zone:'monster',slot:1,cardId:cards[0].passcode,name:cards[0].name,faceUp:true,position:'attack'},b={...a,ref:'send-b',slot:2,cardId:cards[1].passcode,name:cards[1].name};
   const fixture=await typedWatcherFixture(cards[0],'M1',[a,b],'moved');
