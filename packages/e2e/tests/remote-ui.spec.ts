@@ -1450,6 +1450,19 @@ test.describe("remote duels, spectators", () => {
       await expect(c.getByTestId("lp-value-1")).toHaveText("7500");
       await act({ type: "lp.change", seat: 0, delta: -100, reason: "Battle" });
       await expect(c.getByTestId("lp-value-0")).toHaveText("7900");
+      // Both (the default): each player's virtual board, read only. A Set card is a back with no name; a public card opens the left inspector.
+      const board = c.getByTestId("fwrap-0");
+      await expect(board).toBeVisible();
+      await expect(board.locator('[data-ref][data-up="0"]')).toHaveCount(2);
+      hiddenFree(await c.getByTestId("seat-0").innerHTML());
+      await board.locator('[data-ref][data-up="0"]').first().click();
+      await expect(c.getByTestId("inspector")).toHaveAttribute("aria-hidden", "true");
+      await board.getByRole("button", { name: /Origin fixture 1/ }).click();
+      await expect(c.getByTestId("inspector")).toContainText("Origin fixture 1");
+      await expect(c.getByTestId("inspector").locator("button", { hasText: /Wrong card|Attack|Flip|Move|Activate/ })).toHaveCount(0);
+      await c.keyboard.press("Escape");
+      // Webcam only keeps the public card list and the Set count.
+      await c.getByTestId("field-toggle-0").click();
       await expect(c.getByTestId("public-cards-0")).toContainText("Origin fixture 1");
       await expect(c.getByTestId("set-count-0")).toHaveText("2 Set");
       hiddenFree((await c.locator("body").innerText()));

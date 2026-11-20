@@ -8,7 +8,7 @@ import { FieldOrientationSelect } from "../field-orientation";
 import { useVideoHub } from "./video-hub";
 import { useRecognitionBackend } from "./recognition-backend";
 import { useSendHealth } from "@/lib/remote/send-health-store";
-import type { FieldCalibration, FieldTrack } from "@yugidraft/vision";
+import type { FieldCalibration, FieldFormat, FieldTrack } from "@yugidraft/vision";
 import s from "./remote-ui.module.css";
 
 interface Box { left: number; top: number; width: number; height: number }
@@ -21,23 +21,27 @@ const inView = (p: { x: number; y: number }) => p.x > .01 && p.x < .99 && p.y > 
  * Off by default (`visible`). While auto-detect waits for my zones, my own feed still draws a default grid with the calibrate controls.
  * With the grid off, only the "Move into one zone" hint stays: it helps recognition.
  */
-export function ZoneGridOverlay({ seat, box, visible=true, onControlsEnter }: { seat: number; box: Box | null; visible?:boolean; onControlsEnter?:()=>void }) {
+export function ZoneGridOverlay({ seat, box, visible=true, onControlsEnter, spectator }: { seat: number; box: Box | null; visible?:boolean; onControlsEnter?:()=>void;
+  /** A spectator has no video hub: it passes its own read of the shared calibration and the table format, and the grid fills the camera box. Geometry only. */
+  spectator?: { format: FieldFormat; read: () => FieldCalibration | undefined } }) {
   const grid = useZoneGrid();
-  const own = grid.ownSeat === seat;
+  const own = !spectator && grid.ownSeat === seat;
   const hub=useVideoHub();
+  const readCalibration = spectator?.read ?? hub.trackedCalibration;
   const [remoteCalibration,setRemoteCalibration]=useState<FieldCalibration>();
   useEffect(()=>{
     if(own)return;
-    const refresh=()=>{const next=hub.trackedCalibration?.(seat);setRemoteCalibration(old=>JSON.stringify(old)===JSON.stringify(next)?old:next);};
+    const refresh=()=>{const next=readCalibration?.(seat);setRemoteCalibration(old=>JSON.stringify(old)===JSON.stringify(next)?old:next);};
     refresh();const timer=setInterval(refresh,500);return()=>clearInterval(timer);
-  },[own,seat,hub.trackedCalibration]);
+  },[own,seat,readCalibration]);
   const calibration = own ? grid.calibration : remoteCalibration;
   // Own feed: the shared rule (zones placed on the mat). Others: any grid the owner shares.
   const calibrated = own ? !!grid.placed : !!calibration;
-  const cells = useMemo(() => fieldGridCells(grid.format,calibration?.zoneSpacing,calibration?.zones), [grid.format,calibration?.zoneSpacing,calibration?.zones]);
+  const gridFormat = spectator?.format ?? grid.format;
+  const cells = useMemo(() => fieldGridCells(gridFormat,calibration?.zoneSpacing,calibration?.zones), [gridFormat,calibration?.zoneSpacing,calibration?.zones]);
   // The guess for a seat with no saved side follows its camera: a webcam faces the player (flipped), a phone is held from the player's side.
   // Another seat used to get the phone guess always, so a webcam seat showed its zones turned the wrong way round.
-  const defaultSide = own ? grid.defaultSide : defaultSideFor(hub.phones.some(p => p.seat === seat && p.paired) ? "phone" : "webcam");
+  const defaultSide = own ? grid.defaultSide : spectator ? defaultSideFor("webcam") : defaultSideFor(hub.phones.some(p => p.seat === seat && p.paired) ? "phone" : "webcam");
   const shown = displayCalibration(calibration, defaultSide);
   const projected = useMemo(() => byAreaDesc(cells).map(cell => ({ cell, ...projectCell(cell, shown) })), [cells, shown]);
   const tracks = own ? grid.tracks : [];
@@ -61,8 +65,8 @@ export function ZoneGridOverlay({ seat, box, visible=true, onControlsEnter }: { 
   }).slice(0, 3), [tracks, calibrated, calibration, cells]);
 
   const needsCalibration = own && !!grid.calibrationNeeded;
-  if (!box) return null;
-  const frame: CSSProperties = { left: box.left, top: box.top, width: box.width, height: box.height };
+  if (!box && !spectator) return null;
+  const frame: CSSProperties = spectator ? { left: 0, top: 0, width: "100%", height: "100%" } : { left: box!.left, top: box!.top, width: box!.width, height: box!.height };
   const straddle = hints.map(hint => <span key={hint.id} className={s.zghint} style={{ left: `${Math.min(88, Math.max(12, hint.x * 100))}%`, top: `${Math.max(4, hint.y * 100 - 3)}%` }}
     data-testid="zone-straddle" title={`Across ${hint.pair[0]} and ${hint.pair[1]}`}>Move into one zone</span>);
   if (!visible && !needsCalibration) return hints.length ? <div className={s.zglabels} style={frame} aria-hidden="true">{straddle}</div> : null;
@@ -77,8 +81,8 @@ export function ZoneGridOverlay({ seat, box, visible=true, onControlsEnter }: { 
       {straddle}
 
     </div>
-    {!own&&!calibration?<div className={s.zgcontrols} style={{left:box.left+8,top:box.top+36}}>Default grid · waiting for owner calibration</div>:null}
-    {own&&grid.setCalibration?<div className={s.zgcontrols} style={{left:box.left+5,top:box.top+33,padding:3,maxWidth:Math.max(0,box.width-10)}}>
+    {!own&&!spectator&&!calibration&&box?<div className={s.zgcontrols} style={{left:box.left+8,top:box.top+36}}>Default grid · waiting for owner calibration</div>:null}
+    {own&&box&&grid.setCalibration?<div className={s.zgcontrols} style={{left:box.left+5,top:box.top+33,padding:3,maxWidth:Math.max(0,box.width-10)}}>
       <FieldOrientationSelect calibration={calibration} defaultSide={defaultSide} onChange={grid.setCalibration} onPointerEnter={onControlsEnter}/>
       {/* Calibrate zones lives in the bar under the feed, one button for both states. */}
     </div>:null}

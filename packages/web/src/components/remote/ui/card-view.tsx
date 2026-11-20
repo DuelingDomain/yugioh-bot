@@ -25,10 +25,13 @@ export type Subject = {
 };
 
 function Art({ id }: { id: number }) {
-  const [broken, setBroken] = useState(false);
+  // The failure belongs to one card: a new card starts with a clean state, and one failed load is tried again once.
+  const [state, setState] = useState<{ id: number; tries: number; broken: boolean }>({ id, tries: 0, broken: false });
+  const now = state.id === id ? state : { id, tries: 0, broken: false };
+  const fail = () => setState(now.tries < 1 ? { id, tries: now.tries + 1, broken: false } : { id, tries: now.tries, broken: true });
   return <div className={s.dart}>
-    {broken ? <div className={`${s.cd} ${s.tEffect}`} style={{ "--h": (id * 47) % 360 } as CSSProperties}><div className={s.art} /></div>
-      : <img className={s.artImg} style={{ width: "100%", height: "100%", borderRadius: 6, objectFit: "cover" }} src={cardArt(id, "full")} alt="" onError={() => setBroken(true)} />}
+    {now.broken ? <div className={`${s.cd} ${s.tEffect}`} style={{ "--h": (id * 47) % 360 } as CSSProperties}><div className={s.art} /></div>
+      : <img key={`${id}-${now.tries}`} className={s.artImg} style={{ width: "100%", height: "100%", borderRadius: 6, objectFit: "cover" }} src={`${cardArt(id, "full")}${now.tries ? "&retry=1" : ""}`} alt="" onError={fail} />}
   </div>;
 }
 
@@ -69,6 +72,7 @@ export type CardActions = {
   materials?: CardMaterial[];
   canAdd: boolean; adding: boolean; onAdd: () => void;
   canAttack: boolean; attackHint: string; onAttack: () => void;
+  /** A spectator's view: no action buttons at all. */ readOnly?: boolean;
   onActivate?: () => void; onReveal?: () => void;
   /** Take control of an opponent's card, or return a taken card to its owner. */
   control?: { label: string; onClick: () => void };
@@ -124,7 +128,7 @@ function Actions({ a, subject }: { a: CardActions; subject: Subject }) {
   return <div className={s.dact}>
     {a.materials?.length ? <MaterialList items={a.materials} /> : null}
     {a.zoneCheck ? <ZoneCheck reason={a.zoneCheck} /> : null}
-    <Group label="Actions">
+    {a.readOnly ? null : <Group label="Actions">
       {addToDeck ? <button type="button" className={BTN} disabled={a.adding} onClick={a.onAdd}>Add to decklist</button> : null}
       {a.onActivate ? <button type="button" className={BTN} onClick={a.onActivate}>Activate</button> : null}
       {a.onAddToHand ? <button type="button" className={BTN} onClick={a.onAddToHand} data-testid="add-to-hand">Add card to hand{"\u2026"}</button> : null}
@@ -132,10 +136,10 @@ function Actions({ a, subject }: { a: CardActions; subject: Subject }) {
       {a.control ? <button type="button" className={BTN} onClick={a.control.onClick} data-testid="card-control">{a.control.label}</button> : null}
       {a.give ? <button type="button" className={BTN} onClick={a.give.onClick} data-testid="card-give">{a.give.label}</button> : null}
       <button type="button" className={BTN} onClick={a.onAttack} disabled={!a.canAttack} title={a.attackHint}>Attack from here</button>
-    </Group>
+    </Group>}
     {edit ? <MoveGroup edit={edit} /> : null}
     {a.attach?.options.length ? <Group label={a.attach.label}><select aria-label={a.attach.label} className={s.inp} value="" onChange={e => { if (e.target.value) a.attach?.onPick(e.target.value); }}><option value="">Choose a card…</option>{a.attach.options.map(o => <option key={o.ref} value={o.ref}>{o.label}</option>)}</select></Group> : null}
-    <Group label="Card">
+    {a.readOnly ? null : <Group label="Card">
       {edit ? <button type="button" className={BTN} onClick={edit.onFlip}>{edit.faceUp ? "Turn face down" : "Turn face up"}</button> : null}
       {edit?.position ? <button type="button" className={BTN} onClick={edit.position.onTurn} data-testid="card-position">{edit.position.defense ? "Change to Attack" : "Change to Defense"}</button> : null}
       {a.undo ? <button type="button" className={`${BTN} ${a.undo.reason ? s.cblocked : ""}`} aria-disabled={!!a.undo.reason} aria-describedby={a.undo.reason ? "card-undo-reason" : undefined}
@@ -149,7 +153,7 @@ function Actions({ a, subject }: { a: CardActions; subject: Subject }) {
           <option value="">No monster</option>
           {edit.equip.options.map(option => <option key={option.key} value={option.key}>{option.label}</option>)}
         </select></label> : null}
-    </Group>
+    </Group>}
   </div>;
 }
 

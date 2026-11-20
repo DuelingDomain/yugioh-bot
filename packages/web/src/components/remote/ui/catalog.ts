@@ -74,6 +74,30 @@ export function loadCards(ids: Iterable<number>, { preload = false } = {}): Prom
   return Promise.all(jobs).then(() => undefined);
 }
 
+const warmed = new Set<string>();
+/**
+ * Asks the server for the pictures of public cards before anyone opens them, so the first inspector read shows art at
+ * once. The server fetches and caches each picture on first request; later requests are served from its cache.
+ * Each id and size is asked once per page, and at most `limit` new pictures per call.
+ */
+export function warmCardArt(ids: Iterable<number | undefined>, sizes: readonly ("small" | "full")[] = ["small", "full"], limit = 60): void {
+  if (typeof Image === "undefined") return;
+  let count = 0;
+  for (const id of new Set(ids)) {
+    if (!id || id <= 0) continue;
+    for (const size of sizes) {
+      const key = `${id}:${size}`;
+      if (warmed.has(key)) continue;
+      if (count++ >= limit) return;
+      warmed.add(key);
+      const picture = new Image();
+      picture.decoding = "async";
+      picture.onerror = () => { warmed.delete(key); };
+      picture.src = cardArt(id, size);
+    }
+  }
+}
+
 /** Warm the card resolver as soon as a seated player opens the room. */
 export function preloadRoomCards(room: RemoteRoom): Promise<void> {
   if (room.mySeat < 0) return Promise.resolve();
