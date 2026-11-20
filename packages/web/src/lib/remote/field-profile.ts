@@ -27,8 +27,9 @@ export const SLOW_ACTION_MS = 1000, HARD_SLOW_ACTION_MS = 2000;
  * The per-action latency log for every action type (not only placements). OFF unless the watcher turns it on, which it does only when
  * the diagnostics switch is on (`diagnosticsAllowed`: admin with collection enabled). Off, a mark of any other type costs one flag test.
  */
-let latencyLog = false;
-export const setFieldLatencyLog = (on: boolean) => { latencyLog = on; };
+let latencyUsers = 0;
+/** Turns the log on for one watcher; the returned function turns that watcher's hold off. The log stays on while any watcher holds it. */
+export const holdFieldLatencyLog = () => { latencyUsers++; let held = true; return () => { if (held) { held = false; latencyUsers--; } }; };
 
 const open = new Map<string, { timing: FieldTiming; type: string; marks: Record<string, number> }>();
 const rows: FieldProfileRow[] = [];
@@ -65,7 +66,7 @@ if (typeof window !== "undefined") window.addEventListener("remote-field-latency
   let entry = open.get(event.id);
   if (event.stage === "watcher") {
     const always = event.type === "placed" || event.type === "prompt";
-    if (!always && (!latencyLog || !event.type || event.type === "reading")) return;
+    if (!always && (latencyUsers === 0 || !event.type || event.type === "reading")) return;
     entry = { timing: { id: event.id, originAt: event.originAt, stagesMs: event.stagesMs, durationsMs: event.durationsMs, notes: event.notes }, type: event.type!, marks: { watcher: event.elapsedMs } };
     open.set(event.id, entry);
     while (open.size > 32) open.delete(open.keys().next().value!);
@@ -79,7 +80,7 @@ if (typeof window !== "undefined") window.addEventListener("remote-field-latency
     rows[index] = build(entry, event.stage === "render"); publish();
     const row = rows[index];
     // One line per slow action, once, when its write is saved. Stage names say where the time went.
-    if (latencyLog && row.slow && before === undefined)
+    if (latencyUsers > 0 && row.slow && row.slow > (before ?? 0))
       console.warn(`[remote latency] ${row.type} ${row.emitToSavedMs} ms (${row.slow === 2 ? ">2 s" : ">1 s"}) longest step: ${row.worst}`, row.stages);
   }
   if (event.stage === "render") open.delete(event.id);

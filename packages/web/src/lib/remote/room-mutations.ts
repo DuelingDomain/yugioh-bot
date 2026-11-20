@@ -17,6 +17,10 @@ export const remoteActionError=()=>lastActionError;
  */
 export const remoteChangeNeedsFetch=(heldSeq:number,announcedSeq:number)=>announcedSeq>heldSeq;
 /** `lanes`: the cards and cells the work touches. Works with a common lane run in order; others do not wait for each other. */
+/** Lane keys for a queued work (see createRoomMutationQueue): one `zone:` key per cell and one `ref:` key per card, no duplicates. */
+export const laneOf=(refs:readonly (string|undefined)[],zones:readonly (string|undefined)[]=[])=>[...new Set([...zones.filter((z):z is string=>!!z).map(z=>`zone:${z}`),...refs.filter((r):r is string=>!!r).map(r=>`ref:${r}`)])];
+/** A card that leaves a field cell can end in a pile, and its pile order write follows its move: every pile write waits for it. */
+export const PILE_LANES=['GY','BANISHED'] as const;
 export type RoomTransaction = <T>(work:(room:RemoteRoom,act:RoomMutation)=>Promise<T>,lanes?:readonly string[])=>Promise<T>;
 
 export const hasPendingTwinConfirmation = (room: RemoteRoom) =>
