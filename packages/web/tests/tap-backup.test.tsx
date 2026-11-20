@@ -281,5 +281,5 @@ it.each(['generic','named'] as const)('the existing token dialog creates a %s to
   }
   fireEvent.change(screen.getByTestId('token-zone'),{target:{value:'m5'}});fireEvent.click(screen.getByRole('button',{name:'Create token'}));
   await act(async()=>{await Promise.resolve();});
-  expect(JSON.parse(screen.getByTestId('token-board').textContent!)).toEqual([expect.objectContaining({zone:'monster',slot:5,faceUp:true,position:kind==='generic'?'defense':'attack',token:kind==='generic'?{atk:0,def:0}:{atk:100,def:200,artId:900001002}})]);
+  expect(JSON.parse(screen.getByTestId('token-board').textContent!)).toEqual([expect.objectContaining({zone:'monster',slot:5,faceUp:true,position:kind==='generic'?'defense':'attack',token:kind==='generic'?{atk:0,def:0,artId:73915052}:{atk:100,def:200,artId:900001002}})]);
 });

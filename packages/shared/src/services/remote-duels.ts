@@ -525,7 +525,11 @@ export function createRemoteDuelService(db: Database.Database, options: {
     },
     leave(slug: string, guildId: string, userId: number, now = Date.now()): RemoteTable {
       return transaction(() => {
-        const row = load(slug, guildId); const s = member(row, userId); assertOpen(row, now);
+        const row = load(slug, guildId); const s = member(row, userId);
+        // Leaving a table that is already over is not an error: the person only wants out. An idle lobby the sweep has not closed yet closes here.
+        if (row.status === "ended") return projectRemoteTable(table(loadTable(slug, guildId)));
+        if (row.status === "lobby" && idleExpired(row, now)) { closeIdle(row, now); return projectRemoteTable(table(loadTable(slug, guildId))); }
+        assertOpen(row, now);
         remoteAssert(row.status === "lobby", "Use player.concede to leave an active game", 409);
         if (row.created_by === userId) {
           append(row, { type: "table.ended", reason: "creator-left" }, now, userId, s.seat);

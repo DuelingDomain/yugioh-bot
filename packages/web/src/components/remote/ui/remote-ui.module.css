@@ -560,6 +560,7 @@
 /* ============ popovers: tray, health, history, peek, toasts ============ */
 .pop{position:fixed;z-index:45;display:none;border:1px solid var(--line2);border-radius:12px;background:linear-gradient(180deg,#1a1030,#0d0819);box-shadow:0 24px 70px rgb(0 0 0/.7)}
 .pop.show{display:block;animation:pop .28s var(--ease)}
+.modalBackdrop{position:fixed;inset:0;z-index:44;background:rgb(5 3 12/.6)}
 @keyframes pop{from{opacity:0;transform:translateY(8px) scale(.97)}}
 .why{display:inline-block;margin-left:5px;font:700 9px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;letter-spacing:.08em;color:var(--pen-ink);border:1px solid var(--line2);border-radius:3px;padding:2px 4px;text-transform:uppercase;vertical-align:1px}
 .why.w{color:var(--warn);border-color:rgb(240 178 79/.55)}

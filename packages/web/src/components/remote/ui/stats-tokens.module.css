@@ -23,6 +23,10 @@
 .field{display:flex;flex-direction:column;gap:3px;font-size:11px;color:#c9bff0}
 .num{width:92px;padding:5px 7px;border-radius:5px;border:1px solid var(--line2,#4b3f7a);background:rgb(7 4 14/.7);color:#f1ecff;font:600 13px/1.2 var(--font-duel-ui),system-ui,sans-serif}
 .pick{display:flex;flex-direction:column;gap:4px;max-height:140px;overflow:auto}
+.artPick{display:flex;gap:8px;align-items:flex-end;flex-basis:100%}
+.artThumb{width:40px;height:58px;object-fit:cover;border-radius:3px;border:1px solid var(--line2,#4b3f7a);background:rgb(7 4 14/.7)}
+.artHit{display:flex;align-items:center;gap:8px;text-align:left}
+.artHit img{width:20px;height:29px;object-fit:cover;border-radius:2px;flex:none}
 .chosen{font-size:12px;color:#f0d98a}
 .note{margin:0;font-size:12px;color:#ffb3a8}
 

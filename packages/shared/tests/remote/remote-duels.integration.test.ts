@@ -4988,3 +4988,23 @@ it("a new room ends the host's own empty lobbies, as an online table does, and k
   expect(status(abandoned.room.slug,users[1]).status).toBe("lobby");
   expect(service.list("g",users[1],"live").map(t=>t.slug).sort()).toEqual([abandoned.room.slug,next.room.slug].sort());
 });
+
+it("the host closes a lobby that has not started, a guest only leaves, and an idle lobby still closes", () => {
+  const {service,users}=setup();
+  const make=(user:number,at:number)=>service.create({guildId:"g",userId:user,displayName:"H",gameId:"ygo",seatCount:2},at);
+  // A guest leaving keeps the table; the host leaving ends it for everyone and frees the host's live list.
+  const first=make(users[2],1000);
+  service.join(first.slug,"g",users[3],"Guest",1,1001);
+  expect(service.leave(first.slug,"g",users[3],1002)).toMatchObject({status:"lobby"});
+  service.join(first.slug,"g",users[3],"Guest",1,1003);
+  expect(service.leave(first.slug,"g",users[2],1004)).toMatchObject({status:"ended",endReason:"creator-left"});
+  expect(service.get(first.slug,"g",users[3])).toMatchObject({status:"ended"});
+  // A guest who leaves after the close, or a double click on Close, is not an error.
+  expect(service.leave(first.slug,"g",users[3],1005)).toMatchObject({status:"ended"});
+  expect(service.leave(first.slug,"g",users[2],1006)).toMatchObject({status:"ended"});
+  expect(service.list("g",users[2],"live")).toEqual([]);
+  // A lobby left idle past the close time is not yet swept: closing it still works.
+  const idle=make(users[2],2000);
+  expect(service.leave(idle.slug,"g",users[2],2000+11*60_000)).toMatchObject({status:"ended",endReason:"idle"});
+  expect(make(users[2],2000+12*60_000)).toMatchObject({status:"lobby"});
+});

@@ -400,6 +400,20 @@ it("automatic placement preserves calibrated main, spell and EMZ slots and DEF o
   }
 });
 
+it('cards that leave the field while a hand works a pile all go to that pile, never the hand or a prompt',async()=>{
+  const {fieldDepartureProposal,fieldPileDepartureProposal,fieldPileUnderTop}=await import('../src/lib/remote/field-proposals');
+  const monster=(ref:string,name:string)=>({ref,cardId:1,name,zone:'monster',slot:2,faceUp:true,position:'attack'}) as const;
+  // Two monsters lifted in one carry: each one's own proposal is the GY (banished only when only that pile moved).
+  for(const card of [monster('a','Man with the Mark'),monster('b','Effect Veiler')])
+    expect(fieldPileDepartureProposal(fieldDepartureProposal(card,0)!,'GY')).toMatchObject({cardRef:card.ref,zone:'graveyard',faceUp:true,name:card.name});
+  expect(fieldPileDepartureProposal(fieldDepartureProposal(monster('a','X'),0)!,'BANISHED')).toMatchObject({zone:'banished',faceUp:true});
+  // The covered card lies directly under the named top card, also when the named card was written first.
+  expect(fieldPileUnderTop(['x','man','valor'],'valor','man')).toEqual(['x','valor','man']);
+  expect(fieldPileUnderTop(['x','valor','man'],'valor','man')).toBeUndefined();
+  // An Extra Deck default keeps its own destination.
+  expect(fieldPileDepartureProposal(fieldDepartureProposal(monster('c','Y'),0,undefined,{type:'Xyz Monster'})!,'GY').zone).toBe('extra');
+});
+
 it('departures leave field zones once with a named atomic move and retain physical refs for destinations',async()=>{
   const {fieldDepartureProposal}=await import('../src/lib/remote/field-proposals');
   const {describeEvent}=await import('../src/components/remote/ui/describe');

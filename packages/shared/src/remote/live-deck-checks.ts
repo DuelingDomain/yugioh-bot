@@ -81,8 +81,10 @@ export function applyLiveDeckChecks(input: RemoteState, action: RemoteAction, co
     const twin=next.seats[action.actorSeat].twin.find(t=>instance.refs.includes(t.ref));
     if(twin && twin.zone === 'hand') {instance.zone='hand';delete instance.slot;instance.public=false;instance.anchored=false;}
   }
-  const movedSeat = action.type === "twin.move" || action.type === "twin.flip" || action.type === "twin.remove" || action.type === "pile.lift" ? action.seat : -1;
-  for (const cardRef of action.type === "twin.move" || action.type === "twin.flip" || action.type === "twin.remove" ? [action.cardRef] : action.type === "pile.lift" ? action.cardRefs : []) {
+  const moved: [number, string][] = action.type === "twin.move" || action.type === "twin.flip" || action.type === "twin.remove" ? [[action.seat, action.cardRef]]
+    : action.type === "pile.lift" ? action.cardRefs.map(ref => [action.seat, ref] as [number, string])
+    : action.type === "monsters.tribute" ? action.targets.map(t => [t.seat, t.cardRef] as [number, string]) : [];
+  for (const [movedSeat, cardRef] of moved) {
     let instance = checks.instances.find(i => i.seat === movedSeat && i.refs.includes(cardRef));
     let holder = movedSeat;
     // A proxy that left the field went back to its owner's pile: that seat's record follows it, so seeing it again is the same copy.
