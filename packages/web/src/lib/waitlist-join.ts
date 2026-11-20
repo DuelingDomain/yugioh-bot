@@ -40,6 +40,14 @@ async function handledByAllowlist(email: string): Promise<"joined" | "retry" | n
 }
 
 /**
+ * Invited only when the owner approved it: status "invited", or a still-pending invitation. A pending entry can carry an
+ * old revoked or expired invitation object (seen on prod 2026-11-20), which must not count as an invite.
+ */
+function invitedEntry(entry: { status: string; invitation?: { status?: string } | null }): boolean {
+  return entry.status === "invited" || entry.invitation?.status === "pending";
+}
+
+/**
  * Clerk refused the create with a 4xx. Find out why from facts, not from the status: an exact-email waitlist entry
  * (paged, like deleteWaitlistEntriesByEmail) or a proven Clerk user. Neither found: "rejected" (Clerk disliked the email).
  */
@@ -48,7 +56,7 @@ async function resolveRefusal(backend: ReturnType<typeof createClerkBackend>, em
     for (let offset = 0; ;) {
       const page = await backend.listWaitlistEntries({ query: email, offset, limit: 100 });
       const entry = page.data.find(item => item.email_address.trim().toLowerCase() === email);
-      if (entry) return entry.status === "invited" || entry.invitation ? "invited" : "joined";
+      if (entry) return invitedEntry(entry) ? "invited" : "joined";
       offset += page.data.length;
       if (page.data.length === 0 || offset >= page.totalCount) break;
     }
@@ -86,7 +94,7 @@ export async function joinWaitlist(email: string, meta: WaitlistJoinMeta): Promi
   try {
     // For an email already on the list Clerk answers 2xx with the existing entry, so its status says whether it is invited.
     const entry = await backend.createWaitlistEntry({ emailAddress: email, notify: true });
-    return entry?.status === "invited" || entry?.invitation ? "invited" : "joined";
+    return entry && invitedEntry(entry) ? "invited" : "joined";
   } catch (error) {
     // Status and Clerk's error code only: never the message, the email or upstream data.
     const failure = error instanceof ClerkBackendError ? `status=${error.status} code=${error.code ?? "none"}` : "unknown";
