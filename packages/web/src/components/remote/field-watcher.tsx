@@ -2157,7 +2157,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     return()=>clearInterval(timer);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[room.slug,seat,readMismatch]);
-  // Quiet background check (flag, off by default). Every 2 s it compares the watcher's own tracks with the board, but only in zones whose pixels moved after
+  // Quiet background check (on by default; kill switches in quietCheckEnabled). Not in Tap mode (watch off). Every 2 s it compares the watcher's own tracks with the board, but only in zones whose pixels moved after
   // their last confirmed read; no detector pass, no queue job. It yields to any owner read (readerBusy) and to everything the auto scan waits for. A gap
   // that stays for two checks starts one gentle scan (the auto scan path, same 20 s limit); anything less sure only shows the hint on Scan field.
   useEffect(()=>{
@@ -2168,7 +2168,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       const now=performance.now();
       const result=quiet.check({now,tracks:snap.tracks,twins:current.current.room.state.seats[seat].twin,activityAt:snap.lastFieldActivityAtByZone??{},lastFullAt:snap.lastFullAt,missing:snap.missingTwins??[],
         refOf:id=>bindings.current.get(id)??id,zoneOf:knownZone,held:ref=>undoKept.current.has(ref)||manual.current.has(ref),
-        busy:document.hidden||!live()||readerBusy()||syncHoldRef.current||scanTimer.current!==undefined||resyncing.current||calibrationBusy.current||!autoIdle.current||pointerHeld.current||(snap.status!=='watching'&&snap.status!=='budget')});
+        busy:document.hidden||!live()||!enabledRef.current||readerBusy()||syncHoldRef.current||scanTimer.current!==undefined||resyncing.current||calibrationBusy.current||!autoIdle.current||pointerHeld.current||(snap.status!=='watching'&&snap.status!=='budget')});
       if(result.verdict!=='wait')quietHint.current=result.verdict==='hint'?result.reason??null:null;
       if(result.verdict==='fix'&&now-autoScanAt.current>=20_000){autoScanAt.current=now;scanFieldRef.current('auto');}
     },2000);

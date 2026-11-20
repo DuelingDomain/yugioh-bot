@@ -1,7 +1,7 @@
-import {expect,test} from 'vitest';
+import {expect,test,vi} from 'vitest';
 import type {FieldTrack,FieldZone} from '@yugidraft/vision';
 import type {TwinCard} from '@yugidraft/shared/remote';
-import {createQuietCheck,type QuietInput} from '../src/lib/remote/quiet-check';
+import {createQuietCheck,quietCheckEnabled,QUIET_CHECK_STORAGE_KEY,type QuietInput} from '../src/lib/remote/quiet-check';
 
 const track=(id:string,zone:FieldZone,faceDown=false):FieldTrack=>({id,zone,faceDown,state:'identified',removed:false,visible:true,firstSeen:0,lastSeen:9000,position:'attack',cardId:'1',card:{} as FieldTrack['card']});
 const twin=(ref:string,slot:number,faceUp=true):TwinCard=>({ref,zone:'monster',slot,faceUp,position:'attack'} as TwinCard);
@@ -9,6 +9,10 @@ const zoneOf=(c:TwinCard)=>`M${c.slot}` as FieldZone;
 const base=(over:Partial<QuietInput>):QuietInput=>({now:10_000,tracks:[],twins:[],activityAt:{},lastFullAt:9_900,missing:[],refOf:id=>id,zoneOf,held:()=>false,busy:false,...over});
 
 test('quiet check re-reads only zones that moved, yields to owner reads, fixes a sure gap once and hints otherwise',()=>{
+  // On by default; localStorage 0 is the kill switch.
+  expect(quietCheckEnabled()).toBe(true);
+  const store=new Map<string,string>();vi.stubGlobal('localStorage',{getItem:(k:string)=>store.get(k)??null});store.set(QUIET_CHECK_STORAGE_KEY,'0');
+  expect(quietCheckEnabled()).toBe(false);vi.unstubAllGlobals();
   const quiet=createQuietCheck();
   const tracks=[track('a','M1'),track('b','M2',true)];
   const board=[twin('a',1),twin('b',2,true)]; // b: camera sees a back, board says face up

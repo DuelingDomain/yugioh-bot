@@ -2,7 +2,7 @@ import type { FieldTrack, FieldZone } from '@yugidraft/vision';
 import type { TwinCard } from '@yugidraft/shared/remote';
 
 /**
- * Quiet background check (off by default). It extends Scan field and the auto scan; it is not a second scanner.
+ * Quiet background check (on by default; see quietCheckEnabled for the kill switches). It extends Scan field and the auto scan; it is not a second scanner.
  * It reads only what the field watcher already published (tracks, per-zone pixel activity, missing twins), so one check is a few
  * microseconds and adds no detector pass. A zone is looked at again only when its pixels moved after the last time the board and the camera
  * agreed there (the "ledger"). A gap that stays for two checks with no new motion is "sure": the caller runs one gentle scan and the normal
@@ -10,8 +10,9 @@ import type { TwinCard } from '@yugidraft/shared/remote';
  */
 export const QUIET_CHECK_STORAGE_KEY = 'dd-quiet-check';
 export const quietCheckEnabled = () => {
-  if (process.env.NEXT_PUBLIC_REMOTE_QUIET_CHECK === '1') return true;
-  try { return typeof localStorage !== 'undefined' && localStorage.getItem(QUIET_CHECK_STORAGE_KEY) === '1'; } catch { return false; }
+  // On by default. Kill switches: NEXT_PUBLIC_REMOTE_QUIET_CHECK=0 (build) or localStorage dd-quiet-check=0 (one browser).
+  if (process.env.NEXT_PUBLIC_REMOTE_QUIET_CHECK === '0') return false;
+  try { return !(typeof localStorage !== 'undefined' && localStorage.getItem(QUIET_CHECK_STORAGE_KEY) === '0'); } catch { return true; }
 };
 
 export type QuietGapKind = 'face' | 'zone' | 'extra' | 'missing';
