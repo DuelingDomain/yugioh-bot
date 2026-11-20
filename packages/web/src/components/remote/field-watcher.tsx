@@ -99,6 +99,9 @@ const changedPile=(snap:FieldSnapshot|undefined,sourceAt:number,twins:readonly T
 };
 const fieldActivityWindow=(snap:FieldSnapshot|undefined)=>Math.max(FIELD_ACTIVITY_WINDOW_MS,1.5*(snap?.metrics?.intervalMs??0));
 const FLIP_POLL_MS=250;
+/** A card that leaves a pile and shows up nowhere else within this window went to the hand. */
+const LIFT_WAIT_MS=900;
+const DECK_AFTER_MS=400;
 const publicField=(zone:string)=>['monster','extra-monster','spell-trap','field','pendulum'].includes(zone);
 /** A card the camera sent from the field to the hand, a pile or the Extra Deck still owns its field origin. */
 const leftField=(c:TwinCard,at:number,spot:{zone:string;slot?:number})=>!!c.departedFrom&&publicField(c.departedFrom.zone)&&(c.zone==='hand'||!!c.departedFrom.auto&&['graveyard','banished','extra'].includes(c.zone)&&
@@ -532,9 +535,34 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     const tracks=watch.getTracks();
     const proven=above.every(c=>{
       const own=tracks.filter(t=>(bindings.current.get(t.id)??t.id)===c.ref);
-      return own.some(t=>t.removed)&&own.every(t=>t.removed||!t.visible)&&!undoKept.current.has(c.ref)&&!manual.current.has(c.ref);
+      // Its pile track (not an old field track) was seen on top and is out of view now.
+      return own.some(t=>t.zone===track.zone&&t.removed&&t.state==='identified')&&own.every(t=>t.removed||!t.visible)&&!undoKept.current.has(c.ref)&&!manual.current.has(c.ref);
     });
     return proven?above:[];
+  };
+  const scheduleLift=(trackId:string,topRef:string,track:FieldTrack,pileZone:'graveyard'|'banished',refs:string[])=>{
+    const key=`lift:${trackId}`,old=departureTimers.current.get(key);if(old)clearTimeout(old);
+    departureTimers.current.set(key,setTimeout(()=>{
+      departureTimers.current.delete(key);
+      if(live())void queue(async act=>{
+        // Fresh state at send time: the cards must still lie above the same top, in the same pile.
+        const twins=current.current.room.state.seats[seat].twin,top=twins.find(c=>c.ref===topRef);
+        const still=top&&top.zone===pileZone?liftedAbove(top,track,twins).map(c=>c.ref):[];
+        if(still.length!==refs.length||still.some((ref,i)=>ref!==refs[i]))return;
+        const snap=watch.getSnapshot?.(),codes=new Set(refs.map(ref=>String(cardCode(twins.find(c=>c.ref===ref)!)??'')));
+        // A new unowned outline that is unnamed or named like a lifted card, anywhere but this pile, is that card arriving: its own path moves it.
+        const arriving=snap?.tracks.some(t=>!t.removed&&t.zone!==track.zone&&t.firstSeen>=track.firstSeen-PILE_EXIT_MS&&!twins.some(c=>c.ref===(bindings.current.get(t.id)??t.id)&&!refs.includes(c.ref))&&(!t.cardId||codes.has(t.cardId)));
+        if(arriving)return;
+        const names=still.map(ref=>twins.find(c=>c.ref===ref)?.name??'Card').join(', ');
+        // The Deck or Extra Deck pile changed too: the card may have gone there. Ask instead of guessing the hand.
+        const other=Math.max(snap?.deckTouchedAt?.DECK??-Infinity,snap?.deckTouchedAt?.EXTRA??-Infinity);
+        const own=Math.max(snap?.pileTouchedAt?.[track.zone as 'GY'|'BANISHED']??-Infinity,snap?.pileContactAt?.[track.zone as 'GY'|'BANISHED']??-Infinity);
+        // A hand near the Deck moves with the pile hand: only a touch that comes clearly after the pile touch counts.
+        if(other>=own+DECK_AFTER_MS&&other>=track.firstSeen-PILE_EXIT_MS){setNotice(`${names} left the ${track.zone==='GY'?'Graveyard':'banished pile'} · choose destination`);return;}
+        const moved=await act({type:'pile.lift',actorSeat:seat,seat,zone:pileZone,cardRefs:still,source:'auto'});
+        if(moved){setDeparture(null);setNotice(`${names} picked up from the ${track.zone==='GY'?'Graveyard':'banished pile'} · auto`);setUndoId(moved.state.undo?.actionId??'');}
+      });
+    },LIFT_WAIT_MS));
   };
   const pileCopy=(members:readonly TwinCard[],entry:Entry)=>[...members].reverse().find(c=>c.faceUp&&sameObservedCard(c,{cardId:catalogCardId(entry),name:entry.name}));
   /**
@@ -661,11 +689,9 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     if(existing&&['GY','BANISHED'].includes(track.zone)&&existing.zone===location.zone&&existing.faceUp===!track.faceDown&&entry&&sameObservedCard(existing,{cardId:catalogCardId(entry),name:entry.name})){
       bindings.current.set(event.track.id,existing.ref);watch.confirm(event.track.id,track.cardId,existing.ref,false);
       // The cards that lay above it left the pile: to the hand, in one undoable action.
+      // It waits one placement window: a card that shows up on the field, in the other pile, as a material or in the Deck is moved by that path instead.
       const lifted=liftedAbove(existing,track,twins);
-      if(lifted.length){
-        const moved=await act({type:'pile.lift',actorSeat:seat,seat,zone:location.zone as 'graveyard'|'banished',cardRefs:lifted.map(c=>c.ref),source:'auto'});
-        if(moved){setDeparture(null);setNotice(`${lifted.map(c=>c.name??'Card').join(', ')} picked up from the ${track.zone==='GY'?'Graveyard':'banished pile'} · auto`);setUndoId(moved.state.undo?.actionId??'');}
-      }
+      if(lifted.length)scheduleLift(event.track.id,existing.ref,track,location.zone as 'graveyard'|'banished',lifted.map(c=>c.ref));
       return;
     }
     if(existing)track={...track,id:existing.ref};
