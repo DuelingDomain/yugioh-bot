@@ -4,7 +4,7 @@ import { E2E_SESSION_COOKIE, isE2EAuthEnabled, verifyE2ESession } from "@/lib/e2
 import { fxLabEnabled, isFxLabPublicPath, visionAssetsEnabled } from "@/lib/fx-lab";
 import { TOURNAMENT_BRIDGE_START } from "@/lib/auth-return";
 import { tournamentSignInRedirect, tournamentStartFailure } from "@/lib/tournament-auth-return";
-const PUBLIC = ["/sign-in(.*)", "/sign-up(.*)", "/join/(.*)", "/sso-callback(.*)", "/welcome-back", "/monitoring", "/access", "/login", "/favicon.ico", "/icon.svg", "/apple-icon.png", "/icons/(.*)"];
+const PUBLIC = ["/sign-in(.*)", "/sign-up(.*)", "/join/(.*)", "/sso-callback(.*)", "/welcome-back", "/monitoring", "/access", "/waitlist", "/login", "/favicon.ico", "/icon.svg", "/apple-icon.png", "/icons/(.*)"];
 const isPublic = createRouteMatcher(PUBLIC);
 function beforeAuth(request: NextRequest): Response | null {
   const path = request.nextUrl.pathname;

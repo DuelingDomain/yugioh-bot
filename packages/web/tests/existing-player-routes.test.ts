@@ -106,7 +106,18 @@ describe("Discord recovery start and cookies", () => {
   });
 });
 describe("Discord recovery callback", () => {
-  it.each(["access_denied", "cancelled"])("returns Discord error=%s to a friendly sign-in page", async error => {
+  it("retries a refused silent try once with the consent screen; a Cancel there shows the cancelled banner", async () => {
+    const p = await proof("/decks");
+    const retry = await callback(request(`/api/auth/callback/discord?state=${p.state}&error=consent_required`, { cookie: p.cookie }));
+    const url = new URL(retry.headers.get("location")!);
+    expect(url.origin).toBe("https://discord.com"); expect(url.searchParams.has("prompt")).toBe(false);
+    expect(url.searchParams.get("state")).not.toBe(p.state);
+    const next = openCookie<{ interactive?: boolean; returnTo?: string }>("oauth", retry.cookies.get(OAUTH_COOKIE)!.value)!;
+    expect(next).toMatchObject({ interactive: true, returnTo: "/decks" });
+    const cancel = await callback(request(`/api/auth/callback/discord?state=${url.searchParams.get("state")}&error=access_denied`, { cookie: `${OAUTH_COOKIE}=${retry.cookies.get(OAUTH_COOKIE)!.value}` }));
+    expect(cancel.headers.get("location")).toBe(`${ORIGIN}/sign-in?error=discord_recovery_cancelled`);
+  });
+  it.each(["cancelled"])("returns Discord error=%s to a friendly sign-in page", async error => {
     const p = await proof();
     const res = await callback(request(`/api/auth/callback/discord?state=${p.state}&error=${error}`, { cookie: p.cookie }));
     expect(res.status).toBe(303); expect(res.headers.get("location")).toBe(`${ORIGIN}/sign-in?error=discord_recovery_cancelled`);
@@ -135,13 +146,17 @@ describe("Discord recovery callback", () => {
     expect(res.status).toBe(303); expect(res.headers.get("location")).toBe(`${ORIGIN}/sign-in?error=discord_recovery_busy`);
     expect(res.headers.has("retry-after")).toBe(true); expect(fetcher).not.toHaveBeenCalled(); expectCleared(res);
   });
-  it("never creates users for unknown Discord accounts", async () => {
+  it("puts an unknown Discord account's verified email on the waitlist without creating a user", async () => {
+    // verifiedCallback queues the two Discord answers first; the Clerk waitlist entry call comes third.
+    const clerk = Response.json({ id: "wle_1", email_address: "yugi@test.dev", status: "pending" });
+    fetcher.mockImplementation(async (url: string) => String(url).includes("discord.com") ? new Response(null, { status: 500 }) : clerk);
     const res = await verifiedCallback({ id: "900000000000000999" });
-    expect(res.headers.get("location")).toBe(`${ORIGIN}/access`); expect(mock.create).not.toHaveBeenCalled(); expectCleared(res);
+    expect(res.headers.get("location")).toBe(`${ORIGIN}/waitlist?s=joined`); expect(mock.create).not.toHaveBeenCalled(); expectCleared(res);
+    expect(JSON.parse(String(fetcher.mock.calls.at(-1)![1].body))).toMatchObject({ email_address: "yugi@test.dev" });
     expect(mock.db.prepare("select count(*) as n from users").get()).toEqual({ n: 1 });
   });
   it.each([{ verified: false }, { verified: "true" }, { email: null }, { email: "" }])("refuses missing/unverified Discord email %j", async profile => {
-    const res = await verifiedCallback(profile); expect(res.headers.get("location")).toBe(`${ORIGIN}/access`); expectCleared(res);
+    const res = await verifiedCallback(profile); expect(res.headers.get("location")).toBe(`${ORIGIN}/waitlist?s=form`); expectCleared(res);
   });
   it("exchanges with the PKCE verifier and sets only an encrypted identity for the interstitial", async () => {
     const res = await verifiedCallback();

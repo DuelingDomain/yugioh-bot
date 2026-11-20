@@ -18,6 +18,9 @@ export function marketingHomeHref(marketingUrl: string | null | undefined, hash?
   return url.toString();
 }
 
+/** The join form inside the app (`/waitlist`): sign-in links use it so nobody bounces to the marketing page. */
+export const APP_WAITLIST_PATH = "/waitlist";
+
 /** The join form on the marketing site. */
 export function waitlistHref(marketingUrl: string | null | undefined): string {
   return marketingHomeHref(marketingUrl, "join");

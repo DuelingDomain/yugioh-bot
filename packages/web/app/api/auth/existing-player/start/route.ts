@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { safeReturnPath } from "@/lib/auth-return";
-import { clearRecoveryCookies, clearTicketCookie, newOAuthProof, pkceChallenge, recoveryRateLimit, recoveryRedirect, setRecoveryCookie, webOrigin } from "@/lib/existing-player";
+import { clearRecoveryCookies, clearTicketCookie, discordAuthorizeUrl, newOAuthProof, recoveryRateLimit, recoveryRedirect, setRecoveryCookie } from "@/lib/existing-player";
 
 export const runtime = "nodejs";
 export async function GET(request: NextRequest) {
@@ -12,10 +12,7 @@ export async function GET(request: NextRequest) {
     const requested = request.nextUrl.searchParams.get("redirect_url");
     // Leave room for the rest of the encrypted recovery claims within cookie limits.
     if (requested !== null && Buffer.byteLength(JSON.stringify(requested)) <= 1024) proof.returnTo = safeReturnPath(requested);
-    const url = new URL("https://discord.com/oauth2/authorize");
-    url.search = new URLSearchParams({ client_id: clientId, redirect_uri: `${webOrigin()}/api/auth/callback/discord`, response_type: "code",
-      scope: "identify email", prompt: "none", state: proof.state, code_challenge: pkceChallenge(proof.verifier), code_challenge_method: "S256" }).toString();
-    const response = recoveryRedirect(url.href);
+    const response = recoveryRedirect(discordAuthorizeUrl(clientId, proof).href);
     clearRecoveryCookies(response); clearTicketCookie(response);
     setRecoveryCookie(response, "oauth", proof);
     return response;
