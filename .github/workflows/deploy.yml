@@ -544,9 +544,10 @@ jobs:
           vm_scp \
             "$RUNNER_TEMP/release/image-digests" "$VM_USER@$VM_HOST:$remote_refs"
           # Start the layer download now. It overlaps the bundle transfer and the VM safety checks, and changes
-          # no tag. The verified pull on the VM stays in the script below. A failure here is ignored.
+          # no tag. It warms only services with a new build-input hash, one at a time, for at most 15 minutes.
+          # The verified pull on the VM stays in the script below and waits for it. A failure here is ignored.
           vm_ssh \
-            "nohup sh '$remote_images' warm '$DEPLOY_COMMIT' '$remote_refs' </dev/null >/dev/null 2>&1 &" || true
+            "DEPLOY_IMAGE_INPUTS='$DEPLOY_IMAGE_INPUTS' DEPLOY_ROLLBACK='$DEPLOY_ROLLBACK' nohup timeout 900 sh '$remote_images' warm '$DEPLOY_COMMIT' '$remote_refs' </dev/null >/dev/null 2>&1 &" || true
           tar -C "$RUNNER_TEMP/deploy-bundle" -czf "$bundle_tar" .
           vm_scp \
             "$bundle_tar" \

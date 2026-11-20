@@ -56,34 +56,64 @@ verify_image() {
   }
 }
 
-check_free_disk() {
-  # Pulls share the disk with SQLite. Refuse before downloading any layers.
-  docker_root=$(docker info --format '{{.DockerRootDir}}')
-  [ -n "$docker_root" ] || { echo 'Cannot find the Docker disk.' >&2; exit 1; }
+free_disk_enough() {
+  # Pulls share the disk with SQLite. Returns 1 with a message when the disk is too full or unreadable.
+  docker_root=$(docker info --format '{{.DockerRootDir}}') && [ -n "$docker_root" ] || { echo 'Cannot find the Docker disk.' >&2; return 1; }
   free_kib=$(df -Pk "$docker_root" | awk 'NR == 2 { print $4 }')
-  case "$free_kib" in ''|*[!0-9]*) echo 'Cannot read free disk space.' >&2; exit 1 ;; esac
+  case "$free_kib" in ''|*[!0-9]*) echo 'Cannot read free disk space.' >&2; return 1 ;; esac
   [ "$free_kib" -ge 6291456 ] || {
     echo 'Deploy stopped before pull: at least 6 GiB of free Docker disk space is required.' >&2
-    exit 1
+    return 1
   }
 }
+
+check_free_disk() {
+  # Refuse before downloading any layers.
+  free_disk_enough || exit 1
+}
+
+warm_lock=${DEPLOY_WARM_LOCK:-/tmp/yugidraft-warm-$(id -u).lock}
 
 case "$operation" in
   warm)
     # Best effort, started early while the deploy transfer and the safety checks still run.
     # It only downloads layers: no tag changes, no verification, no effect on the running release.
-    # The later pull stays the verified step; Docker joins a layer download that is still running.
-    check_free_disk
+    # It warms only the services that surely change (a new build-input hash), one at a time, and stops
+    # when the free disk is low. The later pull stays the verified step and waits for this lock.
+    [ "${DEPLOY_ROLLBACK:-}" != true ] || exit 0
+    if [ -z "${DEPLOY_SERVICES:-}" ]; then
+      inputs_file=${DEPLOY_INPUTS_FILE:-/opt/yugioh-bot/data/production-image-inputs}
+      [ -n "${DEPLOY_IMAGE_INPUTS:-}" ] && [ -f "$inputs_file" ] || exit 0
+      services=
+      for service in duel web worker ws bot; do
+        awk -v service="$service" '$1 == service { found=1 } END { exit !found }' "$references" || continue
+        new_hash=$(printf '%s\n' $DEPLOY_IMAGE_INPUTS | awk -F= -v service="$service" '$1 == service { print $2 }')
+        old_hash=$(awk -v service="$service" '$1 == service { print $2 }' "$inputs_file")
+        [ -n "$new_hash" ] && [ "$new_hash" != "$old_hash" ] && services="$services $service"
+      done
+    fi
+    # A failed redirection on exec ends a POSIX shell, so test it in a subshell first.
+    if command -v flock >/dev/null 2>&1 && (exec 9>>"$warm_lock") 2>/dev/null; then
+      exec 9>>"$warm_lock"
+      flock -n 9 || exit 0
+    fi
     for service in $services; do
       image=$(image_reference "$service")
       # An image that is already here (an unchanged service) needs no download.
       docker image inspect "$image" >/dev/null 2>&1 && continue
-      docker pull --platform=linux/arm64 "$image" >/dev/null 2>&1 &
+      free_disk_enough >/dev/null 2>&1 || break
+      docker pull --platform=linux/arm64 "$image" </dev/null >/dev/null 2>&1 9>&- || true
     done
-    wait
     ;;
   pull)
-    check_free_disk
+    # Wait (bounded) for a running warm-up, so the layers are not downloaded twice.
+    if command -v flock >/dev/null 2>&1; then flock -w 300 "$warm_lock" true 2>/dev/null || true; fi
+    # The disk check only matters when this pull has to download something.
+    need_download=0
+    for service in $services; do
+      docker image inspect "$(image_reference "$service")" >/dev/null 2>&1 || need_download=1
+    done
+    [ "$need_download" = 0 ] || check_free_disk
     for service in $services; do
       image=$(image_reference "$service")
       docker pull --platform=linux/arm64 "$image"

@@ -52,7 +52,7 @@ esac
   return {
     dir,
     run: (mode, commit = sha, extra = {}, args = []) => spawnSync('sh', [script, mode, commit, ...(['pull', 'warm', 'promote'].includes(mode) ? [refs] : args)], {
-      encoding: 'utf8', env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, TEST_LOG: log, ...extra },
+      encoding: 'utf8', env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, TEST_LOG: log, DEPLOY_WARM_LOCK: join(dir, 'warm.lock'), ...extra },
     }),
     commands: () => readFileSync(log, 'utf8'),
     references: content => writeFileSync(refs, content),
@@ -194,13 +194,16 @@ test('invalid SHA and command fail before Docker is called', t => {
 test('low or unreadable disk space refuses before the first pull', t => {
   for (const free of ['6291455', 'invalid', '']) {
     const f = fixture(t);
-    const result = f.run('pull', sha, { TEST_FREE_KIB: free || 'invalid' });
+    const result = f.run('pull', sha, { TEST_PREV_EXISTS: 'false', TEST_FREE_KIB: free || 'invalid' });
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /disk|space/i);
     assert.doesNotMatch(f.commands(), /pull|tag|prune/);
   }
   const f = fixture(t);
-  assert.equal(f.run('pull', sha, { TEST_FREE_KIB: '6291456' }).status, 0);
+  assert.equal(f.run('pull', sha, { TEST_PREV_EXISTS: 'false', TEST_FREE_KIB: '6291456' }).status, 0);
+  // Every image is already here (for example after a warm-up): no download, so no disk check.
+  const here = fixture(t);
+  assert.equal(here.run('pull', sha, { TEST_FREE_KIB: '1' }).status, 0);
 });
 
 test('a retry after failed health checks keeps the old VM-built previous image', t => {
@@ -254,14 +257,31 @@ test('a failed rebuild of a confirmed SHA cannot replace the good rollback image
   assert.doesNotMatch(f.commands(), /tag failed-rebuild-id/);
 });
 
-test('warm only downloads missing images, never tags, and ignores pull failures', t => {
+test('warm pulls one changed service at a time, stops on low disk, never tags, and ignores failures', t => {
+  const lock = join(tmpdir(), `warm-${process.pid}-${Date.now()}.lock`);
+  const inputs = join(tmpdir(), `inputs-${process.pid}-${Date.now()}`);
+  writeFileSync(inputs, 'duel d1\nweb w1\nworker k1\nws s1\nbot b1\n');
+  t.after(() => { rmSync(lock, { force: true }); rmSync(inputs, { force: true }); });
+  const base = { DEPLOY_WARM_LOCK: lock, DEPLOY_INPUTS_FILE: inputs, DEPLOY_IMAGE_INPUTS: 'duel=d1 web=w2 worker=k1 ws=s2 bot=b1', TEST_PREV_EXISTS: 'false' };
   const f = fixture(t);
-  const missing = f.run('warm', sha, { TEST_PREV_EXISTS: 'false', TEST_FAIL_IMAGE: `${registry}-web@${digest}` });
-  assert.equal(missing.status, 0, missing.stderr);
+  const changed = f.run('warm', sha, { ...base, TEST_FAIL_IMAGE: `${registry}-web@${digest}` });
+  assert.equal(changed.status, 0, changed.stderr);
   const pulls = f.commands().split('\n').filter(line => line.startsWith('pull '));
-  assert.equal(pulls.length, 5);
+  assert.equal(pulls.length, 2, 'only web and ws changed');
   assert.ok(!f.commands().includes('tag '), 'warm must not change tags');
+  const low = fixture(t);
+  assert.equal(low.run('warm', sha, { ...base, TEST_FREE_KIB: '1' }).status, 0);
+  assert.ok(!low.commands().includes('pull '), 'low disk stops the warm-up');
+  const named = fixture(t);
+  named.run('warm', sha, { ...base, DEPLOY_SERVICES: 'web' });
+  assert.equal(named.commands().split('\n').filter(line => line.startsWith('pull ')).length, 1);
+  const rollback = fixture(t);
+  rollback.run('warm', sha, { ...base, DEPLOY_ROLLBACK: 'true' });
+  assert.ok(!rollback.commands().includes('pull '), 'a rollback warms nothing');
+  const none = fixture(t);
+  none.run('warm', sha, { DEPLOY_WARM_LOCK: lock, DEPLOY_INPUTS_FILE: '/nonexistent', TEST_PREV_EXISTS: 'false' });
+  assert.ok(!none.commands().includes('pull '), 'unknown inputs warm nothing');
   const present = fixture(t);
-  assert.equal(present.run('warm', sha, { TEST_PREV_EXISTS: 'true' }).status, 0);
+  present.run('warm', sha, { ...base, TEST_PREV_EXISTS: 'true' });
   assert.ok(!present.commands().includes('pull '), 'an image that is already local is not pulled');
 });
