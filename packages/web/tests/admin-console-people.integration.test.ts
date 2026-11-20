@@ -65,7 +65,7 @@ it("returns who the person is, where they are now, recent duels and drafts, and 
   });
   // Newest first. Other guilds are not read.
   expect(data.recent.map((a: { name: string; outcome: string; tone: string; href: string }) => [a.name, a.outcome, a.tone, a.href])).toEqual([
-    ["Friday Fours", "Playing", "live", "/duels/live4"],
+    ["Friday Fours", "Playing", "live", "/admin/watch/duel/live4"],
     ["Ranked queue", "Won", "good", "/duels/won1/replay"],
     ["Tag night", "Lost", "bad", "/duels/tagloss/replay"],
     ["Sunday Cube", "Completed", "quiet", "/draft/cube1"],

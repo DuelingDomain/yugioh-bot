@@ -43,6 +43,12 @@ it("owner duel reads use session identity and a dedicated host operation, never 
   expect(callHost).toHaveBeenCalledWith({ op: "admin-spectate", guildId: "g", userId: 1, slug: "table", seat: 2 });
   expect(await res.json()).toMatchObject({ readOnly: true, pov: 2, room: { engine: { prompt: { title: "Choose" } } } }); expect(rows()).toEqual(before);
 });
+it("an admin watches a live private 1v1 test duel; a player who is not an admin does not", async () => {
+  db.prepare(`insert into duels(guild_id,web_slug,name,organizer_player_id,mode,status,format,settings_json) values ('g','table','Test duel',12,'normal','active','1v1','{"visibility":"private"}')`).run();
+  expect((await duel()).status).toBe(200);
+  auth.mockResolvedValue({ user: { id: "3" } }); callHost.mockClear();
+  expect((await duel()).status).toBe(404); expect(callHost).not.toHaveBeenCalled();
+});
 it("rejects non-owners, missing sessions, cross-guild targets and malformed seats before host access", async () => {
   table("other"); expect((await duel()).status).toBe(404); db.prepare("update duels set guild_id='g'").run();
   for (const q of ["?seat=-1", "?seat=3", "?seat=0&seat=1", "?seat=1.0", "?seat=all"]) expect((await duel(q)).status).toBe(400);
