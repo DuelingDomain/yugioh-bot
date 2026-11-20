@@ -43,7 +43,7 @@ export function useLayers() {
     });
     function key(event: KeyboardEvent) {
       const root = document.querySelector<HTMLElement>(`[data-layer="${layerRef.current}"]`); if (!root) return;
-      if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); close(); return; }
+      if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); if (root.dataset.modal !== "true") close(); return; }
       if (event.key !== "Tab") return;
       const items = [...root.querySelectorAll<HTMLElement>(FOCUSABLE)].filter(el => el.offsetParent !== null || el === document.activeElement);
       if (!items.length) { event.preventDefault(); return; }
@@ -57,6 +57,8 @@ export function useLayers() {
       const id = layerRef.current;
       // A press on a camera feed starts a new read, which replaces the popup. Anywhere else outside closes it.
       if ((id === "tray" || id === "card") && target.closest("[data-remote-seat]")) return;
+      // A modal layer closes only through its own button.
+      if (document.querySelector(`[data-layer="${id}"][data-modal="true"]`)) return;
       if (target.closest(`[data-layer="${id}"]`) || (opener.current && opener.current.contains(target)) || target.closest("[data-layer-opener]")) return;
       setLayer(null); opener.current = null;
     }

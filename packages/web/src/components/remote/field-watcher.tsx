@@ -388,10 +388,20 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       if(track&&!track.removed&&!piles.has(track.zone))manual.current.set(old.ref,{...fieldZoneLocation(track.zone),position:track.position});
     }
   };
+  /** A monster a Tribute (Nibiru) sent to this Graveyard: the real card stays on the mat until the player moves it, so the camera keeps its place and does not add it again. */
+  const holdTributedCards=(before:readonly TwinCard[],after:readonly TwinCard[])=>{
+    for(const old of before){
+      if(old.zone!=='monster'&&old.zone!=='extra-monster')continue;
+      if(!after.some(c=>c.ref===old.ref&&c.zone==='graveyard'))continue;
+      const track=watch.getTracks().find(t=>(bindings.current.get(t.id)??t.id)===old.ref);
+      if(track&&!track.removed&&!piles.has(track.zone))manual.current.set(old.ref,{...fieldZoneLocation(track.zone),position:track.position});
+    }
+  };
   const previousTwins=useRef(room.state.seats[seat].twin);
   useEffect(()=>{
     const twins=room.state.seats[seat].twin;
     holdReplacedFieldCards(previousTwins.current,twins);
+    holdTributedCards(previousTwins.current,twins);
     previousTwins.current=twins;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[room.state,seat]);

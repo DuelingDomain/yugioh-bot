@@ -26,6 +26,7 @@ export function actionCardRefs(action: AnyAction): string[] {
   switch (action.type) {
     case "twin.move": case "twin.flip": case "twin.remove": return [action.cardRef];
     case "pile.lift": return action.cardRefs;
+    case "monsters.tribute": return action.targets.map(t => t.cardRef);
     case "twin.place": return action.card.ref ? [action.card.ref] : [];
     case "card.identified": return action.cardRef ? [action.cardRef] : [];
     case "effect.activated": return action.source.cardRef ? [action.source.cardRef] : [];
@@ -48,6 +49,7 @@ export function shortUndoLabel(event: { action: unknown }, cardName: (seat: numb
     case "twin.place": return `${a.card.name ?? cardName(a.seat, a.card.ref) ?? "Card"} placed → ${zoneShort(a.zone, a.card.slot)}`;
     case "twin.flip": return `${cardName(a.seat, a.cardRef) ?? "Card"} flipped ${a.faceUp ? "up" : "down"}`;
     case "twin.remove": return `${cardName(a.seat, a.cardRef) ?? "Card"} removed`;
+    case "monsters.tribute": return `Tribute (${a.targets.length})`;
     case "pile.lift": return `${a.zone === "graveyard" ? "Graveyard" : "Banished"} picked up (${a.cardRefs.length})`;
     case "lp.change": return `${name(a.seat)} ${a.delta < 0 ? "−" : "+"}${Math.abs(a.delta)} LP`;
     case "phase.set": return PHASE_LONG[a.phase] ?? a.phase;

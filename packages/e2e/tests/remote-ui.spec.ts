@@ -318,8 +318,10 @@ test.describe("remote duels screen, solo", () => {
       await expect(seat0).toHaveAttribute("data-view", "camera");
       await page.keyboard.press("Escape");
       await expect(page.getByTestId("inspector-body")).toBeHidden();
-      // A click on the empty frame enlarges the field and shrinks the camera.
+      // A click on the empty frame never zooms: only the Enlarge field button enlarges the field and shrinks the camera.
       await page.getByTestId("fwrap-0").click({ position: { x: 4, y: 4 } });
+      await expect(seat0).toHaveAttribute("data-view", "camera");
+      await page.getByTestId("view-toggle-0").click();
       await expect(seat0).toHaveAttribute("data-view", "field");
       await expect(seat1).toHaveAttribute("data-view", "camera");
       await expect.poll(() => area("feed-box-0"), { timeout: 3_000 }).toBeLessThan(camBefore * 0.7);
@@ -392,7 +394,7 @@ test.describe("remote duels screen, solo", () => {
     // The grid sits exactly on the video, before and after the camera and the field swap places.
     const gap = async () => { const [g, v] = await Promise.all([grid.boundingBox(), video.boundingBox()]); return Math.abs(g!.x - v!.x) + Math.abs(g!.y - v!.y) + Math.abs(g!.width - v!.width) + Math.abs(g!.height - v!.height); };
     expect(await gap()).toBeLessThan(6); await shot(page, "zone-grid-default");
-    await page.getByTestId("fwrap-0").click({ position: { x: 4, y: 4 } });
+    await page.getByTestId("view-toggle-0").click();
     await expect(page.getByTestId("seat-0")).toHaveAttribute("data-view", "field");
     await expect(grid).toBeVisible();
     await expect.poll(gap, { timeout: 3_000 }).toBeLessThan(6);
@@ -2254,6 +2256,74 @@ test.describe("remote tournament", () => {
 
 test.describe("remote duels screen, tokens and the camera", () => {
   test.beforeEach(async ({ context }) => { await authenticatePlayer(context.request, { userId: 101 }, process.env.E2E_AUTH_SECRET!, process.env.E2E_REMOTE_UI_URL!); });
+
+  test("Scapegoat played: four Sheep Tokens with the real token art appear in free Monster Zones, and a click on the board does not zoom", async ({ page, context }) => {
+    const slug = await soloTable(context.request, 2), path = `/api/remote/${slug}`;
+    await page.setViewportSize({ width: 1366, height: 768 });
+    await page.goto(`/duels/remote/${slug}`);
+    await expect(page.getByTestId("seat-0")).toBeVisible();
+    await page.getByTestId("fwrap-0").click({ position: { x: 4, y: 4 } });
+    await expect(page.getByTestId("seat-0")).toHaveAttribute("data-view", "camera");
+    const room = await (await context.request.get(path)).json();
+    const response = await context.request.post(`${path}/actions`, { data: { baseSeq: room.lastSeq, action: { idempotencyKey: crypto.randomUUID(), type: "twin.place", actorSeat: 0, seat: 0, zone: "spell-trap", card: { ref: "sg", cardId: 73915051, name: "Scapegoat", slot: 1, faceUp: true, position: "attack" } } } });
+    expect(response.status(), await response.text()).toBe(200);
+    const sheep = async () => ((await (await context.request.get(path)).json()).state.seats[0].twin as { name?: string; token?: { artId?: number } }[]).filter(card => card.name === "Sheep Token" && card.token?.artId === 73915052).length;
+    await expect.poll(sheep, { timeout: 15_000 }).toBe(4);
+  });
+
+  test("Nibiru played: a confirm first, then both fields' monsters go to the Graveyard in one Undo step, then the zone is picked, then a modal dialog holds the combined ATK/DEF", async ({ page, context }) => {
+    test.setTimeout(120_000);
+    const slug = await soloTable(context.request, 2), path = `/api/remote/${slug}`;
+    await page.setViewportSize({ width: 1366, height: 768 });
+    const act = async (action: Record<string, unknown>) => {
+      const room = await (await context.request.get(path)).json();
+      const response = await context.request.post(`${path}/actions`, { data: { baseSeq: room.lastSeq, action: { idempotencyKey: crypto.randomUUID(), ...action } } });
+      expect(response.status(), await response.text()).toBe(200);
+    };
+    const twins = async (seat: number) => ((await (await context.request.get(path)).json()).state.seats[seat].twin as { name?: string; zone: string }[]).map(c => `${c.name}:${c.zone}`);
+    await act({ type: "twin.place", actorSeat: 0, seat: 0, zone: "monster", card: { ref: "a", name: "Sheep Token", slot: 1, faceUp: true, position: "defense", token: { atk: 100, def: 200 } } });
+    await act({ type: "twin.place", actorSeat: 1, seat: 1, zone: "monster", card: { ref: "b", name: "Lamb Token", slot: 2, faceUp: true, position: "defense", token: { atk: 300, def: 400 } } });
+    await page.goto(`/duels/remote/${slug}`);
+    await expect(page.getByTestId("seat-0")).toBeVisible();
+    // A click that works proves the page is live: a card placed before that is "already on the field", not played.
+    await page.getByTestId("fwrap-0").click({ position: { x: 4, y: 4 } });
+    await expect(page.getByTestId("seat-0")).toHaveAttribute("data-view", "camera");
+    // The server refuses a Tribute while the player has no face-up Nibiru on the field.
+    const early = await context.request.post(`${path}/actions`, { data: { baseSeq: (await (await context.request.get(path)).json()).lastSeq, action: { idempotencyKey: crypto.randomUUID(), type: "monsters.tribute", actorSeat: 0, seat: 0, targets: [{ seat: 0, cardRef: "a" }] } } });
+    expect(early.status()).toBe(409);
+    await act({ type: "twin.place", actorSeat: 0, seat: 0, zone: "monster", card: { ref: "nib", cardId: 27204311, name: "Nibiru, the Primal Being", slot: 3, faceUp: true, position: "attack" } });
+    // Nibiru not on the field (shown from the hand): Tribute waits. When Nibiru lands, it enables by itself.
+    await expect(page.getByTestId("nibiru-tribute")).toBeEnabled();
+    const placed = (await (await context.request.get(path)).json()).state.undoHistory.find((entry: { action: { type: string; card?: { ref: string } } }) => entry.action.card?.ref === "nib");
+    await act({ type: "undo", actorSeat: 0, targetActionId: placed.actionId });
+    await expect(page.getByTestId("nibiru-wait")).toBeVisible();
+    await expect(page.getByTestId("nibiru-tribute")).toBeDisabled();
+    await act({ type: "twin.place", actorSeat: 0, seat: 0, zone: "monster", card: { ref: "nib2", cardId: 27204311, name: "Nibiru, the Primal Being", slot: 3, faceUp: true, position: "attack" } });
+    await expect(page.getByTestId("nibiru-tribute")).toBeEnabled();
+    // Both tokens leave in one step; Nibiru stays. Nothing is sent before the click: the confirm shows the count, and the board is still whole.
+    await expect(page.getByTestId("nibiru-count")).toHaveText("Send 2 monsters to the Graveyard?");
+    expect((await twins(0)).length + (await twins(1)).length).toBe(3);
+    await page.getByTestId("nibiru-tribute").click();
+    await expect.poll(async () => [...await twins(0), ...await twins(1)], { timeout: 15_000 }).toEqual(["Nibiru, the Primal Being:monster"]);
+    await expect(page.getByTestId("token-bar")).toBeVisible();
+    // The zone comes first; the dialog is modal and holds exactly the Tributed tokens' ATK/DEF (100+300 / 200+400).
+    await page.locator('[data-testid="seat-1"] [data-token-slot]').first().click();
+    await expect(page.getByTestId("token-dialog")).toBeVisible();
+    await expect(page.getByTestId("token-atk")).toHaveValue("400");
+    await expect(page.getByTestId("token-def")).toHaveValue("600");
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("token-dialog")).toBeVisible();
+    await page.getByTestId("token-change-zone").click();
+    await expect(page.getByTestId("token-dialog")).toHaveCount(0);
+    await expect(page.getByTestId("token-bar")).toBeVisible();
+    // One Undo brings both tokens back.
+    await page.getByTestId("token-cancel").click();
+    const room = await (await context.request.get(path)).json();
+    const tribute = (room.state.undoHistory as { actionId: string; action: { type: string } }[]).find(entry => entry.action.type === "monsters.tribute");
+    expect(tribute).toBeTruthy();
+    await act({ type: "undo", actorSeat: 0, targetActionId: tribute!.actionId });
+    await expect.poll(async () => [...await twins(0), ...await twins(1)].sort(), { timeout: 10_000 }).toEqual(["Lamb Token:monster", "Nibiru, the Primal Being:monster", "Sheep Token:monster"]);
+  });
 
   // A fake reader stands in for the camera model (NEXT_PUBLIC_E2E_FIELD_HOOK, set by the e2e stack only): the test hands the table a card "seen" in a cell that holds a token.
   test("a card seen on a token's cell: Choose another zone places it in the zone picked and keeps the token; Remove token puts it there and one Undo restores the token", async ({ page, context }) => {
