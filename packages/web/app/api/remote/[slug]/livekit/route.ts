@@ -29,12 +29,13 @@ export async function POST(_request: Request, context: RemoteRouteContext) {
     }
     if (room.seat === null) {
       await admitSpectator(room.slug, actor.userId);
-      // Receive only, and hidden from the players' participant lists. The identity can never match a seat.
+      // Hidden from the players' participant lists. The identity can never match a seat. It cannot publish a track; data is allowed only so it can ask
+      // a feed owner to read a card (one topic, answered to this spectator alone). Every seated handler binds a sender to a seat and ignores this identity.
       const watcher = new AccessToken(process.env.LIVEKIT_API_KEY, process.env.LIVEKIT_API_SECRET, {
         identity: `remote-spectator-${actor.userId}`, ttl: 300, name: "Spectator",
         metadata: JSON.stringify({ guildId: actor.guildId, tableId: room.slug, role: "spectator", userId: actor.userId }),
       });
-      watcher.addGrant({ roomJoin: true, room: name, canPublish: false, canPublishData: false, canSubscribe: true, hidden: true, canUpdateOwnMetadata: false });
+      watcher.addGrant({ roomJoin: true, room: name, canPublish: false, canPublishData: true, canSubscribe: true, hidden: true, canUpdateOwnMetadata: false });
       return remoteJson({ url: process.env.LIVEKIT_URL, token: await watcher.toJwt(), room: name, seat: null });
     }
     await makeRoomForPlayer(room.slug, `remote-user-${actor.userId}`);

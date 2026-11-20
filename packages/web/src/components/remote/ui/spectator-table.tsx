@@ -202,6 +202,24 @@ function SpectatorTable({ room }: { room: RemoteRoom }) {
     setSubject({ from: "camera", cardId: card.cardId, seat, name: card.name, notInDecklist: null, addErrors: [], via: "field" });
     setPopAt({ anchor: { left: box.left, right: box.right, top: box.top, bottom: box.bottom }, feed: null }); layers.open("card");
   };
+  // A read of a card on a camera, asked of the player who owns that feed: the same reader and the same answer a seated player gets.
+  const [readNote, setReadNote] = useState("");
+  const readSeq = useRef(0);
+  useEffect(() => { if (!readNote || readNote.startsWith("Reading")) return; const timer = setTimeout(() => setReadNote(""), 4500); return () => clearTimeout(timer); }, [readNote]);
+  const readFromOwner = async (seat: number, x: number, y: number, anchor: Rect, feed: Rect) => {
+    if (!video) return;
+    const seq = ++readSeq.current;
+    setReadNote(`Reading the card on ${name(seat)}'s camera…`);
+    try {
+      const answer = await video.requestRead(seat, x, y);
+      if (seq !== readSeq.current) return;
+      const top = answer.candidates[0];
+      if (!top) { setReadNote(answer.faceDown ? "That card is face down." : `${name(seat)}'s reader found no card there.`); return; }
+      setReadNote("");
+      setSubject({ from: "camera", cardId: top.cardId, seat, name: top.name, notInDecklist: null, addErrors: [], via: "field", tier: answer.tier, ...(answer.covered ? { covered: true } : {}) });
+      setPopAt({ anchor, feed }); layers.open("card");
+    } catch (error) { if (seq === readSeq.current) setReadNote(error instanceof Error ? error.message : "Could not read that card."); }
+  };
   const onFeed = (seat: number, x: number, y: number, anchor: Rect, feed: Rect) => {
     if (!video) return;
     const twin = state.seats[seat]?.twin ?? [];
@@ -213,8 +231,31 @@ function SpectatorTable({ room }: { room: RemoteRoom }) {
       const key = !zone ? null : zone === "FIELD" ? "f" : zone.startsWith("EMZ") ? `e${zone.slice(-1)}` : /^[MS][1-5]$/.test(zone) ? zone.toLowerCase() : null;
       card = key ? cellsFor(twin, extraZones)[key as ZoneKey]?.card : undefined;
     }
-    show(seat, card, anchor, feed);
+    // A card the table holds face down opens nothing. Anything else the board does not name is read by the feed owner.
+    if (card && card.faceUp === false) { setReadNote("That card is face down."); return; }
+    if (card && cardCode(card)) show(seat, card, anchor, feed);
+    else void readFromOwner(seat, x, y, anchor, feed);
   };
+  // The players' own tap reads that name no board card (Tap to identify): public reads of a camera, newest first. The server sends only those that name no hidden card.
+  const tapReads = useMemo(() => {
+    const reads = new Map<number, { key: string; cardId: number; name?: string }[]>();
+    for (const event of [...room.events].sort((a, b) => b.seq - a.seq)) {
+      const a = event.action;
+      if (a.type !== "card.identified" && a.type !== "cards.identified") continue;
+      const sightings = a.type === "card.identified" ? [a] : a.cards;
+      for (const [n, sight] of sightings.entries()) {
+        const id = sight.cardId ?? sight.passcode;
+        if (!id || sight.cardRef) continue;
+        const list = reads.get(a.seat) ?? []; if (list.length >= 6 || list.some(item => item.cardId === id)) continue;
+        list.push({ key: `${event.id}-${n}`, cardId: id, name: sight.name }); reads.set(a.seat, list);
+      }
+    }
+    return reads;
+  }, [room.events]);
+  const readList = (seat: number) => { const list = tapReads.get(seat); return list?.length ? <ul className={v.reads} aria-label={`${name(seat)}'s recent reads`} data-testid={`tap-reads-${seat}`}>
+    <li className={v.readsLabel}>Read</li>
+    {list.map(item => <li key={item.key}><button type="button" onClick={() => { setSubject({ from: "camera", cardId: item.cardId, seat, name: item.name, notInDecklist: null, addErrors: [], via: "field" }); layers.open("insp"); }}>{item.name ?? info(item.cardId)?.name ?? `Card ${item.cardId}`}</button></li>)}
+  </ul> : null; };
   const facing = (seat: number) => { const other = facingSeat(seat, seatCount); return other === null || !state.seats[other] ? null : { name: name(other), twin: state.seats[other].twin }; };
   const [pile, setPile] = useState<{ seat: number; zone: PileZone } | null>(null);
   useEffect(() => { if (pile && layers.layer !== "pile" && layers.layer !== "card") setPile(null); }, [pile, layers.layer]);
@@ -230,7 +271,7 @@ function SpectatorTable({ room }: { room: RemoteRoom }) {
   const startingLp = room.format?.settings.startingLP ?? 8000;
   const formatLabel = REMOTE_FORMATS.find(item => item.value === (room.format ?? normalizeRemoteFormat()).id)?.label ?? "";
   // The end and siding screens carry their own words; the note is for a game result and for video problems.
-  const note = ended || siding ? null : match.phase === "result" ? "This game is over. The next game starts soon." : snapshot.error || null;
+  const note = ended || siding ? null : readNote || (match.phase === "result" ? "This game is over. The next game starts soon." : snapshot.error || null);
 
   return <FeedCardsProvider seats={state.seats} info={info}><div className={`${duelFontClasses} ${s.app} ${v.app}`} data-mode={seatCount === 2 ? "1v1" : String(seatCount)} data-wc={webcamOnly ? "1" : undefined} data-testid="spectator-table" data-status={room.status}>
     <div className={s.shell} inert={covered ? true : undefined}>
@@ -279,6 +320,7 @@ function SpectatorTable({ room }: { room: RemoteRoom }) {
                   {shown.map(card => <li key={card.ref}><button type="button" onClick={event => { const box = event.currentTarget.getBoundingClientRect(); show(seat, card, { left: box.left, right: box.right, top: box.top, bottom: box.bottom }, null); }}>{cardName(card, info(cardCode(card)))}</button></li>)}
                   {hiddenCount ? <li className={v.set} data-testid={`set-count-${seat}`}>{hiddenCount} Set</li> : null}
                 </ul>
+                {readList(seat)}
               </div> : <div className={s.fside}>
                 <div className={s.fboard}>
                   <div className={`${s.fwrap} ${v.noZoom}`} data-testid={`fwrap-${seat}`}>
@@ -293,6 +335,7 @@ function SpectatorTable({ room }: { room: RemoteRoom }) {
                   </div>
                 </div>
                 <HandStrip seat={seat} name={name(seat)} hand={{ cards: knownHandOf(state, seat), count: handCountOf(state, seat), onInspect: card => showKnown(seat, card) }} />
+                {readList(seat)}
                 <div className={v.stats}><span data-testid={`lp-${seat}`}>LP <b data-testid={`lp-value-${seat}`} aria-label={`${name(seat)}: ${lp(seat)} of ${startingLp} life points`}>{lp(seat)}</b></span></div>
               </div>}
             </div>

@@ -50,7 +50,9 @@ const env = {
   DISCORD_GUILD_ID: "900000000000000001", DOTENV_CONFIG_PATH: resolve(directory, "none.env"),
   WS_INTERNAL_SECRET: secret, WS_PORT: String(wsPort), WS_INTERNAL_PORT: String(internalPort),
   WS_INTERNAL_URL: `http://127.0.0.1:${internalPort}`, WEB_URL: `http://localhost:${webPort}`, NEXT_PUBLIC_WS_URL: `http://localhost:${wsPort}`,
-  E2E_AUTH: "1", NEXT_PUBLIC_E2E_FIELD_HOOK: "1", CLERK_SECRET_KEY: "", NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: "",
+  E2E_AUTH: "1", NEXT_PUBLIC_E2E_FIELD_HOOK: "1",
+  // Its own build folder (dev and prod): the E2E field hook must never land in the default .next.
+  E2E_NEXT_DIST_DIR: process.env.E2E_NEXT_DIST_DIR || ".next-e2e-remote-ui", CLERK_SECRET_KEY: "", NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: "",
   VISION_DATA_DIR: process.env.VISION_DATA_DIR ?? "", REMOTE_VOICE_USERS: process.env.REMOTE_VOICE_USERS ?? "", REMOTE_VOICE_DIAGNOSTICS_USERS: "",
   LIVEKIT_URL: process.env.LIVEKIT_URL ?? "ws://127.0.0.1:7880",
   LIVEKIT_API_KEY: process.env.LIVEKIT_API_KEY ?? "devkey", LIVEKIT_API_SECRET: process.env.LIVEKIT_API_SECRET ?? "secret",
