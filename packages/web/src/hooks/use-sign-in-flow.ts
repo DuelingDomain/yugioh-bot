@@ -125,7 +125,12 @@ export function useSignInFlow(opts: { returnTo: string; marketingUrl: string | n
   const advance = async () => {
     const signIn = latest.current.signIn!;
     const event = signInStatusEvent(signIn.status);
-    if (event.type === "code-sent") {
+    // A person with no password (password sign-up is off) signs in with an emailed code as the first factor.
+    if (event.type === "needs-password" && Array.isArray(signIn.supportedFirstFactors)
+      && !signIn.supportedFirstFactors.some(factor => factor.strategy === "password")
+      && signIn.supportedFirstFactors.some(factor => factor.strategy === "email_code")) {
+      if (await call(() => signIn.emailCode.sendCode(), "code")) dispatch({ type: "code-sent", purpose: "email-code", now: Date.now() });
+    } else if (event.type === "code-sent") {
       if (signIn.status === "needs_second_factor" && !signIn.supportedSecondFactors.some(factor => factor.strategy === "email_code")) {
         fail(null, "code"); return;
       }
@@ -140,7 +145,7 @@ export function useSignInFlow(opts: { returnTo: string; marketingUrl: string | n
   const sendCode = async () => {
     const signIn = latest.current.signIn!;
     const purpose = state.codePurpose;
-    const send = purpose === "reset" ? () => signIn.resetPasswordEmailCode.sendCode() : () => signIn.mfa.sendEmailCode();
+    const send = purpose === "reset" ? () => signIn.resetPasswordEmailCode.sendCode() : purpose === "email-code" ? () => signIn.emailCode.sendCode() : () => signIn.mfa.sendEmailCode();
     if (purpose && await call(send, "code")) dispatch({ type: "code-sent", purpose, now: Date.now() });
   };
 
@@ -200,7 +205,7 @@ export function useSignInFlow(opts: { returnTo: string; marketingUrl: string | n
         if (state.step !== "code" || !state.codePurpose) return;
         await run("code", async () => {
           const signIn = latest.current.signIn!;
-          const verify = state.codePurpose === "reset" ? () => signIn.resetPasswordEmailCode.verifyCode({ code }) : () => signIn.mfa.verifyEmailCode({ code });
+          const verify = state.codePurpose === "reset" ? () => signIn.resetPasswordEmailCode.verifyCode({ code }) : state.codePurpose === "email-code" ? () => signIn.emailCode.verifyCode({ code }) : () => signIn.mfa.verifyEmailCode({ code });
           if (await call(verify, "code", () => ["complete", "needs_new_password"].includes(latest.current.signIn!.status))) await advance();
         });
       },

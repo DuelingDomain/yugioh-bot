@@ -2,7 +2,7 @@ import { mapClerkError, type AuthErrorView } from "./auth-errors";
 import { safeReturnPath } from "./auth-return";
 
 export type AuthStep = "signin" | "password" | "code" | "newpw" | "invite" | "signing" | "recovering" | "discord-invite" | "success" | "err-invite" | "err-signup" | "err-banned";
-export type CodePurpose = "signup" | "reset" | "client-trust";
+export type CodePurpose = "signup" | "reset" | "client-trust" | "email-code";
 export type FieldName = "identifier" | "password" | "code" | "newPassword" | "confirm" | "username" | "legal";
 export interface AuthBanner { tone: "bad" | "info"; body: string; code?: string }
 export interface AuthFlowState {
