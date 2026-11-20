@@ -92,7 +92,7 @@ export function SeatPanel(p: SeatPanelProps) {
   const tapHere = useTapToIdentify(p.seat);
   // Webcam only, while this seat can be attacked: the list of its monsters is on the feed, because a feed without a camera or outlines cannot be clicked.
   const targeting = compact && p.picking && !p.eliminated;
-  const listing = (!!p.webcamOnly && !p.boardOff) || targeting;
+  const listing = !!p.webcamOnly || !!p.boardOff || targeting;
   const listed = listing ? (Object.entries(cellsFor(p.twin, !!p.extraZones)) as [ZoneKey, { card?: TwinCard } | undefined][]).flatMap(([key, cell]) =>
     cell?.card && !isPile(key) && (!targeting || cell.card.zone === "monster" || cell.card.zone === "extra-monster") ? [{ key, card: cell.card }] : []) : [];
   const cardList = listing ? <ul className={`${s.wclist} ${targeting ? s.wctargets : ""}`} aria-label={targeting ? `Attack targets on ${p.name}'s field` : `${p.name}'s cards on the field`} data-testid={`wc-cards-${p.seat}`} data-targets={targeting || undefined}>
@@ -168,8 +168,8 @@ export function SeatPanel(p: SeatPanelProps) {
           </div>
         </>} />
       <div className={s.fside}>
-        {targeting ? null : cardList}
         {p.boardOff && !p.you ? <TapBoardNote /> : null}
+        {targeting ? null : cardList}
         <div className={s.fboard}>
         {inTools ? null : scan ? scanButton : tapHere ? <span className={s.scanbtn} style={{ visibility: "hidden" }} aria-hidden="true"><ScanLine size={15} strokeWidth={1.8} /><span>Scan field</span></span> : null}
         <div className={s.fwrap} data-rail={!inTools && (scan || tapHere) ? "" : undefined} data-testid={`fwrap-${p.seat}`}>

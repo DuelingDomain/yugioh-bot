@@ -1097,6 +1097,8 @@
 .tapBoardOff{flex:none;box-sizing:border-box;width:100%;display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;padding:7px 10px;border-radius:8px;border:1px solid rgb(240 178 79/.5);border-left:3px solid var(--warn);background:rgb(7 4 14/.94);color:var(--ink2);font:500 12px/1.3 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif}
 .tapBoardText{flex:1 1 140px;min-width:0}
 .tapBoardText b{font-weight:700;color:var(--gold-ink)}
+/* The 128px side column of the wide layout has room for the short line only: the full text is the tooltip. */
+@container seat (min-aspect-ratio:1.55){.seat[data-wc] .tapBoardMore{display:none}.seat[data-wc] .tapBoardOff{padding:5px 8px}.seat[data-wc] .tapBoardText{flex-basis:100%;font-size:11px}}
 .feedTagRow .tapChip{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;pointer-events:auto;cursor:default;letter-spacing:.04em;font-size:11px;color:var(--gold-ink);border:1px solid rgb(232 185 79/.5)}
 .watcherStatusSlot{display:block;min-width:0;max-width:300px;pointer-events:auto}
 .watcherControlsSlot{display:flex;flex:none}

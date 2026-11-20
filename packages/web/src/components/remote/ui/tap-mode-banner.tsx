@@ -37,6 +37,6 @@ export function TapModeChip({ name, syncing = false }: { name: string; syncing?:
  */
 export function TapBoardNote() {
   return <div className={s.tapBoardOff} role="status" data-testid="tap-board-off">
-    <span className={s.tapBoardText}><b>Board off — Tap mode.</b> Cards are read only when tapped.</span>
+    <span className={s.tapBoardText} title="Board off — Tap mode. Cards are read only when tapped."><b>Board off — Tap mode.</b><span className={s.tapBoardMore}> Cards are read only when tapped.</span></span>
   </div>;
 }

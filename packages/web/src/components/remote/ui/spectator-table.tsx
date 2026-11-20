@@ -148,8 +148,10 @@ function SpectatorTable({ room }: { room: RemoteRoom }) {
   const snapshot = useSyncExternalStore(video?.subscribe ?? noVideo.subscribe, video?.getSnapshot ?? (() => noVideo.snapshot), () => noVideo.snapshot);
   const online = snapshot.connection === ConnectionState.Connected;
   // A Tap mode player's board is off for everyone: that seat shows its camera like Webcam only, with a note.
-  const subscribeTap = useCallback((listener: () => void) => { const a = video?.tracks.subscribe(listener), b = video?.vision.subscribe(listener); return () => { a?.(); b?.(); }; }, [video]);
-  const tapSeats = useSyncExternalStore(subscribeTap, () => Array.from({ length: room.seatCount }, (_, seat) => seat).filter(seat => seatBoardOff({ stateMode: stateMode(room.state, seat), tracksTap: !!video?.tracks.tap(seat), visionTap: video?.vision.get(seat)?.detect === "tap" })).join(","), () => "");
+  const subscribeTap = useCallback((listener: () => void) => { const a = video?.tracks.subscribe(listener), b = video?.vision.subscribe(listener), c = video?.subscribe(listener); return () => { a?.(); b?.(); c?.(); }; }, [video]);
+  // The camera signals stay cached for a while after a seat stops its camera: they count only while its feed is live.
+  const live = (seat: number) => !!video?.getSnapshot().feeds.some(feed => feed.seat === seat && feed.video);
+  const tapSeats = useSyncExternalStore(subscribeTap, () => Array.from({ length: room.seatCount }, (_, seat) => seat).filter(seat => seatBoardOff({ stateMode: stateMode(room.state, seat), tracksTap: live(seat) && !!video?.tracks.tap(seat), visionTap: live(seat) && video?.vision.get(seat)?.detect === "tap" })).join(","), () => "");
   const [, setFrozen] = useState<Record<number, boolean>>({});
   const onFrozen = useMemo(() => (seat: number, value: boolean) => setFrozen(old => old[seat] === value ? old : { ...old, [seat]: value }), []);
 
@@ -265,10 +267,10 @@ function SpectatorTable({ room }: { room: RemoteRoom }) {
               {wc ? <div className={`${s.fside} ${v.side}`}>
                 <HandStrip seat={seat} name={name(seat)} hand={{ cards: knownHandOf(state, seat), count: handCountOf(state, seat), tray: true, onInspect: card => showKnown(seat, card) }} />
                 <div className={v.stats}><span data-testid={`lp-${seat}`}>LP <b data-testid={`lp-value-${seat}`} aria-label={`${name(seat)}: ${lp(seat)} of ${startingLp} life points`}>{lp(seat)}</b></span></div>
-                {boardOff ? <TapBoardNote /> : <ul className={v.cards} aria-label={`${name(seat)}'s public cards`} data-testid={`public-cards-${seat}`}>
+                {boardOff ? <TapBoardNote /> : null}<ul className={v.cards} aria-label={`${name(seat)}'s public cards`} data-testid={`public-cards-${seat}`}>
                   {shown.map(card => <li key={card.ref}><button type="button" onClick={event => { const box = event.currentTarget.getBoundingClientRect(); show(seat, card, { left: box.left, right: box.right, top: box.top, bottom: box.bottom }, null); }}>{cardName(card, info(cardCode(card)))}</button></li>)}
                   {hiddenCount ? <li className={v.set} data-testid={`set-count-${seat}`}>{hiddenCount} Set</li> : null}
-                </ul>}
+                </ul>
               </div> : <div className={s.fside}>
                 <div className={s.fboard}>
                   <div className={`${s.fwrap} ${v.noZoom}`} data-testid={`fwrap-${seat}`}>

@@ -2555,7 +2555,9 @@ test.describe("remote duels screen, Auto-detect off", () => {
       await expect(b.getByTestId("fwrap-0")).toBeHidden(); await expect(b.getByTestId("fwrap-1")).toBeVisible();
             // LP and the piles stay. The note fits inside the screen at every size.
       await expect(b.getByTestId("lp-value-0")).toBeVisible(); await expect(b.getByTestId("wc-piles-0")).toBeVisible();
-      for (const [width, height] of [[1920, 1080], [2560, 1440], [1366, 768]] as const) {
+      // The public-cards list of Webcam only stays on a board-off seat.
+      await expect(b.getByTestId("wc-cards-0")).toHaveCount(1);
+      for (const [width, height] of [[1920, 1080], [2560, 1440], [1366, 768], [1366, 560]] as const) {
         await b.setViewportSize({ width, height }); await b.waitForTimeout(250); await shot(b, `tap-board-off-${width}`);
         const box = await note.boundingBox(), lp = await b.getByTestId("lp-value-0").boundingBox();
         expect(box && lp && box.x >= 0 && box.y >= 0 && box.x + box.width <= width && box.y + box.height <= height && lp.y + lp.height <= height, `${width}x${height} note and LP inside the screen`).toBe(true);

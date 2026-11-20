@@ -487,8 +487,8 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
   const subscribeTap = useCallback((listener: () => void) => { const a = hub.subscribeFieldBacks(listener), b = hub.subscribePeerVision(listener); return () => { a(); b(); }; }, [hub.subscribeFieldBacks, hub.subscribePeerVision]);
   const tapSeats = useSyncExternalStore(subscribeTap, () => room.seats.filter(item => item.seat !== room.mySeat && seatBoardOff({ stateMode: stateMode(room.state, item.seat), tracksTap: hub.tapMode(item.seat), visionTap: hub.peerVision(item.seat)?.detect === "tap" })).map(item => item.seat).join(","), () => "");
   const ownBoardOff = room.mySeat >= 0 && !!detection && !detection.autoDetect && hub.cameraOn;
-  /** A bot, manual or Scan mode seat has no camera to read: its board twin is the only view of its cards, so it stays on. */
-  const needsBoard = (seat: number) => tokens.placing || !!room.seats.find(item => item.seat === seat)?.bot || hub.manual(seat) || hub.health(seat).label === "Scan mode";
+  /** A bot, manual or Scan mode seat has no camera to read: its board twin is the only view of its cards, so it stays on. So does every board while a zone click is the next step (token, give control). */
+  const needsBoard = (seat: number) => tokens.placing || !!room.seats.find(item => item.seat === seat)?.bot || hub.manual(seat) || hub.health(seat).label === "Scan mode" || control.giving;
   const boardOff = (seat: number) => !needsBoard(seat) && (seat === room.mySeat ? ownBoardOff : tapSeats.split(",").includes(String(seat)));
   const flagFor = (seat: number, id: number) => hasDeck(room, seat) ? !deckIdsOf(room, seat).includes(id) : null;
   const reticle = (seat: number, next: FeedReticle | null, id: string) => setReticles(all => ({ ...all, [seat]: [...(all[seat] ?? []).filter(item => item.id !== id), ...(next ? [next] : [])] }));
@@ -937,8 +937,11 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     const draw = () => {
       const place = (seat: number, ref?: string) => {
         const card = findCard(seat, ref); const key = card ? cellKeyOf(card, state.seats[seat]?.twin) : null;
-        return (key && root.querySelector<HTMLElement>(`[data-seat="${seat}"][data-zone="${key}"]`)) || root.querySelector<HTMLElement>(`[data-plate="${seat}"]`);
+        const found = (key && root.querySelector<HTMLElement>(`[data-seat="${seat}"][data-zone="${key}"]`)) || root.querySelector<HTMLElement>(`[data-plate="${seat}"]`);
+        // A hidden board (Webcam only, Tap mode) leaves its zones in the page with no size: no arrow can point at them.
+        const rect = found?.getBoundingClientRect(); return found && rect && (rect.width > 0 || rect.height > 0) ? found : null;
       };
+      if (boardHidden(attack.attackerSeat) || boardHidden(attack.targetSeat)) { setArrow(null); return; }
       const a = place(attack.attackerSeat, attack.attackerCardRef); const b = place(attack.targetSeat, attack.direct ? undefined : attack.targetCardRef);
       if (!a || !b) { setArrow(null); return; }
       const st = root.getBoundingClientRect(); const ra = a.getBoundingClientRect(); const rb = b.getBoundingClientRect();
@@ -948,7 +951,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     };
     draw(); window.addEventListener("resize", draw); return () => window.removeEventListener("resize", draw);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [attack, state.seats]);
+  }, [attack, state.seats, tapSeats, ownBoardOff, webcamOnly]);
 
   // ---- moving cards by hand: drag, keyboard, voice ----
   /** One twin.move, one Undo. The auto-detect watcher is told first so the camera keeps the new place. */
@@ -1461,7 +1464,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
   const pileCount = (seat: number, zone: PileZone) => (state.seats[seat]?.twin ?? []).filter(card => card.zone === zone).length;
   /** Webcam only: the name under the pointer. Outlined cards first, then the card the table holds in that zone. A hidden card shows as a Set card. */
   const hoverTip = (seat: number, x: number, y: number) => {
-    if ((tapOwnSeat && seat === mySeat) || boardOff(seat)) return null;
+    if (tapOwnSeat && seat === mySeat) return null;
     const tracked = hub.trackedAt(seat, x, y);
     if (tracked) return { label: tracked.name ?? info(tracked.cardId)?.name ?? "Card", detail: statLine(tracked.cardId) };
     const card = twinAtPoint(seat, x, y);
@@ -1473,7 +1476,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
   /** Webcam only: a click where no card is outlined. A card the table knows there opens its info. A hidden card says "Set card". The Graveyard and Banished open their pile. */
   const onZoneCard = (seat: number, at: { x: number; y: number; anchor: Rect; feed: Rect }) => {
     // Tap to identify: the board does not follow this camera, so its zones can be out of date. The click reads the frame.
-    if ((tapOwnSeat && seat === mySeat) || boardOff(seat)) return false;
+    if (tapOwnSeat && seat === mySeat) return false;
     const card = twinAtPoint(seat, at.x, at.y);
     if (card?.token) { cancelRead(); tokens.open(seat, card); return true; }
     // The table already knows this card: its details open in both views, with no read.
@@ -1482,7 +1485,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
       ctx.current = { seat, x: at.x, y: at.y, at: { anchor: at.anchor, feed: at.feed }, id: ++readCounter.current, ref: card.ref };
       return true;
     }
-    if (!webcamOnly) return false;
+    if (!webcamOnly && !boardOff(seat)) return false;
     if (!card) { const pile = pileAt(zoneAtPoint(seat, at.x, at.y)); if (!pile) return false; cancelRead(); openPile(seat, pile, null); return true; }
     // A Set card this browser remembers takes the click read, which ends in the local popup. No name shows until then.
     const memory = tapMemory(seat);
@@ -1549,7 +1552,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
           <path d={arrow.d} fill="none" stroke="rgba(232,185,79,.35)" strokeWidth="9" strokeLinecap="round" />
           <path className={s.flow} d={arrow.d} fill="none" stroke="#f6dc9a" strokeWidth="3" strokeLinecap="round" markerEnd="url(#ah)" /></> : null}</svg>
         <div className={`${s.amath} ${arrow && battle ? s.show : ""}`} aria-hidden="true" style={arrow ? { left: arrow.mx, top: arrow.my } : undefined} data-testid="battle-math">{battle ? <><em>{battle.attackerAtk ?? "?"}</em> vs <em>{battle.direct ? "direct" : battle.targetValue ?? "?"}</em> → <s>{battle.result}</s></> : null}</div>
-        {webcamOnly && attack && battle ? <div className={s.wcbattle} role="status" aria-live="polite" data-testid="wc-battle"><b>{battle.title}</b> <em>{battle.attackerAtk ?? "?"}</em> vs <em>{battle.direct ? "direct" : battle.targetValue ?? "?"}</em> → <s>{battle.result}</s></div> : null}
+        {attack && battle && (webcamOnly || boardHidden(attack.attackerSeat) || boardHidden(attack.targetSeat)) ? <div className={s.wcbattle} role="status" aria-live="polite" data-testid="wc-battle"><b>{battle.title}</b> <em>{battle.attackerAtk ?? "?"}</em> vs <em>{battle.direct ? "direct" : battle.targetValue ?? "?"}</em> → <s>{battle.result}</s></div> : null}
         {seatIds.map(seat => {
           const twin = state.seats[seat]?.twin ?? []; const bot = !!room.seats.find(item => item.seat === seat)?.bot;
           const registration=room.seats.find(item=>item.seat===seat),deck=registration?.deck?.deck;
