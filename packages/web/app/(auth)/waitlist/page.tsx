@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
-import { WAITLIST_VIEWS, WaitlistCard, type WaitlistView } from "@/components/auth/waitlist-card";
+import { WaitlistCard } from "@/components/auth/waitlist-card";
+import { WAITLIST_VIEWS, type WaitlistView } from "@/lib/waitlist-views";
 import { marketingUrlFromEnv } from "@/lib/auth-page-params";
 
 export const metadata: Metadata = {
