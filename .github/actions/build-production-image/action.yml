@@ -25,6 +25,9 @@ inputs:
   publish-artifacts:
     description: Upload the digest artifact for Deploy (false for PR prebuilds, which only publish the reusable image)
     default: "true"
+  write-caches:
+    description: Write the shared registry caches (depscache, buildcache, nextcache). PR prebuilds pass false so only main refreshes them
+    default: "true"
 runs:
   using: composite
   steps:
@@ -97,7 +100,7 @@ runs:
         provenance: false
         sbom: false
         cache-from: type=registry,ref=${{ env.IMAGE }}:depscache
-        cache-to: type=registry,ref=${{ env.IMAGE }}:depscache,mode=max,ignore-error=true
+        cache-to: ${{ inputs.write-caches == 'true' && format('type=registry,ref={0}:depscache,mode=max,ignore-error=true', env.IMAGE) || '' }}
 
     - name: Build and push runtime image
       id: runtime-image
@@ -131,7 +134,7 @@ runs:
           ${{ inputs.inputs-hash != '' && format('dev.duelingdomain.inputs={0}', inputs.inputs-hash) || '' }}
         cache-from: ${{ inputs.push == 'true' && format('type=registry,ref={0}:buildcache', env.IMAGE) || '' }}
         # Web intermediate layers include private maps; export final runtime layers only.
-        cache-to: ${{ inputs.push == 'true' && format('type=registry,ref={0}:buildcache,mode={1}', env.IMAGE, inputs.service == 'web' && 'min' || 'max') || '' }}
+        cache-to: ${{ inputs.push == 'true' && inputs.write-caches == 'true' && format('type=registry,ref={0}:buildcache,mode={1}', env.IMAGE, inputs.service == 'web' && 'min' || 'max') || '' }}
 
     - name: Record runtime image digest
       if: inputs.push == 'true'
@@ -215,7 +218,7 @@ runs:
         overwrite: true
 
     - name: Save Next.js cache for the next source revision
-      if: inputs.service == 'web' && inputs.push == 'true' && steps.map-export.outputs.supported == 'true'
+      if: inputs.service == 'web' && inputs.push == 'true' && inputs.write-caches == 'true' && steps.map-export.outputs.supported == 'true'
       uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
       with:
         context: .

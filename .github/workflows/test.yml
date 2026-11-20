@@ -1252,6 +1252,7 @@ jobs:
         env:
           IMAGE_SERVICE: ${{ matrix.service }}
           IMAGE_SALT_ENV: ${{ matrix.service == 'web' && 'NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY,NEXT_PUBLIC_POSTHOG_KEY,NEXT_PUBLIC_SENTRY_DSN,SENTRY_ORG,SENTRY_PROJECT' || '' }}
+          IMAGE_SALT_EXTRA: target:${{ matrix.target }}
           NEXT_PUBLIC_POSTHOG_KEY: ${{ vars.NEXT_PUBLIC_POSTHOG_KEY }}
           NEXT_PUBLIC_SENTRY_DSN: ${{ vars.NEXT_PUBLIC_SENTRY_DSN }}
           SENTRY_ORG: ${{ vars.SENTRY_ORG }}
@@ -1260,7 +1261,7 @@ jobs:
           if [ "$IMAGE_SERVICE" = duel ]; then
             mkdir -p "$RUNNER_TEMP/bundle-files"
             tar -C "$RUNNER_TEMP/bundle-files" -xzf "$RUNNER_TEMP/release/deploy-bundle.tar.gz"
-            IMAGE_SALT_EXTRA="bundle:$(cd "$RUNNER_TEMP/bundle-files" && find . -type f ! -name '*.SOURCE' -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)"
+            IMAGE_SALT_EXTRA="$IMAGE_SALT_EXTRA bundle:$(cd "$RUNNER_TEMP/bundle-files" && find . -type f ! -name '*.SOURCE' -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)"
             export IMAGE_SALT_EXTRA
           fi
           node scripts/ci/image-inputs.mjs
@@ -1337,6 +1338,7 @@ jobs:
         env:
           IMAGE_SERVICE: ${{ matrix.service }}
           IMAGE_SALT_ENV: ${{ matrix.service == 'web' && 'NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY,NEXT_PUBLIC_POSTHOG_KEY,NEXT_PUBLIC_SENTRY_DSN,SENTRY_ORG,SENTRY_PROJECT' || '' }}
+          IMAGE_SALT_EXTRA: target:${{ matrix.target }}
           NEXT_PUBLIC_POSTHOG_KEY: ${{ vars.NEXT_PUBLIC_POSTHOG_KEY }}
           NEXT_PUBLIC_SENTRY_DSN: ${{ vars.NEXT_PUBLIC_SENTRY_DSN }}
           SENTRY_ORG: ${{ vars.SENTRY_ORG }}
@@ -1348,28 +1350,19 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ github.token }}
-      - name: Check for an image built from the same inputs
-        id: existing
-        env:
-          INPUTS_HASH: ${{ steps.inputs.outputs.hash }}
-        run: |
-          if docker buildx imagetools inspect "$IMAGE:inputs-$INPUTS_HASH" >/dev/null 2>&1; then
-            echo "present=true" >> "$GITHUB_OUTPUT"
-            echo "An image for these inputs already exists; nothing to build." >> "$GITHUB_STEP_SUMMARY"
-          fi
       - name: Download pinned voice inputs for web
-        if: steps.existing.outputs.present != 'true' && matrix.service == 'web' && needs.production-voice-assets.outputs.enabled == 'true'
+        if: matrix.service == 'web' && needs.production-voice-assets.outputs.enabled == 'true'
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: ${{ needs.production-voice-assets.outputs.artifact }}
           path: ${{ runner.temp }}/voice-inputs
       - name: Unpack voice image inputs
-        if: steps.existing.outputs.present != 'true' && matrix.service == 'web' && needs.production-voice-assets.outputs.enabled == 'true'
+        if: matrix.service == 'web' && needs.production-voice-assets.outputs.enabled == 'true'
         run: |
           mkdir -p data/voice-assets
           tar -C data/voice-assets -xzf "$RUNNER_TEMP/voice-inputs/voice-assets.tar.gz"
+      # Always builds: the tag is overwritten, so a broken earlier push of this PR is never reused.
       - name: Build production image
-        if: steps.existing.outputs.present != 'true'
         uses: ./.github/actions/build-production-image
         with:
           service: ${{ matrix.service }}
@@ -1377,6 +1370,7 @@ jobs:
           bundle-artifact: unused
           inputs-hash: ${{ steps.inputs.outputs.hash }}
           publish-artifacts: 'false'
+          write-caches: 'false'
         env:
           NEXT_PUBLIC_POSTHOG_KEY: ${{ vars.NEXT_PUBLIC_POSTHOG_KEY }}
           NEXT_PUBLIC_SENTRY_DSN: ${{ vars.NEXT_PUBLIC_SENTRY_DSN }}

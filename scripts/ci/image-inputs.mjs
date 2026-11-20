@@ -21,18 +21,27 @@ const SERVICE_PACKAGES = {
 };
 export const SERVICES = Object.keys(SERVICE_PACKAGES);
 
-const TEST_DIR = /(^|\/)(tests?|__tests__)\//;
+// Mirrors .dockerignore exactly where it drops tracked files: only root *.md files and
+// packages/<name>/test(s)/ are outside the context. Deeper paths such as
+// packages/web/app/api/duels/test/ (a production route) or packages/vision/src/licenses/*.md
+// (copied into the web image by scripts/voice/assemble.mts) are real inputs.
+const DOCKERIGNORED = [/^[^/]+\.md$/, /^packages\/[^/]+\/tests?\//];
 const KEEP = [
   '.github/actions/build-production-image/',
   '.github/actions/reuse-production-image/',
   'scripts/ci/image-inputs.mjs',
   'packages/shared/data/effects/NOTICE.md',
+  // Build inputs that live in workflows: the matrix target and env, and the voice-asset build
+  // (it runs on the emscripten digest pinned in pins.json and its output is copied into the web image).
+  '.github/workflows/test.yml',
+  '.github/workflows/prepare-voice-assets.yml',
+  'packages/duel-server/domain-core/pins.json',
 ];
-// Files that never reach an image: the Docker context drops docs and tests, and deploy-only tooling
-// lives outside the application build.
+// Tracked files that sit inside the Docker context but that no build step reads (checked by hand:
+// no Dockerfile stage, package script or build tool opens them). Deploy-only tooling lives here too.
 const IGNORED = [
   /^docs\//, /^site\//, /^services\//, /^tools\//, /^\.agents\//, /^\.github\//, /^\.claude\//,
-  /^scripts\/(ci|deployment|backup)\//, /^packages\/e2e\//, /\.md$/i,
+  /^scripts\/(ci|deployment|backup)\//, /^packages\/e2e\//,
 ];
 
 export function included(path, service) {
@@ -40,7 +49,7 @@ export function included(path, service) {
   if (KEEP.some(keep => path === keep || (keep.endsWith('/') && path.startsWith(keep)))) return true;
   const manifest = /^packages\/[^/]+\/package(-lock)?\.json$/.test(path);
   if (manifest) return true;
-  if (TEST_DIR.test(path)) return false;
+  if (DOCKERIGNORED.some(pattern => pattern.test(path))) return false;
   if (IGNORED.some(pattern => pattern.test(path))) return false;
   const owner = /^packages\/([^/]+)\//.exec(path);
   if (owner) return SERVICE_PACKAGES[service].includes(owner[1]);

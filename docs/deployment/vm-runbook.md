@@ -141,6 +141,11 @@ Deploy jobs run in the `production` GitHub Environment and require these GitHub 
    and tags them `inputs-<hash>`. On main, `production-images` finds that tag and only stamps the image with the
    merge commit (`.github/actions/reuse-production-image`, config-only, no layers move); otherwise it builds as before.
    Reused web images keep their source maps in a 7-day private artifact `web-maps-<hash>`, never in the image.
+   The hash follows `.dockerignore` exactly: only root `*.md` and `packages/<name>/test(s)/` are left out, so nested
+   paths such as `packages/web/app/api/duels/test/` and `packages/vision/src/licenses/*.md` count. It also covers the
+   workflow build inputs (`test.yml`, `prepare-voice-assets.yml`, `domain-core/pins.json`) and the build target.
+   The PR prebuild always builds and overwrites its own `inputs-<hash>` tag, and it never writes the shared
+   `:depscache`, `:buildcache` or `:nextcache` (`write-caches: 'false'`); only main refreshes them.
    To invalidate every stored image, raise `HASH_VERSION` in `image-inputs.mjs`. The weekly rotation also refreshes base images.
    The reuse rule never skips tests: the image is stamped only inside the main run that passed Test.
    Runtime and cache build steps set `provenance: false` and `sbom: false` to avoid extra attestation manifests.

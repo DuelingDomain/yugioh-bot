@@ -188,6 +188,14 @@ test('PR image prebuild is non-blocking, same-repo only and skipped for docs and
   assert.deepEqual(job.strategy.matrix.include.map(entry => entry.service), ['web', 'bot', 'ws', 'worker']);
   const build = job.steps.find(step => step.name === 'Build production image');
   assert.equal(build.with['publish-artifacts'], 'false');
+  // PR builds never touch the shared main caches, and always overwrite their own inputs tag.
+  assert.equal(build.with['write-caches'], 'false');
+  assert.equal(build.if, undefined);
+  assert.equal(job.steps.some(step => step.id === 'existing'), false);
+  for (const name of ['production-images', 'image-prebuild']) {
+    const hashStep = jobs[name].steps.find(step => step.id === 'inputs');
+    assert.equal(hashStep.env.IMAGE_SALT_EXTRA, 'target:${{ matrix.target }}');
+  }
   assert.doesNotMatch(JSON.stringify(job), /VM_|ssh|deploy-production/);
   // Main reuses the prebuilt image only through the checked reuse action, and every build step is gated on it.
   const main = jobs['production-images'].steps;
