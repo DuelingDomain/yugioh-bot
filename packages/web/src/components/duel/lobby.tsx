@@ -650,12 +650,21 @@ export function DuelLobby({ initialView, initialScope, initialFilters, viewerId,
       </header>
 
       <section className={styles.section}>
-        {searchParams?.get("notice") === "kicked" && !kickedDismissed ? (
+        {(searchParams?.get("notice") === "kicked" || searchParams?.get("notice") === "closed") && !kickedDismissed ? (
           <div className={styles.kickedNotice} role="alert" data-testid="kicked-notice">
             <UserX size={18} strokeWidth={1.7} aria-hidden />
             <div>
-              <strong>The host removed you from that duel</strong>
-              <p>You can open it again only if the host invites you.</p>
+              {searchParams?.get("notice") === "closed" ? (
+                <>
+                  <strong>The host closed that table</strong>
+                  <p>Join another table or open a new one.</p>
+                </>
+              ) : (
+                <>
+                  <strong>The host removed you from that duel</strong>
+                  <p>You can open it again only if the host invites you.</p>
+                </>
+              )}
             </div>
             <button type="button" className={styles.kickedDismiss} aria-label="Dismiss" onClick={() => {
               setKickedDismissed(true);

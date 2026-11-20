@@ -90,6 +90,10 @@ export function RemoteLobbyRoom({ ctl, room, voiceRecognition = false, tournamen
   const rulesLocked = isTournamentTable(room);
   const canStart = host && room.seats.length === room.seatCount && room.seats.every(seat => seat.ready);
   const open = room.seatCount - room.seats.length;
+  // The host ends the table for everyone, so it asks first. A tournament table keeps the plain Leave: the match is not the host's to close.
+  const [confirmClose, setConfirmClose] = useState(false);
+  const canClose = host && !tournament;
+  const guests = room.seats.filter(seat => seat.userId !== room.createdBy && !seat.bot).length;
   const seatNames = ["Seat 1", "Seat 2", "Seat 3", "Seat 4"];
   return <div className={sheetPage} data-testid="remote-lobby-room">
     <div className={room_.wrap}>
@@ -169,7 +173,18 @@ export function RemoteLobbyRoom({ ctl, room, voiceRecognition = false, tournamen
                 Start table<Swords size={17} strokeWidth={1.6} aria-hidden />
               </SheetButton> : null}
             </div>
-            <SheetButton kind="quiet" disabled={busy} onClick={() => void operation("leave")}>Leave table</SheetButton>
+            {canClose
+              ? confirmClose
+                ? <div className={r.closeConfirm} role="alertdialog" aria-labelledby="close-table-title" data-testid="close-confirm">
+                  <p id="close-table-title" className={r.closeTitle}>Close this table?</p>
+                  <p className={ui.hint}>{guests > 0 ? `${guests === 1 ? "The player" : "The players"} seated here will be sent back to the tables list.` : "The table is removed from the tables list."} You can open a new one right after.</p>
+                  <div className={r.closeRow}>
+                    <SheetButton kind="danger" size="sm" disabled={busy} data-testid="close-confirm-yes" onClick={() => void operation("leave")}>Close table</SheetButton>
+                    <SheetButton kind="quiet" size="sm" disabled={busy} onClick={() => setConfirmClose(false)}>Keep table</SheetButton>
+                  </div>
+                </div>
+                : <SheetButton kind="danger" size="sm" disabled={busy} data-testid="close-table" onClick={() => setConfirmClose(true)}>Close table</SheetButton>
+              : <SheetButton kind="quiet" disabled={busy} data-testid="leave-table" onClick={() => void operation("leave")}>Leave table</SheetButton>}
             {blocked ? <p className={r.startHint}>Fix the deck problems, or choose No deck, to get ready.</p>
               : !host ? <p className={r.startHint}>Waiting for the host to start the table.</p>
               : !canStart ? <p className={r.startHint}>{room.seats.length < room.seatCount ? "Start unlocks when every seat is filled and ready." : "Start unlocks when every seat is ready."}</p> : null}

@@ -120,6 +120,11 @@ export function RemoteTableScreen({ slug, tournament = null, watchAsAdmin = fals
   }, [hybridEnabled]);
   const ctl = useRemoteRoom(slug, { watchAsAdmin });
   const room = ctl.room;
+  const router = useRouter();
+  // The host closed a table that never started: a seated guest (not the host, who is already on the way) goes back to the tables list with a short notice, not to a dead table.
+  const closedByHost = !!room && !tournament && !room.spectator && room.status === "ended" && room.startedAt === null && room.endReason === "creator-left"
+    && room.seats.find(seat => seat.seat === room.mySeat)?.userId !== room.createdBy;
+  useEffect(() => { if (closedByHost) router.replace("/duels?notice=closed"); }, [closedByHost, router]);
   const isDeveloper = room?.isDeveloper === true;
   useEffect(() => { setFieldDeveloper(isDeveloper); return () => setFieldDeveloper(false); }, [isDeveloper]);
   if (!room) return <div className={`${duelFontClasses} ${s.app}`} data-mode="1v1"><div className={s.shell} style={{ display: "grid", placeItems: "center", alignContent: "center", gap: 12 }}>
@@ -151,7 +156,7 @@ const rescanText = (result: RescanResult) => result === "started" ? "Rescan sent
 
 function endedWhy(room: RemoteRoom, winner: string | null) {
   if (room.endReason === "idle") return "It closed after 10 minutes without activity.";
-  if (room.endReason === "creator-left") return "The host left the lobby.";
+  if (room.endReason === "creator-left") return "The host closed the table.";
   if (room.endReason === "account-deleted") return "A player deleted their account.";
   if (room.endReason === "forfeit") return winner ? `A player left the match. ${winner} won.` : "A player left the match.";
   return winner ? `${winner} won.` : "The game is over.";

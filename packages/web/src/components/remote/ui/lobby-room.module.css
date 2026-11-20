@@ -16,6 +16,9 @@
 .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; padding: 16px 18px; border: 1px solid var(--duel-rule); border-radius: 12px; background: linear-gradient(180deg, rgb(19 32 55 / 0.4), rgb(10 17 32 / 0.85)); }
 .primary { display: flex; flex-wrap: wrap; gap: 10px; }
 .actions > :nth-child(2) { margin-left: auto; }
+.closeConfirm { flex-basis: 100%; display: grid; gap: 8px; margin: 0; padding: 12px 14px; border: 1px solid rgb(228 90 77 / 0.4); border-radius: 10px; background: var(--duel-loss-soft); }
+.closeTitle { margin: 0; color: var(--duel-ink); font-size: 15px; font-weight: 450; }
+.closeRow { display: flex; flex-wrap: wrap; gap: 8px; }
 .startHint { flex-basis: 100%; margin: 0; color: var(--duel-ink-3); font-size: 13.5px; }
 .seatsPanel ul > li { align-content: start; }
 
