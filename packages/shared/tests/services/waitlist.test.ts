@@ -26,8 +26,17 @@ describe("waitlist", () => {
       .toEqual({ status: "joined" });
     expect(db.prepare("select * from waitlist_signups").get()).toEqual({
       id: 1, email: "player@example.com", created_at: "2026-10-05T12:00:00.000Z",
-      source: "hero", user_agent: "x".repeat(300), heard_from: null, heard_from_detail: null,
+      source: "hero", user_agent: "x".repeat(300), heard_from: null, heard_from_detail: null, via_discord: 0,
     });
+  });
+
+  it("remembers a Discord join, also for an email already on the list, without replacing the first source", () => {
+    const service = createWaitlistService(db);
+    service.join("player@example.com", { source: "hero" });
+    expect(service.joinedViaDiscord("player@example.com")).toBe(false);
+    expect(service.join("Player@Example.com", { source: "app-not-invited", viaDiscord: true })).toEqual({ status: "exists" });
+    expect(service.joinedViaDiscord("player@example.com")).toBe(true);
+    expect(db.prepare("select source from waitlist_signups").get()).toEqual({ source: "hero" });
   });
 
   it("deduplicates case and surrounding whitespace across service instances without replacing metadata", () => {

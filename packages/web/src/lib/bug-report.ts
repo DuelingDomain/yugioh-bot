@@ -367,7 +367,7 @@ const PUBLIC_ROUTE_CHILDREN: Readonly<Partial<Record<string, readonly string[]>>
   "/api/admin/duels": ["[id]", "forks"],
   "/api/admin/duels/[id]": ["replay"],
   "/api/admin/duels/[id]/replay": ["", "fork"],
-  "/api/auth": ["callback", "existing-player", "session"],
+  "/api/auth": ["callback", "existing-player", "invite-method", "session"],
   "/api/auth/callback": ["discord"],
   "/api/auth/existing-player": ["complete", "start", "ticket"],
   "/api/bug-reports": ["", "precheck"],

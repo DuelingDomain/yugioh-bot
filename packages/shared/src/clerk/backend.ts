@@ -60,6 +60,10 @@ export interface ClerkBackend {
   }): Promise<ClerkInvitationJson>;
   /** POST /invitations/{id}/revoke. Already revoked, already accepted or missing resolves like a success. */
   revokeInvitation(id: string): Promise<void>;
+  /** Ids of this email's revoked invitations (GET /invitations?status=revoked). Optional so older fakes stay valid. */
+  revokedInvitationIds?(email: string): Promise<Set<string>>;
+  /** Email of a still-pending invitation, or null when it is not pending (accepted, revoked, expired or unknown). */
+  pendingInvitationEmail?(id: string): Promise<string | null>;
 }
 
 /** Complete, read-only audience discovery. Ticket URLs never leave server-side email preparation. */
@@ -215,6 +219,16 @@ export function createClerkBackend(opts: { secretKey: string; apiUrl?: string; f
         if (error.status === 404 || (error.status === 400 && ["invitation_already_revoked", "invitation_already_accepted"].includes(error.code ?? ""))) return;
         throw error;
       }
+    },
+    async revokedInvitationIds(email) {
+      const normalized = email.trim().toLowerCase();
+      const revoked = await listAll<ClerkInvitationJson>("/invitations", { status: "revoked", query: normalized });
+      return new Set(revoked.filter(item => item.email_address.trim().toLowerCase() === normalized).map(item => item.id));
+    },
+    async pendingInvitationEmail(id) {
+      const pending = await listAll<ClerkInvitationJson>("/invitations", { status: "pending" });
+      const found = pending.find(item => item.id === id);
+      return found ? found.email_address.trim().toLowerCase() : null;
     },
     createWaitlistEntry(input) { return request("/waitlist_entries", "POST", { email_address: input.emailAddress, notify: input.notify }); },
     async listWaitlistEntries(query) {

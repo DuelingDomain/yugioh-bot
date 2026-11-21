@@ -147,12 +147,14 @@ describe("Discord recovery callback", () => {
     expect(res.headers.has("retry-after")).toBe(true); expect(fetcher).not.toHaveBeenCalled(); expectCleared(res);
   });
   it("puts an unknown Discord account's verified email on the waitlist without creating a user", async () => {
-    // verifiedCallback queues the two Discord answers first; the Clerk waitlist entry call comes third.
-    const clerk = Response.json({ id: "wle_1", email_address: "yugi@test.dev", status: "pending" });
-    fetcher.mockImplementation(async (url: string) => String(url).includes("discord.com") ? new Response(null, { status: 500 }) : clerk);
+    // verifiedCallback queues the two Discord answers first. Clerk is asked for an existing entry (none), then creates one.
+    fetcher.mockImplementation(async (url: string, init?: { method?: string }) => String(url).includes("discord.com") ? new Response(null, { status: 500 })
+      : init?.method === "POST" ? Response.json({ id: "wle_1", email_address: "yugi@test.dev", status: "pending" }) : Response.json({ data: [], total_count: 0 }));
     const res = await verifiedCallback({ id: "900000000000000999" });
     expect(res.headers.get("location")).toBe(`${ORIGIN}/waitlist?s=joined`); expect(mock.create).not.toHaveBeenCalled(); expectCleared(res);
     expect(JSON.parse(String(fetcher.mock.calls.at(-1)![1].body))).toMatchObject({ email_address: "yugi@test.dev" });
+    // The Discord join is remembered, so the invite email page can skip the password form.
+    expect(mock.db.prepare("select via_discord from waitlist_signups").get()).toEqual({ via_discord: 1 });
     expect(mock.db.prepare("select count(*) as n from users").get()).toEqual({ n: 1 });
   });
   it.each([{ verified: false }, { verified: "true" }, { email: null }, { email: "" }])("refuses missing/unverified Discord email %j", async profile => {

@@ -273,7 +273,7 @@ export interface CreatorAccessService {
    * expired; a valid invitation, or an archived creator -> "not_due" (no waitlist entry either).
    * "none" -> no such grant: continue with the normal waitlist.
    */
-  resendAllowlistForWaitlist(email: string): Promise<"resent" | "not_due" | "failed" | "none">;
+  resendAllowlistForWaitlist(email: string): Promise<"resent" | "invited" | "not_due" | "failed" | "none">;
   /** Email keys with a live grant: signed_up, or sending/sent not expired. The admin waitlist hides these emails. */
   grantedEmailKeys(): Set<string>;
 
@@ -766,13 +766,24 @@ export function createCreatorAccessService(db: Database.Database, opts: CreatorA
         throw error;
       }
       if (creatorRow(grant.creator_id)?.archived_at !== null) return "not_due";
-      const claim = db.transaction((): "none" | "not_due" | number => {
+      // The owner revoked this invitation in Clerk: that ends the grant. A new sign-up must not bring the invite back, so
+      // the person goes to the normal waitlist and the owner decides again. Unknown (Clerk unreachable): send nothing.
+      if (grant.clerk_invitation_id && (grant.status === "sent" || grant.status === "failed")) {
+        try {
+          const revoked = await requireSender().clerk.revokedInvitationIds?.(grant.email);
+          if (revoked?.has(grant.clerk_invitation_id)) {
+            db.prepare("update creator_grants set status = 'revoked', expires_at = null where id = ? and status in ('sent', 'failed')").run(grant.id);
+            return "none";
+          }
+        } catch { return "failed"; }
+      }
+      const claim = db.transaction((): "none" | "invited" | "not_due" | number => {
         const now = clock();
         const current = grantByKey(key);
         if (!current || current.kind !== "allowlist" || current.status === "signed_up" || current.status === "revoked") return "none";
         if (creatorRow(current.creator_id)?.archived_at !== null) return "not_due";
         // A valid invitation is still in the inbox: re-send only a failed or expired one.
-        if (!(current.status === "failed" || isExpired(current, now))) return "not_due";
+        if (!(current.status === "failed" || isExpired(current, now))) return "invited";
         db.prepare("update creator_grants set status = 'sending', expires_at = ? where id = ? and status = ?")
           .run(now + SENDING_LEASE_MS, current.id, current.status);
         return current.id;

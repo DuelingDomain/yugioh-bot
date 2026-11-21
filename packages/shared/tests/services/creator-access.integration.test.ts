@@ -31,9 +31,10 @@ function stubClerk() {
     return { id: `inv_${next}`, email_address: input.emailAddress, status: "pending", expires_at: null };
   });
   const revokeInvitation = vi.fn(async (_id: string) => {});
+  const revokedInvitationIds = vi.fn(async (_email: string) => new Set<string>());
   const unexpected = (name: string) => vi.fn(async () => { throw new Error(`unexpected Clerk call ${name}`); });
   const backend = {
-    createInvitation, revokeInvitation,
+    createInvitation, revokeInvitation, revokedInvitationIds,
     getUser: unexpected("getUser"), listUsers: unexpected("listUsers"), createUser: unexpected("createUser"),
     updateUserExternalId: unexpected("updateUserExternalId"), updateUserMetadata: unexpected("updateUserMetadata"),
     createWaitlistEntry: unexpected("createWaitlistEntry"), listWaitlistEntries: unexpected("listWaitlistEntries"),
@@ -457,14 +458,26 @@ describe("allowlist emails", () => {
     const creator = setup();
     expect(await service.resendAllowlistForWaitlist("nobody@example.test")).toBe("none");
     await service.addAllowlistEmails(creator.id, ["vip@example.test"], 1);
-    expect(await service.resendAllowlistForWaitlist("vip@example.test")).toBe("not_due");
+    expect(await service.resendAllowlistForWaitlist("vip@example.test")).toBe("invited");
     clock += RESEND_COOLDOWN_MS + 1;
     // A valid invitation is still in the inbox.
-    expect(await service.resendAllowlistForWaitlist("vip@example.test")).toBe("not_due");
+    expect(await service.resendAllowlistForWaitlist("vip@example.test")).toBe("invited");
     expect(clerk.createInvitation).toHaveBeenCalledTimes(1);
     clock = T0 + ALLOWLIST_INVITE_DAYS * DAY + 1;
     expect(await service.resendAllowlistForWaitlist("vip@example.test")).toBe("resent");
     expect(clerk.createInvitation).toHaveBeenCalledTimes(2);
+  });
+
+  it("ends the grant when the owner revoked its invitation in Clerk, so a new sign-up never re-sends it", async () => {
+    const creator = setup();
+    await service.addAllowlistEmails(creator.id, ["vip@example.test"], 1);
+    clerk.revokedInvitationIds.mockResolvedValue(new Set(["inv_1"]));
+    // Even after the invitation would have expired locally, the revoke wins: nothing is sent, the grant is over.
+    clock = T0 + ALLOWLIST_INVITE_DAYS * DAY + 1;
+    expect(await service.resendAllowlistForWaitlist("vip@example.test")).toBe("none");
+    expect(clerk.createInvitation).toHaveBeenCalledTimes(1);
+    expect(grants()).toEqual([expect.objectContaining({ email: "vip@example.test", status: "revoked" })]);
+    expect(service.grantedEmailKeys().size).toBe(0);
   });
 
   it("answers existing_account for an account on the same inbox, not only the exact address", async () => {

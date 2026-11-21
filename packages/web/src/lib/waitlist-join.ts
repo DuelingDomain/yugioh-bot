@@ -7,19 +7,24 @@ import { releaseOwnerSends, reserveOwnerSends } from "@/lib/creator-send-limit";
 import { getDb } from "@/lib/db";
 
 /**
- * "joined": on the list (new or already there). "invited": the list entry already has an invitation. "account": the email
- * is proven to belong to a Clerk user. "rejected": Clerk refused the email and it is neither listed nor a user.
- * "retry": local row saved, Clerk call failed or is unreachable. "error": nothing saved.
+ * "joined": on the list as pending (new or already there). "invited": an invitation is out, or was just sent again.
+ * "account": the email is proven to belong to a Clerk user. "declined": the owner rejected this email; it stays rejected.
+ * "rejected": Clerk refused the email and it is neither listed nor a user. "retry": local row saved, Clerk call failed or
+ * is unreachable. "error": nothing saved.
  */
-export type WaitlistJoinOutcome = "joined" | "invited" | "account" | "rejected" | "retry" | "error";
-export interface WaitlistJoinMeta { source: string; userAgent?: string | null; heardFrom?: unknown; heardFromDetail?: unknown }
+export type WaitlistJoinOutcome = "joined" | "invited" | "account" | "declined" | "rejected" | "retry" | "error";
+export interface WaitlistJoinMeta {
+  source: string; userAgent?: string | null; heardFrom?: unknown; heardFromDetail?: unknown;
+  /** The Discord sign-in path: remembered so the invite page can skip the password form. */
+  viaDiscord?: boolean;
+}
 
 /**
  * An email with a live allowlist grant (creator fast-track) gets its Clerk invitation again in place of a waitlist
  * entry, and the waitlist join is skipped. Returns "joined"/"retry" (the same answers as a normal join) when the grant
  * handled the email, or null to continue with the normal waitlist.
  */
-async function handledByAllowlist(email: string): Promise<"joined" | "retry" | null> {
+async function handledByAllowlist(email: string): Promise<"joined" | "invited" | "retry" | null> {
   try {
     const creators = createCreatorAccessService(getDb());
     // A re-send uses the shared Clerk budget. Over budget: skip the re-send, but still keep a granted email off the
@@ -29,9 +34,11 @@ async function handledByAllowlist(email: string): Promise<"joined" | "retry" | n
       return key !== null && creators.grantedEmailKeys().has(key) ? "joined" : null;
     }
     const result = await creators.resendAllowlistForWaitlist(email);
-    if (result === "none" || result === "not_due") releaseOwnerSends(1);
-    // A failed re-send sent nothing: ask for a retry, as a failed Clerk waitlist call does on the normal path.
-    return result === "none" ? null : result === "failed" ? "retry" : "joined";
+    if (result === "none" || result === "not_due" || result === "invited") releaseOwnerSends(1);
+    // A failed re-send sent nothing: ask for a retry, as a failed Clerk waitlist call does on the normal path. A re-send, or
+    // a valid invitation still in the inbox, means the person is invited: the page must say so, not "on the waitlist".
+    if (result === "none") return null;
+    return result === "failed" ? "retry" : result === "resent" || result === "invited" ? "invited" : "joined";
   } catch {
     // Fall back to the normal waitlist. Never log the email.
     log("warn", "[waitlist] allowlist check failed");
@@ -40,11 +47,49 @@ async function handledByAllowlist(email: string): Promise<"joined" | "retry" | n
 }
 
 /**
- * Invited only when the owner approved it: status "invited", or a still-pending invitation. A pending entry can carry an
- * old revoked or expired invitation object (seen on prod 2026-11-20), which must not count as an invite.
+ * Invited only when the owner approved it and the invitation is still usable: status "invited", or a still-pending invitation.
+ * An entry can carry an old revoked or expired invitation object (seen on prod 2026-11-20), which must not count as an invite.
  */
 function invitedEntry(entry: { status: string; invitation?: { status?: string } | null }): boolean {
-  return entry.status === "invited" || entry.invitation?.status === "pending";
+  const stale = entry.invitation?.status === "revoked" || entry.invitation?.status === "expired";
+  return entry.invitation?.status === "pending" || (entry.status === "invited" && !stale);
+}
+
+type WaitlistEntry = { id: string; email_address: string; status: string; invitation?: { status?: string } | null };
+
+/** The exact-email entry (paged). null when there is none or Clerk could not be asked: the normal create then goes on. */
+async function findEntry(backend: ReturnType<typeof createClerkBackend>, email: string): Promise<WaitlistEntry | null> {
+  try {
+    for (let offset = 0; ;) {
+      const page = await backend.listWaitlistEntries({ query: email, offset, limit: 100 });
+      const entry = page.data.find(item => item.email_address.trim().toLowerCase() === email);
+      if (entry) return entry;
+      offset += page.data.length;
+      if (page.data.length === 0 || offset >= page.totalCount) return null;
+    }
+  } catch { return null; }
+}
+
+/**
+ * An entry the owner already acted on and that is no longer live: its invitation was revoked or expired, or the person
+ * finished sign-up and the account is gone. Clerk keeps these and may mail the old invitation again, and the Waitlist tab
+ * shows no pending person. Such an entry is deleted and made again as pending, so the owner sees the person.
+ */
+function staleEntry(entry: WaitlistEntry): boolean {
+  if (entry.status === "rejected" || invitedEntry(entry)) return false;
+  return entry.status === "completed" || entry.invitation?.status === "revoked" || entry.invitation?.status === "expired";
+}
+
+/** What an existing entry says, or null when the normal create should run. */
+async function classifyEntry(backend: ReturnType<typeof createClerkBackend>, email: string, entry: WaitlistEntry): Promise<WaitlistJoinOutcome | null> {
+  // The owner said no: the sign-up stays rejected and the page says so. It never goes back to pending.
+  if (entry.status === "rejected") return "declined";
+  if (invitedEntry(entry)) return "invited";
+  if (!staleEntry(entry)) return null;
+  // A finished sign-up whose Clerk user still exists is an account, not a person to put back on the list.
+  if (entry.status === "completed" && (await backend.listUsers({ emailAddress: email })).length > 0) return "account";
+  await backend.deleteWaitlistEntriesByEmail(email);
+  return null;
 }
 
 /**
@@ -77,6 +122,7 @@ export async function joinWaitlist(email: string, meta: WaitlistJoinMeta): Promi
     createWaitlistService(getDb()).join(email, {
       source: meta.source,
       userAgent: meta.userAgent,
+      viaDiscord: meta.viaDiscord,
       // Untrusted survey answer: the service checks it against the list and drops unknown values.
       heardFrom: meta.heardFrom,
       heardFromDetail: meta.heardFromDetail,
@@ -92,9 +138,13 @@ export async function joinWaitlist(email: string, meta: WaitlistJoinMeta): Promi
   if (!secretKey) { log("warn", "[waitlist] CLERK_SECRET_KEY is not set"); return "retry"; }
   const backend = createClerkBackend({ secretKey });
   try {
+    // Look first: creating an entry for a revoked or rejected email must not undo what the owner decided.
+    const existing = await findEntry(backend, email);
+    const decided = existing ? await classifyEntry(backend, email, existing) : null;
+    if (decided) return decided;
     // For an email already on the list Clerk answers 2xx with the existing entry, so its status says whether it is invited.
     const entry = await backend.createWaitlistEntry({ emailAddress: email, notify: true });
-    return entry && invitedEntry(entry) ? "invited" : "joined";
+    return entry?.status === "rejected" ? "declined" : entry && invitedEntry(entry) ? "invited" : "joined";
   } catch (error) {
     // Status and Clerk's error code only: never the message, the email or upstream data.
     const failure = error instanceof ClerkBackendError ? `status=${error.status} code=${error.code ?? "none"}` : "unknown";
