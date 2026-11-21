@@ -3,6 +3,7 @@ import { report } from "@yugidraft/shared/observability";
 import { NextResponse } from "next/server";
 import { cubeReferenceAccess } from "@/lib/cube-access";
 import { ensureCatalogCards } from "@/lib/cube-pool";
+import { warmCardImages } from "@/lib/card-image-store";
 import { cardFetchErrorResponse } from "@/lib/card-fetch-errors";
 import { createDraftLobbyApi } from "@/lib/draft-lobby-api";
 import { DRAFT_LOBBY_ERROR_STATUS, type DraftAllowedCube, type DraftConfig, type DraftLobbyErrorCode, type DraftLobbyResponse, type DraftLobbyTickResult } from "@yugidraft/shared/types";
@@ -720,6 +721,8 @@ export async function handleDraftStart(request: Request, params: Promise<{ slug:
       }, { lookupBudget });
     }
     if (draft.config.mode !== "theme") await ensureCatalogCards(cards, draft.config.customExtraCardIds ?? [], lookupBudget);
+    // The countdown is the time to fill the image cache for the cards the packs will show.
+    warmCardImages(draft.config.cubeCardIds ?? draft.config.poolCardIds ?? draft.config.customCardIds ?? [], ["small"]);
     return commitDraftLobbyMutation(context, (service) => {
       assertDraftLobbyAccess(context);
       // scheduleStart compares the submitted/captured revision and recognizes

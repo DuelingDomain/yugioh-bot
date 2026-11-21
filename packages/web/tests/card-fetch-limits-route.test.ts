@@ -21,6 +21,7 @@ beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(0);
   vi.stubEnv("CARD_FETCH_MEMBER_QUEUE_LIMIT", "1");
+  vi.stubEnv("CARD_IMAGE_FETCH_MEMBER_QUEUE_LIMIT", "1");
   imageDir = mkdtempSync(join(tmpdir(), "member-images-"));
   vi.stubEnv("CARD_IMAGE_CACHE_DIR", imageDir);
   state.db = new Database(":memory:");
