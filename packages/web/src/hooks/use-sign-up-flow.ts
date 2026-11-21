@@ -22,6 +22,17 @@ type Actions = {
 type ResumeKind = "sign-in" | "sign-up" | null;
 type Resume = { kind?: ResumeKind; returnTo?: unknown; attemptId?: string; auto?: boolean };
 
+/** Did this invited person join the waitlist with Discord? Any doubt or failure says no, so the normal form shows. */
+async function joinedViaDiscord(ticket: string): Promise<boolean> {
+  try {
+    const response = await fetch("/api/auth/invite-method", {
+      method: "POST", headers: { "Content-Type": "application/json" }, credentials: "same-origin", body: JSON.stringify({ ticket }), signal: AbortSignal.timeout(4000),
+    });
+    const body: unknown = response.ok ? await response.json().catch(() => null) : null;
+    return Boolean(body && typeof body === "object" && (body as { discord?: unknown }).discord === true);
+  } catch { return false; }
+}
+
 function readResume(): Resume {
   try {
     const value: unknown = JSON.parse(sessionStorage.getItem("dd_auth_resume") ?? "null");
@@ -186,6 +197,14 @@ function useAccountFlow(opts: { ticket: string | null; returnTo: string; callbac
         if (!opts.ticket) { dispatch({ type: "error", view: { kind: "step", step: "err-signup" } }); return; }
         if (!await call(() => signUp.ticket({ ticket: opts.ticket! }), "ticket", "sign-up", () => Boolean(latest.current.signUpSignal.signUp!.emailAddress))) return;
         setResumeKind("sign-up");
+        // A person who joined with Discord gets no password form: straight to Discord, which skips its consent screen for an
+        // app already authorized. By continuing they accept the terms (the page links them). Any failure shows the form.
+        // Not again when a trip to Discord was already started in this tab (Back, or the link opened again): the form shows.
+        const tried = readResume();
+        if (!(tried.kind === "sign-up" && tried.auto) && await joinedViaDiscord(opts.ticket!)) {
+          lockedEmail.current = latest.current.signUpSignal.signUp!.emailAddress;
+          if (await startDiscord({ legalAccepted: true })) return;
+        }
         await advanceSignup();
       }
     }, true);
@@ -203,6 +222,14 @@ function useAccountFlow(opts: { ticket: string | null; returnTo: string; callbac
     const heard = parseHeardFrom(input.heardFrom, input.heardFromDetail);
     const survey = heard ? { unsafeMetadata: { heardFrom: heard.heardFrom, ...(heard.detail ? { heardFromDetail: heard.detail } : {}) } } : {};
     return validAccount(input, needsUsername) && await call(() => signUp.update({ ...(needsUsername ? { username: input.username } : {}), legalAccepted: input.legalAccepted, ...survey }), "signup");
+  };
+  /** Save consent, then leave for Discord with this attempt. true once the redirect started; false shows the form again. */
+  const startDiscord = async (input: { legalAccepted: boolean } & HeardFromInput) => {
+    if (!await updateAccount(input, false)) return false;
+    const signUp = latest.current.signUpSignal.signUp!;
+    // auto: the callback fills the username from the Discord profile, so a Discord joiner never sees a username form.
+    try { sessionStorage.setItem("dd_auth_resume", JSON.stringify({ kind: "sign-up", returnTo: state.returnTo, attemptId: signUp.id, auto: true })); } catch { /* Clerk preserves the accepted attempt even without storage. */ }
+    return call(() => signUp.sso({ strategy: "oauth_discord", redirectUrl: state.returnTo, redirectCallbackUrl: ssoCallbackPath(state.returnTo) }), "sso");
   };
 
   return {
@@ -226,11 +253,7 @@ function useAccountFlow(opts: { ticket: string | null; returnTo: string; callbac
       continueWithDiscord: async (input) => {
         if (state.step !== "invite") return;
         await run("sso", async () => {
-          if (!await updateAccount(input, false)) return;
-          const signUp = latest.current.signUpSignal.signUp!;
-          // auto: the callback fills the username from the Discord profile, so a Discord joiner never sees a username form.
-          try { sessionStorage.setItem("dd_auth_resume", JSON.stringify({ kind: "sign-up", returnTo: state.returnTo, attemptId: signUp.id, auto: true })); } catch { /* Clerk preserves the accepted attempt even without storage. */ }
-          await call(() => signUp.sso({ strategy: "oauth_discord", redirectUrl: state.returnTo, redirectCallbackUrl: ssoCallbackPath(state.returnTo) }), "sso");
+          await startDiscord(input);
         });
       },
       submitCode: async (code) => {

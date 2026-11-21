@@ -481,7 +481,9 @@ describe("POST /api/waitlist", () => {
 
   it("asks for a retry when the allowlist re-send fails, with no Clerk waitlist entry", async () => {
     await seedDueAllowlist();
-    const fetcher = vi.fn<typeof fetch>(async () => Response.json({ errors: [{ code: "internal", message: "down" }] }, { status: 502 }));
+    const fetcher = vi.fn<typeof fetch>(async (_url, init) => init?.method === "POST"
+      ? Response.json({ errors: [{ code: "internal", message: "down" }] }, { status: 502 })
+      : Response.json({ data: [], total_count: 0 }));
     vi.stubGlobal("fetch", fetcher);
     const response = await post(json({ email: "vip@example.test" }));
     expect(response.status).toBe(503);
@@ -497,7 +499,8 @@ describe("POST /api/waitlist", () => {
   it("sends an allowlisted email its invitation again and makes no Clerk waitlist entry", async () => {
     await seedDueAllowlist();
     const fetcher = vi.fn<typeof fetch>(async (url, init) => {
-      expect(String(url)).toMatch(/^https:\/\/api\.clerk\.com\/v1\/invitations(\/[^/]+\/revoke)?$/);
+      expect(String(url)).toMatch(/^https:\/\/api\.clerk\.com\/v1\/invitations(\/[^/]+\/revoke|\?.*)?$/);
+      if (init?.method !== "POST") return Response.json({ data: [], total_count: 0 });
       if (String(url).endsWith("/revoke")) return Response.json({ id: "inv_seed", status: "revoked" });
       return Response.json({ id: "inv_again", email_address: JSON.parse(String(init!.body)).email_address, status: "pending", url: "https://clerk.example.test/v1/tickets/accept?__clerk_ticket=t" });
     });
@@ -505,6 +508,7 @@ describe("POST /api/waitlist", () => {
     const response = await post(json({ email: " VIP@example.test ", source: "hero" }));
     expect(response.status).toBe(201);
     const text = await response.text();
+    // The public form never reveals an invitation, so it still says joined.
     expect(JSON.parse(text)).toEqual({ status: "joined" });
     expect(text).not.toMatch(/ticket|inv_/);
     const invites = fetcher.mock.calls.filter(([url]) => String(url).endsWith("/v1/invitations"));
@@ -513,7 +517,44 @@ describe("POST /api/waitlist", () => {
     expect(state.createWaitlistEntry).not.toHaveBeenCalled();
     expect(state.join).not.toHaveBeenCalled();
     expect(rows()).toEqual([]);
+    // The Discord path shows the invited view: the invitation was sent again (above) and is now in the inbox.
+    const { joinWaitlist } = await import("../src/lib/waitlist-join");
+    expect(await joinWaitlist("vip@example.test", { source: "app-not-invited", viaDiscord: true })).toBe("invited");
     delete (globalThis as Record<symbol, unknown>)[Symbol.for("yugidraft.creatorSendLimit")];
+  });
+
+  it("does not send an allowlist invitation again when the owner revoked it, and lists the person as pending", async () => {
+    await seedDueAllowlist();
+    const fetcher = vi.fn<typeof fetch>(async (_url, init) => {
+      if (init?.method === "POST") throw new Error("must not send an invitation");
+      return Response.json({ data: [{ id: "inv_seed", email_address: "vip@example.test", status: "revoked" }], total_count: 1 });
+    });
+    vi.stubGlobal("fetch", fetcher);
+    expect(await (await post(json({ email: "vip@example.test" }))).json()).toEqual({ status: "joined" });
+    expect(fetcher.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(0);
+    expect(state.createWaitlistEntry).toHaveBeenCalledExactlyOnceWith({ emailAddress: "vip@example.test", notify: true });
+    delete (globalThis as Record<symbol, unknown>)[Symbol.for("yugidraft.creatorSendLimit")];
+  });
+
+  it("keeps a rejected sign-up rejected, and makes a revoked entry pending again", async () => {
+    const { joinWaitlist } = await import("../src/lib/waitlist-join");
+    const listWaitlistEntries = vi.fn();
+    const deleteWaitlistEntriesByEmail = vi.fn(async () => {});
+    const listUsers = vi.fn(async () => []);
+    state.createBackend.mockReturnValue({ createWaitlistEntry: state.createWaitlistEntry, listWaitlistEntries, deleteWaitlistEntriesByEmail, listUsers });
+    const entry = (status: string, invitation: { status: string } | null = null) =>
+      listWaitlistEntries.mockResolvedValue({ data: [{ id: "w1", email_address: "player@example.com", status, invitation }], totalCount: 1 });
+    entry("rejected");
+    expect(await joinWaitlist("player@example.com", { source: "app-not-invited" })).toBe("declined");
+    expect(state.createWaitlistEntry).not.toHaveBeenCalled();
+    entry("invited", { status: "revoked" });
+    expect(await joinWaitlist("player@example.com", { source: "app-not-invited", viaDiscord: true })).toBe("joined");
+    expect(deleteWaitlistEntriesByEmail).toHaveBeenCalledExactlyOnceWith("player@example.com");
+    expect(state.createWaitlistEntry).toHaveBeenCalledExactlyOnceWith({ emailAddress: "player@example.com", notify: true });
+    expect(rows()).toEqual([expect.objectContaining({ email: "player@example.com", via_discord: 1 })]);
+    entry("invited", { status: "pending" });
+    expect(await joinWaitlist("player@example.com", { source: "app-not-invited" })).toBe("invited");
+    expect(deleteWaitlistEntriesByEmail).toHaveBeenCalledTimes(1);
   });
 
   it("stores a valid heard-from answer and drops an unknown one", async () => {

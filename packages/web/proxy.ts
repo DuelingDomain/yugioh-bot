@@ -11,7 +11,7 @@ function beforeAuth(request: NextRequest): Response | null {
   if (path === "/dev/fx-lab" && !fxLabEnabled()) return new NextResponse(null, { status: 404 });
   if (path.startsWith("/api/test-auth/")) return isE2EAuthEnabled() ? NextResponse.next() : NextResponse.json({ error: "not_found" }, { status: 404 });
   if ((request.method === "GET" && ["/api/auth/existing-player/start", "/api/auth/callback/discord"].includes(path))
-    || (request.method === "POST" && ["/api/auth/existing-player/complete", "/api/auth/existing-player/ticket"].includes(path))) return NextResponse.next();
+    || (request.method === "POST" && ["/api/auth/existing-player/complete", "/api/auth/existing-player/ticket", "/api/auth/invite-method"].includes(path))) return NextResponse.next();
   if (isPublic(request) || (path === "/api/waitlist" && request.method === "POST")
     || (request.method === "POST" && /^\/api\/join\/[A-Za-z0-9]{1,32}$/.test(path)) || (path === "/api/auth/session" && request.method === "GET") || (fxLabEnabled() && isFxLabPublicPath(path))) return NextResponse.next();
   return null;

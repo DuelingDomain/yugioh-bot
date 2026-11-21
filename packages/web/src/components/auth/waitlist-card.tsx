@@ -72,6 +72,13 @@ export function WaitlistCard({ marketingUrl, initial }: { marketingUrl: string |
         <div className={shell.form} data-clerk="waitlist-invited">{back}</div>
       </SignInStep>
     );
+  } else if (view === "declined") {
+    step = (
+      <SignInStep eyebrow="Closed alpha" title={<>Sign-up <em>not accepted</em></>} screen="waitlist-declined" foot={<SignInFootLinks waitlist={false} />}
+        lede="We can’t open an account for this email right now. If you think this is a mistake, write to support.">
+        <div className={shell.form} data-clerk="waitlist-declined">{back}</div>
+      </SignInStep>
+    );
   } else if (view === "account") {
     step = (
       <SignInStep eyebrow="Closed alpha" title={<>You already have an <em>account</em></>} screen="waitlist-account" foot={<SignInFootLinks waitlist={false} />}

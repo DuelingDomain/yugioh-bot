@@ -1812,6 +1812,8 @@ function migrateCreatorAccess(db: Database.Database) {
   addColumnIfMissing(db, "users", "creator_id", "integer references creators(id) on delete set null");
   addColumnIfMissing(db, "waitlist_signups", "heard_from", "text");
   addColumnIfMissing(db, "waitlist_signups", "heard_from_detail", "text");
+  // 1 once this person joined by signing in with Discord: their invite page then goes straight to Discord.
+  addColumnIfMissing(db, "waitlist_signups", "via_discord", "integer not null default 0");
 }
 
 function migrateRemoteDuels(db: Database.Database) {

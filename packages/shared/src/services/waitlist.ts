@@ -12,6 +12,8 @@ export interface WaitlistMeta {
   heardFrom?: unknown;
   /** Optional free text; kept only with a valid heardFrom. */
   heardFromDetail?: unknown;
+  /** The person came through the Discord sign-in path (kept, also for an email that is already on the list). */
+  viaDiscord?: boolean;
 }
 
 export function createWaitlistService(db: Database.Database) {
@@ -32,6 +34,11 @@ export function createWaitlistService(db: Database.Database) {
         return { signups, actions: cleared.actions };
       }).immediate();
     },
+    /** True when this email joined through the Discord sign-in path. */
+    joinedViaDiscord(email: string): boolean {
+      return db.prepare("select 1 from waitlist_signups where email in (?,?) and via_discord = 1")
+        .get(normalizedNoticeEmail(email), email.trim().toLowerCase()) !== undefined;
+    },
     join(email: string, meta: WaitlistMeta = {}): { status: "joined" | "exists" } {
       const normalizedEmail = normalizedNoticeEmail(email);
       const createdAt = new Date().toISOString();
@@ -46,6 +53,7 @@ export function createWaitlistService(db: Database.Database) {
           heard?.detail ?? null,
         );
         if (result.changes !== 0) recordProductEvent(db, "waitlist_joined", null);
+        if (meta.viaDiscord) db.prepare("update waitlist_signups set via_discord = 1 where email = ?").run(normalizedEmail);
         return result;
       }).immediate();
       if (result.changes !== 0) {

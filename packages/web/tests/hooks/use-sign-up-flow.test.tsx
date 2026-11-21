@@ -22,7 +22,7 @@ beforeEach(() => {
     verifications: { sendEmailCode: vi.fn(ok), verifyEmailCode: vi.fn(ok) },
   } };
 });
-afterEach(() => { cleanup(); vi.useRealTimers(); });
+afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 describe("invited sign-up flow", () => {
   it("email sign-up needs a username and a password, even when Clerk does not list password as missing", async () => {
@@ -169,6 +169,29 @@ describe("invited sign-up flow", () => {
     expect(mock.hardNavigate).toHaveBeenCalledExactlyOnceWith(destination);
     expect(mock.prefetch).not.toHaveBeenCalled();
     expect(mock.push).not.toHaveBeenCalled();
+  });
+  it("sends an invited Discord joiner straight to Discord, with no password form", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ discord: true })));
+    await mount();
+    expect(mock.signal.signUp.update).toHaveBeenCalledWith({ legalAccepted: true });
+    expect(mock.signal.signUp.sso).toHaveBeenCalledWith({ strategy: "oauth_discord", redirectUrl: "/drafts?join=1#seat", redirectCallbackUrl: "/sso-callback" });
+    expect(JSON.parse(sessionStorage.getItem("dd_auth_resume")!)).toMatchObject({ kind: "sign-up", auto: true });
+    expect(mock.signal.signUp.password).not.toHaveBeenCalled();
+  });
+  it("shows the form, not a second Discord trip, when the link is opened again after a trip was started", async () => {
+    const fetcher = vi.fn(async () => Response.json({ discord: true }));
+    vi.stubGlobal("fetch", fetcher);
+    sessionStorage.setItem("dd_auth_resume", JSON.stringify({ kind: "sign-up", returnTo: "/drafts?join=1#seat", attemptId: "sua_invited", auto: true }));
+    const { result } = await mount();
+    expect(mock.signal.signUp.sso).not.toHaveBeenCalled();
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(result.current.state.step).toBe("invite");
+  });
+  it("shows the form when the Discord check is slow or fails", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("timeout"); }));
+    const { result } = await mount();
+    expect(mock.signal.signUp.sso).not.toHaveBeenCalled();
+    expect(result.current.state.step).toBe("invite");
   });
   it("keeps the ticket attempt for Discord and saves consent before redirect", async () => {
     const { result } = await mount();

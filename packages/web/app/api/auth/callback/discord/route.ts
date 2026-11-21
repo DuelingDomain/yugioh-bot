@@ -26,7 +26,7 @@ const WAITLIST_FORM_PATH = "/waitlist?s=form";
 /** `/waitlist?s=...` shows the result without any email in the URL. */
 async function waitlistPath(email: string, userAgent: string | null): Promise<string> {
   if (!validEmail(email)) return WAITLIST_FORM_PATH;
-  const outcome = await joinWaitlist(email, { source: "app-not-invited", userAgent });
+  const outcome = await joinWaitlist(email, { source: "app-not-invited", userAgent, viaDiscord: true });
   return outcome === "error" ? WAITLIST_FORM_PATH : `/waitlist?s=${outcome === "rejected" ? "retry" : outcome}`;
 }
 export async function GET(request: NextRequest) {
