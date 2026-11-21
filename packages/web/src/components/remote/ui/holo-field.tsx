@@ -9,6 +9,7 @@ import type { Verdict } from "./placement";
 import {useFieldBacks} from './video-hub';
 import {useFieldMotion} from './field-motion';
 import {ghostTwins, useFieldGhosts} from '@/lib/remote/field-ghosts';
+import {boardWithPreviews, usePeerPreviewCards} from '@/lib/remote/peer-preview';
 import {useMissingPiles} from '@/lib/remote/zone-grid';
 import s from "./remote-ui.module.css";
 import z from "./zone-rules.module.css";
@@ -114,12 +115,16 @@ export function HoloField({ readOnly, seat, name, twin, info, extraZones, facing
   /** A token is being placed: these free Main Monster Zones glow and take the click. */
   tokenSlots?: readonly ZoneKey[];
 }) {
-  const cells = cellsFor(twin, !!extraZones);
+  // The player's own change, sent over the table data channel before the server confirms it: shown at once as a pending card
+  // (display only, it never takes a click), replaced by the real board when the server event arrives, dropped after about 3 s without one.
+  const previews = usePeerPreviewCards(seat);
+  const { base, ghosts: pending } = boardWithPreviews(twin, previews);
+  const cells = cellsFor(base, !!extraZones);
   // A still outline the watcher has not read yet: shown at once as a ghost card, replaced by the real card when it arrives.
   const ghosts = useFieldGhosts(String(seat));
-  const ghostCards = ghosts.length ? ghostTwins(ghosts, twin) : [];
+  const ghostCards = [...(ghosts.length ? ghostTwins(ghosts, base) : []), ...pending.map(card => ({ ...card, position: card.position }) as TwinCard)];
   const ghostRefs = new Set(ghostCards.map(card => card.ref));
-  const view = ghostCards.length ? cellsFor([...twin, ...ghostCards], !!extraZones) : cells;
+  const view = ghostCards.length ? cellsFor([...base, ...ghostCards], !!extraZones) : cells;
   const fieldRef = useRef<HTMLDivElement>(null);
   const dropped = useRef<{ ref: string; at: number } | null>(null);
   useFieldMotion(fieldRef, twin, dropped);
@@ -247,11 +252,12 @@ export function HoloField({ readOnly, seat, name, twin, info, extraZones, facing
         const stacked=pile&&(cell.count>=2||((key==='deck'||key==='ex')&&((deckListSizes?.[key==='deck'?'deck':'extra']??0)>=2||deckRegistered)));
         const tokenSlot = !!tokenSlots && tokenSlots.includes(key) && !card && !ghost;
         const classes = [s.zc, stacked?s.pileStack:'', dropClass, tokenSlot ? s.tokSlot : "", card && dnd?.can(card) && !isPile(key) ? s.drg : "", card && (dragging?.ref === card.ref || carry === card.ref) ? s.dragSrc : "", emzCell ? s.ez : "", taken ? s.taken : "", card && !down ? s.clk : "", defense ? s.def : "", card && card.ref === selectedRef ? s.sel : "", card && card.ref === targetRef ? s.tgt : "",
-          picking && monsterZone && card ? s.pickTarget : "", card && card.ref === freshRef && !swapped.has(key) ? s.scanin : "", card && landed.has(card.ref) && !swapped.has(key) ? s.land : "", ghost ? s.ghosted : "", card && revealed.has(key) ? s.reveal : "", zoneCheck || card?.equippedTo || equipped.length ? z.cell : "", stacked_ ? s.matStack : ""].filter(Boolean).join(" ");
+          picking && monsterZone && card ? s.pickTarget : "", card && card.ref === freshRef && !swapped.has(key) ? s.scanin : "", card && landed.has(card.ref) && !swapped.has(key) ? s.land : "", ghost ? s.ghosted : "", ghost?.ref.startsWith("pv-") ? s.syncing : "", card && revealed.has(key) ? s.reveal : "", zoneCheck || card?.equippedTo || equipped.length ? z.cell : "", stacked_ ? s.matStack : ""].filter(Boolean).join(" ");
         let desc = taken ? `shared with ${facing!.name}: taken by their monster` : trapHolder ? `occupied by ${nameOf(trapHolder)} (Trap Monster)` : "empty";
-        if (ghost) desc = ghost.faceUp ? "reading a card" : "a face-down card";
+        const preview = !!ghost && ghost.ref.startsWith("pv-");
+        if (ghost) desc = preview ? (ghost.faceUp && cardCode(ghost) ? `${ghost.name ?? "a card"}, syncing` : ghost.faceUp ? "a card, syncing" : "a face-down card, syncing") : ghost.faceUp ? "reading a card" : "a face-down card";
         else if (tokenSlot) desc = "free, click to place here";
-        let inner: React.ReactNode = ghost ? <GhostCard faceUp={ghost.faceUp} /> : <span className={s.zl}>{taken ? <>EMZ<small>{facing!.name} has it</small></> : key === "ex" ? <>EXTRA<small>DECK</small></> : zoneLabel(key)}{extraZones && isPendulumCell(key) ? <small>PZ</small> : null}</span>;
+        let inner: React.ReactNode = ghost ? preview && ghost.faceUp && cardCode(ghost) ? <><CardFace card={ghost} info={info(cardCode(ghost))} stats="none" /><i className={s.syncMark} aria-hidden="true" /></> : <><GhostCard faceUp={ghost.faceUp} />{preview ? <i className={s.syncMark} aria-hidden="true" /> : null}</> : <span className={s.zl}>{taken ? <>EMZ<small>{facing!.name} has it</small></> : key === "ex" ? <>EXTRA<small>DECK</small></> : zoneLabel(key)}{extraZones && isPendulumCell(key) ? <small>PZ</small> : null}</span>;
         const deckPile=key==='deck'||key==='ex';
         const listed=deckPile?deckListSizes?.[key==='deck'?'deck':'extra']:undefined;
         const observedPile=deckPile&&backs.some(back=>back.zone===(key==='deck'?'DECK':'EXTRA'));

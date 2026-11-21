@@ -12,6 +12,7 @@ import { deckIdsOf } from "./model";
 import type { RemoteAction, RemoteActionProposal, RemoteBestOf, RemoteClientEvents, RemoteRoom, RemoteServerEvents } from "@yugidraft/shared/remote";
 
 import {markFieldState,stampedProposal} from '@/lib/remote/field-timing';
+import {peerPreviews,publishPeerPreview} from '@/lib/remote/peer-preview';
 import {applyRoomPatch,classifyPatch,createRepairScheduler,createRoomMutationQueue,hasPendingTwinConfirmation,remoteChangeNeedsFetch} from '@/lib/remote/room-mutations';
 export type RoomController = ReturnType<typeof useRemoteRoom>;
 const PEER_REPAIR_MS = 150;
@@ -174,6 +175,16 @@ export function useRemoteRoom(slug: string, options: { watchAsAdmin?: boolean } 
     });
     return()=>cancelAnimationFrame(frame);
   },[room,stampPeer]);
+  // Peer previews: a server event replaces the preview with the same action key. Previews belong to one table and one seat.
+  const confirmedSeq=useRef(0);
+  useEffect(()=>{peerPreviews.clear();confirmedSeq.current=0;return()=>peerPreviews.clear();},[slug]);
+  useEffect(()=>{peerPreviews.setMySeat(mySeat);},[mySeat]);
+  useEffect(()=>{
+    if(!room||room.slug!==slug)return;
+    const from=confirmedSeq.current;confirmedSeq.current=Math.max(from,room.lastSeq);
+    if(from===0)return;
+    for(const event of room.events)if(event.seq>from&&'idempotencyKey' in event.action)peerPreviews.confirm(event.action.idempotencyKey,event.at);
+  },[room,slug]);
 
   const operation = useCallback(async (path: string, body: unknown = {}) => {
     setBusy(true); setError("");
@@ -255,7 +266,7 @@ export function useRemoteRoom(slug: string, options: { watchAsAdmin?: boolean } 
     }
   }, [slug, mutate, refreshAfterWrite, stampPeer, awaitingWrites]);
 
-  const {action,transaction}=useMemo(()=>createRoomMutationQueue(()=>tableKey.current===slug&&roomRef.current?.slug===slug?roomRef.current:undefined,postAction,e=>{noteRemoteActionError(e);setError(e.message);void refreshAfterWrite().catch(()=>undefined);},()=>mounted.current&&tableKey.current===slug),[postAction,refreshAfterWrite,slug]);
+  const {action,transaction}=useMemo(()=>createRoomMutationQueue(()=>tableKey.current===slug&&roomRef.current?.slug===slug?roomRef.current:undefined,postAction,e=>{noteRemoteActionError(e);setError(e.message);void refreshAfterWrite().catch(()=>undefined);},()=>mounted.current&&tableKey.current===slug,(proposal,key)=>{publishPeerPreview(tableKey.current===slug?roomRef.current:undefined,proposal,key);}),[postAction,refreshAfterWrite,slug]);
   const reconnecting = useSyncExternalStore(subscribeReconnecting, isReconnecting, () => false);
 
   const sendData = useCallback((message: Parameters<RemoteClientEvents["remote:data"]>[0]) => { socketRef.current?.emit("remote:data", message); }, []);
