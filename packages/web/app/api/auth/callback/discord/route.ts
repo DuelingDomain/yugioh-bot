@@ -1,5 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
-import type { NextRequest } from "next/server";
+import type { NextRequest, NextResponse } from "next/server";
 import { createUserService } from "@yugidraft/shared/services";
 import { getDb } from "@/lib/db";
 import { joinWaitlist } from "@/lib/waitlist-join";
@@ -60,11 +60,26 @@ export async function GET(request: NextRequest) {
     if (!user) return clearRecoveryCookies(recoveryRedirect(await waitlistPath(profile.verified === true ? email : "", request.headers.get("user-agent"))));
     // A repeat recovery uses only this proven Discord row's stored Clerk ID.
     // Never select a Clerk account using email alone.
-    if (user.clerkUserId) return await signInRecovery(request, user.clerkUserId, profile.id, proof.returnTo);
-    if (profile.verified !== true || !validEmail(email)) return clearRecoveryCookies(recoveryRedirect(WAITLIST_FORM_PATH));
-    const response = clearRecoveryCookies(recoveryRedirect("/welcome-back"));
-    setRecoveryCookie(response, "identity", { userId: user.id, discordId: profile.id, email, returnTo: proof.returnTo,
-      discordUsername: typeof profile.username === "string" ? profile.username.slice(0, 128) : "" });
-    return response;
+    const continueExisting = (): NextResponse => {
+      if (profile.verified !== true || !validEmail(email)) return clearRecoveryCookies(recoveryRedirect(WAITLIST_FORM_PATH));
+      const response = clearRecoveryCookies(recoveryRedirect("/welcome-back"));
+      setRecoveryCookie(response, "identity", { userId: user.id, discordId: profile.id, email, returnTo: proof.returnTo,
+        discordUsername: typeof profile.username === "string" ? profile.username.slice(0, 128) : "" });
+      return response;
+    };
+    if (user.clerkUserId) {
+      const stale = user.clerkUserId;
+      // Clerk no longer has that user (deleted in the Clerk dashboard): the stored link is stale. Clear it and carry on.
+      const gone = async (): Promise<NextResponse> => {
+        const released = createUserService(getDb()).releaseDeletedClerkUser(stale);
+        // Nothing released: the row was relinked meanwhile. Refuse; the person can try again.
+        if (!released) return clearRecoveryCookies(recoveryRedirect("/sign-in?error=discord_recovery_support"));
+        // No history: treat the person as a brand-new Discord person.
+        if (!released.hasHistory) return clearRecoveryCookies(recoveryRedirect(await waitlistPath(profile.verified === true ? email : "", request.headers.get("user-agent"))));
+        return continueExisting();
+      };
+      return await signInRecovery(request, stale, profile.id, proof.returnTo, gone);
+    }
+    return continueExisting();
   } catch { return clearRecoveryCookies(recoveryRedirect("/sign-in?error=discord_recovery_unavailable")); }
 }

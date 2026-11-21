@@ -1,6 +1,7 @@
 import { verifyWebhook, type WebhookEvent } from "@clerk/nextjs/webhooks";
 import type { NextRequest } from "next/server";
 import { enqueueJoinRequest, notifyJoinRequest, type JoinRequestNotice } from "@yugidraft/shared/notify";
+import { releaseDeletedClerkUser } from "@yugidraft/shared/services";
 import { resolveCreatorSignUpAttribution } from "@yugidraft/shared/services/creator-access";
 import { normalizeEmailDomain } from "@yugidraft/shared/util/email-domain";
 import { parseHeardFrom } from "@yugidraft/shared/util/heard-from";
@@ -69,6 +70,9 @@ export async function POST(request: NextRequest): Promise<Response> {
       `).run(request.headers.get("svix-id")!.trim(), new Date(now).toISOString());
       let outboxHandled = false;
       if (inserted.changes !== 0) {
+        // A Clerk user deleted in the dashboard: clear the stale link (no history: detach Discord too).
+        // Same transaction as the receipt, so a failed write stays retryable. A repeat finds nothing to do.
+        if (event.type === "user.deleted" && typeof event.data?.id === "string" && event.data.id) releaseDeletedClerkUser(db, event.data.id);
         if (notice && event.type === "user.created") {
           const creatorInvite = resolveCreatorSignUpAttribution(db, {
             email: notice.email ?? null, clerkUserId: event.data.id,

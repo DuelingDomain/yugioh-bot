@@ -8,6 +8,12 @@ export const USER_SYNC_MAX_AGE_MS = 5 * 60_000;
 export type LinkConflict = "discord_claimed" | "both_have_history";
 export interface LinkOutcome { user: User; conflict: LinkConflict | null; foldedUserId: number | null }
 
+export interface DeletedClerkRelease {
+  userId: number;
+  /** The row keeps its Discord ID and its history; the person can claim it again. */
+  hasHistory: boolean;
+}
+
 export interface User {
   id: number;
   clerkUserId: string | null;
@@ -36,6 +42,8 @@ export interface UserService {
   createNonLogin(displayName: string): User;
   findByClerkId(clerkUserId: string): User | undefined;
   needsSync(user: User | undefined, now?: Date): boolean;
+  /** The Clerk user for this ID is gone. See `releaseDeletedClerkUser`. */
+  releaseDeletedClerkUser(clerkUserId: string): DeletedClerkRelease | null;
   resolveClerkProfile(profile: ClerkProfile, now?: Date): LinkOutcome;
 }
 
@@ -48,6 +56,26 @@ function mapUser(row: UserRow): User {
   return { id: row.id, clerkUserId: row.clerk_user_id, email: row.email,
     emailVerified: row.email_verified === 1, username: row.username, displayName: row.display_name,
     discordUserId: row.discord_user_id, createdAt: row.created_at, updatedAt: row.updated_at, syncedAt: row.synced_at };
+}
+/**
+ * The Clerk user behind `clerk_user_id` was deleted in Clerk. Clears that stale link, only while the row still holds
+ * this exact Clerk ID. A row with history keeps its Discord ID so the person can claim it again. A row without history
+ * is detached from Discord too, so the person is treated as new. The empty row stays (other tables may point at it).
+ * Safe to repeat, and safe inside an open transaction. Returns null when no row holds the ID.
+ */
+export function releaseDeletedClerkUser(db: Database.Database, clerkUserId: string): DeletedClerkRelease | null {
+  const run = db.transaction((): DeletedClerkRelease | null => {
+    const row = db.prepare<[string], { id: number }>("select id from users where clerk_user_id=?").get(clerkUserId);
+    if (!row) return null;
+    const history = hasHistory(db, row.id);
+    if (db.prepare("update users set clerk_user_id=null,updated_at=current_timestamp where id=? and clerk_user_id=?").run(row.id, clerkUserId).changes !== 1) return null;
+    if (!history) {
+      db.prepare("update users set discord_user_id=null where id=?").run(row.id);
+      db.prepare("update players set discord_user_id=null where user_id=?").run(row.id);
+    }
+    return { userId: row.id, hasHistory: history };
+  });
+  return db.inTransaction ? run() : run.immediate();
 }
 function usernameFor(name: string, id: number): string {
   const stem = name.trim().toLowerCase().replace(/[^a-z0-9_]+/g, "_").replace(/^_+|_+$/g, "");
@@ -155,6 +183,7 @@ export function createUserService(db: Database.Database): UserService {
     ensureDiscord(input) { return ensure.immediate(input); },
     createNonLogin(displayName) { return db.transaction(() => mapUser(byId.get(insert(displayName, null))!)).immediate(); },
     findByClerkId(clerkUserId) { const row = byClerk.get(clerkUserId); return row && mapUser(row); },
+    releaseDeletedClerkUser(clerkUserId) { return releaseDeletedClerkUser(db, clerkUserId); },
     needsSync(user, now = new Date()) {
       if (!user?.syncedAt) return true;
       // SQLite CURRENT_TIMESTAMP is UTC but has no timezone suffix.
