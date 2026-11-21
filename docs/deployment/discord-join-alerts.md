@@ -13,7 +13,7 @@ channel webhook. It does not need a Discord bot. `DISCORD_BOT_ENABLED=0` can sta
 2. In the Clerk Dashboard, select the production app and instance. Open **Webhooks
    → Add Endpoint**. Set the URL to `https://<APP_HOST>/api/webhooks/clerk` on the
    app host. Select `waitlistEntry.created`. Also select `user.created` if you want
-   sign-up alerts. Save the endpoint. Copy its **Signing Secret** to the VM.
+   sign-up alerts. Also select `user.deleted` (recommended, see below). Save the endpoint. Copy its **Signing Secret** to the VM.
    The marketing host serves only the waitlist POST; use the app host for this endpoint.
 3. On the VM, edit the protected `.env` beside `docker-compose.yml`. Add these
    runtime values. Replace the placeholders with the values from steps 1 and 2.
@@ -117,3 +117,21 @@ queue or later repair of failed alerts. This prevents duplicate messages when a
 network error leaves the delivery result unknown. Existing requests are not
 sent as a batch when you turn alerts on. Events received while alerts are off
 are acknowledged and are not sent again when replayed.
+
+## Deleted Clerk users
+
+The same endpoint also handles `user.deleted`. When someone deletes a user in the Clerk
+dashboard, the app clears the `clerk_user_id` of the matching `users` row. A row with
+history (players, duels, drafts, decks, and so on), invite grants or creator links keeps
+its Discord link, and the person can claim it again through `/welcome-back`. An empty row
+is also detached from Discord and its email, so the person joins the waitlist like any new
+Discord person. No new environment value is needed, but `CLERK_WEBHOOK_SIGNING_SECRET`
+must be set (the endpoint returns 503 without it). Add `user.deleted` to an existing
+endpoint in **Webhooks → endpoint → Edit → Subscribe to events**.
+
+If the webhook is missing, the Discord sign-in callback does the same repair on the next
+click: when Clerk answers `resource_not_found` (404) for the stored Clerk ID, it clears the
+stale link and continues. Self-serve account deletion passes the row's ids to the deletion
+step, so a webhook that arrives first does not leave data behind.
+
+Deleting a Clerk user is not a ban; use Clerk ban/lock.

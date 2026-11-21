@@ -8,6 +8,15 @@ export const USER_SYNC_MAX_AGE_MS = 5 * 60_000;
 export type LinkConflict = "discord_claimed" | "both_have_history";
 export interface LinkOutcome { user: User; conflict: LinkConflict | null; foldedUserId: number | null }
 
+export interface DeletedClerkRelease {
+  userId: number;
+  /**
+   * True: the row was empty and is now detached from Discord and its email, so the person is new.
+   * False: the row keeps its Discord ID (history, invite grants or creator links) and the person can claim it again.
+   */
+  detached: boolean;
+}
+
 export interface User {
   id: number;
   clerkUserId: string | null;
@@ -36,6 +45,8 @@ export interface UserService {
   createNonLogin(displayName: string): User;
   findByClerkId(clerkUserId: string): User | undefined;
   needsSync(user: User | undefined, now?: Date): boolean;
+  /** The Clerk user for this ID is gone. See `releaseDeletedClerkUser`. */
+  releaseDeletedClerkUser(clerkUserId: string, discordUserId?: string): DeletedClerkRelease | null;
   resolveClerkProfile(profile: ClerkProfile, now?: Date): LinkOutcome;
 }
 
@@ -48,6 +59,30 @@ function mapUser(row: UserRow): User {
   return { id: row.id, clerkUserId: row.clerk_user_id, email: row.email,
     emailVerified: row.email_verified === 1, username: row.username, displayName: row.display_name,
     discordUserId: row.discord_user_id, createdAt: row.created_at, updatedAt: row.updated_at, syncedAt: row.synced_at };
+}
+/**
+ * The Clerk user behind `clerk_user_id` was deleted in Clerk. Clears that stale link, only while the row still holds
+ * this exact Clerk ID (and `discordUserId`, when given). A row with history, invite grants or creator links keeps its
+ * Discord ID so the person can claim it again. An empty row is detached from Discord and its email too, so the person is
+ * treated as new and no email lookup matches it. The empty row stays (other tables may point at it).
+ * Safe to repeat, and safe inside an open transaction. Returns null when no row matches.
+ */
+export function releaseDeletedClerkUser(db: Database.Database, clerkUserId: string, discordUserId?: string): DeletedClerkRelease | null {
+  const run = db.transaction((): DeletedClerkRelease | null => {
+    const row = db.prepare<[string], { id: number; discord_user_id: string | null }>("select id, discord_user_id from users where clerk_user_id=?").get(clerkUserId);
+    if (!row || (discordUserId !== undefined && row.discord_user_id !== discordUserId)) return null;
+    const linked = (sql: string) => db.prepare<[number], unknown>(sql).get(row.id) !== undefined;
+    const keep = hasHistory(db, row.id)
+      || linked("select 1 from draft_invite_grants where user_id=?") || linked("select 1 from tournament_invite_grants where user_id=?")
+      || linked("select 1 from creators where user_id=?") || linked("select 1 from creator_grants where user_id=?");
+    if (db.prepare("update users set clerk_user_id=null,updated_at=current_timestamp where id=? and clerk_user_id=?").run(row.id, clerkUserId).changes !== 1) return null;
+    if (!keep) {
+      db.prepare("update users set discord_user_id=null,email=null,email_verified=0 where id=?").run(row.id);
+      db.prepare("update players set discord_user_id=null where user_id=?").run(row.id);
+    }
+    return { userId: row.id, detached: !keep };
+  });
+  return db.inTransaction ? run() : run.immediate();
 }
 function usernameFor(name: string, id: number): string {
   const stem = name.trim().toLowerCase().replace(/[^a-z0-9_]+/g, "_").replace(/^_+|_+$/g, "");
@@ -155,6 +190,7 @@ export function createUserService(db: Database.Database): UserService {
     ensureDiscord(input) { return ensure.immediate(input); },
     createNonLogin(displayName) { return db.transaction(() => mapUser(byId.get(insert(displayName, null))!)).immediate(); },
     findByClerkId(clerkUserId) { const row = byClerk.get(clerkUserId); return row && mapUser(row); },
+    releaseDeletedClerkUser(clerkUserId, discordUserId) { return releaseDeletedClerkUser(db, clerkUserId, discordUserId); },
     needsSync(user, now = new Date()) {
       if (!user?.syncedAt) return true;
       // SQLite CURRENT_TIMESTAMP is UTC but has no timezone suffix.

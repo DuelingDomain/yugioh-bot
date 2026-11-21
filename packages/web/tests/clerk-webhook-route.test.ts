@@ -3,7 +3,7 @@ import { createHmac } from "node:crypto";
 import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
-import { createWaitlistService } from "@yugidraft/shared/services";
+import { createUserService, createWaitlistService } from "@yugidraft/shared/services";
 import { createClerkBackend } from "@yugidraft/shared/clerk";
 import { createCreatorAccessService } from "@yugidraft/shared/services/creator-access";
 
@@ -106,6 +106,26 @@ describe("POST /api/webhooks/clerk", () => {
     vi.stubEnv("CLERK_WEBHOOK_SIGNING_SECRET", value);
     expect((await POST(signed())).status).toBe(503);
     expect(receipts()).toEqual([]);
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("user.deleted clears the stale Clerk link; an empty row also loses Discord; a repeat is harmless; unsigned does nothing", async () => {
+    const users = createUserService(state.db!);
+    const empty = users.ensureDiscord({ discordUserId: "900000000000000201", displayName: "Empty" });
+    const kept = users.ensureDiscord({ discordUserId: "900000000000000202", displayName: "Kept" });
+    state.db!.prepare("update users set email='empty@example.test',email_verified=1 where id=?").run(empty.id);
+    state.db!.prepare("insert into cubes(guild_id,name,created_by_user_id) values('g','Kept',?)").run(kept.id);
+    users.claimExistingDiscordUser(empty.id, "900000000000000201", "user_empty");
+    users.claimExistingDiscordUser(kept.id, "900000000000000202", "user_kept");
+    const row = (id: number) => state.db!.prepare("select clerk_user_id as c, discord_user_id as d, email as e from users where id=?").get(id);
+    const bad = signed({ type: "user.deleted", data: { id: "user_empty", deleted: true } });
+    bad.headers.set("svix-signature", "v1,invalid-placeholder");
+    expect((await POST(bad)).status).toBe(400); expect(row(empty.id)).toEqual({ c: "user_empty", d: "900000000000000201", e: "empty@example.test" });
+    expect((await POST(signed({ type: "user.deleted", data: { id: "user_empty", deleted: true } }, "msg_del_1"))).status).toBe(200);
+    expect((await POST(signed({ type: "user.deleted", data: { id: "user_kept", deleted: true } }, "msg_del_2"))).status).toBe(200);
+    expect((await POST(signed({ type: "user.deleted", data: { id: "user_kept", deleted: true } }, "msg_del_3"))).status).toBe(200);
+    expect(row(empty.id)).toEqual({ c: null, d: null, e: null });
+    expect(row(kept.id)).toEqual({ c: null, d: "900000000000000202", e: null });
     expect(fetcher).not.toHaveBeenCalled();
   });
 

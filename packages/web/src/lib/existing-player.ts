@@ -112,7 +112,8 @@ export function recoveryRateLimit(request: NextRequest, stage: string): NextResp
   }
   return null;
 }
-export async function signInRecovery(request: NextRequest, clerkUserId: string, discordId: string, returnTo?: string): Promise<NextResponse> {
+/** `onGone` runs when Clerk no longer has this user (404 or deleted) instead of refusing; the caller clears the stale link. */
+export async function signInRecovery(request: NextRequest, clerkUserId: string, discordId: string, returnTo?: string, onGone?: () => Promise<NextResponse>): Promise<NextResponse> {
   const client = await clerkClient();
   const refuse = () => clearTicketCookie(clearRecoveryCookies(request.method === "POST" && request.headers.get("accept") === "application/json"
     ? recoveryError("Your account needs help linking. Contact support@duelingdomain.com.", 409)
@@ -121,7 +122,13 @@ export async function signInRecovery(request: NextRequest, clerkUserId: string, 
   if (!linked()) return refuse();
   let user;
   try { user = await client.users.getUser(clerkUserId); }
-  catch (error) { if ((error as { status?: number } | null)?.status === 404) return refuse(); throw error; }
+  catch (error) {
+    const failure = error as { status?: number; errors?: { code?: string }[] } | null;
+    if (failure?.status !== 404) throw error;
+    // Only Clerk's "this user does not exist" answer clears the link, not any other 404 (a wrong route, a proxy).
+    return onGone && failure.errors?.[0]?.code === "resource_not_found" ? onGone() : refuse();
+  }
+  if (user && "deleted" in user && user.deleted && onGone) return onGone();
   if (!user || user.id !== clerkUserId || user.banned || user.locked || ("deleted" in user && user.deleted)) return refuse();
   if (!linked()) return refuse();
   const discord = user.externalAccounts.filter(account => account.provider === "oauth_discord" && account.verification?.status === "verified");

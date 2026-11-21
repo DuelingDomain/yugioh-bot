@@ -18,7 +18,7 @@ const fail = (error: string, status: number) => Response.json({ error }, { statu
 /**
  * Self-serve account deletion. The person types their current username to confirm. Remove the Clerk waitlist
  * entry before deleting the Clerk user (404 counts as gone), then settle in-flight profile sync before the transaction
- * anonymises or removes the account. Later syncs fail at Clerk's getUser (404), so none can re-create a row.
+ * anonymises or removes the account. The row ids are passed on, because the Clerk `user.deleted` webhook may clear them first. Later syncs fail at Clerk's getUser (404), so none can re-create a row.
  * A Clerk failure changes nothing (503). A database failure after Clerk is
  * logged with the user ID only (500); `npm run ops -- delete-user --apply` finishes it.
  */
@@ -52,7 +52,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const summary = deleteUserAccount(db, access.userId);
+    const summary = deleteUserAccount(db, access.userId, { clerkUserId: user.clerkUserId, email: user.email, discordUserId: user.discordUserId });
     await Promise.all((summary.remoteTables ?? []).map(table => notifyRemoteChange(table.slug, table.guildId)));
   } catch (error) {
     report(error, { userId: access.userId, tags: { operation: "[account-delete] database step failed after Clerk deletion" } });

@@ -171,6 +171,26 @@ describe("Discord recovery callback", () => {
     expect(res.cookies.get(IDENTITY_COOKIE)!.value).not.toContain("yugi");
     expect(res.cookies.get(OAUTH_COOKIE)?.value).toBe("");
   });
+  describe("a Clerk user deleted in the Clerk dashboard", () => {
+    const gone = (flag = false) => flag ? mock.get.mockResolvedValue({ ...clerkUser("user_deleted"), deleted: true }) : mock.get.mockRejectedValue(Object.assign(new Error("not found"), { status: 404, errors: [{ code: "resource_not_found" }] }));
+    const row = () => mock.db.prepare("select clerk_user_id as c, discord_user_id as d from users where id=?").get(player.id);
+    it("with no history clears the stale link and sends the person to the waitlist like a new one", async () => {
+      createUserService(mock.db).claimExistingDiscordUser(player.id, discordId, "user_deleted"); gone();
+      fetcher.mockImplementation(async (url: string, init?: { method?: string }) => String(url).includes("discord.com") ? new Response(null, { status: 500 })
+        : init?.method === "POST" ? Response.json({ id: "wle_1", email_address: "yugi@test.dev", status: "pending" }) : Response.json({ data: [], total_count: 0 }));
+      const res = await verifiedCallback();
+      expect(res.headers.get("location")).toBe(`${ORIGIN}/waitlist?s=joined`); expectCleared(res);
+      expect(row()).toEqual({ c: null, d: null }); expect(mock.token).not.toHaveBeenCalled(); expect(mock.create).not.toHaveBeenCalled();
+    });
+    it("with history clears the stale link and continues to /welcome-back to claim the same row", async () => {
+      mock.db.prepare("insert into cubes(guild_id,name,created_by_user_id) values('g','Kept',?)").run(player.id);
+      createUserService(mock.db).claimExistingDiscordUser(player.id, discordId, "user_deleted"); gone(true); // Clerk answers with a deleted object instead of a 404
+      const res = await verifiedCallback();
+      expect(res.headers.get("location")).toBe(`${ORIGIN}/welcome-back`);
+      expect(readIdentity(res.cookies.get(IDENTITY_COOKIE)?.value)).toMatchObject({ userId: player.id, discordId });
+      expect(row()).toEqual({ c: null, d: discordId });
+    });
+  });
   it("signs a proven, already-linked Discord row into its stored Clerk ID", async () => {
     createUserService(mock.db).claimExistingDiscordUser(player.id, discordId, "user_stored");
     const res = await verifiedCallback({}, "/cubes");
@@ -208,7 +228,7 @@ describe("Discord recovery callback", () => {
     expect(second.headers.get("location")).toBe(`${ORIGIN}/sign-in?existing_player=1`);
     expect(mock.token).toHaveBeenCalledTimes(2); expect(mock.metadata).toHaveBeenCalledTimes(1);
   });
-  it.each(["banned", "locked", "deleted", "missing", "404"])("refuses a %s stored Clerk user with a support redirect", async status => {
+  it.each(["banned", "locked", "missing", "404"])("refuses a %s stored Clerk user with a support redirect", async status => {
     createUserService(mock.db).claimExistingDiscordUser(player.id, discordId, "user_stored");
     if (status === "404") mock.get.mockRejectedValue({ status: 404 });
     else mock.get.mockResolvedValue(status === "missing" ? null : { ...clerkUser("user_stored"), [status]: true });
