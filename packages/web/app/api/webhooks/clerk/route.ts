@@ -70,7 +70,7 @@ export async function POST(request: NextRequest): Promise<Response> {
       `).run(request.headers.get("svix-id")!.trim(), new Date(now).toISOString());
       let outboxHandled = false;
       if (inserted.changes !== 0) {
-        // A Clerk user deleted in the dashboard: clear the stale link (no history: detach Discord too).
+        // A Clerk user deleted in the dashboard: clear the stale link (an empty row is detached from Discord and email too).
         // Same transaction as the receipt, so a failed write stays retryable. A repeat finds nothing to do.
         if (event.type === "user.deleted" && typeof event.data?.id === "string" && event.data.id) releaseDeletedClerkUser(db, event.data.id);
         if (notice && event.type === "user.created") {

@@ -35,6 +35,9 @@ const SAVED_DECK_OWNER = "saved_decks.owner_user_id";
 /** The username an anonymised row keeps. It stays unique per user and carries nothing personal. */
 export const deletedUsername = (userId: number): string => `deleted-${userId}`;
 
+/** Identity the caller read before deleting the Clerk user, in case a webhook cleared it from the row meanwhile. */
+export interface KnownIdentity { clerkUserId?: string | null; email?: string | null; discordUserId?: string | null }
+
 type UserRow = { id: number; clerk_user_id: string | null; email: string | null };
 type PlayerRow = { id: number; display_name: string };
 
@@ -72,10 +75,13 @@ function scrubDuelName(name: string, personNames: readonly string[]): string {
  * `players.discord_user_id`, the default "<name> vs <name>" `duels.name` of duels they played or organised,
  * `setup_json.replayFork.origin.sourceSeats[].displayName`, and `bug_reports.context_json.userAgent`. Everything else that mentions a person is a join at read time.
  */
-export function deleteUserAccount(db: Database.Database, userId: number): AccountDeletionSummary {
+export function deleteUserAccount(db: Database.Database, userId: number, known?: KnownIdentity): AccountDeletionSummary {
   let remoteTables: NonNullable<AccountDeletionSummary["remoteTables"]> = [];
   const run = db.transaction((): AccountDeletionSummary => {
-    const user = db.prepare<[number], UserRow & { display_name: string; discord_user_id: string | null }>("select id, clerk_user_id, email, display_name, discord_user_id from users where id = ?").get(userId);
+    const found = db.prepare<[number], UserRow & { display_name: string; discord_user_id: string | null }>("select id, clerk_user_id, email, display_name, discord_user_id from users where id = ?").get(userId);
+    // A Clerk `user.deleted` webhook can land first and null these on the row; fall back to what the caller read earlier.
+    const user = found && { ...found, clerk_user_id: found.clerk_user_id ?? known?.clerkUserId ?? null,
+      email: found.email ?? known?.email ?? null, discord_user_id: found.discord_user_id ?? known?.discordUserId ?? null };
     const counts: Record<string, number> = {};
     const note = (key: string, changes: number) => { if (changes > 0) counts[key] = changes; };
     if (!user) return { userId, mode: "removed", counts };

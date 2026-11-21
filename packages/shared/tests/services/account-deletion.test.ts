@@ -1,7 +1,7 @@
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { migrate } from "../../src/db/schema.js";
-import { createUserService } from "../../src/services/users.js";
+import { createUserService, releaseDeletedClerkUser } from "../../src/services/users.js";
 import {
   DELETED_PLAYER_NAME,
   deleteUserAccount,
@@ -103,6 +103,31 @@ describe("deleteUserAccount", () => {
     expect(db.prepare("select draft_id,user_id from draft_invite_grants").all()).toEqual([{ draft_id: 1, user_id: 2 }]);
     expect(db.prepare("select id from drafts").get()).toEqual({ id: 1 });
     expect(db.pragma("foreign_key_check")).toEqual([]);
+  });
+  it("still clears everything when the Clerk user.deleted webhook cleared the row's ids first", () => {
+    exec(`
+      insert into users(id,clerk_user_id,email,email_verified,username,display_name,discord_user_id)
+        values (3,'user_three','three@example.com',1,'three','Three','333');
+      insert into players(id,guild_id,user_id,discord_user_id,display_name) values (3,'g',3,'333','Three');
+      insert into waitlist_signups(email,created_at,source) values ('three@example.com','2026-10-01','form');
+    `);
+    const known = { clerkUserId: "user_three", email: "three@example.com", discordUserId: "333" };
+    expect(releaseDeletedClerkUser(db, "user_three")).toEqual({ userId: 3, detached: true });
+    const summary = deleteUserAccount(db, 3, known);
+    expect(summary.mode).toBe("removed");
+    expect(summary.counts).toMatchObject({ users: 1, players: 1, waitlist_signups: 1 });
+    expect(db.prepare("select count(*) c from waitlist_signups where email='three@example.com'").get()).toEqual({ c: 0 });
+  });
+  it("keeps the Discord link of a deleted Clerk user with invite grants (only the Clerk ID is cleared)", () => {
+    exec(`
+      insert into users(id,clerk_user_id,email,email_verified,username,display_name,discord_user_id)
+        values (3,'user_three','three@example.com',1,'three','Three','333');
+      insert into drafts(id,guild_id,name,status,created_by_user_id) values (9,'g','D','lobby',1);
+      insert into draft_invite_grants(draft_id,user_id) values (9,3);
+    `);
+    expect(releaseDeletedClerkUser(db, "user_three", "333")).toEqual({ userId: 3, detached: false });
+    expect(db.prepare("select clerk_user_id c, discord_user_id d, email e from users where id=3").get()).toEqual({ c: null, d: "333", e: "three@example.com" });
+    expect(releaseDeletedClerkUser(db, "user_three", "333")).toBeNull();
   });
   it("is exported from the services index", () => {
     expect(services.deleteUserAccount).toBe(deleteUserAccount);

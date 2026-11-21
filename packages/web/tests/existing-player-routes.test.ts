@@ -172,7 +172,7 @@ describe("Discord recovery callback", () => {
     expect(res.cookies.get(OAUTH_COOKIE)?.value).toBe("");
   });
   describe("a Clerk user deleted in the Clerk dashboard", () => {
-    const gone = (flag = false) => flag ? mock.get.mockResolvedValue({ ...clerkUser("user_deleted"), deleted: true }) : mock.get.mockRejectedValue(Object.assign(new Error("not found"), { status: 404 }));
+    const gone = (flag = false) => flag ? mock.get.mockResolvedValue({ ...clerkUser("user_deleted"), deleted: true }) : mock.get.mockRejectedValue(Object.assign(new Error("not found"), { status: 404, errors: [{ code: "resource_not_found" }] }));
     const row = () => mock.db.prepare("select clerk_user_id as c, discord_user_id as d from users where id=?").get(player.id);
     it("with no history clears the stale link and sends the person to the waitlist like a new one", async () => {
       createUserService(mock.db).claimExistingDiscordUser(player.id, discordId, "user_deleted"); gone();
@@ -228,7 +228,7 @@ describe("Discord recovery callback", () => {
     expect(second.headers.get("location")).toBe(`${ORIGIN}/sign-in?existing_player=1`);
     expect(mock.token).toHaveBeenCalledTimes(2); expect(mock.metadata).toHaveBeenCalledTimes(1);
   });
-  it.each(["banned", "locked", "missing"])("refuses a %s stored Clerk user with a support redirect", async status => {
+  it.each(["banned", "locked", "missing", "404"])("refuses a %s stored Clerk user with a support redirect", async status => {
     createUserService(mock.db).claimExistingDiscordUser(player.id, discordId, "user_stored");
     if (status === "404") mock.get.mockRejectedValue({ status: 404 });
     else mock.get.mockResolvedValue(status === "missing" ? null : { ...clerkUser("user_stored"), [status]: true });

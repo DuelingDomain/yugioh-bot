@@ -71,11 +71,11 @@ export async function GET(request: NextRequest) {
       const stale = user.clerkUserId;
       // Clerk no longer has that user (deleted in the Clerk dashboard): the stored link is stale. Clear it and carry on.
       const gone = async (): Promise<NextResponse> => {
-        const released = createUserService(getDb()).releaseDeletedClerkUser(stale);
+        const released = createUserService(getDb()).releaseDeletedClerkUser(stale, profile.id);
         // Nothing released: the row was relinked meanwhile. Refuse; the person can try again.
         if (!released) return clearRecoveryCookies(recoveryRedirect("/sign-in?error=discord_recovery_support"));
-        // No history: treat the person as a brand-new Discord person.
-        if (!released.hasHistory) return clearRecoveryCookies(recoveryRedirect(await waitlistPath(profile.verified === true ? email : "", request.headers.get("user-agent"))));
+        // Empty row (now detached): treat the person as a brand-new Discord person.
+        if (released.detached) return clearRecoveryCookies(recoveryRedirect(await waitlistPath(profile.verified === true ? email : "", request.headers.get("user-agent"))));
         return continueExisting();
       };
       return await signInRecovery(request, stale, profile.id, proof.returnTo, gone);

@@ -122,7 +122,12 @@ export async function signInRecovery(request: NextRequest, clerkUserId: string, 
   if (!linked()) return refuse();
   let user;
   try { user = await client.users.getUser(clerkUserId); }
-  catch (error) { if ((error as { status?: number } | null)?.status === 404) return onGone ? onGone() : refuse(); throw error; }
+  catch (error) {
+    const failure = error as { status?: number; errors?: { code?: string }[] } | null;
+    if (failure?.status !== 404) throw error;
+    // Only Clerk's "this user does not exist" answer clears the link, not any other 404 (a wrong route, a proxy).
+    return onGone && failure.errors?.[0]?.code === "resource_not_found" ? onGone() : refuse();
+  }
   if (user && "deleted" in user && user.deleted && onGone) return onGone();
   if (!user || user.id !== clerkUserId || user.banned || user.locked || ("deleted" in user && user.deleted)) return refuse();
   if (!linked()) return refuse();

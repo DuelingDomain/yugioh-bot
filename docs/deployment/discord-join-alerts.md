@@ -122,13 +122,16 @@ are acknowledged and are not sent again when replayed.
 
 The same endpoint also handles `user.deleted`. When someone deletes a user in the Clerk
 dashboard, the app clears the `clerk_user_id` of the matching `users` row. A row with
-history (players, duels, drafts, decks, and so on) keeps its Discord link, and the person
-can claim it again through `/welcome-back`. A row with no history is also detached from
-Discord, so the person joins the waitlist like any new Discord person. This event needs no
-extra environment value: `CLERK_WEBHOOK_SIGNING_SECRET` must be set (the endpoint returns
-503 without it). Existing endpoints need `user.deleted` added in **Webhooks → endpoint →
-Edit → Subscribe to events**.
+history (players, duels, drafts, decks, and so on), invite grants or creator links keeps
+its Discord link, and the person can claim it again through `/welcome-back`. An empty row
+is also detached from Discord and its email, so the person joins the waitlist like any new
+Discord person. No new environment value is needed, but `CLERK_WEBHOOK_SIGNING_SECRET`
+must be set (the endpoint returns 503 without it). Add `user.deleted` to an existing
+endpoint in **Webhooks → endpoint → Edit → Subscribe to events**.
 
 If the webhook is missing, the Discord sign-in callback does the same repair on the next
-click: when Clerk returns 404 for the stored Clerk ID, it clears the stale link and
-continues.
+click: when Clerk answers `resource_not_found` (404) for the stored Clerk ID, it clears the
+stale link and continues. Self-serve account deletion passes the row's ids to the deletion
+step, so a webhook that arrives first does not leave data behind.
+
+Deleting a Clerk user is not a ban; use Clerk ban/lock.
