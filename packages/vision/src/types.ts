@@ -85,6 +85,8 @@ export interface ReadAllOptions { cards?: DetectedQuad[]; priors?: RecognitionPr
 export interface BoardResult { near: BoardCard[]; far: BoardCard[]; timingsMs: { detect: number; total: number } }
 
 export interface RecognizeOptions {
+  /** `high`: the host runs this read before queued ordinary reads (the instant zone path). It never interrupts a read that already runs. */
+  priority?: 'high';
   /** Light/glare pre-clean A/B on unsure or glare reads. Default: on; false reads only the raw crop. */
   preclean?: boolean;
   /** Serializable session identities (e.g. fieldGallery.entries()); absent by default. */
