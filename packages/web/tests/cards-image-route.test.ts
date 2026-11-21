@@ -113,7 +113,7 @@ describe("GET /api/cards/[passcode]/image", () => {
     const response = await getImage("5405694", `?variant=${variant}`);
 
     expect(Buffer.from(await response.arrayBuffer())).toEqual(RITUAL_ART);
-    expect(response.headers.get("Cache-Control")).toBe("public, max-age=2592000, immutable");
+    expect(response.headers.get("Cache-Control")).toBe("public, max-age=604800");
     expect(fetched).toEqual([]);
     expect(readFileSync(cachePath("5405694", variant))).toEqual(RITUAL_ART);
     expect(() => readFileSync(legacy)).toThrow();
@@ -132,7 +132,7 @@ describe("GET /api/cards/[passcode]/image", () => {
     expect(response.status).toBe(200);
     expect(fetched).toEqual([]);
     expect(Buffer.from(await response.arrayBuffer())).toEqual(RITUAL_ART);
-    expect(response.headers.get("Cache-Control")).toBe("public, max-age=2592000, immutable");
+    expect(response.headers.get("Cache-Control")).toBe("public, max-age=604800");
     expect(readFileSync(cachePath("5405694", variant))).toEqual(RITUAL_ART);
     expect(() => readFileSync(legacy)).toThrow();
     expect(callDuelHost).not.toHaveBeenCalled();
@@ -684,7 +684,7 @@ describe("GET /api/cards/[passcode]/image", () => {
     const thumb = Buffer.from(await first.arrayBuffer());
     expect(first.status).toBe(200);
     expect(first.headers.get("Content-Type")).toBe("image/webp");
-    expect(first.headers.get("Cache-Control")).toBe("public, max-age=2592000, immutable");
+    expect(first.headers.get("Cache-Control")).toBe("public, max-age=604800");
     expect((await sharp(thumb).metadata())).toMatchObject({ format: "webp", width: 200 });
     expect(thumb.length).toBeLessThan(small.length / 2);
 
@@ -697,6 +697,24 @@ describe("GET /api/cards/[passcode]/image", () => {
     expect(readFileSync(join(cacheDir, "v2-ygoprodeck-888-thumb.webp")).length).toBeGreaterThan(0);
     expect(() => readFileSync(join(cacheDir, "v2-ygoprodeck-999-thumb.webp"))).toThrow();
     expect(callDuelHost).not.toHaveBeenCalled();
+  });
+
+  it("keeps prewarm from hiding alias art from a viewer, and does not refetch a card prewarm found missing", async () => {
+    const { prewarmCardImages } = await import("../src/lib/card-image-store");
+    // A viewer asks while prewarm is still loading the same alias-only card: the viewer must still get the alias art.
+    const warming = prewarmCardImages([10000100], ["full"]);
+    const viewer = await getImage("10000100");
+    await warming;
+    expect(viewer.status).toBe(200);
+    expect(Buffer.from(await viewer.arrayBuffer())).toEqual(RITUAL_ART);
+
+    // A card that does not exist is fetched once per ten minutes by prewarm, not on every cube read.
+    fetched = [];
+    await prewarmCardImages([4242], ["small"]);
+    const afterFirst = fetched.length;
+    expect(afterFirst).toBeGreaterThan(0);
+    await prewarmCardImages([4242], ["small"]);
+    expect(fetched).toHaveLength(afterFirst);
   });
 });
 

@@ -123,7 +123,7 @@ Do the steps in this order. Stop at any step that does not match the check.
 | Static files | URI Path starts with `/_next/static/` or starts with `/_next/image` |
 | Card images | Hostname equals `app.duelingdomain.com` and URI Path starts with `/api/cards/` and URI Path ends with `/image` |
 
-The card image route answers with `Cache-Control: public, max-age=2592000, immutable` (30 days) for our own images. `?variant=thumb` is a 200 px WebP made from the small image and cached on disk. Error answers have no cache header or use `no-store`, so the rule skips them. Do **not** cache anything else under `/api/`, any HTML, `/socket.io/`, or the sign-in pages.
+The card image route answers with `Cache-Control: public, max-age=604800` (7 days, not immutable, because the URL has no version) for our own images. `?variant=thumb` is a 200 px WebP made from the small image and cached on disk. Error answers have no cache header or use `no-store`, so the rule skips them. Do **not** cache anything else under `/api/`, any HTML, `/socket.io/`, or the sign-in pages.
 
 Known effect: the card image route needs a signed-in session. After a rule caches an image, a person who is not signed in can fetch that cached image. The images are public card art. The owner accepts this, or skips the card image rule.
 

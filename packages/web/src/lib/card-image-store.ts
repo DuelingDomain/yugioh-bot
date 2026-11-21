@@ -1,7 +1,7 @@
 import { isOwnerUser } from "@/lib/owner-access";
 import { auth } from "@/lib/auth";
 import sharp from "sharp";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { callDuelHost, requireDuelActor } from "@/lib/duel-host";
@@ -22,9 +22,20 @@ const MISSING_TTL_MS = 10 * 60 * 1000;
 const ALIAS_TTL_MS = 10 * 60 * 1000;
 const inFlight = new Map<string, Promise<CachedImage>>();
 const missingImages = new Map<string, number>();
+// Prewarm cannot resolve aliases, so its misses must not hide an alias-only card from a viewer: a separate map, read only by prewarm.
+const prewarmMisses = new Map<string, number>();
+const PREWARM_ERROR_TTL_MS = 60 * 1000;
+const NEGATIVE_CACHE_LIMIT = 4096;
+
+/** Remember a miss. A full map drops expired entries only: live entries are never pushed out, so a flood of made-up ids cannot cycle them. */
+function rememberMiss(misses: Map<string, number>, key: string, ttlMs: number): void {
+  const now = Date.now();
+  if (misses.size >= NEGATIVE_CACHE_LIMIT) for (const [name, expires] of misses) if (expires <= now) misses.delete(name);
+  if (misses.size < NEGATIVE_CACHE_LIMIT) misses.set(key, now + ttlMs);
+}
 const aliases = new Map<number, { alias: number | null; expires: number }>();
-// Art of one passcode and variant never changes, so browsers and a CDN may keep it for a month without asking again.
-const OWN_CACHE_CONTROL = "public, max-age=2592000, immutable";
+// The URL carries no version, so an art fix must reach people within a week: no `immutable`, and not longer than 7 days.
+const OWN_CACHE_CONTROL = "public, max-age=604800";
 /** Tile-size WebP made from the small image: about a quarter of its bytes, for grids of hundreds of cards. */
 const THUMB_WIDTH = 200;
 const FALLBACK_CACHE_CONTROL = "public, max-age=3600";
@@ -160,6 +171,7 @@ async function loadImage(passcode: number, variant: ImageVariant, filename: stri
   if (cached) return cached;
   if ((missingImages.get(filename) ?? 0) > Date.now()) throw new ImageMissingError();
   missingImages.delete(filename);
+  if (options.noAlias && (prewarmMisses.get(filename) ?? 0) > Date.now()) throw new ImageMissingError();
 
   let fetched: FetchedImage | undefined;
   let memberId: number | undefined;
@@ -186,7 +198,11 @@ async function loadImage(passcode: number, variant: ImageVariant, filename: stri
     return expired;
   }
 
-  if (options.noAlias) throw upstreamError ?? fallbackError ?? new ImageMissingError(`No card image for ${passcode}`);
+  if (options.noAlias) {
+    // Confirmed absent for the passcode itself: 10 minutes. After an upstream error: a short pause, not a retry on every cube read.
+    rememberMiss(prewarmMisses, filename, upstreamError || fallbackError ? PREWARM_ERROR_TTL_MS : MISSING_TTL_MS);
+    throw upstreamError ?? fallbackError ?? new ImageMissingError(`No card image for ${passcode}`);
+  }
   let alias: number | null | undefined;
   try { alias = await aliasOf(passcode); }
   catch (error) { throw upstreamError ?? fallbackError ?? error; }
@@ -204,20 +220,18 @@ async function loadImage(passcode: number, variant: ImageVariant, filename: stri
   }
   if (upstreamError || fallbackError) throw upstreamError ?? fallbackError;
   if (alias === null) {
-    const now = Date.now();
-    for (const [key, expires] of missingImages) if (expires <= now) missingImages.delete(key);
-    if (missingImages.size >= 1024) missingImages.delete(missingImages.keys().next().value!);
-    missingImages.set(filename, now + MISSING_TTL_MS);
+    rememberMiss(missingImages, filename, MISSING_TTL_MS);
   }
   throw new ImageMissingError(`No card image for ${passcode}`);
 }
 
-function dedupe(filename: string, load: () => Promise<CachedImage>): Promise<CachedImage> {
-  const existing = inFlight.get(filename);
+/** A viewer must not inherit a prewarm result: prewarm gives up on alias-only cards, a viewer resolves them. */
+function dedupe(key: string, load: () => Promise<CachedImage>): Promise<CachedImage> {
+  const existing = inFlight.get(key);
   if (existing) return existing;
   const pending = load();
-  inFlight.set(filename, pending);
-  return pending.finally(() => inFlight.delete(filename));
+  inFlight.set(key, pending);
+  return pending.finally(() => inFlight.delete(key));
 }
 
 async function loadThumb(passcode: number, filename: string, options: LoadOptions): Promise<CachedImage> {
@@ -233,7 +247,7 @@ async function loadThumb(passcode: number, filename: string, options: LoadOption
 
 export function getCardImage(passcode: number, variant: ImageVariant, options: LoadOptions = {}): Promise<CachedImage> {
   const filename = imageFilename(passcode, variant);
-  return dedupe(filename, () => variant === "thumb" ? loadThumb(passcode, filename, options) : loadImage(passcode, variant, filename, options));
+  return dedupe(options.noAlias ? `${filename}:prewarm` : filename, () => variant === "thumb" ? loadThumb(passcode, filename, options) : loadImage(passcode, variant, filename, options));
 }
 
 const prewarming = new Set<string>();
@@ -259,5 +273,15 @@ export async function prewarmCardImages(passcodes: Iterable<number>, variants: I
 /** Fire and forget. `CARD_IMAGE_PREWARM=0` turns it off (the test setup does, so no test reaches the network). */
 export function warmCardImages(passcodes: Iterable<number>, variants: ImageVariant[] = ["thumb"], max = 600): void {
   if (process.env.CARD_IMAGE_PREWARM === "0") return;
-  void prewarmCardImages([...new Set(passcodes)].slice(0, max), variants);
+  const ids = [...new Set(passcodes)].slice(0, max);
+  // Every cube read and edit calls this: the same card set within a few minutes is already warm or being warmed.
+  const key = createHash("sha1").update(`${variants.join()}:${ids.sort((a, b) => a - b).join()}`).digest("hex");
+  const now = Date.now();
+  if ((recentlyWarmed.get(key) ?? 0) > now) return;
+  if (recentlyWarmed.size >= 256) for (const [name, expires] of recentlyWarmed) if (expires <= now) recentlyWarmed.delete(name);
+  if (recentlyWarmed.size >= 256) recentlyWarmed.delete(recentlyWarmed.keys().next().value!);
+  recentlyWarmed.set(key, now + WARM_REPEAT_MS);
+  void prewarmCardImages(ids, variants);
 }
+const recentlyWarmed = new Map<string, number>();
+const WARM_REPEAT_MS = 5 * 60 * 1000;

@@ -4,10 +4,13 @@ function positiveIntegerSetting(name: string, fallback: number): number {
   return Number.isSafeInteger(value) && value > 0 ? value : fallback;
 }
 
+const ANONYMOUS = -1;
 type Scheduler = { schedule<T>(work: () => Promise<T>, memberId?: number): Promise<T> };
 
 /** Start rate, concurrency and queue limits for one class of upstream request. */
-function createScheduler(perSecond: number, maxActive: number, queueLimit: number, memberQueueLimit: number): Scheduler {
+function createScheduler(
+  perSecond: number, maxActive: number, queueLimit: number, memberQueueLimit: number, anonymousQueueLimit?: number,
+): Scheduler {
   const startInterval = Math.ceil(1000 / perSecond);
   const pendingByMember = new Map<number, number>();
   const queue: Array<() => void> = [];
@@ -29,14 +32,17 @@ function createScheduler(perSecond: number, maxActive: number, queueLimit: numbe
   }
 
   function schedule<T>(work: () => Promise<T>, memberId?: number): Promise<T> {
-    if (memberId !== undefined && (pendingByMember.get(memberId) ?? 0) >= memberQueueLimit) return Promise.reject(new CardFetchLimitError());
+    // Requests without a member (prewarm, a failed session lookup) share one bucket when the scheduler has an anonymous limit.
+    const bucket = memberId ?? (anonymousQueueLimit === undefined ? undefined : ANONYMOUS);
+    const limit = memberId === undefined ? anonymousQueueLimit ?? memberQueueLimit : memberQueueLimit;
+    if (bucket !== undefined && (pendingByMember.get(bucket) ?? 0) >= limit) return Promise.reject(new CardFetchLimitError());
     if (queue.length >= queueLimit) return Promise.reject(new CardFetchError());
-    if (memberId !== undefined) pendingByMember.set(memberId, (pendingByMember.get(memberId) ?? 0) + 1);
+    if (bucket !== undefined) pendingByMember.set(bucket, (pendingByMember.get(bucket) ?? 0) + 1);
     const release = () => {
-      if (memberId !== undefined) {
-        const remaining = pendingByMember.get(memberId)! - 1;
-        if (remaining) pendingByMember.set(memberId, remaining);
-        else pendingByMember.delete(memberId);
+      if (bucket !== undefined) {
+        const remaining = pendingByMember.get(bucket)! - 1;
+        if (remaining) pendingByMember.set(bucket, remaining);
+        else pendingByMember.delete(bucket);
       }
       active--;
       drain();
@@ -57,10 +63,12 @@ const apiScheduler = createScheduler(
   positiveIntegerSetting("CARD_FETCH_QUEUE_LIMIT", 1024), positiveIntegerSetting("CARD_FETCH_MEMBER_QUEUE_LIMIT", 20),
 );
 // Card art is static CDN content and gets its own budget. One API-sized budget (5 starts a second, 20 pending per member)
-// made a cold cube of 240 cards take about a minute and refused most of its tiles with 429.
+// made a cold cube of 240 cards take about a minute and refused most of its tiles with 429. The rate stays under the 20 a second
+// that YGOPRODeck allows, because a miss can cost two upstream calls (YGOPRODeck, then Ignis).
 const imageScheduler = createScheduler(
-  positiveIntegerSetting("CARD_IMAGE_FETCH_REQUESTS_PER_SECOND", 25), positiveIntegerSetting("CARD_IMAGE_FETCH_CONCURRENCY", 8),
+  positiveIntegerSetting("CARD_IMAGE_FETCH_REQUESTS_PER_SECOND", 12), positiveIntegerSetting("CARD_IMAGE_FETCH_CONCURRENCY", 8),
   positiveIntegerSetting("CARD_FETCH_QUEUE_LIMIT", 1024), positiveIntegerSetting("CARD_IMAGE_FETCH_MEMBER_QUEUE_LIMIT", 400),
+  positiveIntegerSetting("CARD_IMAGE_FETCH_ANONYMOUS_QUEUE_LIMIT", 16),
 );
 const backoff = new Map<string, number>();
 
