@@ -1,7 +1,6 @@
 import { useSyncExternalStore } from 'react';
 import { ZONE_PREVIEW_TTL_MS, decodePreview, encodePreview, previewForZone, type PreviewKind, type ZonePreview } from '@yugidraft/vision';
 import type { RemoteActionProposal, RemoteEvent, RemoteRoom, TwinCard } from '@yugidraft/shared/remote';
-import { cardInfo } from '@/components/remote/ui/catalog';
 import { isFieldSpell } from './field-legality';
 
 /**
@@ -11,8 +10,9 @@ import { isFieldSpell } from './field-legality';
  * The server stays the truth. A preview is display only: it never reaches the reducer, the log, undo, LP or any rule. The server event
  * that confirms the key or touches the same cell replaces it. Each cell has 3 s from the first unconfirmed preview.
  *
- * Pending cards are anonymous until the server publishes the authoritative board. The receiver takes the
- * seat from the data packet's sender identity, never from the payload, so only the owner of a seat can preview on it.
+ * A card that is face up on a field cell after the write is public (the camera shows it to the whole table), so its identity travels
+ * with the preview and the opponent never sees a card back flip. Anything face down, of unknown face, or not on the field stays anonymous.
+ * The receiver takes the seat from the data packet's sender identity, never from the payload, so only the owner of a seat can preview on it.
  */
 export const PEER_PREVIEW_TOPIC = 'remote.board.preview.v1';
 export const PEER_PREVIEW_STORAGE_KEY = 'dd-peer-preview';
@@ -43,10 +43,13 @@ const tableZone = (zone: string): { zone: string; slot?: number } | null => {
   return null;
 };
 const sideways = (zone: string) => zone === 'monster' || zone === 'extra-monster';
-const pendingKind = (zone: string, position: string | undefined): PreviewKind =>
-  sideways(zone) && position === 'defense' ? 'sideways-down' : 'face-down';
 
-export interface PreviewDraft { zone: string; kind: PreviewKind }
+export interface PreviewDraft { zone: string; kind: PreviewKind; face?: { cardId: number; name?: string } }
+
+/** The card facts the Field Spell redirect needs. The table screen registers its catalog lookup, so lib/ never imports from components/. */
+type CardFacts = NonNullable<Parameters<typeof isFieldSpell>[0]>;
+let cardFacts: (code: number | undefined) => CardFacts | undefined = () => undefined;
+export function setPeerPreviewCardFacts(lookup: (code: number | undefined) => CardFacts | undefined): void { cardFacts = lookup; }
 
 const redirectableZones = new Set(['monster', 'spell-trap', 'extra-monster', 'pendulum']);
 
@@ -55,10 +58,10 @@ function fieldSpellDestination(zone: string, card: { cardId?: number; passcode?:
   if (!redirectableZones.has(zone)) return zone;
   const code = card.cardId ?? card.passcode;
   if (!code && !card.name) return zone;
-  const facts = cardInfo(code);
+  const facts = cardFacts(code);
   if (!facts) return undefined;
   if (isFieldSpell(facts)) return 'field';
-  if (/\bspell\b/i.test(facts.type) && !facts.race?.trim()) return undefined;
+  if (/\bspell\b/i.test(facts.type ?? "") && !facts.race?.trim()) return undefined;
   return zone;
 }
 
@@ -68,11 +71,21 @@ export function previewDrafts(room: RemoteRoom, proposal: RemoteActionProposal):
   const mine = room.state.seats[room.mySeat]?.twin ?? [];
   const target = (ref: string, source: string | undefined) => mine.find(card =>
     card.ref === ref && (source !== 'auto' || (!card.token && card.ownerSeat === undefined)));
-  const show = (zone: string | undefined, slot: number | undefined, position: string | undefined): PreviewDraft | undefined => {
+  /**
+   * `face` is given only when the card is face up after the write and that face is already public: it was face up before, the camera
+   * saw it (source auto), or it is the card of a placement. Anything else is anonymous and shows as a card back.
+   */
+  const show = (zone: string | undefined, slot: number | undefined, position: string | undefined, face?: { cardId: number | undefined; name?: string }): PreviewDraft | undefined => {
     if (!zone) return undefined;
     const cam = camZone(zone, slot);
-    return cam ? { zone: cam, kind: pendingKind(zone, position) } : undefined;
+    if (!cam) return undefined;
+    const cardId = face?.cardId;
+    const open = cardId !== undefined && cardId > 0;
+    const down = sideways(zone) && position === 'defense';
+    const kind: PreviewKind = open ? (down ? 'sideways-up' : 'face-up') : (down ? 'sideways-down' : 'face-down');
+    return { zone: cam, kind, ...(open ? { face: { cardId, ...(face?.name ? { name: face.name } : {}) } } : {}) };
   };
+  const idOf = (card: { cardId?: number; passcode?: number }) => card.cardId ?? card.passcode;
   const move = (card: TwinCard, destination: PreviewDraft | undefined): PreviewDraft[] => {
     if (!destination) return [];
     const from = camZone(card.zone, card.slot);
@@ -82,7 +95,8 @@ export function previewDrafts(room: RemoteRoom, proposal: RemoteActionProposal):
     case 'twin.place': {
       const card = proposal.card;
       if (card.token) return [];
-      const destination = show(fieldSpellDestination(proposal.zone, card), card.slot, card.position);
+      const face = card.faceUp === true ? { cardId: idOf(card), name: card.name } : undefined;
+      const destination = show(fieldSpellDestination(proposal.zone, card), card.slot, card.position, face);
       return destination ? [destination] : [];
     }
     case 'twin.move': {
@@ -91,13 +105,17 @@ export function previewDrafts(room: RemoteRoom, proposal: RemoteActionProposal):
       const slot = proposal.slot ?? (proposal.zone === card.zone ? card.slot : undefined);
       const redirects = proposal.source === 'auto' && (proposal.faceUp ?? card.faceUp);
       const zone = redirects ? fieldSpellDestination(proposal.zone, card) : proposal.zone;
-      return move(card, show(zone, slot, proposal.position ?? card.position));
+      const faceUp = (proposal.faceUp ?? card.faceUp) === true;
+      const face = faceUp && (card.faceUp === true || proposal.source === 'auto') ? { cardId: idOf(card), name: proposal.name ?? card.name } : undefined;
+      return move(card, show(zone, slot, proposal.position ?? card.position, face));
     }
     case 'twin.flip': {
       const card = target(proposal.cardRef, proposal.source);
       if (!card) return [];
       const zone = proposal.faceUp && !card.faceUp ? fieldSpellDestination(card.zone, proposal.cardId ? proposal : card) : card.zone;
-      return move(card, show(zone, card.slot, proposal.position ?? card.position));
+      const face = proposal.faceUp && (card.faceUp === true || proposal.source === 'auto')
+        ? { cardId: proposal.cardId ?? idOf(card), name: proposal.name ?? card.name } : undefined;
+      return move(card, show(zone, card.slot, proposal.position ?? card.position, face));
     }
     case 'twin.remove': {
       const card = target(proposal.cardRef, proposal.source);
@@ -112,7 +130,7 @@ export function previewDrafts(room: RemoteRoom, proposal: RemoteActionProposal):
 export function previewPackets(room: RemoteRoom, proposal: RemoteActionProposal, key: string, nextSeq: () => number): Uint8Array<ArrayBuffer>[] {
   const packets: Uint8Array<ArrayBuffer>[] = [];
   for (const draft of previewDrafts(room, proposal)) {
-    const preview = previewForZone(room.mySeat, nextSeq(), draft.zone, draft.kind, undefined, key);
+    const preview = previewForZone(room.mySeat, nextSeq(), draft.zone, draft.kind, draft.face, key);
     if (preview) packets.push(encodePreview(preview));
   }
   return packets;
@@ -128,7 +146,7 @@ export function setPeerPreviewTransport(send: Send): void { transport = send; }
 export function releasePeerPreviewTransport(send: Send): void { if (transport === send) transport = null; }
 
 /**
- * My own client: the mutation queue calls this when the first POST starts.
+ * My own client: the mutation queue calls this once per write as soon as it passes the local checks, before the POST.
  * The sequence is time based, so a reload of this tab never sends lower numbers than the receivers already hold.
  */
 export function publishPeerPreview(room: RemoteRoom | undefined, proposal: RemoteActionProposal, key: string, now = Date.now()): number {

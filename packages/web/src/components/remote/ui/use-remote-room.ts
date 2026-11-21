@@ -7,13 +7,14 @@ import { useRouter } from "next/navigation";
 import useSWR from "swr";
 import { io, type Socket } from "socket.io-client";
 import { remoteApi, tabId } from "./api";
-import { preloadRoomCards } from "./catalog";
+import { cardInfo, preloadRoomCards } from "./catalog";
 import { deckIdsOf } from "./model";
 import type { RemoteAction, RemoteActionProposal, RemoteBestOf, RemoteClientEvents, RemoteRoom, RemoteServerEvents } from "@yugidraft/shared/remote";
 
 import {markFieldState,stampedProposal} from '@/lib/remote/field-timing';
-import {peerPreviews,publishPeerPreview} from '@/lib/remote/peer-preview';
+import {peerPreviews,publishPeerPreview,setPeerPreviewCardFacts} from '@/lib/remote/peer-preview';
 import {applyRoomPatch,classifyPatch,createRepairScheduler,createRoomMutationQueue,hasPendingTwinConfirmation,remoteChangeNeedsFetch} from '@/lib/remote/room-mutations';
+setPeerPreviewCardFacts(cardInfo);
 export type RoomController = ReturnType<typeof useRemoteRoom>;
 const PEER_REPAIR_MS = 150;
 

@@ -3,17 +3,15 @@ import type { RemoteActionProposal, RemoteRoom } from "@yugidraft/shared/remote"
 import { correctionsFor } from "@/lib/remote/manual-corrections";
 import { noteWriteLost, OUTAGE_BACKOFF_MS } from "@/lib/remote/outage";
 import { createRoomMutationQueue } from "@/lib/remote/room-mutations";
-import { boardWithPreviews, createPeerPreviewStore, previewDrafts, publishPeerPreview, releasePeerPreviewTransport, setPeerPreviewTransport, type PeerPreviewDiag } from "@/lib/remote/peer-preview";
+import { boardWithPreviews, createPeerPreviewStore, previewDrafts, publishPeerPreview, releasePeerPreviewTransport, setPeerPreviewCardFacts, setPeerPreviewTransport, type PeerPreviewDiag } from "@/lib/remote/peer-preview";
 
 const MAGICIAN = 46986414;
 const FIELD_SPELL = 1234;
-vi.mock("@/components/remote/ui/catalog", () => ({
-  cardInfo: (code: number) => code === MAGICIAN ? { type: "Normal Monster" } : code === FIELD_SPELL ? { type: "Spell Card", race: "Field" } : undefined,
-}));
+setPeerPreviewCardFacts(code => code === MAGICIAN ? { type: "Normal Monster" } : code === FIELD_SPELL ? { type: "Spell Card", race: "Field" } : undefined);
 
 const room = { slug: "t", seats: [], mySeat: 0, lastSeq: 1, events: [], state: { seats: [{ seat: 0, twin: [] }, { seat: 1, twin: [] }] } } as unknown as RemoteRoom;
-const place = (slot: number, faceUp: boolean): RemoteActionProposal =>
-  ({ type: "twin.place", actorSeat: 0, seat: 0, zone: "monster", card: { ref: `c${slot}`, cardId: MAGICIAN, name: "Dark Magician", faceUp, position: "attack", slot } }) as RemoteActionProposal;
+const place = (slot: number, faceUp: boolean): Extract<RemoteActionProposal, { type: "twin.place" }> =>
+  ({ type: "twin.place", actorSeat: 0, seat: 0, zone: "monster", card: { ref: `c${slot}`, cardId: MAGICIAN, name: "Dark Magician", faceUp, position: "attack", slot } }) as Extract<RemoteActionProposal, { type: "twin.place" }>;
 const packet = (seq: number, key?: string, zone = "M1", seat = 0) => new TextEncoder().encode(JSON.stringify({
   v: 1, seat, seq, zone, kind: "face-up", cardId: MAGICIAN, key,
 }));
@@ -53,12 +51,11 @@ describe("peer preview", () => {
     const wire: Uint8Array[] = [];
     const { queue, keys, finish, dispose } = sender(wire);
 
-    // 1. The POST is pending: the opponent already shows an anonymous card in monster zone 3.
+    // 1. The POST is pending: the opponent already shows the face-up card in monster zone 3, with its public identity and no card back flip.
     await queue(place(3, true));
     expect(wire).toHaveLength(1);
     expect(watcher.receive(wire[0], 0)).toBe(true);
-    expect(watcher.cardsOf(0)).toMatchObject([{ zone: "monster", slot: 3, faceUp: false }]);
-    expect(watcher.cardsOf(0)[0]).not.toHaveProperty("cardId");
+    expect(watcher.cardsOf(0)).toMatchObject([{ zone: "monster", slot: 3, faceUp: true, cardId: MAGICIAN, name: "Dark Magician" }]);
     // The pending card replaces whatever the table held in that cell and is never a real twin.
     const board = boardWithPreviews([{ ref: "old", zone: "monster", slot: 3 }, { ref: "keep", zone: "monster", slot: 1 }], watcher.cardsOf(0));
     expect(board.base.map(card => card.ref)).toEqual(["keep"]);
@@ -87,10 +84,9 @@ describe("peer preview", () => {
     // 3. A face-down card: the packet carries no id, no name and no ref, so neither the opponent nor a spectator can learn it.
     wire.length = 0;
     await queue(place(2, false));
-    const text = new TextDecoder().decode(wire[0]);
-    expect(text).not.toContain(String(MAGICIAN));
-    expect(text).not.toContain("Dark Magician");
-    expect(text).not.toContain("c2");
+    const sentDown = JSON.parse(new TextDecoder().decode(wire[0]));
+    expect(sentDown).toMatchObject({ kind: "face-down", zone: "M2" });
+    for (const field of ["ref", "cardId", "name"]) expect(sentDown).not.toHaveProperty(field);
     expect(watcher.receive(wire[0], 0)).toBe(true);
     expect(watcher.cardsOf(0)).toMatchObject([{ zone: "monster", slot: 2, faceUp: false }]);
     expect(watcher.cardsOf(0)[0]).not.toHaveProperty("cardId");
@@ -106,6 +102,60 @@ describe("peer preview", () => {
 
     watcher.clear();
     dispose();
+  });
+
+  it("sends the identity of a face-up card on the field and nothing for a face-down or unknown one", () => {
+    const up = { ref: "up", zone: "monster", slot: 1, faceUp: true, position: "attack", cardId: MAGICIAN, name: "Dark Magician" } as const;
+    const set = { ref: "set", zone: "monster", slot: 2, faceUp: false, position: "defense", cardId: MAGICIAN, name: "Dark Magician" } as const;
+    const held = withTwin([up, set]);
+    const face = { cardId: MAGICIAN, name: "Dark Magician" };
+    const draft = (proposal: RemoteActionProposal) => previewDrafts(held, proposal);
+    // A face-up placement and a position change of a face-up card keep their identity, sideways when in Defense.
+    expect(draft(place(3, true))).toEqual([{ zone: "M3", kind: "face-up", face }]);
+    expect(draft({ ...place(3, true), card: { ...place(3, true).card, position: "defense" } } as RemoteActionProposal)).toEqual([{ zone: "M3", kind: "sideways-up", face }]);
+    expect(draft({ type: "twin.move", actorSeat: 0, seat: 0, cardRef: "up", zone: "monster", position: "defense" })).toEqual([{ zone: "M1", kind: "sideways-up", face }]);
+    // The camera saw a flip: the face is public.
+    expect(draft({ type: "twin.flip", actorSeat: 0, seat: 0, cardRef: "set", faceUp: true, source: "auto" })).toEqual([{ zone: "M2", kind: "sideways-up", face }]);
+    // Face down: no identity, whatever the sender knows. A hand click that reveals a hidden card stays anonymous too.
+    expect(draft(place(3, false))).toEqual([{ zone: "M3", kind: "face-down" }]);
+    expect(draft({ type: "twin.flip", actorSeat: 0, seat: 0, cardRef: "up", faceUp: false })).toEqual([{ zone: "M1", kind: "face-down" }]);
+    expect(draft({ type: "twin.flip", actorSeat: 0, seat: 0, cardRef: "set", faceUp: true })).toEqual([{ zone: "M2", kind: "sideways-down" }]);
+    expect(draft({ type: "twin.move", actorSeat: 0, seat: 0, cardRef: "set", zone: "monster", slot: 4 })).toEqual([{ zone: "M4", kind: "sideways-down" }, { zone: "M2", kind: "empty" }]);
+    // A face that is not known to be up is anonymous, and a card that does not land on the field has no preview at all.
+    const unknown = { ...place(3, true), card: { ...place(3, true).card, faceUp: undefined } } as unknown as RemoteActionProposal;
+    expect(draft(unknown)).toEqual([{ zone: "M3", kind: "face-down" }]);
+    expect(draft({ type: "twin.move", actorSeat: 0, seat: 0, cardRef: "up", zone: "graveyard" })).toEqual([]);
+    // A packet for a face-down kind never carries identity even if a sender put one there (the receiver strips it).
+    const watcher = createPeerPreviewStore();
+    try {
+      const forged = new TextEncoder().encode(JSON.stringify({ v: 1, seat: 0, seq: 1, zone: "M1", kind: "face-down", cardId: MAGICIAN, name: "Dark Magician", key: "k" }));
+      expect(watcher.receive(forged, 0)).toBe(true);
+      expect(watcher.cardsOf(0)[0]).toMatchObject({ faceUp: false });
+      expect(watcher.cardsOf(0)[0]).not.toHaveProperty("cardId");
+      expect(watcher.cardsOf(0)[0]).not.toHaveProperty("name");
+    } finally { watcher.clear(); }
+  });
+
+  it("sends the previews of a burst of writes before any post finishes", async () => {
+    const wire: Uint8Array[] = [];
+    const send = (bytes: Uint8Array) => { wire.push(bytes); };
+    setPeerPreviewTransport(send);
+    const releases: (() => void)[] = [];
+    const post = vi.fn(() => new Promise<RemoteRoom>(resolve => { releases.push(() => resolve(room)); }));
+    const queue = createRoomMutationQueue(() => room, post, undefined, undefined, (proposal, key) => { publishPeerPreview(room, proposal, key); });
+    try {
+      const done = queue.transaction(async (_room, act) => { await Promise.all([1, 2, 3].map(slot => act(place(slot, true)))); });
+      await new Promise(resolve => setTimeout(resolve, 0));
+      // The gate has started post 1 only, yet all three previews are out, one per cell, each with its own key.
+      expect(post).toHaveBeenCalledTimes(1);
+      expect(wire).toHaveLength(3);
+      const sent = wire.map(bytes => JSON.parse(new TextDecoder().decode(bytes)));
+      expect(sent.map(item => item.zone)).toEqual(["M1", "M2", "M3"]);
+      expect(new Set(sent.map(item => item.key)).size).toBe(3);
+      for (let i = 0; i < 3; i++) { await vi.waitFor(() => expect(releases.length).toBeGreaterThan(i)); releases[i](); }
+      await done;
+      expect(wire).toHaveLength(3);
+    } finally { releasePeerPreviewTransport(send); }
   });
 
   it("ignores packets without an action key", () => {
@@ -222,7 +272,7 @@ describe("peer preview", () => {
   it("previews an automatic Field Spell move in the Field Zone", () => {
     const held = withTwin([{ ref: "field-spell", cardId: FIELD_SPELL, zone: "spell-trap", slot: 1, faceUp: true, position: "attack" }]);
     expect(previewDrafts(held, { type: "twin.move", actorSeat: 0, seat: 0, cardRef: "field-spell", zone: "spell-trap", slot: 2, source: "auto" })).toEqual([
-      { zone: "FIELD", kind: "face-down" }, { zone: "S1", kind: "empty" },
+      { zone: "FIELD", kind: "face-up", face: { cardId: FIELD_SPELL } }, { zone: "S1", kind: "empty" },
     ]);
   });
 });

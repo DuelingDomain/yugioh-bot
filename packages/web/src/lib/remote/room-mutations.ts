@@ -28,7 +28,8 @@ export const hasPendingTwinConfirmation = (room: RemoteRoom) =>
 
 /**
  * Serialize board transactions. Notes can use the manual chain independently.
- * `onPost` runs when a write passes local checks and first goes to the server.
+ * `onPost` runs once per write, the moment it passes the local checks (valid, camera correction), before it waits for the post gate or an
+ * older write. A retry never runs it again.
  */
 export function createRoomMutationQueue(read:()=>RemoteRoom|undefined,post:RoomMutation,giveUp?:(error:Error)=>void,valid?:()=>boolean,onPost?:(proposal:RemoteActionProposal,key:string,room:RemoteRoom|undefined)=>void) {
   const idle = Promise.resolve();
@@ -39,6 +40,12 @@ export function createRoomMutationQueue(read:()=>RemoteRoom|undefined,post:RoomM
     if (rendered && (!latest || rendered.lastSeq >= latest.lastSeq)) latest = rendered;
     return latest;
   };
+  const announce = (proposal:RemoteActionProposal, key:string|undefined) => {
+    if (!onPost || !key) return;
+    const now = current();
+    if (valid?.() === false || (now && cameraCorrectionBlocked(now, proposal))) return;
+    try { onPost(proposal, key, now); } catch { /* A preview never blocks a write. */ }
+  };
   const write = async (proposal:RemoteActionProposal, key?:string, prepared?:()=>void, patient=false) => {
     const now = current();
     const rollback = prepared ?? (now ? beginManualCorrection(now, proposal) : undefined);
@@ -48,18 +55,9 @@ export function createRoomMutationQueue(read:()=>RemoteRoom|undefined,post:RoomM
         return null;
       }
       if (key) markFieldAction(key, 'writeDequeued');
-      let previewed = false;
-      const send = () => {
-        const pending = post(proposal, key);
-        if (!previewed && onPost && key) {
-          previewed = true;
-          try { onPost(proposal, key, now); } catch { /* A preview never blocks a write. */ }
-        }
-        return pending;
-      };
       const result = patient
-        ? await retryThroughOutage(send, {valid, capMs: MANUAL_OUTAGE_CAP_MS})
-        : await send();
+        ? await retryThroughOutage(() => post(proposal, key), {valid, capMs: MANUAL_OUTAGE_CAP_MS})
+        : await post(proposal, key);
       if (result === SKIPPED || !result) {
         rollback?.();
         return null;
@@ -94,6 +92,7 @@ export function createRoomMutationQueue(read:()=>RemoteRoom|undefined,post:RoomM
       const act: RoomMutation = (proposal, given) => {
         const key = given ?? (onPost ? crypto.randomUUID() : undefined);
         if (key) markFieldAction(key, 'writeQueued');
+        announce(proposal, key);
         const sent = writes.then(() => post1(() => write(proposal, key)));
         writes = sent.catch(() => undefined);
         return sent;
@@ -120,6 +119,7 @@ export function createRoomMutationQueue(read:()=>RemoteRoom|undefined,post:RoomM
       const rollback = room && beginManualCorrection(room, proposal);
       const key = idempotencyKey ?? crypto.randomUUID();
       if (idempotencyKey) markFieldAction(key, 'writeQueued');
+      announce(proposal, key);
       const prior = manual;
       const run = () => prior.then(() => write(proposal, key, rollback, true));
       // A log note can clear a pending placement confirmation in the reducer. A response never touches the board, so it skips the queue.
