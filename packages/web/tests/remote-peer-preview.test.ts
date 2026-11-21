@@ -1,23 +1,47 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { RemoteActionProposal, RemoteRoom } from "@yugidraft/shared/remote";
+import { correctionsFor } from "@/lib/remote/manual-corrections";
+import { noteWriteLost, OUTAGE_BACKOFF_MS } from "@/lib/remote/outage";
 import { createRoomMutationQueue } from "@/lib/remote/room-mutations";
-import { boardWithPreviews, createPeerPreviewStore, publishPeerPreview, setPeerPreviewTransport, type PeerPreviewDiag } from "@/lib/remote/peer-preview";
+import { boardWithPreviews, createPeerPreviewStore, previewDrafts, publishPeerPreview, releasePeerPreviewTransport, setPeerPreviewTransport, type PeerPreviewDiag } from "@/lib/remote/peer-preview";
 
 const MAGICIAN = 46986414;
-const room = { slug: "t", mySeat: 0, lastSeq: 1, events: [], state: { seats: [{ twin: [] }, { twin: [] }] } } as unknown as RemoteRoom;
+const FIELD_SPELL = 1234;
+vi.mock("@/components/remote/ui/catalog", () => ({
+  cardInfo: (code: number) => code === MAGICIAN ? { type: "Normal Monster" } : code === FIELD_SPELL ? { type: "Spell Card", race: "Field" } : undefined,
+}));
+
+const room = { slug: "t", seats: [], mySeat: 0, lastSeq: 1, events: [], state: { seats: [{ seat: 0, twin: [] }, { seat: 1, twin: [] }] } } as unknown as RemoteRoom;
 const place = (slot: number, faceUp: boolean): RemoteActionProposal =>
   ({ type: "twin.place", actorSeat: 0, seat: 0, zone: "monster", card: { ref: `c${slot}`, cardId: MAGICIAN, name: "Dark Magician", faceUp, position: "attack", slot } }) as RemoteActionProposal;
+const packet = (seq: number, key?: string, zone = "M1", seat = 0) => new TextEncoder().encode(JSON.stringify({
+  v: 1, seat, seq, zone, kind: "face-up", cardId: MAGICIAN, key,
+}));
+const event = (seq: number, action: RemoteActionProposal, idempotencyKey: string) =>
+  ({ seq, action: { ...action, idempotencyKey } }) as RemoteRoom["events"][number];
+const withTwin = (twin: RemoteRoom["state"]["seats"][number]["twin"]): RemoteRoom => ({
+  ...room, state: { ...room.state, seats: [{ ...room.state.seats[0], twin }, room.state.seats[1]] },
+});
 
-/** My client queues a write while the server has not answered yet; every preview packet it sends goes to `wire`. */
+/** Every preview goes to `wire`. Leave each POST pending until the test releases it. */
 function sender(wire: Uint8Array[]) {
-  setPeerPreviewTransport(bytes => { wire.push(bytes); });
-  let release: (room: RemoteRoom) => void = () => undefined;
-  const pending = new Promise<RemoteRoom>(resolve => { release = resolve; });
+  const send = (bytes: Uint8Array) => { wire.push(bytes); };
+  setPeerPreviewTransport(send);
+  let release: (() => void) | undefined;
+  let write: Promise<RemoteRoom | null> | undefined;
   const keys: string[] = [];
-  const queue0 = createRoomMutationQueue(() => room, async () => pending, undefined, undefined, (proposal, key) => { keys.push(key); publishPeerPreview(room, proposal, key); });
-  /** Queue one write and let the queue run it up to the point where it waits for the server. */
-  const queue = async (proposal: RemoteActionProposal) => { void queue0.transaction(async (_room, act) => { void act(proposal); }).catch(() => undefined); await new Promise(resolve => setTimeout(resolve, 0)); };
-  return { queue, keys, release };
+  const post = () => new Promise<RemoteRoom>(resolve => { release = () => resolve(room); });
+  const mutations = createRoomMutationQueue(() => room, post, undefined, undefined, (proposal, key) => {
+    keys.push(key);
+    publishPeerPreview(room, proposal, key);
+  });
+  const queue = async (proposal: RemoteActionProposal) => {
+    write = mutations.transaction((_room, act) => act(proposal));
+    await new Promise(resolve => setTimeout(resolve, 0));
+  };
+  const finish = async () => { release?.(); await write; };
+  const dispose = () => { release?.(); releasePeerPreviewTransport(send); };
+  return { queue, keys, finish, dispose };
 }
 
 describe("peer preview", () => {
@@ -27,22 +51,24 @@ describe("peer preview", () => {
     const watcher = createPeerPreviewStore({ now: () => clock, enabled: () => true, diag: d => log.push(d) });
     watcher.setMySeat(1);
     const wire: Uint8Array[] = [];
-    const { queue, keys, release } = sender(wire);
+    const { queue, keys, finish, dispose } = sender(wire);
 
-    // 1. Queued, server silent: the opponent already shows the card face up, with its name, in monster zone 3.
+    // 1. The POST is pending: the opponent already shows an anonymous card in monster zone 3.
     await queue(place(3, true));
     expect(wire).toHaveLength(1);
     expect(watcher.receive(wire[0], 0)).toBe(true);
-    expect(watcher.cardsOf(0)).toMatchObject([{ zone: "monster", slot: 3, faceUp: true, cardId: MAGICIAN, name: "Dark Magician" }]);
+    expect(watcher.cardsOf(0)).toMatchObject([{ zone: "monster", slot: 3, faceUp: false }]);
+    expect(watcher.cardsOf(0)[0]).not.toHaveProperty("cardId");
     // The pending card replaces whatever the table held in that cell and is never a real twin.
     const board = boardWithPreviews([{ ref: "old", zone: "monster", slot: 3 }, { ref: "keep", zone: "monster", slot: 1 }], watcher.cardsOf(0));
     expect(board.base.map(card => card.ref)).toEqual(["keep"]);
     expect(board.ghosts[0].ref.startsWith("pv-")).toBe(true);
     // The server event with the same idempotency key confirms it: the preview is gone and the diag stage pairs both by key.
     clock += 120;
-    watcher.confirm(keys[0], clock - 3000);
+    watcher.confirmRoom({ ...room, lastSeq: 2, events: [{ ...event(2, place(3, true), keys[0]), at: clock - 3000 }] });
     expect(watcher.cardsOf(0)).toEqual([]);
     expect(log.map(entry => [entry.stage, entry.key])).toEqual([["previewReceived", keys[0]], ["serverEvent", keys[0]]]);
+    await finish();
 
     // 2. A preview that no server event confirms rolls back by itself after about 3 s.
     wire.length = 0;
@@ -54,8 +80,9 @@ describe("peer preview", () => {
     expect(watcher.cardsOf(0)).toEqual([]);
     expect(log.at(-1)?.stage).toBe("previewRolledBack");
     // A late confirm of that key does nothing, and a late duplicate of a confirmed preview is not shown again.
-    watcher.confirm(keys[1]);
+    watcher.confirmRoom({ ...room, lastSeq: 3, events: [event(3, place(4, true), keys[1])] });
     expect(watcher.receive(wire[0], 0)).toBe(false);
+    await finish();
 
     // 3. A face-down card: the packet carries no id, no name and no ref, so neither the opponent nor a spectator can learn it.
     wire.length = 0;
@@ -77,6 +104,125 @@ describe("peer preview", () => {
     // The kill switch turns the receiver off.
     expect(createPeerPreviewStore({ enabled: () => false }).receive(wire[0], 0)).toBe(false);
 
-    release(room); setPeerPreviewTransport(() => undefined);
+    watcher.clear();
+    dispose();
+  });
+
+  it("ignores packets without an action key", () => {
+    const watcher = createPeerPreviewStore();
+    try {
+      expect(watcher.receive(packet(1), 0)).toBe(false);
+      expect(watcher.snapshot()).toEqual([]);
+    } finally { watcher.clear(); }
+  });
+
+  it("expires a cell from its first unconfirmed packet despite higher sequences and new keys", () => {
+    let clock = 1000;
+    const watcher = createPeerPreviewStore({ now: () => clock });
+    try {
+      expect(watcher.receive(packet(1, "first"), 0)).toBe(true);
+      clock += 2999;
+      expect(watcher.receive(packet(2, "second"), 0)).toBe(true);
+      expect(watcher.receive(packet(3, "other-cell", "M2"), 0)).toBe(true);
+      clock++;
+      watcher.sweep();
+      expect(watcher.cardsOf(0).map(card => card.slot)).toEqual([2]);
+      expect(watcher.receive(packet(4, "third"), 0)).toBe(false);
+      watcher.confirmRoom({ ...room, lastSeq: 2, events: [event(2, place(1, true), "second")] });
+      expect(watcher.receive(packet(5, "new-chain"), 0)).toBe(true);
+    } finally { watcher.clear(); }
+  });
+
+  it("sends no preview for a blocked or invalid write and no identity for a refused reveal", async () => {
+    const held = withTwin([{ ref: "set", zone: "monster", slot: 1, faceUp: false, position: "attack", cardId: MAGICIAN, name: "Dark Magician" }]);
+    const wire: Uint8Array[] = [];
+    const send = (bytes: Uint8Array) => { wire.push(bytes); };
+    const post = vi.fn(async () => null);
+    const reveal = { type: "twin.flip", seat: 0, actorSeat: 0, cardRef: "set", faceUp: true, cardId: MAGICIAN, name: "Dark Magician" } as const;
+    const publish = (proposal: RemoteActionProposal, key: string) => publishPeerPreview(held, proposal, key);
+    const undoHold = correctionsFor(held, 0).begin("set", [{ zone: "monster", slot: 1 }]);
+    setPeerPreviewTransport(send);
+    try {
+      const allowed = createRoomMutationQueue(() => held, post, undefined, () => true, publish);
+      const invalid = createRoomMutationQueue(() => held, post, undefined, () => false, publish);
+      await expect(allowed.action({ ...reveal, source: "auto" })).resolves.toBeNull();
+      await expect(invalid.transaction((_room, act) => act(reveal))).resolves.toBeNull();
+      expect(post).not.toHaveBeenCalled();
+      expect(wire).toEqual([]);
+
+      await expect(allowed.action(reveal)).resolves.toBeNull();
+      expect(post).toHaveBeenCalledOnce();
+      expect(wire).toHaveLength(1);
+      const sent = JSON.parse(new TextDecoder().decode(wire[0]));
+      expect(sent).toMatchObject({ kind: "face-down", zone: "M1" });
+      expect(sent).not.toHaveProperty("cardId");
+      expect(sent).not.toHaveProperty("name");
+    } finally {
+      releasePeerPreviewTransport(send);
+      undoHold();
+    }
+  });
+
+  it("does not publish again when a retry is skipped during an outage", async () => {
+    vi.useFakeTimers();
+    let valid = true;
+    const post = vi.fn(async () => { noteWriteLost(); return null; });
+    const onPost = vi.fn();
+    const queue = createRoomMutationQueue(() => room, post, undefined, () => valid, onPost);
+    try {
+      const result = queue.action(place(1, true));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(post).toHaveBeenCalledOnce();
+      expect(onPost).toHaveBeenCalledOnce();
+      valid = false;
+      await vi.advanceTimersByTimeAsync(OUTAGE_BACKOFF_MS[0]);
+      await expect(result).resolves.toBeNull();
+      expect(post).toHaveBeenCalledOnce();
+      expect(onPost).toHaveBeenCalledOnce();
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("clears the cell a server event touches even with a different key", () => {
+    const watcher = createPeerPreviewStore();
+    try {
+      watcher.confirmRoom(room);
+      expect(watcher.receive(packet(1, "preview"), 0)).toBe(true);
+      expect(watcher.receive(packet(2, "unrelated", "M2"), 0)).toBe(true);
+      expect(watcher.receive(packet(1, "other-seat", "M1", 1), 1)).toBe(true);
+      const otherSeat = watcher.cardsOf(1);
+      const action = place(1, true);
+      watcher.confirmRoom({ ...room, lastSeq: 2, events: [event(2, action, "server")] });
+      expect(watcher.cardsOf(0).map(card => card.slot)).toEqual([2]);
+      expect(watcher.cardsOf(1)).toBe(otherSeat);
+      expect(watcher.receive(packet(1, "preview"), 0)).toBe(false);
+      expect(watcher.receive(packet(3, "server"), 0)).toBe(false);
+      expect(watcher.receive(packet(4, "next"), 0)).toBe(true);
+    } finally { watcher.clear(); }
+  });
+
+  it("clears a spectator preview when a projected undo changes the cell", () => {
+    const watcher = createPeerPreviewStore();
+    const real = { ref: "released", zone: "monster", slot: 1, faceUp: true, position: "attack" } as const;
+    try {
+      watcher.confirmRoom({ ...room, spectator: true });
+      expect(watcher.receive(packet(1, "before-undo"), 0)).toBe(true);
+      watcher.confirmRoom({
+        ...withTwin([real]), spectator: true, lastSeq: 2,
+        events: [event(2, { type: "log.note", actorSeat: 0, text: "Undid an action" }, "server")],
+      });
+      expect(watcher.cardsOf(0)).toEqual([]);
+    } finally { watcher.clear(); }
+  });
+
+  it("skips a move with an unknown destination cell", () => {
+    const held = withTwin([{ ref: "card", zone: "monster", slot: 1, faceUp: true, position: "attack" }]);
+    expect(previewDrafts(held, { type: "twin.move", actorSeat: 0, seat: 0, cardRef: "card", zone: "spell-trap" })).toEqual([]);
+  });
+
+  it("previews an automatic Field Spell move in the Field Zone", () => {
+    const held = withTwin([{ ref: "field-spell", cardId: FIELD_SPELL, zone: "spell-trap", slot: 1, faceUp: true, position: "attack" }]);
+    expect(previewDrafts(held, { type: "twin.move", actorSeat: 0, seat: 0, cardRef: "field-spell", zone: "spell-trap", slot: 2, source: "auto" })).toEqual([
+      { zone: "FIELD", kind: "face-down" }, { zone: "S1", kind: "empty" },
+    ]);
   });
 });

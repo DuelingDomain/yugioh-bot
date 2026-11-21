@@ -1,16 +1,17 @@
 import { useSyncExternalStore } from 'react';
-import { ZONE_PREVIEW_TTL_MS, createPreviewBoard, decodePreview, encodePreview, previewForZone, type PreviewKind, type ZonePreview } from '@yugidraft/vision';
-import type { RemoteActionProposal, RemoteRoom, TwinCard } from '@yugidraft/shared/remote';
+import { ZONE_PREVIEW_TTL_MS, decodePreview, encodePreview, previewForZone, type PreviewKind, type ZonePreview } from '@yugidraft/vision';
+import type { RemoteActionProposal, RemoteEvent, RemoteRoom, TwinCard } from '@yugidraft/shared/remote';
+import { cardInfo } from '@/components/remote/ui/catalog';
+import { isFieldSpell } from './field-legality';
 
 /**
- * Peer preview ("speed route 4"). When my client queues a board change it also sends a tiny preview on the table data channel, so the
+ * When my client posts a board change it also sends a tiny preview on the table data channel, so the
  * opponent and the spectators see the change in about 100 ms instead of waiting for the server write and broadcast.
  *
  * The server stays the truth. A preview is display only: it never reaches the reducer, the log, undo, LP or any rule. The server event
- * that carries the same idempotency key replaces it; with no such event in about 3 s the preview rolls back without a trace.
+ * that confirms the key or touches the same cell replaces it. Each cell has 3 s from the first unconfirmed preview.
  *
- * Privacy (same rule as spectator projection in shared/remote/privacy.ts): only a card that is face up in a field zone may name itself.
- * A face-down card carries no id, no name and no ref. A hand, deck or Extra Deck card never gets a preview. The receiver takes the
+ * Pending cards are anonymous until the server publishes the authoritative board. The receiver takes the
  * seat from the data packet's sender identity, never from the payload, so only the owner of a seat can preview on it.
  */
 export const PEER_PREVIEW_TOPIC = 'remote.board.preview.v1';
@@ -42,62 +43,76 @@ const tableZone = (zone: string): { zone: string; slot?: number } | null => {
   return null;
 };
 const sideways = (zone: string) => zone === 'monster' || zone === 'extra-monster';
-const kindOf = (zone: string, faceUp: boolean, position: string | undefined): PreviewKind =>
-  sideways(zone) && position === 'defense' ? (faceUp ? 'sideways-up' : 'sideways-down') : faceUp ? 'face-up' : 'face-down';
+const pendingKind = (zone: string, position: string | undefined): PreviewKind =>
+  sideways(zone) && position === 'defense' ? 'sideways-down' : 'face-down';
 
-export interface PreviewDraft { zone: string; kind: PreviewKind; face?: { cardId: number; name?: string } }
+export interface PreviewDraft { zone: string; kind: PreviewKind }
 
-/** What one queued proposal looks like to the table. Empty for anything that is not a visible change of one of my own field cells. */
+const redirectableZones = new Set(['monster', 'spell-trap', 'extra-monster', 'pendulum']);
+
+/** Match the server's Field Spell redirection, or omit the preview while the card's type is unresolved. */
+function fieldSpellDestination(zone: string, card: { cardId?: number; passcode?: number; name?: string }): string | undefined {
+  if (!redirectableZones.has(zone)) return zone;
+  const code = card.cardId ?? card.passcode;
+  if (!code && !card.name) return zone;
+  const facts = cardInfo(code);
+  if (!facts) return undefined;
+  if (isFieldSpell(facts)) return 'field';
+  if (/\bspell\b/i.test(facts.type) && !facts.race?.trim()) return undefined;
+  return zone;
+}
+
+/** What one posted proposal looks like to the table. Only the sender's field cells get a preview. */
 export function previewDrafts(room: RemoteRoom, proposal: RemoteActionProposal): PreviewDraft[] {
-  if (!('seat' in proposal) || proposal.seat !== room.mySeat || room.mySeat < 0) return [];
+  if (!('seat' in proposal) || proposal.seat !== room.mySeat || proposal.actorSeat !== room.mySeat || room.mySeat < 0) return [];
   const mine = room.state.seats[room.mySeat]?.twin ?? [];
-  const drafts: PreviewDraft[] = [];
-  const old = (card: TwinCard) => { const zone = camZone(card.zone, card.slot); if (zone) drafts.push({ zone, kind: 'empty' }); };
-  const idOf = (card: { cardId?: number; passcode?: number }) => card.cardId ?? card.passcode;
-  const show = (zone: string, slot: number | undefined, faceUp: boolean, position: string | undefined, id: number | undefined, name: string | undefined) => {
-    const cam = camZone(zone, slot); if (!cam) return;
-    // Identity only for a face-up card: the previewForZone filter drops anything passed for a card that lies face down.
-    drafts.push({ zone: cam, kind: kindOf(zone, faceUp, position), ...(faceUp && id ? { face: { cardId: id, ...(name ? { name } : {}) } } : {}) });
+  const target = (ref: string, source: string | undefined) => mine.find(card =>
+    card.ref === ref && (source !== 'auto' || (!card.token && card.ownerSeat === undefined)));
+  const show = (zone: string | undefined, slot: number | undefined, position: string | undefined): PreviewDraft | undefined => {
+    if (!zone) return undefined;
+    const cam = camZone(zone, slot);
+    return cam ? { zone: cam, kind: pendingKind(zone, position) } : undefined;
+  };
+  const move = (card: TwinCard, destination: PreviewDraft | undefined): PreviewDraft[] => {
+    if (!destination) return [];
+    const from = camZone(card.zone, card.slot);
+    return from && from !== destination.zone ? [destination, { zone: from, kind: 'empty' }] : [destination];
   };
   switch (proposal.type) {
     case 'twin.place': {
       const card = proposal.card;
       if (card.token) return [];
-      show(proposal.zone, card.slot, card.faceUp !== false, card.position, idOf(card), card.name);
-      break;
+      const destination = show(fieldSpellDestination(proposal.zone, card), card.slot, card.position);
+      return destination ? [destination] : [];
     }
     case 'twin.move': {
-      const card = mine.find(item => item.ref === proposal.cardRef);
+      const card = target(proposal.cardRef, proposal.source);
       if (!card) return [];
-      const faceUp = proposal.faceUp ?? card.faceUp;
       const slot = proposal.slot ?? (proposal.zone === card.zone ? card.slot : undefined);
-      // A card leaves its old cell, unless it lands in the same one.
-      if (camZone(card.zone, card.slot) !== camZone(proposal.zone, slot)) old(card);
-      // A card that leaves the Monster Zones turns back to Attack (leavePosition in the board model).
-      show(proposal.zone, slot, faceUp, proposal.position ?? (sideways(proposal.zone) ? card.position : 'attack'), idOf(card), proposal.name ?? card.name);
-      break;
+      const redirects = proposal.source === 'auto' && (proposal.faceUp ?? card.faceUp);
+      const zone = redirects ? fieldSpellDestination(proposal.zone, card) : proposal.zone;
+      return move(card, show(zone, slot, proposal.position ?? card.position));
     }
     case 'twin.flip': {
-      const card = mine.find(item => item.ref === proposal.cardRef);
+      const card = target(proposal.cardRef, proposal.source);
       if (!card) return [];
-      show(card.zone, card.slot, proposal.faceUp, proposal.position ?? card.position, proposal.cardId ?? idOf(card), proposal.name ?? card.name);
-      break;
+      const zone = proposal.faceUp && !card.faceUp ? fieldSpellDestination(card.zone, proposal.cardId ? proposal : card) : card.zone;
+      return move(card, show(zone, card.slot, proposal.position ?? card.position));
     }
     case 'twin.remove': {
-      const card = mine.find(item => item.ref === proposal.cardRef);
-      if (card) old(card);
-      break;
+      const card = target(proposal.cardRef, proposal.source);
+      const zone = card && camZone(card.zone, card.slot);
+      return zone ? [{ zone, kind: 'empty' }] : [];
     }
     default: return [];
   }
-  return drafts;
 }
 
-/** The encoded packets for one queued proposal. */
+/** The encoded packets for one posted proposal. */
 export function previewPackets(room: RemoteRoom, proposal: RemoteActionProposal, key: string, nextSeq: () => number): Uint8Array<ArrayBuffer>[] {
   const packets: Uint8Array<ArrayBuffer>[] = [];
   for (const draft of previewDrafts(room, proposal)) {
-    const preview = previewForZone(room.mySeat, nextSeq(), draft.zone, draft.kind, draft.face, key);
+    const preview = previewForZone(room.mySeat, nextSeq(), draft.zone, draft.kind, undefined, key);
     if (preview) packets.push(encodePreview(preview));
   }
   return packets;
@@ -113,7 +128,7 @@ export function setPeerPreviewTransport(send: Send): void { transport = send; }
 export function releasePeerPreviewTransport(send: Send): void { if (transport === send) transport = null; }
 
 /**
- * My own client: the mutation queue calls this the moment a write is queued, before the server answers.
+ * My own client: the mutation queue calls this when the first POST starts.
  * The sequence is time based, so a reload of this tab never sends lower numbers than the receivers already hold.
  */
 export function publishPeerPreview(room: RemoteRoom | undefined, proposal: RemoteActionProposal, key: string, now = Date.now()): number {
@@ -121,12 +136,12 @@ export function publishPeerPreview(room: RemoteRoom | undefined, proposal: Remot
   try {
     const packets = previewPackets(room, proposal, key, () => (seq = Math.max(seq + 1, now)));
     sent = sent.filter(at => now - at < 1000);
-    let count = 0;
+    if (sent.length + packets.length > PEER_PREVIEW_RATE) return 0;
     for (const bytes of packets) {
-      if (sent.length >= PEER_PREVIEW_RATE) break;
-      sent.push(now); transport(bytes); count++;
+      sent.push(now);
+      transport(bytes);
     }
-    return count;
+    return packets.length;
   } catch { return 0; }
 }
 
@@ -136,24 +151,131 @@ export const previewCardRef = (preview: ZonePreview) => `pv-${preview.key ?? `${
 
 export interface PeerPreviewDiag { stage: 'previewReceived' | 'serverEvent' | 'previewRolledBack'; key?: string; at: number; seat: number; zone?: string; commitAt?: number }
 
+const cellKey = (seat: number, zone: string) => `${seat}:${zone}`;
+const spectatorAlias = (value: unknown): value is string => typeof value === 'string' && /^private-card-\d+$/.test(value);
+// Spectator refs are allocated anew in each snapshot. Compare their card contents without those aliases.
+const withoutSpectatorAliases = (_key: string, value: unknown) => spectatorAlias(value) ? '' : value;
+
+/** Compare the authoritative cards in a cell, including materials attached to its occupant. */
+function cellContents(room: RemoteRoom, seat: number, zone: string): string {
+  const twin = room.state.seats[seat]?.twin ?? [];
+  const occupants = twin.filter(card => camZone(card.zone, card.slot) === zone);
+  const materials = twin.filter(card => card.materialOf && occupants.some(host => host.ref === card.materialOf));
+  return JSON.stringify([...occupants, ...materials], room.spectator ? withoutSpectatorAliases : undefined);
+}
+
+/** Explicit action locations also catch writes that leave the same contents or are batched into one room update. */
+function eventCells(events: readonly RemoteEvent[], room: RemoteRoom, previous: RemoteRoom | undefined): Set<string> {
+  const cells = new Set<string>();
+  const add = (seat: number, zone: string, slot?: number) => {
+    const cell = camZone(zone, slot);
+    if (cell) cells.add(cellKey(seat, cell));
+  };
+  const byRef = (seat: number, ref: string) => {
+    for (const board of [previous, room]) {
+      if (board === previous && room.spectator && spectatorAlias(ref)) continue;
+      const twin = board?.state.seats[seat]?.twin;
+      const card = twin?.find(item => item.ref === ref);
+      const host = card?.materialOf ? twin?.find(item => item.ref === card.materialOf) : card;
+      if (host) add(seat, host.zone, host.slot);
+    }
+  };
+  const twinAt = (seat: number, ref: string) => room.state.seats[seat]?.twin.find(card => card.ref === ref);
+  const mark = (action: RemoteEvent['action']) => {
+    if ('seat' in action && 'cardRef' in action && action.cardRef) byRef(action.seat, action.cardRef);
+    if (action.type === 'twin.place') {
+      if (twinAt(action.seat, action.card.ref)?.zone !== 'field') add(action.seat, action.zone, action.card.slot);
+      byRef(action.seat, action.card.ref);
+      if (action.fromRef) byRef(action.seat, action.fromRef);
+      for (const ref of action.summon?.materialRefs ?? []) byRef(action.seat, ref);
+    } else if (action.type === 'twin.control' || action.type === 'twin.move') {
+      const seat = action.type === 'twin.control' ? action.toSeat : action.seat;
+      const redirected = action.type === 'twin.move' && action.source === 'auto' && twinAt(seat, action.cardRef)?.zone === 'field';
+      if (!redirected) add(seat, action.zone, action.slot);
+      if (action.type === 'twin.control') byRef(seat, action.cardRef);
+    } else if (action.type === 'twin.attach') {
+      for (const ref of action.materialRefs) byRef(action.materialSeat ?? action.seat, ref);
+    } else if (action.type === 'monsters.tribute') {
+      for (const target of action.targets) byRef(target.seat, target.cardRef);
+    } else if (action.type === 'card.identified' || action.type === 'cards.identified') {
+      for (const sight of action.type === 'card.identified' ? [action] : action.cards) {
+        if (sight.zone) add(action.seat, sight.zone, sight.slot);
+        if (sight.cardRef) byRef(action.seat, sight.cardRef);
+      }
+    }
+  };
+  for (const { action } of events) {
+    if (action.type === 'undo') {
+      const original = room.events.find(event => 'idempotencyKey' in event.action && event.action.idempotencyKey === action.targetActionId);
+      if (original) mark(original.action);
+    } else mark(action);
+  }
+  return cells;
+}
+
+type PreviewChain = {
+  seat: number;
+  zone: string;
+  seq: number;
+  // Keep this after rollback. A server event must end the chain before a packet can start a new one.
+  pending?: { key: string; until: number; preview?: ZonePreview };
+};
+
 export function createPeerPreviewStore(options: { ttlMs?: number; now?: () => number; enabled?: () => boolean; diag?: (d: PeerPreviewDiag) => void } = {}) {
-  const now = options.now ?? (() => Date.now());
+  const now = options.now ?? (() => performance.now());
   const enabled = options.enabled ?? peerPreviewEnabled;
-  const fresh = () => createPreviewBoard({ ttlMs: options.ttlMs ?? ZONE_PREVIEW_TTL_MS });
-  let board = fresh();
+  const ttlMs = options.ttlMs ?? ZONE_PREVIEW_TTL_MS;
+  const chains = new Map<string, PreviewChain>();
+  const confirmed = new Set<string>();
   const listeners = new Set<() => void>();
   const heard = new Map<number, number[]>();
   const stamps = new Map<string, number>();
+  const cardsBySeat = new Map<number, { snapshot: readonly ZonePreview[]; cards: readonly PreviewCard[] }>();
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let nextSweep = Infinity;
   let mine: number | undefined;
+  let room: RemoteRoom | undefined;
   let snapshot: readonly ZonePreview[] = [];
-  const publish = () => { snapshot = board.view(); for (const listener of listeners) listener(); };
+  const publish = () => {
+    snapshot = [...chains.values()].flatMap(chain => chain.pending?.preview ? [chain.pending.preview] : []);
+    for (const listener of listeners) listener();
+  };
   const sweep = () => {
+    if (timer !== undefined) clearTimeout(timer);
     timer = undefined;
-    const dropped = board.expire(now());
-    for (const preview of dropped) options.diag?.({ stage: 'previewRolledBack', key: preview.key, at: now(), seat: preview.seat, zone: preview.zone });
-    if (dropped.length) publish();
-    if (snapshot.length) timer = setTimeout(sweep, 250);
+    nextSweep = Infinity;
+    const at = now();
+    let changed = false;
+    for (const { pending } of chains.values()) {
+      if (!pending?.preview) continue;
+      if (at < pending.until) {
+        nextSweep = Math.min(nextSweep, pending.until);
+        continue;
+      }
+      const { seat, zone } = pending.preview;
+      delete pending.preview;
+      changed = true;
+      options.diag?.({ stage: 'previewRolledBack', key: pending.key, at, seat, zone });
+    }
+    if (nextSweep !== Infinity) timer = setTimeout(sweep, nextSweep - at);
+    if (changed) publish();
+  };
+  const confirmKey = (key: string, commitAt?: number): boolean => {
+    confirmed.delete(key);
+    confirmed.add(key);
+    if (confirmed.size > 64) confirmed.delete(confirmed.values().next().value!);
+    let changed = false;
+    for (const chain of chains.values()) {
+      if (chain.pending?.key !== key) continue;
+      changed ||= !!chain.pending.preview;
+      delete chain.pending;
+    }
+    const seat = stamps.get(key);
+    if (seat !== undefined) {
+      options.diag?.({ stage: 'serverEvent', key, at: now(), seat, commitAt });
+      stamps.delete(key);
+    }
+    return changed;
   };
   return {
     /**
@@ -163,41 +285,88 @@ export function createPeerPreviewStore(options: { ttlMs?: number; now?: () => nu
     receive(bytes: Uint8Array, senderSeat: number | undefined): boolean {
       if (!enabled() || senderSeat === undefined || senderSeat === mine) return false;
       const preview = decodePreview(bytes, senderSeat);
-      if (!preview) return false;
-      const at = now(), recent = (heard.get(senderSeat) ?? []).filter(time => at - time < 1000);
+      if (!preview?.key || typeof preview.zone !== 'string' || !tableZone(preview.zone) ||
+          !Number.isSafeInteger(preview.seq) || preview.seq < 0 || confirmed.has(preview.key)) return false;
+      const at = now();
+      if (at >= nextSweep) sweep();
+      const recent = (heard.get(senderSeat) ?? []).filter(time => at - time < 1000);
       if (recent.length >= PEER_PREVIEW_RATE) { heard.set(senderSeat, recent); return false; }
       recent.push(at); heard.set(senderSeat, recent);
-      if (!board.apply(preview, at)) return false;
-      if (preview.key) stamps.set(preview.key, at);
-      if (stamps.size > 128) stamps.delete(stamps.keys().next().value as string);
+      const cell = cellKey(preview.seat, preview.zone);
+      const chain = chains.get(cell);
+      if (chain && (preview.seq < chain.seq || (preview.seq === chain.seq && !chain.pending?.preview))) return false;
+      if (chain?.pending && at >= chain.pending.until) return false;
+      const until = chain?.pending?.until ?? at + ttlMs;
+      chains.set(cell, { seat: preview.seat, zone: preview.zone, seq: preview.seq, pending: { key: preview.key, until, preview } });
+      if (until < nextSweep) {
+        if (timer !== undefined) clearTimeout(timer);
+        nextSweep = until;
+        timer = setTimeout(sweep, until - at);
+      }
+      stamps.set(preview.key, preview.seat);
+      if (stamps.size > 128) stamps.delete(stamps.keys().next().value!);
       options.diag?.({ stage: 'previewReceived', key: preview.key, at, seat: preview.seat, zone: preview.zone });
       publish();
-      if (timer === undefined) timer = setTimeout(sweep, 250);
       return true;
     },
-    /** A server event with this idempotency key arrived: the real board replaces the preview. */
-    confirm(key: string, commitAt?: number): void {
-      const done = board.confirmKey(key);
-      if (stamps.has(key)) { options.diag?.({ stage: 'serverEvent', key, at: now(), seat: done[0]?.seat ?? -1, commitAt }); stamps.delete(key); }
-      if (done.length) publish();
+    /** For every new server event, confirm its key and restore any affected cell to the authoritative board. */
+    confirmRoom(next: RemoteRoom): void {
+      if (room && next.lastSeq <= room.lastSeq) return;
+      const previous = room;
+      room = next;
+      const events = next.events.filter(event => event.seq > (previous?.lastSeq ?? 0));
+      let changed = false;
+      for (const { action, at } of events) {
+        if ('idempotencyKey' in action && confirmKey(action.idempotencyKey, at)) changed = true;
+      }
+      // The first snapshot seeds confirmed keys. Later snapshots tell us which cells changed since that baseline.
+      if (previous && [...chains.values()].some(chain => chain.pending)) {
+        const touched = eventCells(events, next, previous);
+        for (const [cell, chain] of chains) {
+          if (!chain.pending) continue;
+          const { seat, zone } = chain;
+          if (!touched.has(cell) && cellContents(previous, seat, zone) === cellContents(next, seat, zone)) continue;
+          changed ||= !!chain.pending.preview;
+          delete chain.pending;
+        }
+      }
+      if (changed) publish();
     },
     /** My own seat: previews of it are never shown. */
     setMySeat(seat: number | undefined) { mine = seat; },
-    clear() { if (timer) clearTimeout(timer); timer = undefined; stamps.clear(); heard.clear(); board = fresh(); publish(); },
+    clear() {
+      if (timer !== undefined) clearTimeout(timer);
+      timer = undefined;
+      nextSweep = Infinity;
+      room = undefined;
+      stamps.clear();
+      heard.clear();
+      chains.clear();
+      confirmed.clear();
+      cardsBySeat.clear();
+      publish();
+    },
     sweep,
     /** The previews of one seat as cards for the board. */
-    cardsOf(seat: number): readonly PreviewCard[] { return cardsOf(snapshot, seat); },
+    cardsOf(seat: number): readonly PreviewCard[] {
+      const previous = cardsBySeat.get(seat);
+      if (previous?.snapshot === snapshot) return previous.cards;
+      const cards = cardsOf(snapshot, seat);
+      const held = previous?.cards;
+      const next = held?.length === cards.length && cards.every((card, i) => sameCard(card, held[i])) ? held : cards;
+      cardsBySeat.set(seat, { snapshot, cards: next });
+      return next;
+    },
     snapshot: () => snapshot,
     subscribe(listener: () => void) { listeners.add(listener); return () => { listeners.delete(listener); }; },
   };
 }
 
 const EMPTY_CARDS: readonly PreviewCard[] = [];
-const cache = new WeakMap<readonly ZonePreview[], Map<number, readonly PreviewCard[]>>();
+const sameCard = (a: PreviewCard, b: PreviewCard) =>
+  a.ref === b.ref && a.zone === b.zone && a.slot === b.slot && a.faceUp === b.faceUp &&
+  a.position === b.position && a.cardId === b.cardId && a.name === b.name && a.gone === b.gone;
 function cardsOf(previews: readonly ZonePreview[], seat: number): readonly PreviewCard[] {
-  let bySeat = cache.get(previews);
-  if (!bySeat) cache.set(previews, bySeat = new Map());
-  const held = bySeat.get(seat); if (held) return held;
   const cards: PreviewCard[] = [];
   for (const preview of previews) {
     if (preview.seat !== seat) continue;
@@ -205,9 +374,7 @@ function cardsOf(previews: readonly ZonePreview[], seat: number): readonly Previ
     const up = preview.kind === 'face-up' || preview.kind === 'sideways-up';
     cards.push({ ref: previewCardRef(preview), ...where, faceUp: up, position: preview.kind.startsWith('sideways') ? 'defense' : 'attack', ...(up && preview.cardId ? { cardId: preview.cardId } : {}), ...(up && preview.name ? { name: preview.name } : {}), ...(preview.key ? { key: preview.key } : {}), ...(preview.kind === 'empty' ? { gone: true } : {}) });
   }
-  const out = cards.length ? cards : EMPTY_CARDS;
-  bySeat.set(seat, out);
-  return out;
+  return cards.length ? cards : EMPTY_CARDS;
 }
 
 /** Diagnostics only (same switch as the other peer stamps: sessionStorage remote-peer-latency=1). The event pairs a preview with its server event by key. */
