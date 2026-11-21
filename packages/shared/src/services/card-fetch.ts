@@ -4,16 +4,73 @@ function positiveIntegerSetting(name: string, fallback: number): number {
   return Number.isSafeInteger(value) && value > 0 ? value : fallback;
 }
 
+const ANONYMOUS = -1;
+type Scheduler = { schedule<T>(work: () => Promise<T>, memberId?: number): Promise<T> };
+
+/** Start rate, concurrency and queue limits for one class of upstream request. */
+function createScheduler(
+  perSecond: number, maxActive: number, queueLimit: number, memberQueueLimit: number, anonymousQueueLimit?: number,
+): Scheduler {
+  const startInterval = Math.ceil(1000 / perSecond);
+  const pendingByMember = new Map<number, number>();
+  const queue: Array<() => void> = [];
+  let active = 0;
+  let nextStart = 0;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
+  function drain(): void {
+    if (!queue.length || active >= maxActive) return;
+    const delay = nextStart - Date.now();
+    if (delay > 0) {
+      timer ??= setTimeout(() => { timer = undefined; drain(); }, delay);
+      return;
+    }
+    active++;
+    nextStart = Date.now() + startInterval;
+    queue.shift()!();
+    drain();
+  }
+
+  function schedule<T>(work: () => Promise<T>, memberId?: number): Promise<T> {
+    // Requests without a member (prewarm, a failed session lookup) share one bucket when the scheduler has an anonymous limit.
+    const bucket = memberId ?? (anonymousQueueLimit === undefined ? undefined : ANONYMOUS);
+    const limit = memberId === undefined ? anonymousQueueLimit ?? memberQueueLimit : memberQueueLimit;
+    if (bucket !== undefined && (pendingByMember.get(bucket) ?? 0) >= limit) return Promise.reject(new CardFetchLimitError());
+    if (queue.length >= queueLimit) return Promise.reject(new CardFetchError());
+    if (bucket !== undefined) pendingByMember.set(bucket, (pendingByMember.get(bucket) ?? 0) + 1);
+    const release = () => {
+      if (bucket !== undefined) {
+        const remaining = pendingByMember.get(bucket)! - 1;
+        if (remaining) pendingByMember.set(bucket, remaining);
+        else pendingByMember.delete(bucket);
+      }
+      active--;
+      drain();
+    };
+    return new Promise((resolve, reject) => {
+      queue.push(() => {
+        void work().then(value => { release(); resolve(value); }, error => { release(); reject(error); });
+      });
+      drain();
+    });
+  }
+  return { schedule };
+}
+
 // Leave room under the upstream budget for the bot, web and duel processes.
-const START_INTERVAL_MS = Math.ceil(1000 / positiveIntegerSetting("CARD_FETCH_REQUESTS_PER_SECOND", 5));
-const QUEUE_LIMIT = positiveIntegerSetting("CARD_FETCH_QUEUE_LIMIT", 1024);
-const MEMBER_QUEUE_LIMIT = positiveIntegerSetting("CARD_FETCH_MEMBER_QUEUE_LIMIT", 20);
-const pendingByMember = new Map<number, number>();
-const queue: Array<() => void> = [];
+const apiScheduler = createScheduler(
+  positiveIntegerSetting("CARD_FETCH_REQUESTS_PER_SECOND", 5), 4,
+  positiveIntegerSetting("CARD_FETCH_QUEUE_LIMIT", 1024), positiveIntegerSetting("CARD_FETCH_MEMBER_QUEUE_LIMIT", 20),
+);
+// Card art is static CDN content and gets its own budget. One API-sized budget (5 starts a second, 20 pending per member)
+// made a cold cube of 240 cards take about a minute and refused most of its tiles with 429. The rate stays under the 20 a second
+// that YGOPRODeck allows, because a miss can cost two upstream calls (YGOPRODeck, then Ignis).
+const imageScheduler = createScheduler(
+  positiveIntegerSetting("CARD_IMAGE_FETCH_REQUESTS_PER_SECOND", 12), positiveIntegerSetting("CARD_IMAGE_FETCH_CONCURRENCY", 8),
+  positiveIntegerSetting("CARD_FETCH_QUEUE_LIMIT", 1024), positiveIntegerSetting("CARD_IMAGE_FETCH_MEMBER_QUEUE_LIMIT", 400),
+  positiveIntegerSetting("CARD_IMAGE_FETCH_ANONYMOUS_QUEUE_LIMIT", 16),
+);
 const backoff = new Map<string, number>();
-let active = 0;
-let nextStart = 0;
-let timer: ReturnType<typeof setTimeout> | undefined;
 
 export class CardFetchError extends Error {
   constructor(public readonly retryAfter = 1, public readonly status?: number) {
@@ -46,40 +103,6 @@ export function isCardFetchError(error: unknown): error is CardFetchError {
   return error instanceof CardFetchError || (error instanceof Error && error.message.startsWith("Could not reach the card database"));
 }
 
-function drain(): void {
-  if (!queue.length || active >= 4) return;
-  const delay = nextStart - Date.now();
-  if (delay > 0) {
-    timer ??= setTimeout(() => { timer = undefined; drain(); }, delay);
-    return;
-  }
-  active++;
-  nextStart = Date.now() + START_INTERVAL_MS;
-  queue.shift()!();
-  drain();
-}
-
-function schedule<T>(work: () => Promise<T>, memberId?: number): Promise<T> {
-  if (memberId !== undefined && (pendingByMember.get(memberId) ?? 0) >= MEMBER_QUEUE_LIMIT) return Promise.reject(new CardFetchLimitError());
-  if (queue.length >= QUEUE_LIMIT) return Promise.reject(new CardFetchError());
-  if (memberId !== undefined) pendingByMember.set(memberId, (pendingByMember.get(memberId) ?? 0) + 1);
-  const release = () => {
-    if (memberId !== undefined) {
-      const remaining = pendingByMember.get(memberId)! - 1;
-      if (remaining) pendingByMember.set(memberId, remaining);
-      else pendingByMember.delete(memberId);
-    }
-    active--;
-    drain();
-  };
-  return new Promise((resolve, reject) => {
-    queue.push(() => {
-      void work().then(value => { release(); resolve(value); }, error => { release(); reject(error); });
-    });
-    drain();
-  });
-}
-
 type ResponseStatus = Pick<Response, "ok"> & Partial<Pick<Response, "status" | "headers">>;
 
 /** No retry inside a user action. Fail fast during an upstream rate-limit cooldown. */
@@ -89,6 +112,7 @@ export function fetchCardResource<R extends ResponseStatus, T>(
   read: (response: R) => Promise<T>,
   allowedStatuses: number[] = [],
   memberId?: number,
+  budget: "api" | "image" = "api",
 ): Promise<T> {
   const origin = new URL(input).origin;
   const checkBackoff = () => {
@@ -96,7 +120,7 @@ export function fetchCardResource<R extends ResponseStatus, T>(
     if (remaining > 0) throw new CardFetchError(Math.ceil(remaining / 1000));
   };
   try { checkBackoff(); } catch (error) { return Promise.reject(error); }
-  return schedule(async () => {
+  return (budget === "image" ? imageScheduler : apiScheduler).schedule(async () => {
     checkBackoff();
     const controller = new AbortController();
     let deadline: ReturnType<typeof setTimeout> | undefined;
@@ -161,10 +185,10 @@ export async function fetchCardImageResource<R extends ResponseStatus, T>(
 ): Promise<CardImageResource<T>> {
   if (!Number.isSafeInteger(passcode) || passcode <= 0) return { image: null, source: "ygoprodeck" };
   const readImage = (response: R) => response.status === 404 ? Promise.resolve(null) : read(response);
-  const image = await fetchCardResource(input, fetchImpl, readImage, [404], memberId);
+  const image = await fetchCardResource(input, fetchImpl, readImage, [404], memberId, "image");
   if (image !== null || !allowIgnis) return { image, source: "ygoprodeck" };
   try {
-    return { image: await fetchCardResource(`${PROJECT_IGNIS_IMAGE_URL}/${passcode}.jpg`, fetchImpl, readImage, [404], memberId), source: "ignis" };
+    return { image: await fetchCardResource(`${PROJECT_IGNIS_IMAGE_URL}/${passcode}.jpg`, fetchImpl, readImage, [404], memberId, "image"), source: "ignis" };
   } catch (fallbackError) {
     return { image: null, source: "ignis", fallbackError };
   }

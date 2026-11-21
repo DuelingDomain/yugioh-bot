@@ -1,6 +1,7 @@
 import type { CubePools } from "@yugidraft/shared/types";
 import type { CardCatalogService, CubeService } from "@yugidraft/shared/services";
 import type { CardSummary } from "@/lib/card-types";
+import { warmCardImages } from "@/lib/card-image-store";
 
 /**
  * Build the editor-facing payload for a cube: its split pools plus resolved
@@ -33,5 +34,8 @@ export function cubeCardsByIds(ids: number[], catalog: CardCatalogService): Card
 
 export function cubeDetail(cubeId: number, cubes: CubeService, catalog: CardCatalogService) {
   const pools = cubes.getCubePools(cubeId);
-  return { pools, cards: buildCubeCards(pools, catalog) };
+  const cards = buildCubeCards(pools, catalog);
+  // Opening or changing a cube is the moment to fill the image cache, so the grid does not wait on upstream fetches.
+  warmCardImages(cards.map((card) => card.id));
+  return { pools, cards };
 }

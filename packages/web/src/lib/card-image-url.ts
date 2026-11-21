@@ -1,5 +1,5 @@
-/** All card art uses the server cache, timeout and card-back fallback. */
-export function cardImageUrl(id: number, variant: "full" | "small" | "cropped" = "full"): string {
+/** All card art uses the server cache, timeout and card-back fallback. "thumb" is a 200 px WebP for grids of many cards. */
+export function cardImageUrl(id: number, variant: "full" | "small" | "cropped" | "thumb" = "full"): string {
   return `/api/cards/${id}/image?variant=${variant}`;
 }
 

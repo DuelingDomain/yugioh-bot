@@ -2,7 +2,7 @@
 
 import { PrereleaseLabel } from "@/components/prerelease-label";
 
-import { cardImageUrl } from "@/lib/card-image-url";
+import { CubeThumb } from "./cube-thumb";
 import * as React from "react";
 import type { CardSummary } from "@/lib/card-types";
 import styles from "./cubes.module.css";
@@ -11,6 +11,9 @@ export interface UnknownEntry {
   id: number;
   copies: number;
 }
+
+/** About three full rows on a wide screen: the tiles seen before any scroll. */
+const EAGER_TILES = 24;
 
 function copiesWord(n: number): string {
   return n === 1 ? "copy" : "copies";
@@ -33,7 +36,7 @@ export function CubeCardGrid({
 }) {
   return (
     <ul className="ce-grid" aria-label={label}>
-      {cards.map((card) => {
+      {cards.map((card, index) => {
         const n = card.qty ?? 1;
         const sel = selectedId === card.id;
         return (
@@ -45,7 +48,7 @@ export function CubeCardGrid({
               onClick={() => onSelect(card.id)}
             >
               <span className="ct-art">
-                <img src={cardImageUrl(card.id, "small")} alt="" loading="lazy" decoding="async" />
+                <CubeThumb id={card.id} eager={index < EAGER_TILES} />
                 <span className={`ct-x${n < 3 ? " lo" : ""}`} aria-hidden="true">
                   ×{n}
                 </span>

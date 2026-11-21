@@ -113,7 +113,7 @@ describe("GET /api/cards/[passcode]/image", () => {
     const response = await getImage("5405694", `?variant=${variant}`);
 
     expect(Buffer.from(await response.arrayBuffer())).toEqual(RITUAL_ART);
-    expect(response.headers.get("Cache-Control")).toBe("public, max-age=86400, immutable");
+    expect(response.headers.get("Cache-Control")).toBe("public, max-age=604800");
     expect(fetched).toEqual([]);
     expect(readFileSync(cachePath("5405694", variant))).toEqual(RITUAL_ART);
     expect(() => readFileSync(legacy)).toThrow();
@@ -132,7 +132,7 @@ describe("GET /api/cards/[passcode]/image", () => {
     expect(response.status).toBe(200);
     expect(fetched).toEqual([]);
     expect(Buffer.from(await response.arrayBuffer())).toEqual(RITUAL_ART);
-    expect(response.headers.get("Cache-Control")).toBe("public, max-age=86400, immutable");
+    expect(response.headers.get("Cache-Control")).toBe("public, max-age=604800");
     expect(readFileSync(cachePath("5405694", variant))).toEqual(RITUAL_ART);
     expect(() => readFileSync(legacy)).toThrow();
     expect(callDuelHost).not.toHaveBeenCalled();
@@ -671,6 +671,50 @@ describe("GET /api/cards/[passcode]/image", () => {
       expect(upstream).toHaveBeenCalledTimes(2);
       expect(callDuelHost).toHaveBeenCalledTimes(1);
     } finally { errorLog.mockRestore(); }
+  });
+
+  it("serves a cached tile-size thumbnail with a long immutable header, and prewarm fills the same cache without a session", async () => {
+    const small = await sharp({ create: { width: 268, height: 391, channels: 3, background: { r: 90, g: 40, b: 160 } } }).jpeg().toBuffer();
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      fetched.push(url);
+      return url.endsWith("/cards_small/777.jpg") || url.endsWith("/cards_small/888.jpg") ? new Response(new Uint8Array(small)) : new Response("Not Found", { status: 404 });
+    }));
+
+    const first = await getImage("777", "?variant=thumb");
+    const thumb = Buffer.from(await first.arrayBuffer());
+    expect(first.status).toBe(200);
+    expect(first.headers.get("Content-Type")).toBe("image/webp");
+    expect(first.headers.get("Cache-Control")).toBe("public, max-age=604800");
+    expect((await sharp(thumb).metadata())).toMatchObject({ format: "webp", width: 200 });
+    expect(thumb.length).toBeLessThan(small.length / 2);
+
+    const again = await getImage("777", "?variant=thumb");
+    expect(Buffer.from(await again.arrayBuffer())).toEqual(thumb);
+    expect(fetched).toEqual([`${IMAGES.replace("/cards", "/cards_small")}/777.jpg`]);
+
+    const { prewarmCardImages } = await import("../src/lib/card-image-store");
+    await prewarmCardImages([888, 999], ["thumb"]);
+    expect(readFileSync(join(cacheDir, "v2-ygoprodeck-888-thumb.webp")).length).toBeGreaterThan(0);
+    expect(() => readFileSync(join(cacheDir, "v2-ygoprodeck-999-thumb.webp"))).toThrow();
+    expect(callDuelHost).not.toHaveBeenCalled();
+  });
+
+  it("keeps prewarm from hiding alias art from a viewer, and does not refetch a card prewarm found missing", async () => {
+    const { prewarmCardImages } = await import("../src/lib/card-image-store");
+    // A viewer asks while prewarm is still loading the same alias-only card: the viewer must still get the alias art.
+    const warming = prewarmCardImages([10000100], ["full"]);
+    const viewer = await getImage("10000100");
+    await warming;
+    expect(viewer.status).toBe(200);
+    expect(Buffer.from(await viewer.arrayBuffer())).toEqual(RITUAL_ART);
+
+    // A card that does not exist is fetched once per ten minutes by prewarm, not on every cube read.
+    fetched = [];
+    await prewarmCardImages([4242], ["small"]);
+    const afterFirst = fetched.length;
+    expect(afterFirst).toBeGreaterThan(0);
+    await prewarmCardImages([4242], ["small"]);
+    expect(fetched).toHaveLength(afterFirst);
   });
 });
 

@@ -13,6 +13,7 @@ export default defineConfig({
     // Individual test files opt-in via `// @vitest-environment jsdom`.
     environment: "node",
     globals: true,
+    env: { CARD_IMAGE_PREWARM: "0" },
     setupFiles: ["./tests/setup.ts"],
     exclude: [".next/**", "node_modules/**"],
     // Route tests reset modules and import the whole route tree per test. On a loaded 4-core CI
