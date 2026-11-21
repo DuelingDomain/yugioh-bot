@@ -480,6 +480,21 @@ describe("allowlist emails", () => {
     expect(service.grantedEmailKeys().size).toBe(0);
   });
 
+  it("does not mistake its own revoke for the owner's: a failed re-send stays re-sendable", async () => {
+    const creator = setup();
+    await service.addAllowlistEmails(creator.id, ["vip@example.test"], 1);
+    clock = T0 + ALLOWLIST_INVITE_DAYS * DAY + 1;
+    // The re-send revokes inv_1 itself, then Clerk fails to create the new invitation: the grant is "failed" with inv_1.
+    clerk.createInvitation.mockRejectedValueOnce(new ClerkBackendError("down", 502, null, null));
+    expect(await service.resendAllowlistForWaitlist("vip@example.test")).toBe("failed");
+    expect(grants()).toEqual([expect.objectContaining({ status: "failed" })]);
+    // Clerk now lists inv_1 as revoked (by us). The next sign-up must still re-send, not end the grant.
+    clerk.revokedInvitationIds.mockResolvedValue(new Set(["inv_1"]));
+    clock += RESEND_COOLDOWN_MS + 1;
+    expect(await service.resendAllowlistForWaitlist("vip@example.test")).toBe("resent");
+    expect(grants()).toEqual([expect.objectContaining({ status: "sent" })]);
+  });
+
   it("answers existing_account for an account on the same inbox, not only the exact address", async () => {
     const creator = setup();
     db.exec("insert into users(id, username, display_name, email) values (20, 'old', 'Old', 'olduser@gmail.com')");

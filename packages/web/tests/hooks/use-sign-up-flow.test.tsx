@@ -178,6 +178,21 @@ describe("invited sign-up flow", () => {
     expect(JSON.parse(sessionStorage.getItem("dd_auth_resume")!)).toMatchObject({ kind: "sign-up", auto: true });
     expect(mock.signal.signUp.password).not.toHaveBeenCalled();
   });
+  it("shows the form, not a second Discord trip, when the link is opened again after a trip was started", async () => {
+    const fetcher = vi.fn(async () => Response.json({ discord: true }));
+    vi.stubGlobal("fetch", fetcher);
+    sessionStorage.setItem("dd_auth_resume", JSON.stringify({ kind: "sign-up", returnTo: "/drafts?join=1#seat", attemptId: "sua_invited", auto: true }));
+    const { result } = await mount();
+    expect(mock.signal.signUp.sso).not.toHaveBeenCalled();
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(result.current.state.step).toBe("invite");
+  });
+  it("shows the form when the Discord check is slow or fails", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("timeout"); }));
+    const { result } = await mount();
+    expect(mock.signal.signUp.sso).not.toHaveBeenCalled();
+    expect(result.current.state.step).toBe("invite");
+  });
   it("keeps the ticket attempt for Discord and saves consent before redirect", async () => {
     const { result } = await mount();
     await act(() => result.current.actions.continueWithDiscord({ legalAccepted: true }));

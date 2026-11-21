@@ -26,7 +26,7 @@ type Resume = { kind?: ResumeKind; returnTo?: unknown; attemptId?: string; auto?
 async function joinedViaDiscord(ticket: string): Promise<boolean> {
   try {
     const response = await fetch("/api/auth/invite-method", {
-      method: "POST", headers: { "Content-Type": "application/json" }, credentials: "same-origin", body: JSON.stringify({ ticket }),
+      method: "POST", headers: { "Content-Type": "application/json" }, credentials: "same-origin", body: JSON.stringify({ ticket }), signal: AbortSignal.timeout(4000),
     });
     const body: unknown = response.ok ? await response.json().catch(() => null) : null;
     return Boolean(body && typeof body === "object" && (body as { discord?: unknown }).discord === true);
@@ -199,7 +199,9 @@ function useAccountFlow(opts: { ticket: string | null; returnTo: string; callbac
         setResumeKind("sign-up");
         // A person who joined with Discord gets no password form: straight to Discord, which skips its consent screen for an
         // app already authorized. By continuing they accept the terms (the page links them). Any failure shows the form.
-        if (await joinedViaDiscord(opts.ticket!)) {
+        // Not again when a trip to Discord was already started in this tab (Back, or the link opened again): the form shows.
+        const tried = readResume();
+        if (!(tried.kind === "sign-up" && tried.auto) && await joinedViaDiscord(opts.ticket!)) {
           lockedEmail.current = latest.current.signUpSignal.signUp!.emailAddress;
           if (await startDiscord({ legalAccepted: true })) return;
         }

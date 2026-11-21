@@ -8,6 +8,21 @@ import { readSmallBody } from "@/lib/read-small-body";
 
 export const runtime = "nodejs";
 const take = createRateLimiter(10 * 60 * 1000);
+const PENDING_TTL_MS = 60_000;
+const MAX_PENDING_PAGES = 20;
+let pendingCache: { at: number; list: Map<string, string> } | null = null;
+let pendingScan: Promise<Map<string, string>> | null = null;
+
+/** Pending invitations, cached for a minute with one shared scan, so tickets cannot make Clerk scan the list on every call. */
+async function pendingInvitations(secretKey: string): Promise<Map<string, string>> {
+  if (pendingCache && Date.now() - pendingCache.at < PENDING_TTL_MS) return pendingCache.list;
+  pendingScan ??= (async () => {
+    const list = await createClerkBackend({ secretKey }).pendingInvitations?.(MAX_PENDING_PAGES) ?? new Map<string, string>();
+    pendingCache = { at: Date.now(), list };
+    return list;
+  })().finally(() => { pendingScan = null; });
+  return pendingScan;
+}
 const headers = { "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" };
 const answer = (discord: boolean, status = 200) => NextResponse.json({ discord }, { status, headers });
 
@@ -32,7 +47,7 @@ export async function POST(request: NextRequest) {
     const id = typeof body.ticket === "string" ? invitationId(body.ticket) : null;
     const secretKey = process.env.CLERK_SECRET_KEY;
     if (!id || !secretKey) return answer(false);
-    const email = await createClerkBackend({ secretKey }).pendingInvitationEmail?.(id);
+    const email = (await pendingInvitations(secretKey)).get(id);
     return answer(Boolean(email) && createWaitlistService(getDb()).joinedViaDiscord(email!));
   } catch { return answer(false); }
 }

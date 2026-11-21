@@ -62,8 +62,8 @@ export interface ClerkBackend {
   revokeInvitation(id: string): Promise<void>;
   /** Ids of this email's revoked invitations (GET /invitations?status=revoked). Optional so older fakes stay valid. */
   revokedInvitationIds?(email: string): Promise<Set<string>>;
-  /** Email of a still-pending invitation, or null when it is not pending (accepted, revoked, expired or unknown). */
-  pendingInvitationEmail?(id: string): Promise<string | null>;
+  /** Pending invitations as id -> email, at most `maxPages` pages of 100 (a longer list is cut: the caller treats a missing id as "not pending"). */
+  pendingInvitations?(maxPages: number): Promise<Map<string, string>>;
 }
 
 /** Complete, read-only audience discovery. Ticket URLs never leave server-side email preparation. */
@@ -225,10 +225,17 @@ export function createClerkBackend(opts: { secretKey: string; apiUrl?: string; f
       const revoked = await listAll<ClerkInvitationJson>("/invitations", { status: "revoked", query: normalized });
       return new Set(revoked.filter(item => item.email_address.trim().toLowerCase() === normalized).map(item => item.id));
     },
-    async pendingInvitationEmail(id) {
-      const pending = await listAll<ClerkInvitationJson>("/invitations", { status: "pending" });
-      const found = pending.find(item => item.id === id);
-      return found ? found.email_address.trim().toLowerCase() : null;
+    async pendingInvitations(maxPages) {
+      const pending = new Map<string, string>();
+      for (let page = 0, offset = 0; page < maxPages; page++) {
+        const result = await request<unknown>(queryPath("/invitations", new URLSearchParams({ status: "pending", limit: "100", offset: String(offset) })));
+        const items = Array.isArray(result) ? result : (result as { data?: unknown } | null)?.data;
+        if (!Array.isArray(items)) throw new ClerkBackendError("Incomplete invitation response", 0, null, null);
+        for (const item of items as ClerkInvitationJson[]) if (typeof item?.id === "string" && typeof item.email_address === "string") pending.set(item.id, item.email_address.trim().toLowerCase());
+        if (items.length < 100) break;
+        offset += items.length;
+      }
+      return pending;
     },
     createWaitlistEntry(input) { return request("/waitlist_entries", "POST", { email_address: input.emailAddress, notify: input.notify }); },
     async listWaitlistEntries(query) {

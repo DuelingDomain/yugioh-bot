@@ -768,11 +768,12 @@ export function createCreatorAccessService(db: Database.Database, opts: CreatorA
       if (creatorRow(grant.creator_id)?.archived_at !== null) return "not_due";
       // The owner revoked this invitation in Clerk: that ends the grant. A new sign-up must not bring the invite back, so
       // the person goes to the normal waitlist and the owner decides again. Unknown (Clerk unreachable): send nothing.
-      if (grant.clerk_invitation_id && (grant.status === "sent" || grant.status === "failed")) {
+      // Only a "sent" grant counts: a "failed" one keeps the id of the invitation sendGrant revoked itself before a send that failed.
+      if (grant.clerk_invitation_id && grant.status === "sent") {
         try {
           const revoked = await requireSender().clerk.revokedInvitationIds?.(grant.email);
           if (revoked?.has(grant.clerk_invitation_id)) {
-            db.prepare("update creator_grants set status = 'revoked', expires_at = null where id = ? and status in ('sent', 'failed')").run(grant.id);
+            db.prepare("update creator_grants set status = 'revoked', expires_at = null where id = ? and status = 'sent'").run(grant.id);
             return "none";
           }
         } catch { return "failed"; }
