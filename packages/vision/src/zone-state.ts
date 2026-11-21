@@ -13,7 +13,8 @@ import type { RGBAImage } from './pixels';
 import type { Point } from './types';
 
 export type ZoneKind = 'empty' | 'face-up' | 'face-down' | 'sideways-up' | 'sideways-down' | 'hand' | 'unknown';
-export interface ZoneState { kind: ZoneKind; confidence: number; /** Share of the zone covered by something that is not mat. */ cover: number; skin: number; /** Foreground extent as share of the zone (w, h). */ extent: { w: number; h: number }; }
+export interface ZoneState { kind: ZoneKind; confidence: number; /** Share of the zone covered by something that is not mat. */ cover: number; skin: number; /** Foreground extent as share of the zone (w, h). */ extent: { w: number; h: number };
+  /** The foreground box touches the crop edge: the object is bigger than the zone or straddles it (a held or neighbouring card). */ edge: boolean }
 export interface MatColour { rgb: [number, number, number]; spread: number }
 const CW = 48, CH = 72;
 const crops = { data: new Uint8ClampedArray(0) };
@@ -65,7 +66,8 @@ export function classifyZone(crop: RGBAImage, mat: MatColour): ZoneState {
   for (let y = 0; y < h; y++) if (rowCount[y] >= w * .35) { if (y < top) top = y; bottom = y; }
   const extent = { w: right >= left ? (right - left + 1) / w : 0, h: bottom >= top ? (bottom - top + 1) / h : 0 };
   const skinShare = skinFg / total;
-  const state = (kind: ZoneKind, confidence: number): ZoneState => ({ kind, confidence, cover: cover / total, skin: skinShare, extent });
+  const touchesEdge = right >= left && bottom >= top && (left <= 0 || top <= 0 || right >= w - 1 || bottom >= h - 1);
+  const state = (kind: ZoneKind, confidence: number): ZoneState => ({ kind, confidence, cover: cover / total, skin: skinShare, extent, edge: touchesEdge });
   // A hand comes from outside: skin-coloured foreground that reaches the crop edge. A card lies inside the zone with a mat margin,
   // even when its art is skin-coloured, and a tan mat passes the skin test by itself, so skin only counts on foreground pixels.
   let edge = 0, edgeFg = 0;

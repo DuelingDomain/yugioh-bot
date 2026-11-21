@@ -69,7 +69,7 @@ export function createClipRecorder(options: ClipRecorderOptions): ClipRecorder {
   const stats = (): ClipRecorderStats => ({ frames: frames.length, bytes: frameBytes, events: events.length, encodeMsMean: encoded ? encodeMsTotal / encoded : 0, encodeMsMax, encodeMsTotal, dropped, activeS: (now() - startedAt) / 1000 });
   return {
     wrap(io) {
-      const buffer: FieldBuffer = { sample: async opts => { const sample = await io.buffer.sample(opts); record(sample.frame, sample.at); return sample; } };
+      const buffer: FieldBuffer = { sample: async opts => { const sample = await io.buffer.sample(opts); record(sample.frame, sample.at); return sample; }, ...(io.buffer.gray ? { gray: () => io.buffer.gray!() } : {}) };
       const inner = io.recognizer;
       const recognizer: WatcherIo['recognizer'] = {
         get detectorBackend() { return inner.detectorBackend; },

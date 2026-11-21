@@ -14,7 +14,7 @@ import { CARD_DETECTOR } from './detector/spec';
 import {DEFAULT_SET_GUARDS, newSetCardMemory, measureSetEvidence, findFlatSleeve, rememberSetBack, ignoreSetRegion, sameSetRegion, setMatQuad, setLookDistance, setCropLook, type SetGuards, type SetEvidence, type SetDecision, type SetCardMemory} from './set-card-evidence';
 import { isCovered } from './board';
 import { fieldStackCovers, fieldStackUnder } from './field-stack-memory';
-import { createZoneInstant, type ZoneInstant, type ZoneInstantRead } from './zone-instant';
+import { createZoneInstant, sameZoneLook, zoneLook, type ZoneInstant, type ZoneInstantRead } from './zone-instant';
 import type { GrayFrame, ZoneTier } from './zone-events';
 import { createFieldAnalyzer, cloneFieldFrame, closeFieldFrame, sameFieldAppearance, sameShadedFieldAppearance, sameRotatedFieldAppearance, fieldAppearanceDistance, fieldEmbeddingSimilarity, clearFieldBackground, clearFieldTransfer, type FieldFrame, type FieldAnalysis } from './field-motion';
 import { fieldQuarterTurn, fieldZoneBounds, fieldZoneCells, fieldMatPoint, fieldCenter, onMat, fieldOrientation, mapFieldZone, matRestGeometry, quadIou, zoneCellAt, type FieldCalibration, type FieldZone, type FieldFormat } from './field-zones';
@@ -184,7 +184,7 @@ interface PendingPose {card:DetectedQuad;origin:DetectedQuad;appearance:number[]
 type HandContactWait = {state:'held'} | {state:'still-held'|'released';card:DetectedQuad;since:number;samples:number};
 // Private evidence follows the physical track through ref adoption and is never serialized.
 interface FaceEvidence { revealUntil?:number; sample?:{look:number[];card:DetectedQuad;observation:FaceStateResult;reference?:FaceStateOptions['reference']}; setCardId?:string; gate:ReturnType<typeof createFaceStateHysteresis>; setGate?:ReturnType<typeof createFaceStateHysteresis>; reference?:FaceStateOptions['reference']; front?:RGBAImage; pendingAt?:number; transitionAt?:number; outlineAppearance?:number[] }
-interface InternalTrack { /** Unread pile top: motion or a hand was over it since it was seen; and the different look that has held on it (see pileSplit). */ pileSighted?:boolean; pileLook?:number[]; pileDisturbed?:boolean; pileSplit?:{look:number[];n:number}; /** Urgent-tick budget left for this new card (ms) and the last tick that spent it; see URGENT_MS. */ urgentLeft?:number; urgentTickAt?:number; /** Set bridge: last positive Set evidence, last real detector hit, the back pixels then, whether this scan reused the outline, and clean still back scans in a row. */ setPositiveAt?:number; setRealAt?:number; setBackLook?:number[]; setBridged?:boolean; setDownScans?:number; awaitingName?:{previous?:string;next:string}; nameRetry?:{attempts:number;nextAt:number}; /** One targeted native-pixel check for a stalled front. */ nameZoomed?:boolean; nameRest?:{card:DetectedQuad;look:number[];since:number}; /** Best crop sharpness since this outline last settled (see sharpOk), the last checked one, and whether this settle already fed the baseline. */ sharpPeak?:number; lastSharp?:number; sharpLearned?:boolean; /** Since when this resting card has shown the reading cue without a name (watcher clock); see IDENTIFY_DEADLINE_MS. */ identifyingSince?:number; /** Set for one deadline prompt: the gallery was already asked, so emit must not turn the track into a quiet dismissal. */ askAnyway?:boolean; /** Look of the last confident, still outline of this card with no hand over it (never a kept outline's: those may show an empty cell). */ realLook?:number[]; /** "Resting on the mat" test for a new card (see planeVerdict): consecutive samples on the plane, still, with no hand contact. */ rest?:RestState; /** Last outline of this card that lay on the mat plane (a real card's spot when a later outline is a hand or a lifted card). */ restQuad?:DetectedQuad; /** Scan field: a plausible detector box matched this track in one of the two scan passes. */ scanHit?:boolean; /** A still face-down outline whose pixels stay undecided (a plain white sleeve), since when. */ backWaitAt?:number; /** Still skin-coloured pixels on a still, confident outline (since when / past HAND_WAIT_MS): print or locked-camera colour, not a hand. */ stillSkinAt?:number; stillSkin?:boolean; under?:string; /** Orientation of the last outline that showed this card's own look. */ lookUpright?:boolean; softDismiss?:boolean; faceWaitAt?:number; frontScans?:number; dismissedMissAt?:number; rearms?:number; userDismissed?:boolean; handWaitAt?:number; unsureReads?:number; fullMisses?:number; fullMissAt?:number; early?:{card:DetectedQuad;art?:number[]}; confirming?:boolean; rereadEarly?:boolean; prevArt?:number[]; curArt?:number[]; reason?:string; selfSetAt?:number; upSince?:number; setRecovery?:boolean; timing?:FieldTiming; timingOpen?:boolean; placeholder?:boolean; placeholderId?:string; previewEligible?:boolean; clearCandidate?:boolean; clearCandidateAt?:number; face?:FaceEvidence; pose?:PendingPose; view:FieldTrack; anchor:DetectedQuad; announced?:DetectedQuad; announcedZone?:FieldZone; announcedPosition?:FieldTrack['position']; reappeared?:boolean; identityAppearance?:number[]; identityEmbedding?:RecognitionResult['identityEmbedding']; latestEmbedding?:RecognitionResult['identityEmbedding']; lastResult?:RecognitionResult; identityCheck?:IdentityCheck; resolvedAt?:number; prompted?:boolean; newOutline?:boolean; binding?:KnownFieldCard; promptOnly?:FieldEvent['reason']; missed:boolean; halo?:number[]; appearance?:number[]; stableSince:number; observations:number; moveAt?:number; restoredAt?:number; missingSamples:number; missingAt?:number; clearWindowAt?:number; best?:{frame:FieldFrame;card:DetectedQuad;score:number;crop?:RGBAImage}; kind:DetectedQuad['kind']; position:FieldTrack['position']; needsRead:boolean; read?:PendingRead }
+interface InternalTrack { /** Placed from an instant zone read: the zone cell that stood in for its outline until the detector first sees it (see the `moved` guard). */ instantCell?:DetectedQuad; /** Unread pile top: motion or a hand was over it since it was seen; and the different look that has held on it (see pileSplit). */ pileSighted?:boolean; pileLook?:number[]; pileDisturbed?:boolean; pileSplit?:{look:number[];n:number}; /** Urgent-tick budget left for this new card (ms) and the last tick that spent it; see URGENT_MS. */ urgentLeft?:number; urgentTickAt?:number; /** Set bridge: last positive Set evidence, last real detector hit, the back pixels then, whether this scan reused the outline, and clean still back scans in a row. */ setPositiveAt?:number; setRealAt?:number; setBackLook?:number[]; setBridged?:boolean; setDownScans?:number; awaitingName?:{previous?:string;next:string}; nameRetry?:{attempts:number;nextAt:number}; /** One targeted native-pixel check for a stalled front. */ nameZoomed?:boolean; nameRest?:{card:DetectedQuad;look:number[];since:number}; /** Best crop sharpness since this outline last settled (see sharpOk), the last checked one, and whether this settle already fed the baseline. */ sharpPeak?:number; lastSharp?:number; sharpLearned?:boolean; /** Since when this resting card has shown the reading cue without a name (watcher clock); see IDENTIFY_DEADLINE_MS. */ identifyingSince?:number; /** Set for one deadline prompt: the gallery was already asked, so emit must not turn the track into a quiet dismissal. */ askAnyway?:boolean; /** Look of the last confident, still outline of this card with no hand over it (never a kept outline's: those may show an empty cell). */ realLook?:number[]; /** "Resting on the mat" test for a new card (see planeVerdict): consecutive samples on the plane, still, with no hand contact. */ rest?:RestState; /** Last outline of this card that lay on the mat plane (a real card's spot when a later outline is a hand or a lifted card). */ restQuad?:DetectedQuad; /** Scan field: a plausible detector box matched this track in one of the two scan passes. */ scanHit?:boolean; /** A still face-down outline whose pixels stay undecided (a plain white sleeve), since when. */ backWaitAt?:number; /** Still skin-coloured pixels on a still, confident outline (since when / past HAND_WAIT_MS): print or locked-camera colour, not a hand. */ stillSkinAt?:number; stillSkin?:boolean; under?:string; /** Orientation of the last outline that showed this card's own look. */ lookUpright?:boolean; softDismiss?:boolean; faceWaitAt?:number; frontScans?:number; dismissedMissAt?:number; rearms?:number; userDismissed?:boolean; handWaitAt?:number; unsureReads?:number; fullMisses?:number; fullMissAt?:number; early?:{card:DetectedQuad;art?:number[]}; confirming?:boolean; rereadEarly?:boolean; prevArt?:number[]; curArt?:number[]; reason?:string; selfSetAt?:number; upSince?:number; setRecovery?:boolean; timing?:FieldTiming; timingOpen?:boolean; placeholder?:boolean; placeholderId?:string; previewEligible?:boolean; clearCandidate?:boolean; clearCandidateAt?:number; face?:FaceEvidence; pose?:PendingPose; view:FieldTrack; anchor:DetectedQuad; announced?:DetectedQuad; announcedZone?:FieldZone; announcedPosition?:FieldTrack['position']; reappeared?:boolean; identityAppearance?:number[]; identityEmbedding?:RecognitionResult['identityEmbedding']; latestEmbedding?:RecognitionResult['identityEmbedding']; lastResult?:RecognitionResult; identityCheck?:IdentityCheck; resolvedAt?:number; prompted?:boolean; newOutline?:boolean; binding?:KnownFieldCard; promptOnly?:FieldEvent['reason']; missed:boolean; halo?:number[]; appearance?:number[]; stableSince:number; observations:number; moveAt?:number; restoredAt?:number; missingSamples:number; missingAt?:number; clearWindowAt?:number; best?:{frame:FieldFrame;card:DetectedQuad;score:number;crop?:RGBAImage}; kind:DetectedQuad['kind']; position:FieldTrack['position']; needsRead:boolean; read?:PendingRead }
 // Periodic full scans backstop scene-change pacing. Busy/hidden ticks skip inference.
 // The art window of a card quad (portrait corner order): reads and their
 // stillness use it, so a hand at the card's edge does not delay or cancel a read.
@@ -999,6 +999,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
   // sure result back here. The next tick gives the zone cell as the outline (no detector pass) and the read as the card's first read,
   // so the normal track keeps every rest, hand, plane, twin and slot guard. Anything else is left to the normal pipeline.
   const zoneReads:ZoneInstantRead[]=[],ZONE_READ_MS=1500;let zoneInstant:ZoneInstant|undefined,zoneOff=false,detecting=false;
+  const zoneEnabled=()=>!zoneOff&&!disposed&&status!=='starting'&&status!=='error'&&!hidden()&&(options.zoneInstant?.enabled?.()??true);
   const scanning=async<T>(run:()=>Promise<T>)=>{detecting=true;try{return await run();}finally{detecting=false;}};
   const zoneEligible=(zone:FieldZone)=>!!calibration&&fieldSlot(zone)&&!tracks.some(t=>!t.view.removed&&t.view.zone===zone)&&!options.getKnownCards?.().some(k=>k.zone===zone);
   const zoneOutline=(zone:FieldZone):DetectedQuad|undefined=>{const cell=fieldCells().find(c=>c.zone===zone);if(!cell)return undefined;const box=cellQuad(cell);return {quad:box.quad.map(p=>({...p})),kind:'face-up',confidence:.75,partial:false};};
@@ -1007,15 +1008,16 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
     if(!config||!gray)return undefined;
     return createZoneInstant({
       calibration:()=>calibration,format:options.format,tier:config.tier,gray,now,maxPerSecond:config.maxPerSecond,
-      enabled:()=>!zoneOff&&!disposed&&status!=='starting'&&status!=='error'&&!hidden()&&(config.enabled?.()??true),
+      enabled:zoneEnabled,
       sample:()=>options.buffer.sample({maxAgeMs:30,urgent:true}),release:closeFieldFrame,
-      zoneCard:zoneOutline,eligible:zoneEligible,busy:()=>!!reading||detecting,
+      // The reader is also busy for the owner's manual reads: the high-priority lane must not jump them.
+      zoneCard:zoneOutline,eligible:zoneEligible,busy:()=>!!reading||detecting||!!options.cpuBusy?.(false),
       read:async(frame,card)=>{
         // No prepare call here: it would queue behind ordinary jobs. The watcher prepares the reader before it starts.
         return options.recognizer.recognize([frame] as ImageBitmap[]|ImageData[],{k:5,maxFrames:1,includeIdentityEmbedding:true,includeDiagnosticCrop:true,includeRaw:true,preferUpright:true,priors:options.getPriors?.(),gallery:gallery.entries(),deckFirst:true,deckRescue:true,earlyExitMargin:options.earlyExitMargin??.02,card,priority:'high'});
       },
       // Only a sure, unflagged face-up name is worth an instant placement; anything else is the normal pipeline's.
-      deliver:read=>{if(zoneOff||disposed||!sureName(read.result)||!zoneEligible(read.zone))return;zoneReads.push(read);wake();},
+      deliver:read=>{if(!zoneEnabled()||!sureName(read.result)||!zoneEligible(read.zone))return;zoneReads.push(read);wake();},
     });
   }
   const idle=(urgent=false)=>{
@@ -1624,11 +1626,14 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       const zoneCards=new Map<DetectedQuad,ZoneInstantRead>();
       for(let i=0;i<zoneReads.length;){
         const r=zoneReads[i];
-        if(sample.at-r.frameAt>ZONE_READ_MS||!zoneEligible(r.zone)){zoneReads.splice(i,1);continue;}
+        if(sample.at-r.frameAt>ZONE_READ_MS||!zoneEligible(r.zone)||!zoneEnabled()){zoneReads.splice(i,1);continue;}
         if(sample.at<=r.frameAt){i++;continue;}
         zoneReads.splice(i,1);
         const c=zoneOutline(r.zone);
-        if(c&&!handNear(evidence,c)&&evidence.motion(c)<=.025&&planeVerdict(c).ok)zoneCards.set(c,r);
+        // The card must still be what the read saw. The track's own art and look are taken from this tick's frame, so they can not
+        // tell: the zone must not have moved since the read frame and must look now as it did then (a card taken away or swapped fails).
+        if(!c||zoneInstant?.movedSince(r.zone,r.frameAt)||!sameZoneLook(r.look,zoneLook(current,c.quad)))continue;
+        if(!handNear(evidence,c)&&evidence.motion(c)<=.025&&planeVerdict(c).ok)zoneCards.set(c,r);
       }
       // A sure read on a held outline commits now; a due full pass waits one tick.
       if(checkedCells.size||zoneCards.size||readyRead||!regularFullDue&&(faceSamples||recentReveals.size>0||localFronts.size>0||localSets.size>0)){
@@ -1934,7 +1939,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
           t.read={nativeFront:true,sharp:evidence.sharpness(c),at:instant.frameAt,appearance:t.appearance?.slice(),card:structuredClone(c),art,result:instant.result};t.needsRead=false;
           for(const [name,at] of Object.entries(instant.stages))stage(t,name,at);
           if(t.timing){t.timing.durationsMs.readMs=(instant.stages.zoneRead??instant.readAt)-instant.readAt;Object.assign(t.timing.durationsMs,instant.result.timingsMs);t.timing.reader=instant.result.reader;t.timing.notes={source:'instant-zone',tier:instant.result.tier};}
-          stage(t,'searchDone',instant.stages.zoneRead);note(t,'instant zone read');
+          stage(t,'searchDone',instant.stages.zoneRead);note(t,'instant zone read');t.instantCell=structuredClone(c);
         }
         if(startupBoxes?.some(q=>sameSetRegion(q,setMatQuad(c,calibration).quad)))startupTracks.add(t);
         tracks.push(t);matched.set(t,c);note(t,'new outline');
@@ -2663,7 +2668,13 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         if(t.reappeared&&restOk(t)&&!gripWait.has(t)&&!handContact(evidence,c)){if(t.view.state==='identified')emit('moved',t);t.announced=c;t.announcedZone=t.view.zone;t.announcedPosition=position;t.moveAt=undefined;t.reappeared=false;}
         if(t.view.state==='identified') {
           t.pose=undefined;
-          if(t.announced&&restOk(t)&&!gripWait.has(t)&&!handContact(evidence,c)&&(quadIou(t.announced,c)<.7||distance(t.announced,c)>.02||t.announcedZone!==t.view.zone||t.announcedPosition!==position)){emit('moved',t);t.announced=c;t.announcedZone=t.view.zone;t.announcedPosition=position;t.moveAt=undefined;}
+          if(t.announced&&restOk(t)&&!gripWait.has(t)&&!handContact(evidence,c)&&(quadIou(t.announced,c)<.7||distance(t.announced,c)>.02||t.announcedZone!==t.view.zone||t.announcedPosition!==position)){
+            // First detector sighting of an instant-placed card: its announced outline was the zone cell, so a true outline in the same zone is no move.
+            const cell=t.instantCell;t.instantCell=undefined;
+            const ctr=fieldCenter(c),cb=cell?boundsOf(cell.quad):undefined;
+            if(cell&&t.announcedZone===t.view.zone&&t.announcedPosition===position&&(quadIou(cell,c)>=.3||!!cb&&ctr.x>=cb.x&&ctr.x<=cb.x+cb.w&&ctr.y>=cb.y&&ctr.y<=cb.y+cb.h)){t.announced=c;t.moveAt=undefined;}
+            else{emit('moved',t);t.announced=c;t.announcedZone=t.view.zone;t.announcedPosition=position;t.moveAt=undefined;}
+          }
           if(wasFaceDown!==t.view.faceDown){emit('flipped',t);t.needsRead=!t.view.faceDown&&!t.view.cardId;if(t.needsRead)t.identityAppearance=undefined;}
         }
         t.halo=evidence.halo?.(c);t.appearance=pixels;

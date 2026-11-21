@@ -138,7 +138,11 @@ export function createZoneWatch(zones: readonly ZoneSpec[], size: { width: numbe
       return out;
     },
     commit(frame: GrayFrame, zoneId: string) { this.setReference(frame, zoneId); },
+    /** True while the zone is moving (it left the settled picture and has not rested yet). */
+    isActive(zoneId: string) { return !!states.find(s => s.spec.id === zoneId)?.active; },
     skip() { skipped++; },
+    /** Count CPU the caller spent on this watch's behalf (the grey draw) against the same budget. */
+    charge(ms: number) { cpuMs += ms; windowCpu += ms; if (ms > maxMs) maxMs = ms; },
     stats(): ZoneWatchStats { return { frames, skipped, cpuMs, maxMs, idleIntervalMs }; },
   };
 }

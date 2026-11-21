@@ -47,7 +47,7 @@ export function attachClipRecorder<T extends WatcherIo>(config: T, context: Clip
     recognize: (frames, opts) => io().recognizer.recognize(frames, opts),
   };
   // The known-card lookup goes through the ring too, so each read's board knowledge is recorded (the raw config would bypass it).
-  return { ...config, recognizer, buffer: { sample: opts => io().buffer.sample(opts) }, getKnownCards: config.getKnownCards ? () => io().getKnownCards!() : undefined };
+  return { ...config, recognizer, buffer: { sample: opts => io().buffer.sample(opts), ...(config.buffer.gray ? { gray: () => io().buffer.gray?.() } : {}) }, getKnownCards: config.getKnownCards ? () => io().getKnownCards!() : undefined };
 }
 export function detachClipRecorder() { offDeveloper?.(); offDeveloper = null; if (!attached) return; attached.recorder?.dispose(); attached = null; notify(); }
 export const clipEvent = (event: FieldEvent) => attached?.recorder?.onEvent(event);
