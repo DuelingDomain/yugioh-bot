@@ -111,16 +111,17 @@ test('urgent admission respects rest and borrows at most one pass',()=>{
  assert.equal(backedOff.check(33_600,false,true,true),'budget','backoff still blocks borrowing');
 });
 
-test('4 core and larger devices borrow several passes for a burst of new cards, a 2 core device does not, and no tier passes the duty limit',()=>{
- // Seven urgent passes of 400 ms in a row (a burst of cards), then a scene that keeps asking for urgent passes.
- const run=(cores:number)=>{
-  const p=createFieldPacer({cores},0,()=> 'wasm');let at=0,busy=0,first=0;
-  for(;at<60_000;at+=10)if(p.check(at,false,true,true)==='ready'){at+=400;p.spend(400,at,true,'urgent');busy+=400;if(!first&&busy>=2800)first=at;}
+test('4 core and larger devices with enough memory borrow several passes for a burst of new cards, others do not, and the long-run duty stays near 20 percent',()=>{
+ // Urgent passes of 400 ms are wanted for 5 minutes (a burst of cards, then a scene that keeps asking).
+ const run=(device:{cores:number;memoryGb?:number},passMs=400)=>{
+  const p=createFieldPacer(device,0,()=> 'wasm');let at=0,busy=0,first=0;
+  for(;at<300_000;at+=10)if(p.check(at,false,true,true)==='ready'){at+=passMs;p.spend(passMs,at,true,'urgent');busy+=passMs;if(!first&&busy>=2800)first=at;}
   return {duty:busy/at,first};
  };
- const [two,four,eight]=[run(2),run(4),run(8)];
+ const [two,four,eight,phone,slow]=[run({cores:2}),run({cores:4}),run({cores:8}),run({cores:8,memoryGb:2}),run({cores:4},1500)];
  assert.equal(four.first,eight.first,'4 and 8 core devices behave the same');
- assert.ok(four.first<=two.first,`4 cores ${four.first} ms, 2 cores ${two.first} ms to seven urgent passes`);
- for(const r of [two,four,eight])assert.ok(r.duty<=.5,`urgent duty ${r.duty}`);
- assert.ok(four.duty-two.duty<=.08,`4 cores add ${four.duty-two.duty} duty over 2 cores`);
+ assert.equal(phone.first,two.first);
+ const after=(d:{cores:number;memoryGb?:number})=>{const p=createFieldPacer(d,0,()=> 'wasm');let at=0;for(let i=0;i<8;i++){at+=400;p.spend(400,at,true,'urgent');}return p.check(at+500,false,true,true);};
+ assert.deepEqual([after({cores:4}),after({cores:8}),after({cores:2}),after({cores:8,memoryGb:2})],['ready','ready','budget','budget'],'only 4+ core devices with enough memory start an urgent pass in debt');
+ for(const r of [two,four,eight,phone,slow])assert.ok(r.duty>=.17&&r.duty<=.25,`long-run urgent duty ${r.duty}`);
 });

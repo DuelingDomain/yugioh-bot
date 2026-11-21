@@ -35,8 +35,8 @@ const WINDOW_MS=10_000,STILL_CARDS_MS=4000,STILL_EMPTY_MS=15_000,RETRY_MS=2000,R
 const PRIORITY_BURST=4,PRIORITY_REFILL=.35,SLOW_PRIORITY_REFILL=.22,INITIAL_PRIORITY_COST=90;
 /** CPU bursts rest 1:1; GPU bursts keep the shorter rest for quick placement. */
 const BURST_REST=.5,MOVING_REST=2,MOVING_REST_MS=400;
-/** An urgent pass (a new card rests and has no place yet) may start while the balance is no lower than minus this many passes. After a burst of cards the balance sat a pass or more below zero and each next card then waited pass/0.2 (about 2 s) for the bucket to refill. Only on FAST_CORES or more (the 4 to 8 core target PCs); a device below that keeps the old one-pass borrow. */
-const URGENT_DEBT_PASSES=3,FAST_CORES=4;
+/** An urgent pass (a new card rests and has no place yet) may start while the balance is no lower than minus this many passes. After a burst of cards the balance sat a pass or more below zero and each next card then waited pass/0.2 (about 2 s) for the bucket to refill. The debt is also capped at URGENT_DEBT_MAX_MS, so a slow detector never makes a normal pass wait longer than about 7 s (1.5 s / 0.2). Only on FAST_CORES or more with enough memory (the 4 to 8 core target PCs; an 8 core phone with little memory is not one); a device below that keeps the old one-pass borrow. 4 cores is the floor on purpose: the owner target PCs start at 4 cores. */
+const URGENT_DEBT_PASSES=3,URGENT_DEBT_MAX_MS=1500,FAST_CORES=4,FAST_MEMORY_GB=4;
 export const fieldPacerDevice=():FieldPacerDevice=>{
   const nav=(globalThis as {navigator?:Navigator&{deviceMemory?:number}}).navigator;
   return {cores:nav?.hardwareConcurrency??2,memoryGb:nav?.deviceMemory};
@@ -47,7 +47,7 @@ export function createFieldPacer(device:FieldPacerDevice,start:number,backend:()
   let tokens=2500,prioritySpent=0,priorityCost=0;
   let last=start,passMs=0,lastEnd=-Infinity,changedAt=-Infinity,movingSince=-Infinity,wakeAt=-Infinity,wakePermit=false,lateEma=0,backoff=1;
   const passes:{end:number;wall:number}[]=[];
-  const fast=device.cores>=FAST_CORES,debtLimit=()=>fast?URGENT_DEBT_PASSES*passMs:0;
+  const fast=device.cores>=FAST_CORES&&(device.memoryGb===undefined||device.memoryGb>=FAST_MEMORY_GB),debtLimit=()=>fast?Math.min(URGENT_DEBT_PASSES*passMs,URGENT_DEBT_MAX_MS):0;
   const capacity=()=>Math.max(2500,passMs*6);
   const estimatedPriorityCost=()=>priorityCost||INITIAL_PRIORITY_COST;
   const refill=(at:number)=>{
