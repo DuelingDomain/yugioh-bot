@@ -40,10 +40,14 @@ export function createRoomMutationQueue(read:()=>RemoteRoom|undefined,post:RoomM
     if (rendered && (!latest || rendered.lastSeq >= latest.lastSeq)) latest = rendered;
     return latest;
   };
+  // A retry (camera retry, outage retry, Retry button) calls `act` again with the same key: it previews once.
+  const announced = new Set<string>();
   const announce = (proposal:RemoteActionProposal, key:string|undefined) => {
-    if (!onPost || !key) return;
+    if (!onPost || !key || announced.has(key)) return;
     const now = current();
     if (valid?.() === false || (now && cameraCorrectionBlocked(now, proposal))) return;
+    announced.add(key);
+    if (announced.size > 64) announced.delete(announced.values().next().value!);
     try { onPost(proposal, key, now); } catch { /* A preview never blocks a write. */ }
   };
   const write = async (proposal:RemoteActionProposal, key?:string, prepared?:()=>void, patient=false) => {

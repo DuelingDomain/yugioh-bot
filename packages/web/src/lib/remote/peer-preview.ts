@@ -130,8 +130,11 @@ export function previewDrafts(room: RemoteRoom, proposal: RemoteActionProposal):
 export function previewPackets(room: RemoteRoom, proposal: RemoteActionProposal, key: string, nextSeq: () => number): Uint8Array<ArrayBuffer>[] {
   const packets: Uint8Array<ArrayBuffer>[] = [];
   for (const draft of previewDrafts(room, proposal)) {
-    const preview = previewForZone(room.mySeat, nextSeq(), draft.zone, draft.kind, draft.face, key);
-    if (preview) packets.push(encodePreview(preview));
+    // One bad draft (an oversize name, say) must not drop the others.
+    try {
+      const preview = previewForZone(room.mySeat, nextSeq(), draft.zone, draft.kind, draft.face, key);
+      if (preview) packets.push(encodePreview(preview));
+    } catch { /* Skip this cell only. */ }
   }
   return packets;
 }

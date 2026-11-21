@@ -158,6 +158,22 @@ describe("peer preview", () => {
     } finally { releasePeerPreviewTransport(send); }
   });
 
+  it("previews a write once when the same key is acted again (retry)", async () => {
+    const wire: Uint8Array[] = [];
+    const send = (bytes: Uint8Array) => { wire.push(bytes); };
+    setPeerPreviewTransport(send);
+    const queue = createRoomMutationQueue(() => room, async () => room, undefined, undefined, (proposal, key) => { publishPeerPreview(room, proposal, key); });
+    try {
+      await queue.transaction(async (_room, act) => {
+        await act(place(1, true), "same-key");
+        await act(place(1, true), "same-key");
+      });
+      expect(wire).toHaveLength(1);
+      await queue.transaction(async (_room, act) => { await act(place(2, true), "other-key"); });
+      expect(wire).toHaveLength(2);
+    } finally { releasePeerPreviewTransport(send); }
+  });
+
   it("ignores packets without an action key", () => {
     const watcher = createPeerPreviewStore();
     try {
