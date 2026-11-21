@@ -92,7 +92,7 @@ test('an urgent pass for a new resting card skips backoff and the moving rest, a
 });
 
 test('urgent admission respects rest and borrows at most one pass',()=>{
- const p=createFieldPacer({cores:8},0);
+ const p=createFieldPacer({cores:2},0);
  p.spend(2400,2400,true,'urgent');
  assert.equal(p.check(4799,false,true,true),'rest');
  assert.equal(p.check(4800,false,true,true),'ready');
@@ -109,4 +109,18 @@ test('urgent admission respects rest and borrows at most one pass',()=>{
  assert.equal(backedOff.check(12_000,false,true,true),'ready','a positive balance admits another urgent pass');
  backedOff.spend(15_000,27_000,true);
  assert.equal(backedOff.check(33_600,false,true,true),'budget','backoff still blocks borrowing');
+});
+
+test('4 core and larger devices borrow several passes for a burst of new cards, a 2 core device does not, and no tier passes the duty limit',()=>{
+ // Seven urgent passes of 400 ms in a row (a burst of cards), then a scene that keeps asking for urgent passes.
+ const run=(cores:number)=>{
+  const p=createFieldPacer({cores},0,()=> 'wasm');let at=0,busy=0,first=0;
+  for(;at<60_000;at+=10)if(p.check(at,false,true,true)==='ready'){at+=400;p.spend(400,at,true,'urgent');busy+=400;if(!first&&busy>=2800)first=at;}
+  return {duty:busy/at,first};
+ };
+ const [two,four,eight]=[run(2),run(4),run(8)];
+ assert.equal(four.first,eight.first,'4 and 8 core devices behave the same');
+ assert.ok(four.first<=two.first,`4 cores ${four.first} ms, 2 cores ${two.first} ms to seven urgent passes`);
+ for(const r of [two,four,eight])assert.ok(r.duty<=.5,`urgent duty ${r.duty}`);
+ assert.ok(four.duty-two.duty<=.08,`4 cores add ${four.duty-two.duty} duty over 2 cores`);
 });

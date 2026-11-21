@@ -20,6 +20,8 @@ export interface FieldPacer {
   changed(at:number):void;
   /** Slow timer for a full pass on a still scene. It does not back off: a dark card can fall under the scene check. */
   stillEvery(at:number,hasCards:boolean):number;
+  /** A device with 4 or more cores borrows several passes for a card that was just put down (see URGENT_DEBT_PASSES); a smaller one keeps the one-pass borrow. */
+  readonly fast:boolean;
   /** Delay between camera samples. */
   tickMs(state:'still'|'active'|'burst'):number;
   /** A timer fired this late: the main thread is short of time, so back off. */
@@ -33,6 +35,8 @@ const WINDOW_MS=10_000,STILL_CARDS_MS=4000,STILL_EMPTY_MS=15_000,RETRY_MS=2000,R
 const PRIORITY_BURST=4,PRIORITY_REFILL=.35,SLOW_PRIORITY_REFILL=.22,INITIAL_PRIORITY_COST=90;
 /** CPU bursts rest 1:1; GPU bursts keep the shorter rest for quick placement. */
 const BURST_REST=.5,MOVING_REST=2,MOVING_REST_MS=400;
+/** An urgent pass (a new card rests and has no place yet) may start while the balance is no lower than minus this many passes. After a burst of cards the balance sat a pass or more below zero and each next card then waited pass/0.2 (about 2 s) for the bucket to refill. Only on FAST_CORES or more (the 4 to 8 core target PCs); a device below that keeps the old one-pass borrow. */
+const URGENT_DEBT_PASSES=3,FAST_CORES=4;
 export const fieldPacerDevice=():FieldPacerDevice=>{
   const nav=(globalThis as {navigator?:Navigator&{deviceMemory?:number}}).navigator;
   return {cores:nav?.hardwareConcurrency??2,memoryGb:nav?.deviceMemory};
@@ -43,6 +47,7 @@ export function createFieldPacer(device:FieldPacerDevice,start:number,backend:()
   let tokens=2500,prioritySpent=0,priorityCost=0;
   let last=start,passMs=0,lastEnd=-Infinity,changedAt=-Infinity,movingSince=-Infinity,wakeAt=-Infinity,wakePermit=false,lateEma=0,backoff=1;
   const passes:{end:number;wall:number}[]=[];
+  const fast=device.cores>=FAST_CORES,debtLimit=()=>fast?URGENT_DEBT_PASSES*passMs:0;
   const capacity=()=>Math.max(2500,passMs*6);
   const estimatedPriorityCost=()=>priorityCost||INITIAL_PRIORITY_COST;
   const refill=(at:number)=>{
@@ -58,12 +63,13 @@ export function createFieldPacer(device:FieldPacerDevice,start:number,backend:()
     const rest=urgent?burstRest:(moving?Math.max(MOVING_REST_MS,passMs*MOVING_REST):burstRest)*backoff;
     if(at-lastEnd<rest||!urgent&&moving&&!gpu&&at-movingSince<MOVING_REST_MS)return 'rest';
     // During backoff an urgent pass can spend any positive balance without incurring debt.
-    if(urgent)return (backoff>1?tokens>0:tokens>=0)?'ready':'budget';
+    if(urgent)return (backoff>1?tokens>0:tokens>=-debtLimit())?'ready':'budget';
     return tokens>0||wakePermit&&!sceneMoving?'ready':'budget';
   };
   const record=(wall:number,end:number)=>{passes.push({end,wall});prune(end);};
   return {
     get priorityCost(){return estimatedPriorityCost();},
+    fast,
     check,
     spend(wallMs,at,sceneMoving=false,debt=true){
       refill(at);if(!sceneMoving)wakePermit=false;

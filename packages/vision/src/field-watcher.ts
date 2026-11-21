@@ -482,6 +482,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
     const ok=samples>=REST_SAMPLES&&at-(since??at)>=REST_MS&&!heldUp;
     if(heldUp&&samples)text='held up';
     t.rest={samples,since,ok,planeOk:plane.ok,hard:plane.hard,text:ok?'on mat':samples?`${text} ${samples}/${REST_SAMPLES}`:text};
+    if(ok)stage(t,'restOk');
     if(plane.ok)t.restQuad=structuredClone(c);
     // Learn single-card size from settled fronts so sleeve scores cannot bias Set geometry.
     if(ok&&calibration&&t.view.state==='identified'&&!t.view.faceDown&&c.kind==='face-up'&&!c.kept&&!c.cell&&!c.partial&&!c.covered&&c.confidence>=.7&&plane.size!==undefined&&plane.size<=REST_CELL_LIMIT&&plane.size>=.3){
@@ -1041,7 +1042,8 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
   const urgentTick=(at:number)=>{
     let urgent=false;
     for(const t of tracks){
-      if(t.view.removed||t.view.state!=='candidate'||t.view.cardId||t.read)continue;
+      // A finished read that waits for the rest test still needs the next samples soon (fast devices only: others keep the ordinary pacing).
+      if(t.view.removed||t.view.state!=='candidate'||t.view.cardId||t.read&&!(pacer.fast&&t.read.result&&!t.read.error))continue;
       const settling=contactWait.get(t)?.state==='released'||!!t.rest&&t.rest.samples>0&&t.rest.planeOk;
       if(!settling){t.urgentTickAt=undefined;continue;}
       t.urgentLeft??=URGENT_MS;
@@ -1737,6 +1739,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         if(observation.state!=='up')continue;
         if(!t.placeholder&&!t.binding&&!(setGuards.positiveBack&&t.view.setEvidence&&!t.view.setEvidence.positive)&&!['GY','BANISHED','DECK','EXTRA'].includes(t.view.zone)){
           t.placeholder=true;t.placeholderId=t.view.id;t.view.faceDown=false;t.halo=evidence.halo?.(c);
+          stage(t,'placeholder');
           emit('reading',t,{latencyMs:now()-t.view.firstSeen});
         }
         if(!busy&&observation.state==='up'){t.halo=evidence.halo?.(c);await startRead(t,current,c,crop,sample.at,generation);}
@@ -2421,6 +2424,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         if(!t.placeholder&&!t.binding&&!t.promptOnly&&!(setGuards.positiveBack&&t.view.setEvidence&&!t.view.setEvidence.positive)&&t.view.state==='candidate'&&restOk(t)&&faceClean&&observation.state==='up'&&!blurHold&&
           !['GY','BANISHED','DECK','EXTRA'].includes(t.view.zone)) {
           t.placeholder=true;t.placeholderId=t.view.id;t.view.faceDown=false;t.view.visible=true;t.halo=evidence.halo?.(c);
+          stage(t,'placeholder');
           emit('reading',t,{latencyMs:now()-t.view.firstSeen});
         }
         // A due background read can use a fresh, clean front sample without
