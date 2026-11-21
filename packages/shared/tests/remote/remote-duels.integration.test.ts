@@ -1310,6 +1310,27 @@ describe("solo remote tables", () => {
     expect(placed.events.slice(-2).map(event => event.action.type)).toEqual(["log.note", "twin.place"]);
     expect(placed.state.seats[0].twin).toContainEqual(expect.objectContaining({ ref: "concurrent-card", zone: "monster", slot: 1 }));
   });
+  it("a response never makes another player's write stale, is not activity, and a seat may send one only every 8 seconds", () => {
+    const s = deckSession("normal", false);
+    s.select(s.save().id);
+    s.service.join(s.room.slug, "g", s.users[1], "Opponent", 1, 2001);
+    s.service.ready(s.room.slug, "g", s.users[1], true, 2002); s.start();
+    const t = 3000, slug = s.room.slug;
+    const send = (user: number, seat: number, key: string, at: number, baseSeq: number, extra: Record<string, unknown> = { type: "chain.respond" }) =>
+      s.service.act(slug, "g", user, { baseSeq, action: remoteActionSchema.parse({ actorSeat: seat, idempotencyKey: key, ...extra }) }, at);
+    const read = s.service.get(slug, "g", s.users[0], t);
+    const lastEventAt = () => (s.db.prepare("select last_event_at as at from remote_tables where id=(select id from remote_tables where slug=?)").get(slug) as { at: number }).at;
+    const before = lastEventAt();
+    // The opponent responds after the first player read the table; the first player's write from that older sequence still lands.
+    const responded = send(s.users[1], 1, "respond-1", t + 1, read.lastSeq);
+    expect(responded.events.at(-1)?.action.type).toBe("chain.respond");
+    expect(lastEventAt()).toBe(before);
+    expect(send(s.users[0], 0, "after-respond", t + 2, read.lastSeq, { type: "detection.mode", mode: "tap", reason: "slow-offer" }).lastSeq).toBeGreaterThan(responded.lastSeq);
+    // The same seat again inside 8 seconds is refused with a clear 409; the other seat and the same seat later are fine.
+    expect(() => send(s.users[1], 1, "respond-2", t + 4000, responded.lastSeq + 1)).toThrow("You just responded");
+    expect(send(s.users[0], 0, "respond-other", t + 4001, responded.lastSeq + 1).events.at(-1)?.actorSeat).toBe(0);
+    expect(send(s.users[1], 1, "respond-3", t + 8002, s.service.get(slug, "g", s.users[1], t + 8002).lastSeq).events.at(-1)?.action.type).toBe("chain.respond");
+  });
   it("an admin who starts or stops watching never makes a player's move stale, and the stop line follows the grace", () => {
     const s = deckSession("normal", false);
     vi.stubEnv("OWNER_USER_IDS", String(s.users[3]));

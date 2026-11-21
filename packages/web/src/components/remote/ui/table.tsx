@@ -3,12 +3,14 @@
 import {announceNotACard} from '@/lib/remote/set-card-diagnostics';
 import { REMOTE_TABLE_TALK } from "@/lib/remote/table-talk";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
-import { REMOTE_FORMATS, REMOTE_HAND_SUGGESTION_EVENT, type RemoteHandSuggestionEvent, matchCardsByName, previousYgoPhase, normalizeRemoteFormat, remoteRecognitionRef, remoteRecognitionRefs, type RemoteActionProposal, type RemoteEvent, type RemoteRoom, type RemoteUndoEntry } from "@yugidraft/shared/remote";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
+import { REMOTE_RESPOND_COOLDOWN_MS, REMOTE_FORMATS, REMOTE_HAND_SUGGESTION_EVENT, type RemoteHandSuggestionEvent, matchCardsByName, previousYgoPhase, normalizeRemoteFormat, remoteRecognitionRef, remoteRecognitionRefs, type RemoteActionProposal, type RemoteEvent, type RemoteRoom, type RemoteUndoEntry } from "@yugidraft/shared/remote";
 import { cardInfo, isLinkInfo, isMonsterInfo, loadCards, searchCards, useCardInfo } from "./catalog";
 import { EffectControls, EffectPicker } from "./effect-controls";
 import { Rail, LpStrip, TopBar, AdminWatchStrip, type Player } from "./chrome";
 import { CardPopover, InspectorBody, type CardActions, type CardEdit, type CardSource, type Subject } from "./card-view";
+import { RespondBanner, useRespondHold } from "./respond-banner";
+import { heldByResponse, mayRespond, respondCoolingDown } from "./respond";
 import { MicSection, UndoSection, VoxSection, type Proposal } from "./dock";
 import { describeEvent, undoLabel, type LogKind } from "./describe";
 import { ownUndoEntries, phaseBackAction, shortUndoLabel } from "./undo-ui";
@@ -24,7 +26,7 @@ import { beginManualCorrection } from "@/lib/remote/manual-corrections";
 import { ZoneActions } from './zone-actions';
 import { zonePlacement, zoneSet, zoneCardAction, type ZonePick } from './zone-placement';
 import { RecentDepartures } from './recent-departures';
-import { COLORS, battleMath, leavePosition, pileEntryFace, cardCode, cellsFor, isPile, sameObservedCard, cardName, cellKeyOf, deckFlag, deckIdsOf, facingSeat, foundationZone, hasDeck, hasExtraZones, mirrorEmz, PHASES, PHASE_LONG, readCardOf, placedTwin, sg, type TwinCard, type ZoneKey } from "./model";
+import { COLORS, battleMath, leavePosition, pileEntryFace, cardCode, cellsFor, isPile, sameObservedCard, cardName, cellKeyOf, deckFlag, deckIdsOf, voiceCardNames, facingSeat, foundationZone, hasDeck, hasExtraZones, mirrorEmz, PHASES, PHASE_LONG, readCardOf, placedTwin, sg, type TwinCard, type ZoneKey } from "./model";
 import { findTwinGroups } from "./twins";
 import { PileViewer, type PileZone } from "./pile-viewer";
 import { NotifyDock } from "./notify-dock";
@@ -43,7 +45,7 @@ import { useVoiceDiagnostics } from "./use-voice-diagnostics";
 import { VoiceControls } from "./voice-controls";
 import { decideVoice } from "./voice/decision";
 import type { VoiceFinal } from "./voice/live-client";
-import { utteranceRecord, voiceCommands, type VoiceContext, type VoiceDecision } from "@/lib/remote/voice-diagnostics";
+import { utteranceRecord, voiceCommands, type VoiceContext, type VoiceDecision, type VoiceMethod } from "@/lib/remote/voice-diagnostics";
 import { faceDownInFrame, tapMemoryFor, type TapSpot } from '@/lib/remote/tap-memory';
 import { VideoHubProvider, useVideoHub } from "./video-hub";
 import { gpuLossReason, setHybridReaderEnabled, useRecognitionBackend } from "./recognition-backend";
@@ -202,6 +204,8 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
   const [toasts, setToasts] = useState<ToastItem[]>([]); const toastId = useRef(0);
   const toast = useCallback((text: ReactNode, ms = 2800) => { const id = ++toastId.current; setToasts(list => [...list.slice(-2), { id, text }]); setTimeout(() => setToasts(list => list.filter(item => item.id !== id)), ms); }, []);
   const [banner, setBanner] = useState<{ id: number; small: string; big: string } | null>(null);
+  // A response ("I chain") shows to everyone and holds spoken phase changes for a few seconds.
+  const respondHold = useRespondHold(room.events);
   const [peek, setPeek] = useState<PeekState>(null); const peekTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const showPeek = useCallback((kind: LogKind, text: ReactNode) => {
     if (R.current.layer === "log") return;
@@ -1062,7 +1066,12 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
         if (intent.proposal.type !== "effect.activated" || !intent.proposal.source.cardRef) {
           setProposal(null); set("Which card? Say its name with ‘effect’, or activate it from its card view.", true); break;
         }
-        set("Effect activated"); void act(intent.proposal); break;
+        // Through the voice action when there is one, so it is stamped, logged and recorded like phase.
+        set("Effect activated"); if (voiceAction) voiceAction(intent.proposal); else void act(intent.proposal); break;
+      case "respond": {
+        const respond: RemoteActionProposal = { type: "chain.respond", actorSeat: me };
+        set("Response!"); if (voiceAction) voiceAction(respond); else void act(respond); break;
+      }
       case "undo": set("Undone"); void doUndo(); break;
       case "phase":
         if (!now.solo && now.mySeat !== current.turnSeat) { set(`Only ${name(current.turnSeat)} can change phase`, true); break; }
@@ -1073,11 +1082,11 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
         // The attack chip comes first: a spoken pass must not replace it.
         if (current.attack) { set("Resolve the attack first", true); break; }
         set("Needs a confirm"); propose("Pass the turn", `${name(current.turnSeat)} to ${name(nextSeat)}`, "Pass turn", () => { if (voiceAction) voiceAction({ type: "turn.end", actorSeat: me }); else passTurn(); }, requestId); break;
-      case "lp": set("Needs a confirm"); propose(`${name(intent.seat)} ${sg(intent.delta)} LP`, `${lpOf(intent.seat)} to ${Math.max(0, lpOf(intent.seat) + intent.delta)}`, "Apply", () => void changeLp(intent.seat, intent.delta, "Voice adjustment"), requestId); break;
+      case "lp": set("Needs a confirm"); propose(`${name(intent.seat)} ${sg(intent.delta)} LP`, `${lpOf(intent.seat)} to ${Math.max(0, lpOf(intent.seat) + intent.delta)}`, "Apply", () => { if (voiceAction) voiceAction({ type: "lp.change", actorSeat: now.mySeat, seat: intent.seat, delta: intent.delta, reason: "Voice adjustment" }); else void changeLp(intent.seat, intent.delta, "Voice adjustment"); }, requestId); break;
       case "attack": {
         const best = intent.resolution.candidates[0]; if (!best) { set("No attacker found", true); break; }
         set(intent.resolution.status === "unique" ? "Needs a confirm" : "Best of several matches");
-        propose(`${best.attacker.name ?? "Monster"} attacks ${best.target?.name ?? name(best.proposal.targetSeat)}`, intent.resolution.status === "unique" ? `Said: “${text}”` : `${intent.resolution.candidates.length} matches. Best guess shown.`, "Declare", () => void act(best.proposal), requestId);
+        propose(`${best.attacker.name ?? "Monster"} attacks ${best.target?.name ?? name(best.proposal.targetSeat)}`, intent.resolution.status === "unique" ? `Said: “${text}”` : `${intent.resolution.candidates.length} matches. Best guess shown.`, "Declare", () => { if (voiceAction) voiceAction(best.proposal); else void act(best.proposal); }, requestId);
         break;
       }
       case "move": { const result = spokenMove(intent.move, requestId, text); set(result.text, result.ignored); break; }
@@ -1086,10 +1095,19 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [act, doUndo, moveCard]);
+  /** The Respond button and the R key: the same event as the spoken "response". Players only; own response is not repeated while it shows. */
+  const respondNow = useCallback(() => {
+    const { room: now, state: current } = R.current; const me = now.solo ? current.turnSeat : now.mySeat;
+    if (now.status !== "active" || now.spectator || !mayRespond(current, me)) return;
+    if (respondCoolingDown(now.events, me, serverNow())) return;
+    void act({ type: "chain.respond", actorSeat: me });
+  }, [act]);
   const pendingVoice = useRef<{ id: string; method: VoiceFinal["method"]; context: VoiceContext } | null>(null);
-  const voiceContext = () => {
+  // Card names feed only the speech-model + names method; the other methods keep their own phrase lists.
+  const voiceContext = (method?: VoiceMethod) => {
     const { room: now, state: current } = R.current;
-    return { state: current, players: now.seats, me: now.solo ? current.turnSeat : now.mySeat, trayOpen: false };
+    return { state: current, players: now.seats, me: now.solo ? current.turnSeat : now.mySeat, trayOpen: false,
+      ...(method === "asr-names" ? { cardNames: voiceCardNames(now, id => { const card = info(id); return card ? { name: card.name } : undefined; }) } : {}) };
   };
   const onFinal = useCallback((final: VoiceFinal, gate: MicState) => {
     const { room: now, state: current } = R.current;
@@ -1099,34 +1117,56 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     const record = (result: VoiceDecision) => diagnosticsRef.current.record(utteranceRecord({ at: utteranceAt, id: final.id, method: final.method, text: final.text, canonical: final.canonical, context, decision: result, utterance: final.utterance }));
     setTranscript({ requestId: final.id, text: final.text || "(no keyword)", result: decision.accepted ? "" : decision.reason, ignored: !decision.accepted });
     if (!decision.accepted) { record({ outcome: "rejected", reason: decision.reason, actionId: null }); return; }
-    if (pendingVoice.current) { record({ outcome: "rejected", reason: "unconfirmed", actionId: null }); return; }
+    // A response holds the phase and turn lines for a few seconds, so the responder can name an effect first. Other lines go on.
+    // A response line is not a phase line, so a pending turn chip does not reject it. The responder's own cooldown still ends it quietly.
+    const respondLine = decision.intent.kind === "respond";
+    if (respondLine && respondCoolingDown(now.events, now.solo ? current.turnSeat : now.mySeat, serverNow())) {
+      record({ outcome: "rejected", reason: "other", actionId: null }); setTranscript(old => ({ ...old, result: "Response already sent", ignored: true })); return;
+    }
+    const holding = heldByResponse(decision.intent, now.events, serverNow(), now.solo ? current.turnSeat : now.mySeat);
+    if (holding) {
+      record({ outcome: "rejected", reason: "response-hold", actionId: null });
+      const note = `${name(holding.seat)} responded. Phase change ignored.`;
+      setTranscript(old => ({ ...old, result: note, ignored: true })); toast(note); return;
+    }
+    if (pendingVoice.current && !respondLine) { record({ outcome: "rejected", reason: "unconfirmed", actionId: null }); return; }
     const baseSeq = now.lastSeq;
-    if (decision.intent.kind === "turn") {
-      pendingVoice.current = { id: final.id, method: final.method, context };
+    // Turn, LP and attack lines wait for a chip; their later outcome is a decision record. Only the turn chip locks out the next line.
+    const chipLine = decision.intent.kind === "turn" || decision.intent.kind === "lp" || decision.intent.kind === "attack";
+    if (chipLine) {
+      if (decision.intent.kind === "turn") pendingVoice.current = { id: final.id, method: final.method, context };
       record({ outcome: "rejected", reason: "needs-confirm", actionId: null });
     }
     let submitted = false;
     apply(decision.intent, final.text, final.id, proposal => {
       if (submitted) return; submitted = true;
-      pendingVoice.current = null;
+      if (decision.intent.kind === "turn") pendingVoice.current = null;
       const latest = R.current;
+      // A turn chip confirmed by click inside a response window waits like a spoken line would.
+      const heldNow = heldByResponse(decision.intent, latest.room.events, serverNow(), latest.room.solo ? latest.state.turnSeat : latest.room.mySeat);
+      if (heldNow) {
+        record({ outcome: "rejected", reason: "response-hold", actionId: null });
+        const note = `${name(heldNow.seat)} responded. Phase change ignored.`;
+        setTranscript(old => ({ ...old, result: note, ignored: true })); toast(note); return;
+      }
       // A confirm belongs to the position and microphone choice that produced it.
       const stillLegal = decideVoice(final, { state: latest.state, players: latest.room.seats, me: latest.room.solo ? latest.state.turnSeat : latest.room.mySeat, trayOpen: false }, voiceAccept.current);
-      if (latest.room.lastSeq !== baseSeq || !stillLegal.accepted) {
+      // LP and attack chips may wait while other events arrive; the server still checks the action. Other lines keep the strict rule.
+      if (decision.intent.kind !== "lp" && decision.intent.kind !== "attack" && (latest.room.lastSeq !== baseSeq || !stillLegal.accepted)) {
         const result: VoiceDecision = { outcome: "rejected", reason: stillLegal.accepted ? "unconfirmed" : stillLegal.reason, actionId: null };
-        if (decision.intent.kind === "turn") diagnosticsRef.current.record({ kind: "decision", at: Date.now(), method: final.method, utteranceId: final.id, context, decision: result }); else record(result);
+        if (chipLine) diagnosticsRef.current.record({ kind: "decision", at: Date.now(), method: final.method, utteranceId: final.id, context, decision: result }); else record(result);
         setTranscript(old => ({ ...old, result: "Table changed. Say the command again.", ignored: true })); return;
       }
       const actionId = crypto.randomUUID();
       const sentAt = Date.now();
       void act({ ...proposal, cam: playerStamp("voice") }, actionId).then(updated => {
         const result: VoiceDecision = updated ? { outcome: "acted", reason: null, actionId } : { outcome: "rejected", reason: "other", actionId };
-        if (decision.intent.kind === "turn") diagnosticsRef.current.record({ kind: "decision", at: sentAt, method: final.method, utteranceId: final.id, context, decision: result }); else record(result);
+        if (chipLine) diagnosticsRef.current.record({ kind: "decision", at: sentAt, method: final.method, utteranceId: final.id, context, decision: result }); else record(result);
         if (updated) addVoiceLog(`${name(now.mySeat)} used voice: ${final.canonical}`);
         else setTranscript(old => old.requestId === final.id ? { ...old, result: "Command was not accepted", ignored: true } : old);
       });
     });
-  }, [apply, act, addVoiceLog, name]);
+  }, [apply, act, addVoiceLog, name, toast]);
   const voice = useVoice({ enabled: voiceRecognition && live, state: micState, ptt, held, context: voiceContext, onFinal,
     onPerf: room.voiceDiagnosticsEnabled ? record => diagnosticsRef.current.record(record) : undefined });
   const shownTranscript = { text: transcript.text, live: false, result: transcript.result, ignored: transcript.ignored };
@@ -1146,7 +1186,20 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
 
   // ---- keyboard ----
   const toggleView = () => setWebcamOnly(!webcamOnly);
-  const latest = useRef({ chip, cancelChip, doUndo, picking, ptt, toggleView }); latest.current = { chip, cancelChip, doUndo, picking, ptt, toggleView };
+  const respondSeat = solo ? state.turnSeat : mySeat;
+  const respondShown = live && (solo || mySeat >= 0) && mayRespond(state, respondSeat);
+  const respondCooling = respondShown && respondCoolingDown(room.events, respondSeat, serverNow());
+  // The button wakes again when the cooldown ends.
+  const [, respondTick] = useReducer((n: number) => n + 1, 0);
+  const lastOwnRespond = respondCooling ? room.events.findLast(e => e.action.type === "chain.respond" && e.actorSeat === respondSeat)?.id : undefined;
+  useEffect(() => {
+    if (!lastOwnRespond) return;
+    const last = R.current.room.events.find(e => e.id === lastOwnRespond);
+    const timer = setTimeout(respondTick, Math.max(0, (last?.at ?? 0) + REMOTE_RESPOND_COOLDOWN_MS - serverNow()) + 20);
+    return () => clearTimeout(timer);
+  }, [lastOwnRespond]);
+  const respond = respondShown && !respondCooling ? respondNow : null;
+  const latest = useRef({ chip, cancelChip, doUndo, picking, ptt, toggleView, respond }); latest.current = { chip, cancelChip, doUndo, picking, ptt, toggleView, respond };
   useEffect(() => {
     function down(event: KeyboardEvent) {
       const L = latest.current;
@@ -1154,6 +1207,8 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
       if (typing(event.target) || event.ctrlKey || event.metaKey || event.altKey) return;
       if ((event.key === "v" || event.key === "V") && L.ptt && !event.repeat) { setHeld(true); return; }
       if (R.current.layer) return;
+      // R responds ("I chain"). A frozen camera feed keeps R for its own read and says so by handling the key first.
+      if ((event.key === "r" || event.key === "R") && !event.repeat && !event.shiftKey && !event.defaultPrevented && L.respond) { event.preventDefault(); L.respond(); return; }
       // S scans the field like the button beside the board. A confirm prompt or a modal dialog keeps the key (open popups set the layer above).
       if ((event.key === "s" || event.key === "S") && !event.repeat && !event.shiftKey && !event.defaultPrevented && !document.querySelector('[role="alertdialog"],[role="dialog"][aria-modal="true"]')) { if (runFieldScan()) event.preventDefault(); return; }
       // W switches between Both and Webcam only (the focused element keeps Enter and Space).
@@ -1548,6 +1603,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
         <EffectControls room={room} act={act} onOpen={id=>{setEffectOrigin(id);layers.open("effect");}} />
         {mySeat >= 0 ? <RecentDepartures room={room} seat={mySeat} onAction={action => void act(action)} /> : null}
         <Banner banner={banner} />
+        <RespondBanner hold={respondHold} name={name} />
         <svg className={s.arrow} aria-hidden="true">{arrow ? <><defs><marker id="ah" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0 0 10 5 0 10z" fill="#f6dc9a" /></marker></defs>
           <path d={arrow.d} fill="none" stroke="rgba(232,185,79,.35)" strokeWidth="9" strokeLinecap="round" />
           <path className={s.flow} d={arrow.d} fill="none" stroke="#f6dc9a" strokeWidth="3" strokeLinecap="round" markerEnd="url(#ah)" /></> : null}</svg>
@@ -1580,6 +1636,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
         onPhase={setPhase} onPhaseBack={phaseBack} onPass={passTurn} turnIn={turnIn} backTo={previousYgoPhase(state)} />
       <footer ref={dockRef} className={`${s.dock} ${micSection ? "" : s.nomic}`} aria-label={micSection ? "Voice and undo" : "Commands and undo"}>
         {live && mySeat >= 0 ? <button type="button" className={`${s.btn} ${s.sm} ${s.q} ${s.myfield}`} onClick={() => { setWebcamOnly(false); document.querySelector(`[data-testid="field-${mySeat}"]`)?.scrollIntoView?.({ block: 'center' }); }}>My field</button> : null}
+        {respondShown ? <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} onClick={respondNow} disabled={respondCooling} title="Respond: chain on top of the last action" data-testid="respond-button">Respond <kbd>R</kbd></button> : null}
         {micSection ? <MicSection recognition={voiceRecognition} chat={solo || !REMOTE_TABLE_TALK ? "none" : hub.cameraOn ? "on" : hub.starting ? "connecting" : "off"} state={micState} level={voice.level} speaking={voice.speaking} muted={muted} ptt={ptt} held={held} service={voice.service} error={voice.micError}
           onMute={() => setMuted(v => !v)} onPtt={() => { setPtt(v => !v); setHeld(false); }} offTurn={!myTurn} /> : null}
         <VoxSection recognition={voiceRecognition} transcript={shownTranscript} proposal={chip} samples={voiceRecognition ? [...voiceCommands] : []} onConfirm={() => { chip?.run(); setProposal(null); }} onCancel={cancelChip}

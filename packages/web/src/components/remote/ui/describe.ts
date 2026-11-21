@@ -48,6 +48,7 @@ export function describeEvent(event: RemoteEvent, name: (seat: number) => string
     case "pile.lift": return { kind: "CD", text: `${a.zone === "graveyard" ? "Graveyard" : "Banished"} picked up (${a.cardRefs.length} card${a.cardRefs.length === 1 ? "" : "s"}) · auto`, undoable: true };
     case "twin.merge": return { kind: "CD", text: a.reason.startsWith(MERGED) ? `${a.reason} on ${name(a.seat)}'s field` : "Duplicate cards merged", undoable: true };
     case "log.note": return { kind: "CD", text: a.text, undoable: false };
+    case "chain.respond": return { kind: "PH", text: `${who} responded`, undoable: false };
     case "player.concede": return { kind: "PH", text: `${who} conceded`, undoable: false };
     case "player.leave": return { kind: "PH", text: `${who} left the match`, undoable: false };
     case "undo": return { kind: "PH", text: `${who} undid the last action`, undoable: false };

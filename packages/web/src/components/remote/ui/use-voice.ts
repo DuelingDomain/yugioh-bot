@@ -10,7 +10,7 @@ export type MicState = "listen" | "idle" | "muted" | "off";
 const METHOD_KEY = "dd-remote-voice-method";
 type Options = {
   enabled: boolean; state: MicState; ptt: boolean; held: boolean;
-  context(): GrammarContext;
+  context(method: VoiceMethod): GrammarContext;
   onFinal(final: VoiceFinal, gate: MicState): void;
   onPerf?(record: Extract<VoiceRecord, { kind: "perf" }>): void;
 };
@@ -43,7 +43,7 @@ export function useVoice(options: Options) {
         opt.current.onPerf?.({ kind: "perf", at: Date.now(), method, windowMs: now - last, stage1BusyMs: snapshot.stage1.busyMs - busy1, stage2BusyMs: snapshot.stage2.busyMs - busy2, idle });
         last = now; busy1 = snapshot.stage1.busyMs; busy2 = snapshot.stage2.busyMs; idle = true;
       };
-      client = createLiveVoiceClient({ method, context: () => opt.current.context(), accepting: () => opt.current.enabled && opt.current.state !== "muted" && opt.current.state !== "off" && (!opt.current.ptt || opt.current.held),
+      client = createLiveVoiceClient({ method, context: () => opt.current.context(method), accepting: () => opt.current.enabled && opt.current.state !== "muted" && opt.current.state !== "off" && (!opt.current.ptt || opt.current.held),
         onFinal: final => { if (!disposed) { idle = false; opt.current.onFinal(final, opt.current.state); } },
         onLevel: (value, talking) => { if (!disposed) { if (talking) idle = false; setLevel(value); setSpeaking(talking); } },
         onReady: () => { if (!disposed) { setService("ready"); last = performance.now(); if (opt.current.onPerf) timer = setInterval(perf, 5000); } },

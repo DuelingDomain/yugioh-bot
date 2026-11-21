@@ -244,7 +244,7 @@ it("parses activation with a named source and activation after identifying a car
     ["go back a phase", "main2", "phase:battle"],
     ["back to main phase one", "main2", "phase:main1"],
     ["undo", "main2", "undo"],
-    ["chain", "main1", "wake"],
+    ["chain", "main1", "respond"],
     ["set", "main1", "move"],
     ["graveyard", "main1", "move"],
     ["GY", "main1", "move"],

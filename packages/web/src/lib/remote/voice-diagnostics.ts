@@ -1,11 +1,11 @@
 import type { z } from "zod";
 import type { voiceRecordSchema } from "./voice-diagnostics-schema";
 
-export const voiceMethods = ["two-stage", "kws", "asr"] as const;
+export const voiceMethods = ["two-stage", "kws", "asr", "asr-names"] as const;
 export type VoiceMethod = typeof voiceMethods[number];
-export const voiceMethodLabels: Record<VoiceMethod, string> = { "two-stage": "Keyword gate + verify", kws: "Keywords only", asr: "Speech model" };
+export const voiceMethodLabels: Record<VoiceMethod, string> = { "two-stage": "Keyword gate + verify", kws: "Keywords only", asr: "Speech model", "asr-names": "Speech model + card names" };
 export const voiceCommands = ["draw phase", "standby phase", "main phase one", "battle phase", "main phase two", "end phase", "next phase", "go back a phase", "end turn"] as const;
-export const voiceReasons = ["no-keyword", "not-a-command", "illegal-phase", "not-turn-player", "unconfirmed", "needs-confirm", "muted", "other"] as const;
+export const voiceReasons = ["no-keyword", "not-a-command", "illegal-phase", "not-turn-player", "unconfirmed", "needs-confirm", "response-hold", "muted", "other"] as const;
 export type VoiceReason = typeof voiceReasons[number];
 export type VoiceRecord = z.infer<typeof voiceRecordSchema>;
 export type VoiceContext = Extract<VoiceRecord, { kind: "utterance" }>["context"];
@@ -41,7 +41,7 @@ export function utteranceRecord(input: {
 }): Extract<VoiceRecord, { kind: "utterance" }> {
   const u = input.utterance;
   return { kind: "utterance", at: input.at ?? Date.now(), method: input.method, utteranceId: input.id, text: input.text.slice(0, 2000), canonical: input.canonical.slice(0, 200), context: input.context, decision: input.decision,
-    stage1: { hits: u.hits.slice(0, 100).map(hit => ({ keyword: hit.keyword.slice(0, 200), score: hit.score ?? null })), busyMs: u.stage1BusyMs ?? (input.method === "asr" ? 0 : u.busyMs) },
-    stage2: { transcript: u.text?.slice(0, 2000) ?? null, busyMs: u.stage2BusyMs ?? (input.method === "asr" ? u.busyMs : 0), passes: u.passes ?? 0 },
+    stage1: { hits: u.hits.slice(0, 100).map(hit => ({ keyword: hit.keyword.slice(0, 200), score: hit.score ?? null })), busyMs: u.stage1BusyMs ?? (input.method === "asr" || input.method === "asr-names" ? 0 : u.busyMs) },
+    stage2: { transcript: u.text?.slice(0, 2000) ?? null, busyMs: u.stage2BusyMs ?? (input.method === "asr" || input.method === "asr-names" ? u.busyMs : 0), passes: u.passes ?? 0 },
     speechMs: u.speechMs, audioMs: u.audioMs, decisionMs: u.decisionMs ?? 0 };
 }

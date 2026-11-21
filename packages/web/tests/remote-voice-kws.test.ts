@@ -301,7 +301,7 @@ describe("browser voice commands (KWS)", () => {
         ["set a monster face down", "none"], ["set a spell face down", "none"], ["set a trap", "none"], ["set Monster Reborn face down", "move {\"query\":\"monster reborn\",\"faceUp\":false}"],
         ["swing at Dark Magician", "attack"], ["swing", "attack"], ["Blue-Eyes White Dragon swings at Dark Magician", "attack"], ["I attack with Blue-Eyes White Dragon", "attack"],
         ["Blue-Eyes White Dragon attacks Dark Magician", "attack"], ["attack directly", "attack"], ["direct attack", "attack"], ["go direct", "attack"],
-        ["chain", "wake"], ["I chain", "wake"], ["in response", "wake"], ["respond", "wake"],
+        ["chain", "respond"], ["I chain", "respond"], ["in response", "respond"], ["respond", "respond"], ["response", "respond"], ["chain to that", "respond"],
         ["set", "move {\"faceUp\":false}"], ["set a card", "move {\"faceUp\":false}"], ["I set one face down", "move {\"faceUp\":false}"],
         ["flip summon Blue-Eyes White Dragon", "move {\"query\":\"blue eyes white dragon\",\"position\":\"attack\",\"faceUp\":true,\"flipSummon\":true}"],
         // m1 and m2 are always Monster Zone 1 and 2, never a phase.

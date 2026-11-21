@@ -4,6 +4,9 @@ import { remoteMatchActionSchemas } from "./match-contract.js";
 import type { RemotePosition } from "./types.js";
 export { remoteSetEvidenceSchema, remoteSeatSchema, remoteCameraStampSchema, type RemoteCameraStamp } from "./action-meta.js";
 
+/** One seat may send a response this often (server rule); the browser disables its button for the same time. */
+export const REMOTE_RESPOND_COOLDOWN_MS = 8000;
+
 const id = z.string().min(1).max(100);
 const zone = z.string().min(1).max(40);
 const cardId = z.number().int().positive().max(0xffffffff);
@@ -130,6 +133,8 @@ export const remoteActionSchema = z.discriminatedUnion("type", [
     .refine(a=>!a.identityUncertain||a.source==='auto'&&!a.faceUp,'Uncertain identity requires a camera Set'),
   z.strictObject({ ...meta, type: z.literal("twin.remove"), seat: remoteSeatSchema, cardRef: id, source: z.literal("auto").optional() }),
   z.strictObject({ ...meta, type: z.literal("log.note"), text: z.string().trim().min(1).max(500) }),
+  /** A player chains or responds ("response", "I chain"). Public room signal only: it changes nothing on the board. */
+  z.strictObject({ ...meta, type: z.literal("chain.respond") }),
   z.strictObject({ ...meta, type: z.literal("undo"), targetActionId: id }),
   z.strictObject({ ...meta, type: z.literal("player.concede") }),
   /** Quit the match. 1v1: the opponent wins the match. FFA: only this seat leaves for good. It cannot be undone. */

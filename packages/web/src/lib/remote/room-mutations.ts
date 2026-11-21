@@ -16,7 +16,12 @@ export const remoteActionError=()=>lastActionError;
  * A lost private message leaves the held sequence behind, so the GET still runs; the slow poll repairs anything else.
  */
 export const remoteChangeNeedsFetch=(heldSeq:number,announcedSeq:number)=>announcedSeq>heldSeq;
-export type RoomTransaction = <T>(work:(room:RemoteRoom,act:RoomMutation)=>Promise<T>)=>Promise<T>;
+/** `lanes`: the cards and cells the work touches. Works with a common lane run in order; others do not wait for each other. */
+/** Lane keys for a queued work (see createRoomMutationQueue): one `zone:` key per cell and one `ref:` key per card, no duplicates. */
+export const laneOf=(refs:readonly (string|undefined)[],zones:readonly (string|undefined)[]=[])=>[...new Set([...zones.filter((z):z is string=>!!z).map(z=>`zone:${z}`),...refs.filter((r):r is string=>!!r).map(r=>`ref:${r}`)])];
+/** A card that leaves a field cell can end in a pile, and its pile order write follows its move: every pile write waits for it. */
+export const PILE_LANES=['GY','BANISHED'] as const;
+export type RoomTransaction = <T>(work:(room:RemoteRoom,act:RoomMutation)=>Promise<T>,lanes?:readonly string[])=>Promise<T>;
 
 export const hasPendingTwinConfirmation = (room: RemoteRoom) =>
   !!(room.state.twinConfirmation || room.state.twinConfirmationQueue?.length);
@@ -24,7 +29,7 @@ export const hasPendingTwinConfirmation = (room: RemoteRoom) =>
 /** Serialize board transactions. Notes can use the manual chain independently. */
 export function createRoomMutationQueue(read:()=>RemoteRoom|undefined,post:RoomMutation,giveUp?:(error:Error)=>void,valid?:()=>boolean) {
   const idle = Promise.resolve();
-  let chain: Promise<unknown> = idle, manual: Promise<unknown> = idle;
+  let manual: Promise<unknown> = idle;
   let latest: RemoteRoom | undefined;
   const current = () => {
     const rendered = read();
@@ -58,22 +63,37 @@ export function createRoomMutationQueue(read:()=>RemoteRoom|undefined,post:RoomM
       return null;
     }
   };
-  const transaction: RoomTransaction = work => {
-    const result = chain.then(async () => {
+  // Board works run one after the other only when they touch the same card or cell (the same "lane"). A work that waits (card facts,
+  // a slow read) holds back the works of its own lanes, never the works for other cards. Works without a lane (a player's action, a
+  // board re-sync) wait for every earlier work and hold back every later one, as the single chain did.
+  const lanes = new Map<string, Promise<unknown>>(), live = new Set<Promise<unknown>>();
+  let barrier: Promise<unknown> = idle;
+  // The server accepts one write per sequence number, so the posts themselves still go out one at a time, in the order they are ready.
+  let gate: Promise<unknown> = idle;
+  const post1 = <T,>(run:()=>Promise<T>):Promise<T> => { const sent = gate.then(run); gate = sent.catch(() => undefined); return sent; };
+  const transaction: RoomTransaction = (work, laneKeys) => {
+    const keys = laneKeys?.length ? [...new Set(laneKeys)] : undefined;
+    const before = Promise.all([barrier, ...(keys ? keys.map(key => lanes.get(key) ?? idle) : live)]);
+    const result = before.then(async () => {
       const room = current();
       if (!room) throw new Error('Table is not loaded');
       let writes: Promise<unknown> = idle;
       // A callback can start more than one write before awaiting either.
       const act: RoomMutation = (proposal, key) => {
         if (key) markFieldAction(key, 'writeQueued');
-        const sent = writes.then(() => write(proposal, key));
+        const sent = writes.then(() => post1(() => write(proposal, key)));
         writes = sent.catch(() => undefined);
         return sent;
       };
       try { return await work(room, act); }
       finally { await writes; }
     });
-    chain = result.catch(() => undefined);
+    const tail = result.catch(() => undefined);
+    if (keys) {
+      live.add(tail);
+      for (const key of keys) lanes.set(key, tail);
+      void tail.then(() => { live.delete(tail); for (const key of keys) if (lanes.get(key) === tail) lanes.delete(key); });
+    } else barrier = tail;
     return result;
   };
   return {
@@ -89,8 +109,8 @@ export function createRoomMutationQueue(read:()=>RemoteRoom|undefined,post:RoomM
       if (idempotencyKey) markFieldAction(key, 'writeQueued');
       const prior = manual;
       const run = () => prior.then(() => write(proposal, key, rollback, true));
-      // A log note can clear a pending placement confirmation in the reducer.
-      const independent = proposal.type === 'log.note' && room && !hasPendingTwinConfirmation(room);
+      // A log note can clear a pending placement confirmation in the reducer. A response never touches the board, so it skips the queue.
+      const independent = (proposal.type === 'log.note' || proposal.type === 'chain.respond') && room && !hasPendingTwinConfirmation(room);
       const result = independent ? run() : transaction(run);
       manual = result.catch(() => undefined);
       return result;
