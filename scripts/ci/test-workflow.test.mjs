@@ -7,13 +7,19 @@ import { test } from "node:test";
 import { parse } from "yaml";
 
 const { jobs } = parse(readFileSync(new URL("../../.github/workflows/test.yml", import.meta.url), "utf8"));
-const runGate = (job, env) => spawnSync("bash", ["-e", "-o", "pipefail", "-c", jobs[job].steps[0].run], { env: { ...process.env, ...env } }).status;
+const runGate = (job, env) => {
+  const result = spawnSync("bash", ["-e", "-o", "pipefail", "-c", jobs[job].steps[0].run], {
+    env: { ...process.env, ...env, GITHUB_STEP_SUMMARY: '/dev/null' }, stdio: 'ignore',
+  });
+  assert.ifError(result.error);
+  return result.status;
+};
 
 const areaJobs = {
-  web: ['unit-web', 'unit-web-build'], shared: ['unit-shared'], bot: ['unit-bot'],
-  ws: ['unit-ws'], worker: ['unit-worker'], duel_unit: ['unit-duel'], e2e: ['unit-e2e'],
-  ci_scripts: ['ci-scripts'], engine: ['core-cache', 'cores', 'engine-shards', 'engine-legacy-shards', 'rule-coverage'],
-  engine_app: ['core-cache', 'cores', 'engine-app'],
+  web: ['unit-web', 'unit-web-build'], shared: ['unit-shared'], bot: ['small-checks'],
+  ws: ['small-checks'], worker: ['small-checks'], duel_unit: ['unit-duel'], e2e: ['small-checks'],
+  ci_scripts: ['ci-scripts'], engine: ['cores', 'engine-shards', 'engine-legacy-shards', 'small-checks'],
+  engine_app: ['cores', 'engine-app'],
   core: ['native', 'engine-differential'],
 };
 const gateJobs = () => Object.fromEntries(jobs['ci-result'].needs.map(name => [name, {
@@ -40,8 +46,15 @@ test('CI result accepts intentional skips and rejects failed or cancelled jobs a
 test('CI result requires every selected group, including all engine suites', () => {
   for (const [area, names] of Object.entries(areaJobs)) {
     const results = gateJobs();
-    results.changes.outputs[area] = 'true';
+    const outputs = results.changes.outputs;
+    outputs[area] = 'true';
     for (const name of names) results[name].result = 'success';
+    if (area === 'engine' || area === 'engine_app') {
+      assert.notEqual(gate(results), 0, `${area} requires a cache lookup`);
+      outputs.core_status = 'failure';
+      assert.notEqual(gate(results), 0, `${area} rejects a failed cache lookup`);
+      outputs.core_status = 'success';
+    }
     assert.equal(gate(results), 0, area);
     for (const name of names) {
       results[name].result = 'skipped';
@@ -53,7 +66,7 @@ test('CI result requires every selected group, including all engine suites', () 
 
 test('TS engine changes allow skipped core checks; core selection requires both jobs', () => {
   const results = gateJobs();
-  results.changes.outputs = { engine: 'true', core: 'false' };
+  results.changes.outputs = { engine: 'true', core: 'false', core_status: 'success' };
   for (const name of areaJobs.engine) results[name].result = 'success';
   assert.equal(gate(results, 'pull_request'), 0);
   results.changes.outputs.core = 'true';
@@ -119,8 +132,18 @@ test('slow jobs are required only for their selected inputs; main uses real prod
 });
 
 test('app groups run only when their area is selected', () => {
+  const foldedChecks = { bot: 'BOT', ws: 'WS', worker: 'WORKER', e2e: 'E2E', engine: 'RULE_COVERAGE' };
+  const small = jobs['small-checks'];
+  assert.equal(small.needs, 'changes');
+  assert.deepEqual(small.if.split(/\s+\|\|\s+/), Object.keys(foldedChecks).map(area => `needs.changes.outputs.${area} == 'true'`));
+  const step = small.steps.find(step => step.run === 'bash scripts/ci/run-small-checks.sh');
+  assert.equal(step.if, '${{ !cancelled() }}');
+  for (const [area, check] of Object.entries(foldedChecks)) {
+    assert.equal(step.env[`CHECK_${check}`], '${{ needs.changes.outputs.' + area + ' }}');
+  }
   for (const [area, names] of Object.entries(areaJobs).filter(([area]) => !['engine', 'engine_app', 'core'].includes(area))) {
     for (const name of names) {
+      if (name === 'small-checks') continue;
       assert.equal(jobs[name].needs, 'changes', name);
       assert.match(jobs[name].if, new RegExp(`needs\\.changes\\.outputs\\.${area} == 'true'`));
     }
@@ -162,13 +185,14 @@ printf '%s\\n' "$suite" >> "$CALLS"
 
 test('application engine coverage shards affected tests and cannot select the full matrices', () => {
   const results = gateJobs();
-  results.changes.outputs = { engine: 'false', engine_app: 'true', core: 'false' };
+  results.changes.outputs = { engine: 'false', engine_app: 'true', core: 'false', core_status: 'success' };
   for (const name of areaJobs.engine_app) results[name].result = 'success';
   assert.equal(gate(results, 'pull_request'), 0);
   results['engine-app'].result = 'skipped';
   assert.notEqual(gate(results, 'pull_request'), 0);
   assert.equal(jobs.changes.outputs.engine_app, '${{ steps.reuse.outputs.engine_app || steps.diff.outputs.engine_app }}');
-  assert.match(jobs['core-cache'].if, /needs\.changes\.outputs\.engine_app == 'true'/);
+  const wrapper = jobs.changes.steps.find(step => step.id === 'wrapper');
+  assert.match(wrapper.if, /\(steps\.reuse\.outputs\.engine_app \|\| steps\.diff\.outputs\.engine_app\) == 'true'/);
   const job = jobs['engine-app'];
   assert.equal(job.strategy['fail-fast'], false);
   assert.deepEqual(job.strategy.matrix.shard, [1, 2, 3, 4, 5, 6, 7, 8]);
@@ -187,6 +211,9 @@ test('application engine coverage shards affected tests and cannot select the fu
 
 test('nightly runs every selected suite and requires fuzz; scheduled/manual Test cannot deploy', () => {
   for (const names of Object.values(areaJobs)) for (const name of names) assert.doesNotMatch(jobs[name].if, /!= 'schedule'/);
+  for (const id of ['wrapper', 'key', 'emsdk', 'bundle']) {
+    assert.doesNotMatch(jobs.changes.steps.find(step => step.id === id).if, /!= 'schedule'/);
+  }
   const results = gateJobs();
   assert.notEqual(gate(results, 'schedule'), 0);
   results['nduel-nightly'].result = 'success';
@@ -264,7 +291,7 @@ test('manual releases load build actions from the workflow revision for older re
 });
 
 test('engine bundle cache ignores unrelated dependencies but retains the actual npm wrapper pin', t => {
-  const steps = jobs['core-cache'].steps;
+  const steps = jobs.changes.steps;
   const key = steps.find(step => step.name === 'Compute bundle cache key').run;
   for (const file of ['package-lock.json', 'packages/shared/package.json', 'packages/shared/tsconfig*.json', 'tsconfig.json']) assert.ok(!key.includes(`'${file}'`), file);
   for (const file of ['packages/duel-server/domain-core/pins.json', 'packages/duel-server/domain-core/expected-sha256.txt', 'patches/ocgcore-wasm+0.1.2.patch', 'packages/duel-server/src/card-script-source.ts']) assert.ok(key.includes(`'${file}'`), file);
@@ -277,8 +304,9 @@ test('engine bundle cache ignores unrelated dependencies but retains the actual 
     } }));
     writeFileSync(join(dir, 'output'), '');
     const result = spawnSync('bash', ['-e', '-o', 'pipefail', '-c', steps.find(step => step.id === 'wrapper').run], {
-      cwd: dir, env: { ...process.env, GITHUB_OUTPUT: join(dir, 'output') }, encoding: 'utf8',
+      cwd: dir, env: { ...process.env, GITHUB_OUTPUT: join(dir, 'output') }, stdio: 'ignore',
     });
+    assert.ifError(result.error);
     return { status: result.status, key: readFileSync(join(dir, 'output'), 'utf8') };
   };
   assert.deepEqual(run('sha512-wrapper-v1'), run('sha512-wrapper-v1', 'unrelated-v2'));
@@ -289,21 +317,28 @@ test('engine bundle cache ignores unrelated dependencies but retains the actual 
 test('application shards partition normal files and cover every Table row shard once', t => {
   const bin = mkdtempSync(join(tmpdir(), 'application-shards-'));
   t.after(() => rmSync(bin, { recursive: true, force: true }));
+  const calls = join(bin, 'npm-calls.jsonl');
   writeFileSync(join(bin, 'npm'), `#!${process.execPath}
-process.stdout.write(JSON.stringify({ args: process.argv.slice(2), table: process.env.TABLE_SHARD }) + '\\n');
+const { appendFileSync } = require('node:fs');
+appendFileSync(process.env.NPM_CALLS, JSON.stringify({ args: process.argv.slice(2), table: process.env.TABLE_SHARD }) + '\\n');
 process.exit(Number(process.env.STUB_NPM_EXIT ?? 0));
 `, { mode: 0o755 });
   const step = jobs['engine-app'].steps.find(step => step.name === 'Host admission, series and tournament recording');
   const table = 'tests/multi-scripts-table.test.ts';
-  const run = (files, shard, extra = {}) => spawnSync('bash', ['-e', '-o', 'pipefail', '-c', step.run], {
-    encoding: 'utf8',
-    env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, CI_TEST_FILES: JSON.stringify(files), SHARD: `${shard}/8`, ...extra },
-  });
+  const run = (files, shard, extra = {}) => {
+    writeFileSync(calls, '');
+    const result = spawnSync('bash', ['-e', '-o', 'pipefail', '-c', step.run], {
+      stdio: 'ignore',
+      env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, NPM_CALLS: calls, CI_TEST_FILES: JSON.stringify(files), SHARD: `${shard}/8`, ...extra },
+    });
+    assert.ifError(result.error);
+    return { status: result.status, calls: readFileSync(calls, 'utf8').split('\n').filter(Boolean).map(line => JSON.parse(line)) };
+  };
   const tableShards = [];
   for (const shard of jobs['engine-app'].strategy.matrix.shard) {
     const result = run(['tests/host.test.ts', table], shard);
-    assert.equal(result.status, 0, result.stderr);
-    const [regular, rows] = result.stdout.trim().split('\n').map(line => JSON.parse(line));
+    assert.equal(result.status, 0);
+    const [regular, rows] = result.calls;
     assert.ok(regular.args.includes(`--shard=${shard}/8`));
     assert.ok(regular.args.includes(`--exclude=${table}`));
     assert.ok(regular.args.includes('tests/host.test.ts'));
@@ -313,10 +348,10 @@ process.exit(Number(process.env.STUB_NPM_EXIT ?? 0));
     tableShards.push(rows.table);
   }
   assert.deepEqual(tableShards, Array.from({ length: 8 }, (_, i) => `${i + 1}/8`));
-  assert.equal(run(['tests/host.test.ts'], 1).stdout.trim().split('\n').length, 1);
-  assert.equal(run([table], 1).stdout.trim().split('\n').length, 1);
-  assert.notEqual(run([], 1).status, 0);
-  assert.notEqual(run(['tests/host.test.ts', table], 1, { STUB_NPM_EXIT: '7' }).status, 0);
+  assert.equal(run(['tests/host.test.ts'], 1).calls.length, 1);
+  assert.equal(run([table], 1).calls.length, 1);
+  assert.equal(run([], 1).status, 1);
+  assert.equal(run(['tests/host.test.ts', table], 1, { STUB_NPM_EXIT: '7' }).status, 7);
 });
 
 test("every docker run/exec in the stdin deploy script reads /dev/null", () => {

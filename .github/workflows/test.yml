@@ -205,7 +205,7 @@ jobs:
 
       - name: Check PR inputs for whole-suite fallback
         id: test-inputs
-        if: ${{ !cancelled() && steps.diff.outputs.test_diff != '' }}
+        if: ${{ !cancelled() && steps.diff.outputs.test_diff != '' && steps.diff.outputs.data_only != 'true' }}
         env:
           CI_LAYERS: ${{ toJSON(steps.diff.outputs) }}
         run: node scripts/ci/pr-test-inputs.mjs
@@ -659,12 +659,12 @@ jobs:
         if: needs.changes.outputs.data_only != 'true' && startsWith(matrix.shard, '1/')
         run: npm run typecheck --workspace=packages/shared
       - name: Test shared
-        if: github.event_name == 'pull_request' || needs.changes.outputs.data_only != 'true'
+        if: needs.changes.outputs.data_only != 'true'
         env:
           CI_TEST_FILES: ${{ needs.changes.outputs.shared_files }}
         run: node scripts/ci/run-pr-tests.mjs shared --shard=${{ matrix.shard }}
       - name: Test shared effects and staple data consumers
-        if: github.event_name != 'pull_request' && needs.changes.outputs.data_only == 'true'
+        if: needs.changes.outputs.data_only == 'true'
         run: npm test --workspace=packages/shared -- tests/effect-artifact tests/effect-search.integration.test.ts tests/cube-effect-search.integration.test.ts
 
   small-checks:
@@ -715,12 +715,12 @@ jobs:
         if: needs.changes.outputs.data_only != 'true' && startsWith(matrix.shard, '1/')
         run: npm run typecheck --workspace=packages/duel-server
       - name: Test duel-server (no core)
-        if: github.event_name == 'pull_request' || needs.changes.outputs.data_only != 'true'
+        if: needs.changes.outputs.data_only != 'true'
         env:
           CI_TEST_FILES: ${{ needs.changes.outputs.duel_unit_files }}
         run: node scripts/ci/run-pr-tests.mjs duel-server --shard=${{ matrix.shard }}
       - name: Test duel effects and staple data consumers
-        if: github.event_name != 'pull_request' && needs.changes.outputs.data_only == 'true'
+        if: needs.changes.outputs.data_only == 'true'
         env:
           CI_TEST_FILES: '["tests/host-deck-suggestions.integration.test.ts","tests/host-deck-suggestion-scope.integration.test.ts","tests/deck-suggestion-workers.integration.test.ts"]'
         run: node scripts/ci/run-pr-tests.mjs duel-server --shard=${{ matrix.shard }}
@@ -744,12 +744,12 @@ jobs:
         run: npx turbo run build --cache-dir=.turbo/cache --filter=@yugidraft/shared
       # The shard runner receives the whole eligible file list before splitting it.
       - name: Test web
-        if: github.event_name == 'pull_request' || needs.changes.outputs.data_only != 'true'
+        if: needs.changes.outputs.data_only != 'true'
         env:
           CI_TEST_FILES: ${{ needs.changes.outputs.web_files }}
         run: node scripts/ci/run-pr-tests.mjs web --shard=${{ matrix.shard }}/${{ strategy.job-total }}
       - name: Test web effects and staple data consumers
-        if: github.event_name != 'pull_request' && needs.changes.outputs.data_only == 'true'
+        if: needs.changes.outputs.data_only == 'true'
         run: npm test --workspace=packages/web -- tests/cube-effects-routes.integration.test.ts tests/effect-startup.integration.test.ts tests/deck-effect-search-route.integration.test.ts tests/deck-effect-search-ui.integration.test.tsx tests/effect-standalone.integration.test.ts --shard=${{ matrix.shard }}/3
 
   ci-scripts:
