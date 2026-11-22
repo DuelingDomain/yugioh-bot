@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { balanceFiles } from "./test-shards.mjs";
 
 // Files needing data/manifest access without importing the cores helper.
 // Keep these explicit: a new unguarded data dependency fails in the unit lane.
@@ -119,6 +120,7 @@ export const NEEDS_ENGINE = [
 
 
 export const PINNED_SHARDS = 8;
+export const LEGACY_SHARDS = 1;
 export const SURRENDER_FILES = ["tests/host-surrender-eot.test.ts", "tests/host-surrender-eot-part2.test.ts"];
 export const DIFFERENTIAL_FILES = ["tests/differential/differential.test.ts", "tests/differential/differential-extended.test.ts"];
 export const TABLE_FILE = "tests/multi-scripts-table.test.ts";
@@ -130,18 +132,12 @@ export const fileSeconds = file => file === TABLE_FILE ? timings.tableTotal / PI
  * Every shard also runs its own Table rows. New files participate immediately.
  */
 export function pinnedPlan(files, count = PINNED_SHARDS) {
-  const shards = Array.from({ length: count }, () => ({ files: [], seconds: timings.tableTotal / count }));
-  const regular = files.filter(file => file !== TABLE_FILE && isPinnedFile(file))
-    .sort((a, b) => fileSeconds(b) - fileSeconds(a) || a.localeCompare(b));
-  for (const file of regular) {
-    const shard = shards.reduce((best, next) => next.seconds < best.seconds ? next : best);
-    shard.files.push(file);
-    shard.seconds += fileSeconds(file);
-  }
+  const regular = files.filter(file => file !== TABLE_FILE && isPinnedFile(file));
+  const tableSeconds = timings.tableTotal / count;
+  // Shard 1 also builds the card tables and runs the web engine and smoke checks.
+  // Reserve 120 worker-seconds to leave about 40 seconds of runner wall time for those steps.
+  const reserved = Array.from({ length: count }, (_, index) => tableSeconds + (index === 0 ? 120 : 0));
+  const shards = balanceFiles(regular, count, timings.files, 10, reserved);
   if (files.includes(TABLE_FILE)) for (const shard of shards) shard.files.push(TABLE_FILE);
   return shards;
-}
-
-export function surrenderLeg(index) {
-  return { file: SURRENDER_FILES[(index - 1) % 2], mode: index <= 2 ? "normal" : "domain" };
 }
