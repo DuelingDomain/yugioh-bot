@@ -1848,3 +1848,4 @@ export function createDraftService(
 }
 
 export type DraftService = ReturnType<typeof createDraftService>;
+export const redProof: number = 'broken';
