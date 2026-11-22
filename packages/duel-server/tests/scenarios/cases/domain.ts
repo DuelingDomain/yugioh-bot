@@ -111,32 +111,4 @@ export const scenarios: Scenario[] = [
       }),
     ],
   }),
-
-  defineScenario({
-    id: "domain-contact-fusion-deck-master-summons-from-zone",
-    title: "Arcana Force EX - The Chaos Ruler as Deck Master is Special Summoned from its zone by sending 3 Arcana Force monsters from either field to the Graveyard",
-    source: "Card text of Arcana Force EX - The Chaos Ruler (materials sent from either field) and Domain Format Complete Rulebook v1.4, Summoning from the DMZ: its own summon mechanic is valid and the from-the-Extra-Deck clause is ignored",
-    tags: ["domain", "deck-master", "fusion", "contact-fusion", "card:12686296"],
-    setup: {
-      mode: "domain",
-      p0: {
-        deckMaster: "Arcana Force EX - The Chaos Ruler",
-        monsters: ["Arcana Force I - The Magician", "Arcana Force III - The Empress"],
-      },
-      p1: { deckMaster: "Celtic Guardian", monsters: ["Arcana Force IV - The Emperor"] },
-    },
-    steps: [
-      expectOffered("specialSummon", { card: "Arcana Force EX - The Chaos Ruler", from: "dmz" }),
-      specialSummon({ card: "Arcana Force EX - The Chaos Ruler", from: "dmz" }),
-      select("Arcana Force I - The Magician", "Arcana Force III - The Empress", { card: "Arcana Force IV - The Emperor", owner: "p1" }),
-      expectBoard({
-        p0: {
-          monsters: ["Arcana Force EX - The Chaos Ruler"],
-          grave: ["Arcana Force I - The Magician", "Arcana Force III - The Empress"],
-          deckMaster: { inZone: false, returns: 0 },
-        },
-        p1: { grave: ["Arcana Force IV - The Emperor"] },
-      }),
-    ],
-  }),
 ];

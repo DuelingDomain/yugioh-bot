@@ -133,6 +133,7 @@
     "tests/scenarios/battle.test.ts": 0.937,
     "tests/scenarios/chains.test.ts": 0.805,
     "tests/scenarios/coin-toss.test.ts": 1.13,
+    "tests/scenarios/domain-contact-fusion-deck-master.test.ts": 5.2,
     "tests/scenarios/domain.test.ts": 0.857,
     "tests/scenarios/generated/generated.test.ts": 0.002,
     "tests/scenarios/multiplayer/aa-zeus.test.ts": 2.248,
