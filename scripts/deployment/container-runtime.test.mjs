@@ -220,8 +220,8 @@ test("production carries the workflow revision's runtime helper through artifact
   const saved = join(f.dir, "controls");
   const release = join(saved, "release");
   mkdirSync(release, { recursive: true });
-  const env = { ...f.env, RUNNER_TEMP: saved, GITHUB_STEP_SUMMARY: join(f.dir, "summary.md"), TEST_REMOTE_ENTRY: join(f.dir, "remote.sh"), TEST_SAVED_HELPER: join(saved, "prepare-runtime-data.sh"), TEST_DATA: f.data,
-    DEPLOY_COMMIT: "a".repeat(40), VM_PORT: "22", VM_USER: "root", VM_HOST: "localhost", DEPLOY_FORCE: "false", DEPLOY_ROLLBACK: "true", DEPLOY_WAIT_SECONDS: "0", DEPLOY_LIVE_ONLY: "false", NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: "pk_live_test" };
+  const env = { ...f.env, RUNNER_TEMP: saved, GITHUB_STEP_SUMMARY: join(f.dir, "summary.md"), GITHUB_ENV: join(f.dir, "env"), TEST_REMOTE_ENTRY: join(f.dir, "remote.sh"), TEST_SAVED_HELPER: join(saved, "prepare-runtime-data.sh"), TEST_DATA: f.data,
+    DEPLOY_COMMIT: "a".repeat(40), VM_PORT: "22", VM_USER: "root", VM_HOST: "localhost", DEPLOY_FORCE: "false", DEPLOY_ROLLBACK: "true", DEPLOY_WAIT_SECONDS: "0", DEPLOY_LIVE_ONLY: "false", NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: "pk_live_test", GITHUB_EVENT_NAME: "workflow_dispatch" };
   const save = prepare.steps.find(step => step.name === "Save deployment activity guard");
   const preserved = spawnSync("sh", ["-ec", save.run], { cwd: root, env, encoding: "utf8" });
   assert.equal(preserved.status, 0, preserved.stderr);
@@ -243,6 +243,10 @@ test("production carries the workflow revision's runtime helper through artifact
   const transfer = deploy.steps.find(step => step.name === "Prepare deployment transfer");
   const restored = spawnSync("sh", ["-ec", transfer.run], { cwd: f.dir, env, encoding: "utf8" });
   assert.equal(restored.status, 0, restored.stderr);
+  for (const line of readFileSync(env.GITHUB_ENV, "utf8").trimEnd().split("\n")) {
+    const [, name, value] = /^([^=]+)=(.*)$/.exec(line);
+    env[name] = value;
+  }
   assert.equal(readFileSync(env.TEST_SAVED_HELPER, "utf8"), expectedHelper);
   assert.ok(!existsSync(join(f.dir, "scripts/deployment/prepare-runtime-data.sh")), "selected checkout predates the helper");
   writeFileSync(join(f.dir, "bin/ssh"), `#!/bin/sh
@@ -254,14 +258,15 @@ case "$command" in
   *) exec sh -c "$command" ;;
 esac
 `);
-  writeFileSync(join(f.dir, "bin/scp"), '#!/bin/sh\nprevious=\nfor arg do source=$previous; previous=$arg; done\ncp "$source" "${previous#*:}"\n');
+  writeFileSync(join(f.dir, "bin/scp"), '#!/bin/bash\nuntil [ "$1" = -P ]; do shift; done\nshift 2\ndestination=${!#}\ncp "${@:1:$#-1}" "${destination#*:}"\n');
   for (const name of ["ssh", "scp"]) chmodSync(join(f.dir, `bin/${name}`), 0o755);
-  writeFileSync(env.TEST_REMOTE_ENTRY, 'set -eu\nhelper=$DEPLOY_RUNTIME_PREPARE\n[ -f "$helper" ]\ncmp "$helper" "$TEST_SAVED_HELPER"\nsh "$helper" "$TEST_DATA"\necho "$helper" > "$RUNNER_TEMP/received-helper"\n');
+  writeFileSync(env.TEST_REMOTE_ENTRY, 'set -eu\nhelper=$DEPLOY_RUNTIME_PREPARE\n[ -f "$helper" ]\ncmp "$helper" "$TEST_SAVED_HELPER"\ncmp "$DEPLOY_BUNDLE" "$RUNNER_TEMP/release/deploy-bundle.tar.gz"\nsh "$helper" "$TEST_DATA"\necho "$helper" > "$RUNNER_TEMP/received-helper"\n');
   const ssh = deploy.steps.find(step => step.name === "Deploy over SSH");
   const result = spawnSync("bash", ["-ec", ssh.run], { cwd: f.dir, env, encoding: "utf8" });
   assert.equal(result.status, 0, result.stderr);
   assert.ok(existsSync(join(f.data, "ops-reports")), "the transferred helper runs on the older checkout");
-  assert.ok(!existsSync(readFileSync(join(saved, "received-helper"), "utf8").trim()), "transferred helper must be cleaned up");
+  const remoteHelper = readFileSync(join(saved, "received-helper"), "utf8").trim();
+  assert.ok(!existsSync(join(remoteHelper, "..")), "the VM staging directory must be cleaned up");
 });
 
 for (const user of [undefined, "1000"]) {

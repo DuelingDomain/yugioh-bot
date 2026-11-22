@@ -79,7 +79,7 @@ def main():
             return 0
         remaining = deadline - time.monotonic()
         if remaining > 0:
-            pause = min(120, remaining)
+            pause = min(15, remaining)
             print(f"Production busy; rechecking in {pause:.0f} seconds ({remaining:.0f} seconds left).", flush=True)
             time.sleep(pause)
             continue

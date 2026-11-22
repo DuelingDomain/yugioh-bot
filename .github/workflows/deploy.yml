@@ -60,6 +60,7 @@ jobs:
 
     outputs:
       commit: ${{ steps.release.outputs.commit }}
+      bundle_artifact_id: ${{ steps.tested-artifacts.outputs.bundle_id }}
       image_artifact_ids: ${{ steps.tested-artifacts.outputs.image_ids }}
       rollback: ${{ env.DEPLOY_ROLLBACK }}
       superseded: ${{ steps.superseded.outputs.skip }}
@@ -117,6 +118,9 @@ jobs:
       - name: Checkout
         if: ${{ steps.superseded.outputs.skip != 'true' && env.VM_DEPLOY_ENABLED == 'true' }}
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
 
       # Keep deployment controls from the workflow revision, even when deploying an older main SHA.
       - name: Save deployment activity guard
@@ -128,11 +132,12 @@ jobs:
           cp scripts/backup/dueling-backup "$RUNNER_TEMP/dueling-backup"
 
       - name: Checkout deploy ref
-        if: ${{ steps.superseded.outputs.skip != 'true' && env.VM_DEPLOY_ENABLED == 'true' }}
+        if: ${{ steps.superseded.outputs.skip != 'true' && env.VM_DEPLOY_ENABLED == 'true' && (github.event_name == 'workflow_dispatch' || github.workflow_sha != env.DEPLOY_REF) }}
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: ${{ env.DEPLOY_REF }}
           fetch-depth: 1
+          persist-credentials: false
 
       # Ask GitHub for the ancestry so the job needs no full history clone.
       # compare base...head: "ahead" means main is ahead of the deploy ref; "identical" means same commit.
@@ -194,16 +199,8 @@ jobs:
           TEST_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
         run: node scripts/ci/production-artifacts.mjs
 
-      - name: Download tested production bundle
-        if: github.event_name == 'workflow_run' && steps.superseded.outputs.skip != 'true'
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          artifact-ids: ${{ steps.tested-artifacts.outputs.bundle_id }}
-          merge-multiple: true
-          path: ${{ runner.temp }}
-          github-token: ${{ github.token }}
-          run-id: ${{ github.event.workflow_run.id }}
-
+      # Only manual releases produce a bundle here. Automatic releases pass the
+      # verified Test artifact IDs to deploy, where the bundle and images download together.
       - name: Upload verified release controls and bundle
         if: ${{ steps.superseded.outputs.skip != 'true' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -359,11 +356,11 @@ jobs:
           merge-multiple: true
           path: ${{ runner.temp }}/image-digests
 
-      - name: Download tested runtime image digests
+      - name: Download tested production artifacts
         if: github.event_name == 'workflow_run'
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          artifact-ids: ${{ needs.prepare.outputs.image_artifact_ids }}
+          artifact-ids: ${{ needs.prepare.outputs.bundle_artifact_id }},${{ needs.prepare.outputs.image_artifact_ids }}
           merge-multiple: true
           path: ${{ runner.temp }}/image-digests
           github-token: ${{ github.token }}
@@ -408,8 +405,10 @@ jobs:
 
       - name: Prepare deployment transfer
         run: |
-          mkdir -p "$RUNNER_TEMP/deploy-bundle"
-          tar -C "$RUNNER_TEMP/deploy-bundle" -xzf "$RUNNER_TEMP/release/deploy-bundle.tar.gz"
+          if [ "$GITHUB_EVENT_NAME" = workflow_run ]; then
+            mv "$RUNNER_TEMP/image-digests/deploy-bundle.tar.gz" "$RUNNER_TEMP/release/"
+          fi
+          test -s "$RUNNER_TEMP/release/deploy-bundle.tar.gz"
           cp "$RUNNER_TEMP/release/check-prod-activity.py" "$RUNNER_TEMP/check-prod-activity.py"
           cp "$RUNNER_TEMP/release/production-images.sh" "$RUNNER_TEMP/production-images.sh"
           cp "$RUNNER_TEMP/release/prepare-runtime-data.sh" "$RUNNER_TEMP/prepare-runtime-data.sh"
@@ -470,88 +469,43 @@ jobs:
             *) echo "Set the production NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY repository variable." >&2; exit 1 ;;
           esac
           printf '%s' "$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY" | grep -Eq '^pk_live_[A-Za-z0-9_-]+$' || exit 1
-          bundle_tar=$(mktemp "$RUNNER_TEMP/duel-engine.XXXXXX.tar.gz")
           # One SSH connection serves every call below. The pinned host keys still apply to it.
           mux_path=$(mktemp -u "$RUNNER_TEMP/vm-ssh.XXXXXX")
           ssh_opts=(-o StrictHostKeyChecking=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -i ~/.ssh/vm_deploy_key
             -o ControlMaster=auto -o ControlPath="$mux_path" -o ControlPersist=300)
           vm_ssh() { ssh "${ssh_opts[@]}" -p "$VM_PORT" "$VM_USER@$VM_HOST" "$@"; }
           vm_scp() { scp "${ssh_opts[@]}" -P "$VM_PORT" "$@"; }
-          remote_bundle=
-          remote_guard=
-          remote_prepare=
-          remote_images=
-          remote_backup=
-          remote_refs=
+          remote_dir=
           cleanup_transfer() {
-            rm -f "$bundle_tar"
-            if [ -n "$remote_bundle" ]; then
-              vm_ssh \
-                "rm -f -- '$remote_bundle'" || true
+            if [ -n "$remote_dir" ]; then
+              vm_ssh "rm -rf -- '$remote_dir'" || true
             fi
-            if [ -n "$remote_guard" ]; then
-              vm_ssh \
-                "rm -f -- '$remote_guard'" || true
-            fi
-            if [ -n "$remote_prepare" ]; then
-              vm_ssh \
-                "rm -f -- '$remote_prepare'" || true
-            fi
-            if [ -n "$remote_images" ]; then
-              vm_ssh \
-                "rm -f -- '$remote_images'" || true
-            fi
-            if [ -n "$remote_backup" ]; then
-              vm_ssh \
-                "rm -f -- '$remote_backup'" || true
-            fi
-            if [ -n "$remote_refs" ]; then
-              vm_ssh \
-                "rm -f -- '$remote_refs'" || true
-            fi
-            # Close the shared connection after the last cleanup call.
             ssh "${ssh_opts[@]}" -p "$VM_PORT" -O exit "$VM_USER@$VM_HOST" >/dev/null 2>&1 || true
           }
           trap cleanup_transfer EXIT
+          echo "Deploy phase: SSH setup and control transfer"
           # Open the shared connection once. If it fails, each call below connects on its own.
           ssh "${ssh_opts[@]}" -fN -p "$VM_PORT" "$VM_USER@$VM_HOST" || true
-          remote_bundle=$(vm_ssh \
-            'mktemp /tmp/yugidraft-duel-engine.XXXXXX.tar.gz')
-          printf '%s' "$remote_bundle" | grep -Eq '^/tmp/yugidraft-duel-engine\.[A-Za-z0-9]{6}\.tar\.gz$' || exit 1
-          remote_guard=$(vm_ssh \
-            'mktemp /tmp/yugidraft-activity-guard.XXXXXX.py')
-          printf '%s' "$remote_guard" | grep -Eq '^/tmp/yugidraft-activity-guard\.[A-Za-z0-9]{6}\.py$' || exit 1
+          staging=$(vm_ssh 'mktemp -d /tmp/yugidraft-deploy.XXXXXX')
+          [[ "$staging" =~ ^/tmp/yugidraft-deploy\.[A-Za-z0-9]{6}$ ]] || exit 1
+          remote_dir=$staging
+          remote_bundle="$remote_dir/deploy-bundle.tar.gz"
+          remote_guard="$remote_dir/check-prod-activity.py"
+          remote_prepare="$remote_dir/prepare-runtime-data.sh"
+          remote_images="$remote_dir/production-images.sh"
+          remote_backup="$remote_dir/dueling-backup"
+          remote_refs="$remote_dir/image-digests"
           vm_scp \
-            "$RUNNER_TEMP/check-prod-activity.py" "$VM_USER@$VM_HOST:$remote_guard"
-          remote_prepare=$(vm_ssh \
-            'mktemp /tmp/yugidraft-runtime-prepare.XXXXXX.sh')
-          printf '%s' "$remote_prepare" | grep -Eq '^/tmp/yugidraft-runtime-prepare\.[A-Za-z0-9]{6}\.sh$' || exit 1
-          vm_scp \
-            "$RUNNER_TEMP/prepare-runtime-data.sh" "$VM_USER@$VM_HOST:$remote_prepare"
-          remote_images=$(vm_ssh \
-            'mktemp /tmp/yugidraft-images.XXXXXX.sh')
-          printf '%s' "$remote_images" | grep -Eq '^/tmp/yugidraft-images\.[A-Za-z0-9]{6}\.sh$' || exit 1
-          vm_scp \
-            "$RUNNER_TEMP/production-images.sh" "$VM_USER@$VM_HOST:$remote_images"
-          remote_backup=$(vm_ssh \
-            'mktemp /tmp/yugidraft-backup.XXXXXX.py')
-          printf '%s' "$remote_backup" | grep -Eq '^/tmp/yugidraft-backup\.[A-Za-z0-9]{6}\.py$' || exit 1
-          vm_scp \
-            "$RUNNER_TEMP/dueling-backup" "$VM_USER@$VM_HOST:$remote_backup"
-          remote_refs=$(vm_ssh \
-            'mktemp /tmp/yugidraft-image-digests.XXXXXX.txt')
-          printf '%s' "$remote_refs" | grep -Eq '^/tmp/yugidraft-image-digests\.[A-Za-z0-9]{6}\.txt$' || exit 1
-          vm_scp \
-            "$RUNNER_TEMP/release/image-digests" "$VM_USER@$VM_HOST:$remote_refs"
+            "$RUNNER_TEMP/check-prod-activity.py" "$RUNNER_TEMP/prepare-runtime-data.sh" \
+            "$RUNNER_TEMP/production-images.sh" "$RUNNER_TEMP/dueling-backup" \
+            "$RUNNER_TEMP/release/image-digests" "$VM_USER@$VM_HOST:$remote_dir/"
           # Start the layer download now. It overlaps the bundle transfer and the VM safety checks, and changes
           # no tag. It warms only services with a new build-input hash, one at a time, for at most 15 minutes.
           # The verified pull on the VM stays in the script below and waits for it. A failure here is ignored.
           vm_ssh \
             "DEPLOY_IMAGE_INPUTS='$DEPLOY_IMAGE_INPUTS' DEPLOY_ROLLBACK='$DEPLOY_ROLLBACK' nohup timeout 900 sh '$remote_images' warm '$DEPLOY_COMMIT' '$remote_refs' </dev/null >/dev/null 2>&1 &" || true
-          tar -C "$RUNNER_TEMP/deploy-bundle" -czf "$bundle_tar" .
-          vm_scp \
-            "$bundle_tar" \
-            "$VM_USER@$VM_HOST:$remote_bundle"
+          echo "Deploy phase: engine archive transfer"
+          vm_scp "$RUNNER_TEMP/release/deploy-bundle.tar.gz" "$VM_USER@$VM_HOST:$remote_bundle"
           vm_ssh \
             "env DEPLOY_COMMIT='$DEPLOY_COMMIT' DEPLOY_BUNDLE='$remote_bundle' DEPLOY_GUARD='$remote_guard' DEPLOY_RUNTIME_PREPARE='$remote_prepare' DEPLOY_IMAGES='$remote_images' DEPLOY_BACKUP='$remote_backup' DEPLOY_IMAGE_REFS='$remote_refs' DEPLOY_FORCE='$DEPLOY_FORCE' DEPLOY_ROLLBACK='$DEPLOY_ROLLBACK' DEPLOY_WAIT_SECONDS='$DEPLOY_WAIT_SECONDS' DEPLOY_LIVE_ONLY='$DEPLOY_LIVE_ONLY' DEPLOY_SENTRY_RELEASE='$DEPLOY_SENTRY_RELEASE' DEPLOY_IMAGE_INPUTS='$DEPLOY_IMAGE_INPUTS' NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY='$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY' sh -s" <<'REMOTE'
              set -eu
@@ -568,6 +522,7 @@ jobs:
              }
              trap cleanup EXIT
              trap 'exit 1' HUP INT TERM
+             echo "Deploy phase: VM lock and ancestry"
              [ -f "$DEPLOY_RUNTIME_PREPARE" ] || { echo "DEPLOY_RUNTIME_PREPARE must be an existing helper" >&2; exit 1; }
              printf '%s' "$DEPLOY_COMMIT" | grep -Eq '^[0-9a-f]{40}$' || exit 1
              case "$DEPLOY_ROLLBACK" in true|false) ;; *) exit 1 ;; esac
@@ -596,6 +551,7 @@ jobs:
                if [ "$DEPLOY_LIVE_ONLY" = "true" ]; then set -- --live-only; fi
                python3 "$DEPLOY_GUARD" /opt/yugioh-bot/data/bot.sqlite --force "$DEPLOY_FORCE" --wait-seconds "$remaining" "$@"
              }
+             echo "Deploy phase: initial gameplay guard"
              check_prod_activity
              # Preflight, before anything on the VM changes: the install script of the new commit, run in check-only
              # mode on the new bundle. Replay forks never block; every kind idle >10 minutes is ignored,
@@ -603,6 +559,7 @@ jobs:
              # It refuses while a live duel remains and the bundle would be replaced (or, for a new
              # multi core under an identical bundle, while a Tag or free-for-all duel is active). A refusal here leaves
              # the old checkout, the old images and the old containers as they were.
+             echo "Deploy phase: engine bundle preflight"
              bundle_src=$(mktemp -d /tmp/yugidraft-duel-engine-src.XXXXXX)
              # The installer verifies the effect artifact pin relative to its own path, so stage it with the
              # new commit's verifier, pin source and effect data while the checkout still holds the old commit.
@@ -649,7 +606,9 @@ jobs:
              echo "Services to restart: $deploy_services (partial=$partial)"
              # Pull the release digests before backups, retagging or stopping any service.
              # Public GHCR packages need no VM login. A pull failure leaves live tags unchanged.
+             echo "Deploy phase: verify and pull runtime images"
              DEPLOY_SERVICES="$deploy_services" sh "$DEPLOY_IMAGES" pull "$DEPLOY_COMMIT" "$DEPLOY_IMAGE_REFS"
+             echo "Deploy phase: online backup and cutover preparation"
              # Preserve matching rollback code/env and the actual container image IDs before checkout/promotion.
              # Record the previous service set, including its bot image for PR 1 rollback.
              umask 077
@@ -731,11 +690,13 @@ jobs:
              docker image inspect yugioh-bot-worker:latest >/dev/null
              # Recheck after the pulls and promotion, immediately before any production service is stopped.
              # A game may have started since the first check. Refusal leaves production running.
+             echo "Deploy phase: final gameplay guard"
              if ! check_prod_activity; then
                echo "Do not run compose up. Run Deploy again." >&2
                exit 1
              fi
              # Retire the bot container before migration, including rollback to a release without it.
+             echo "Deploy phase: stop writers"
              project=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["name"])' "$runtime_compose")
              if [ "$partial" = 1 ]; then
                stop_services=
@@ -768,17 +729,23 @@ jobs:
                done
                # Caddy is recreated as before, which refreshes its Caddyfile bind mount.
                docker compose -f "$runtime_compose" --project-directory /opt/yugioh-bot rm -f -s $up_services caddy
+               echo "Deploy phase: prepare runtime data"
                sh "$DEPLOY_RUNTIME_PREPARE" data
+               echo "Deploy phase: start services"
                docker compose -f "$runtime_compose" --project-directory /opt/yugioh-bot up -d --no-build --no-deps $up_services caddy $up_bot
              else
+               echo "Deploy phase: drained database backup"
                DUELING_BACKUP_DIR="$release_dir/drained" python3 scripts/backup/dueling-backup
                # With all gameplay services stopped, cancel stale forks and interrupt other stale casual duels without winners.
                # The earlier preflight and gameplay guard only read activity; replay journals survive cleanup.
+               echo "Deploy phase: install engine bundle and settle idle duels"
                if ! DUEL_IDLE_CLOSE=1 DUEL_BUNDLE_SRC="$bundle_src" DUEL_DATA_DIR=/opt/yugioh-bot/data/duel-engine \
                  sh packages/duel-server/scripts/install-engine-bundle.sh; then
                  exit 1
                fi
+               echo "Deploy phase: prepare runtime data for migration"
                sh "$DEPLOY_RUNTIME_PREPARE" data
+               echo "Deploy phase: migration container"
                # The whole script comes on stdin (sh -s): every docker run/exec in it must read /dev/null, or it eats the rest of the script.
                docker compose -f "$runtime_compose" --project-directory /opt/yugioh-bot run --rm --no-deps --pull never worker node --input-type=module -e '
                  import {openDatabase} from "@yugidraft/shared/db";
@@ -789,19 +756,24 @@ jobs:
                    console.log("identity migration verified");
                  } finally {db.close();}
                ' </dev/null
+               echo "Deploy phase: remove old containers"
                docker compose -f "$runtime_compose" --project-directory /opt/yugioh-bot down --remove-orphans
+               echo "Deploy phase: prepare runtime data for startup"
                sh "$DEPLOY_RUNTIME_PREPARE" data
+               echo "Deploy phase: start services"
                docker compose -f "$runtime_compose" --project-directory /opt/yugioh-bot up -d --no-build ws duel web worker caddy $bot_service
              fi
              docker compose -f "$runtime_compose" --project-directory /opt/yugioh-bot ps
              docker compose -f "$runtime_compose" --project-directory /opt/yugioh-bot logs --tail=40
              for service in duel ws worker; do
+               echo "Deploy phase: wait for $service health"
                healthy=0
                # Duel can retry several startup DB phases. A ready service passes
                # immediately; the five-minute health start period is not a sleep.
-               attempts=36
-               if [ "$service" = duel ]; then attempts=72; fi
-               for _attempt in $(seq 1 "$attempts"); do
+               health_wait=180
+               if [ "$service" = duel ]; then health_wait=360; fi
+               health_deadline=$(( $(date +%s) + health_wait ))
+               while :; do
                  container=$(docker compose -f "$runtime_compose" --project-directory /opt/yugioh-bot ps -q "$service")
                  state=$(docker inspect -f '{{.State.Status}} {{.RestartCount}} {{.State.Health.Status}}' "$container")
                  restarts=$(printf '%s\n' "$state" | awk '{print $2}')
@@ -810,7 +782,10 @@ jobs:
                    break
                  fi
                  if [ "$state" = "running 0 healthy" ]; then healthy=1; break; fi
-                 sleep 5
+                 remaining=$(( health_deadline - $(date +%s) ))
+                 if [ "$remaining" -le 0 ]; then break; fi
+                 if [ "$remaining" -gt 2 ]; then remaining=2; fi
+                 sleep "$remaining"
                done
                [ "$healthy" = 1 ] || { docker compose -f "$runtime_compose" --project-directory /opt/yugioh-bot logs --tail=60 "$service"; exit 1; }
              done
@@ -819,6 +794,7 @@ jobs:
              # Next listens on the container's HOSTNAME, not on 127.0.0.1. A restarted web needs time to
              # listen, so retry for up to three minutes. Failure keeps traffic as it is, the same as every
              # other failed check here, and fails the deploy.
+             echo "Deploy phase: login flow smoke check"
              auth_ok=0
              for _attempt in $(seq 1 36); do
                if docker compose -f "$runtime_compose" --project-directory /opt/yugioh-bot exec -T web node -e '
@@ -831,6 +807,7 @@ jobs:
                sleep 5
              done
              [ "$auth_ok" = 1 ] || { docker compose -f "$runtime_compose" --project-directory /opt/yugioh-bot logs --tail=60 web; echo "The login, sign-up or waitlist check failed." >&2; exit 1; }
+             echo "Deploy phase: final health and rollback records"
              # The web container must also still run with no restarts (it has no Compose healthcheck).
              web_state=$(docker inspect -f '{{.State.Status}} {{.RestartCount}}' "$(docker compose -f "$runtime_compose" --project-directory /opt/yugioh-bot ps -q web)")
              if [ "$web_state" != "running 0" ]; then
@@ -959,9 +936,8 @@ jobs:
               "application/vnd.oci.image.index.v1+json", "application/vnd.docker.distribution.manifest.list.v2+json",
               "application/vnd.oci.image.manifest.v1+json", "application/vnd.docker.distribution.manifest.v2+json"
             ];
-            const releases = [];
             // Read every current and target manifest before changing any registry tags.
-            for (const service of services) {
+            const releases = await Promise.all(services.map(async service => {
               const repository = `${context.repo.owner.toLowerCase()}/yugioh-bot-${service}`;
               const auth = Buffer.from(`${context.actor}:${process.env.GHCR_TOKEN}`).toString('base64');
               const response = await fetch(`https://ghcr.io/token?service=ghcr.io&scope=repository:${repository}:pull,push`, {
@@ -984,9 +960,12 @@ jobs:
                 }
                 return { body, type, digest };
               };
-              releases.push({ repository, base, headers, current: await read('production', true), next: await read(digests.get(service)) });
-            }
-            for (const { repository, base, headers, current, next } of releases) {
+              const [current, next] = await Promise.all([read('production', true), read(digests.get(service))]);
+              return { repository, base, headers, current, next };
+            }));
+            // Keep tag order within each repository and finish all writes before releasing
+            // workflow concurrency. A failed write still fails the job.
+            const results = await Promise.allSettled(releases.map(async ({ repository, base, headers, current, next }) => {
               const tag = async (name, manifest) => {
                 // Copy the original manifest bytes: retain the digest without wrapping it in a new index.
                 const response = await fetch(`${base}${name}`, {
@@ -999,7 +978,9 @@ jobs:
               await tag(`release-${process.env.DEPLOY_COMMIT}`, next);
               await tag('production', next);
               core.info(`${repository}:production retains ${next.digest}`);
-            }
+            }));
+            const failures = results.filter(result => result.status === 'rejected').map(result => result.reason);
+            if (failures.length) throw new AggregateError(failures, failures.map(error => error.message).join('\n'));
 
   report-release:
     name: Report healthy release to Sentry
@@ -1013,33 +994,44 @@ jobs:
     permissions:
       contents: read
     steps:
+      - name: Check whether Sentry reporting is configured
+        id: config
+        env:
+          SENTRY_CONFIGURED: ${{ secrets.SENTRY_AUTH_TOKEN != '' && vars.SENTRY_ORG != '' && vars.SENTRY_PROJECT != '' && 'true' || 'false' }}
+        run: |
+          if [ "$SENTRY_CONFIGURED" != true ]; then
+            echo "Sentry upload is not configured; skip release reporting."
+          fi
+          echo "configured=$SENTRY_CONFIGURED" >> "$GITHUB_OUTPUT"
+
       - name: Checkout reporting tools from workflow revision
+        if: steps.config.outputs.configured == 'true'
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: ${{ github.workflow_sha }}
           persist-credentials: false
       - name: Download healthy deployment source maps
+        if: steps.config.outputs.configured == 'true'
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: production-deployed-${{ needs.prepare.outputs.commit }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/deployed-release
       - name: Setup Node.js
+        if: steps.config.outputs.configured == 'true'
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "22"
       - name: Install locked reporting tools without lifecycle scripts
+        if: steps.config.outputs.configured == 'true'
         run: npm ci --ignore-scripts
       - name: Upload source maps and record healthy Sentry release
+        if: steps.config.outputs.configured == 'true'
         env:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           SENTRY_ORG: ${{ vars.SENTRY_ORG }}
           SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
           SENTRY_RELEASE: ${{ needs.prepare.outputs.commit }}
         run: |
-          if [ -z "$SENTRY_AUTH_TOKEN" ] || [ -z "$SENTRY_ORG" ] || [ -z "$SENTRY_PROJECT" ]; then
-            echo "Sentry upload is not configured; skip release reporting."
-            exit 0
-          fi
           # A reused web image keeps the release its source maps were built for.
           if [ -f "$RUNNER_TEMP/deployed-release/sentry-release" ]; then
             candidate=$(cat "$RUNNER_TEMP/deployed-release/sentry-release")
