@@ -19,10 +19,11 @@ See `docs/deployment/duel-engine-switch.md` for the switch and for how to roll b
 
 | File | sha256 |
 | --- | --- |
-| `ocgcore.domain.legacy.wasm` | `42295276e7bbd73018b127c8c4fbce8137b381a5e638f6551368858ec74f298e` |
+| `ocgcore.domain.legacy.wasm` | `e7f8703790f1acd08f2748ebbbe4d194340cd1892b88223e4bf63b6e225d8d3b` |
 | `domain.legacy.lua` (equal to main's `domain.lua`) | `405c8a09716128cb0f63b34f25d9dbed2e9fcf6748d57d45329fb61d2166ae99` |
 
 The original production wasm at `78b8caa` had SHA-256 `1ca9f3187fb534579e843264ba6c06a0b281c81f17fb064c6d4cc66f32c84c3d`. The current wasm includes the owner-approved Deck Master corrections; the Lua stays equal to the original production file.
+Owner-approved change of 2026-11-21 (issue #654): an additional Normal Summon/Set count (Madolche Salon, Gem-Knight Seraphinite) also covers a main deck Deck Master in the DMZ (`is_affect_by_effect` and `is_target` in `src/apply-domain-patch.mjs`; the same two patches as the pinned Domain core). This changed the wasm sha above; the Lua is unchanged.
 The shas are pinned in `expected-sha256.txt`. `scripts/check-legacy-pin.sh <data dir>` checks a data dir against them.
 `build-domain-core.sh`, the deploy, staging and test workflows run it.
 Both builds ran in `docker.io/emscripten/emsdk:4.0.9` with `--user "$(id -u):$(id -g)"`.

@@ -1,11 +1,9 @@
 import { execFileSync } from "node:child_process";
-import { readFileSync, appendFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { posix } from "node:path";
-import { pathToFileURL } from "node:url";
 import ts from "typescript";
-import { engineSources, selectApplicationTests } from "./changed-layers.mjs";
-
-export { selectApplicationTests } from "./changed-layers.mjs";
+import { DIFFERENTIAL_FILES } from "./engine-test-plan.mjs";
+import { isHub, sourceFile, webEngineTest } from "./test-areas.mjs";
 
 const prefix = "packages/duel-server/tests/";
 const webPrefix = "packages/web/tests/";
@@ -15,10 +13,11 @@ const isTest = (file) => /\.(test|spec)\.[cm]?[jt]sx?$/.test(file) && !file.star
  * Never import test modules: some open the database while they are collected.
  * Keep missing dependency paths too, so deleting a helper still runs its callers.
  */
-export function selectTests(sources, changed) {
+export function selectTests(sources, changed, sharedExports = {}) {
   const known = new Set([...Object.keys(sources), ...changed]);
   const graph = new Map();
   for (const [file, text] of Object.entries(sources)) {
+    if (isHub(file)) continue;
     const deps = new Set();
     const directories = new Set();
     // loadScenarios walks join(packageRoot, "tests", "scenarios"). Static imports
@@ -27,12 +26,14 @@ export function selectTests(sources, changed) {
     const add = (reference) => {
       const path = reference.startsWith(".")
         ? posix.normalize(posix.join(posix.dirname(file), reference))
-        : reference.startsWith("tests/") ? posix.join(file.split("/tests/")[0], reference) : "";
+        : reference.startsWith("tests/") ? posix.join(file.split("/tests/")[0], reference)
+        : reference.startsWith("@/") && file.startsWith("packages/web/") ? "packages/web/src/" + reference.slice(2)
+        : sharedTarget(reference, sharedExports);
       if (!path || path.startsWith("../")) return;
       const candidates = /\.[cm]?jsx?$/.test(path)
         ? [path.replace(/\.[cm]?jsx?$/, ".ts"), path.replace(/\.[cm]?jsx?$/, ".tsx"), path]
         : [path, path + ".ts", path + ".tsx", path + ".js", path + "/index.ts"];
-      for (const candidate of candidates) if (known.has(candidate)) deps.add(candidate);
+      for (const candidate of candidates) if (known.has(candidate) && !isHub(candidate)) deps.add(candidate);
       // Also records new files in a directory loaded with readdir/new URL (scenario registry).
       if (reference.endsWith("/") || !posix.extname(path)) directories.add(path.replace(/\/$/, "") + "/");
     };
@@ -43,7 +44,9 @@ export function selectTests(sources, changed) {
         add(node.text);
         // join(dir, "fixture.lua") is a file read, not a module import. Match its readers too.
         if (posix.extname(node.text)) {
-          for (const path of changed) if (posix.basename(path) === posix.basename(node.text)) deps.add(path);
+          for (const path of changed) {
+            if (!sourceFile.test(path) && posix.basename(path) === posix.basename(node.text)) deps.add(path);
+          }
         }
       }
       ts.forEachChild(node, visit);
@@ -54,7 +57,7 @@ export function selectTests(sources, changed) {
     if (isTest(file) && file.startsWith(prefix)) deps.add(prefix + "support/setup.ts");
     graph.set(file, { deps, directories });
   }
-  const affected = new Set(changed);
+  const affected = new Set(changed.filter(file => !isHub(file)));
   for (const file of changed) {
     if (file.endsWith(".snap") && posix.basename(posix.dirname(file)) === "__snapshots__") {
       affected.add(posix.join(posix.dirname(posix.dirname(file)), posix.basename(file).slice(0, -5)));
@@ -74,23 +77,24 @@ export function selectTests(sources, changed) {
   return Object.keys(sources).filter((file) => (file.startsWith(prefix) || file.startsWith(webPrefix)) && isTest(file) && affected.has(file)).sort();
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const changed = execFileSync("git", ["diff", "--name-only", "--no-renames", "-z", `${process.env.BASE}...${process.env.HEAD}`], { encoding: "utf8" }).split("\0").filter(Boolean);
-  if (process.argv.includes("--application")) {
-    const { sources, exports } = engineSources();
-    const selected = selectApplicationTests(sources, changed, exports);
-    console.log(JSON.stringify(selected, null, 2));
-    appendFileSync(process.env.GITHUB_OUTPUT, `files=${JSON.stringify(selected.files)}\nweb_files=${JSON.stringify(selected.webFiles)}\n`);
-  } else {
-    if (!changed.every((file) => file.startsWith(prefix))) throw new Error("Narrow test selection requires a tests-only PR");
-    // A helper can reach a test through src/ or scripts/ (for example the issue registry).
-    // Keep those graph nodes, but emit only duel-server and web test files.
-    const tracked = execFileSync("git", ["ls-files", "-z", "--", "packages/", "scripts/"], { encoding: "utf8" }).split("\0").filter((file) => /\.[cm]?[jt]sx?$/.test(file));
-    const sources = Object.fromEntries(tracked.map((file) => [file, readFileSync(file, "utf8")]));
-    const selected = selectTests(sources, changed);
-    const files = selected.filter((file) => file.startsWith(prefix)).map((file) => file.slice("packages/duel-server/".length));
-    const webFiles = selected.filter((file) => file.startsWith(webPrefix)).map((file) => file.slice("packages/web/".length));
-    console.log(JSON.stringify({ files, webFiles }, null, 2));
-    appendFileSync(process.env.GITHUB_OUTPUT, `files=${JSON.stringify(files)}\nweb_files=${JSON.stringify(webFiles)}\n`);
-  }
+function sharedTarget(reference, exports) {
+  const name = "@yugidraft/shared";
+  if (reference !== name && !reference.startsWith(name + "/")) return "";
+  const subpath = "." + reference.slice(name.length);
+  const entry = exports[subpath];
+  const target = typeof entry === "string" ? entry : entry?.source ?? entry?.default;
+  return target ? "packages/shared/" + target.replace(/^\.\//, "").replace(/^dist\//, "src/") : "";
+}
+
+export function selectEngineFiles(root, changed, engineInventory) {
+  const tracked = execFileSync("git", ["ls-files", "-z", "--", "packages/", "scripts/"], { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] })
+    .split("\0").filter(file => sourceFile.test(file) && existsSync(posix.join(root, file)));
+  const sources = Object.fromEntries(tracked.map(file => [file, readFileSync(posix.join(root, file), "utf8")]));
+  const { exports } = JSON.parse(readFileSync(posix.join(root, "packages/shared/package.json"), "utf8"));
+  const selected = selectTests(sources, changed, exports);
+  const files = selected.filter(file => file.startsWith(prefix))
+    .map(file => file.slice("packages/duel-server/".length))
+    .filter(file => engineInventory.includes(file) && !DIFFERENTIAL_FILES.includes(file));
+  const webFiles = selected.filter(file => webEngineTest(file, sources[file])).map(file => file.slice("packages/web/".length));
+  return { files, webFiles };
 }
