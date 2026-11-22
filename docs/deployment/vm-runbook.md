@@ -138,7 +138,10 @@ Deploy jobs run in the `production` GitHub Environment and require these GitHub 
    Images are identified by their build inputs (`scripts/ci/image-inputs.mjs`: a hash of every tracked file
    that can reach the image, plus the week number, the baked public build settings and, for duel, the bundle files).
    A same-repo PR with app changes prebuilds `web`, `bot`, `ws` and `worker` (job `image-prebuild`, never blocking)
-   and tags them `inputs-<hash>`. On main, `production-images` finds that tag and only stamps the image with the
+   and tags them `inputs-<hash>`. The separate duel prebuild prepares and verifies the production engine tarball
+   and starts its ARM64 build only when the latest successful main image has no matching input hash. Both duel jobs
+   run outside `CI result`. PR and main hash the verified bundle contents, ignoring the two checkout-derived fields
+   in each multi-core `.SOURCE` file. On main, `production-images` finds the matching tag and stamps the image with the
    merge commit (`.github/actions/reuse-production-image`, config-only, no layers move); otherwise it builds as before.
    Reused web images keep their source maps in a 7-day private artifact `web-maps-<hash>`, never in the image.
    The hash follows `.dockerignore` exactly: only root `*.md` and `packages/<name>/test(s)/` are left out, so nested

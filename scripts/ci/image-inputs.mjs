@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { appendFileSync } from 'node:fs';
+import { appendFileSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 // A runtime image is identified by its build inputs, not by the commit that built it.
@@ -46,6 +48,7 @@ const IGNORED = [
 
 export function included(path, service) {
   if (!SERVICE_PACKAGES[service]) throw new Error(`Unknown service: ${service}`);
+  if (service === 'duel' && path.startsWith('.github/actions/prepare-production-bundle/')) return true;
   if (KEEP.some(keep => path === keep || (keep.endsWith('/') && path.startsWith(keep)))) return true;
   const manifest = /^packages\/[^/]+\/package(-lock)?\.json$/.test(path);
   if (manifest) return true;
@@ -77,12 +80,57 @@ export function imageInputsHash(entries, service, salt = []) {
 }
 
 export function listTree(ref) {
-  const output = execFileSync('git', ['ls-tree', '-r', '-z', '--full-tree', ref], { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
+  const output = execFileSync('git', ['ls-tree', '-r', '-z', '--full-tree', ref], {
+    encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'],
+  });
   return output.split('\0').filter(Boolean).map(line => {
     const tab = line.indexOf('\t');
     const [mode, , oid] = line.slice(0, tab).split(' ');
     return { mode, oid, path: line.slice(tab + 1) };
   });
+}
+
+function duelBundleFingerprint(tarball) {
+  if (!tarball) throw new Error('The duel image requires a prepared bundle (IMAGE_BUNDLE).');
+  const directory = mkdtempSync(join(tmpdir(), 'duel-image-bundle-'));
+  const fingerprint = createHash('sha256');
+  function visit(parent = '') {
+    const entries = readdirSync(join(directory, parent), { withFileTypes: true });
+    entries.sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
+    for (const entry of entries) {
+      const path = join(parent, entry.name);
+      const absolute = join(directory, path);
+      if (entry.isDirectory()) {
+        fingerprint.update(`dir\0${path}\0`);
+        visit(path);
+      } else if (entry.isSymbolicLink()) {
+        fingerprint.update(`link\0${path}\0${readlinkSync(absolute)}\0`);
+      } else if (entry.isFile()) {
+        let contents = readFileSync(absolute);
+        if (path === 'ocgcore.multi.SOURCE' || path === 'ocgcore.multi-domain.SOURCE') {
+          // Packaging writes these two fields from the checkout SHA. Keep build provenance,
+          // capabilities and every other field in the hash.
+          const source = contents.toString('utf8');
+          const commit = /^deployedBy=([0-9a-f]{40})$/m.exec(source)?.[1];
+          if (commit && source.startsWith(`tag=deploy-${commit.slice(0, 12)}\n`)) {
+            contents = source.replace(`tag=deploy-${commit.slice(0, 12)}\n`, 'tag=deploy\n')
+              .replace(`\ndeployedBy=${commit}\n`, '\ndeployedBy=\n');
+          }
+        }
+        const digest = createHash('sha256').update(contents).digest('hex');
+        fingerprint.update(`file\0${path}\0${digest}\0`);
+      } else {
+        throw new Error(`Unsupported duel bundle entry: ${path}`);
+      }
+    }
+  }
+  try {
+    execFileSync('tar', ['-xzf', tarball, '-C', directory], { stdio: ['ignore', 'ignore', 'pipe'] });
+    visit();
+    return fingerprint.digest('hex');
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
@@ -92,6 +140,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const names = (process.env.IMAGE_SALT_ENV || '').split(',').map(name => name.trim()).filter(Boolean);
   const salt = [isoWeek(), ...names.map(name => `${name}=${process.env[name] ?? ''}`)];
   if (process.env.IMAGE_SALT_EXTRA) salt.push(process.env.IMAGE_SALT_EXTRA);
+  if (service === 'duel') salt.push(`bundle:${duelBundleFingerprint(process.env.IMAGE_BUNDLE)}`);
   const hash = imageInputsHash(listTree(ref), service, salt);
   if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `hash=${hash}\n`);
   console.log(`${service} image inputs ${hash}`);

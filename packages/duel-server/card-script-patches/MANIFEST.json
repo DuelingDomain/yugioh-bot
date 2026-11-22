@@ -127,5 +127,11 @@
     "stockSha256": "b0d4e574eff8adf932b6c73488c2bc8b2f348064caed1dbe9f8e42762c3deab6",
     "suffix": "c94977269.lua",
     "name": "El Shaddoll Winda"
+  },
+  {
+    "stockPath": "official/c29587993.lua",
+    "stockSha256": "59585a5be9a10fba7c5d0ad61d1160e0bbfcb49c7ddcf040e1d5635f5535fe3f",
+    "suffix": "c29587993.lua",
+    "name": "Mist Valley Apex Avian"
   }
 ]

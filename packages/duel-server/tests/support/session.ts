@@ -1,5 +1,6 @@
 import type { DuelAnswer, DuelCard, DuelEngineView, DuelEvent, DuelPrompt, DuelPromptOption, DuelSeatView } from "@yugidraft/shared/duels";
 import { createEngineGame, type EngineGame } from "../../src/engine.js";
+import { createEngineGame as createLegacyGame } from "../../src/legacy/engine.js";
 import { seatCountFor, teamOfSeat, type DuelFormat } from "@yugidraft/shared/duels";
 import { candidates as matchCandidates, matchesSel as matchSel, pickOne as matchPick, type PromptSel } from "../../src/prompt-match.js";
 import { compileBoard, seatOf, type DuelistId, DUELIST_IDS } from "./board.js";
@@ -131,9 +132,18 @@ export interface ScenarioRun {
 }
 
 /** Runs one scenario. Throws ScenarioError on the first step that fails. */
-export async function runScenario(scenario: Scenario): Promise<void> {
+export function runScenario(scenario: Scenario): Promise<void> {
+  return runScenarioOn(scenario, createEngineGame);
+}
+
+/** Same as runScenario on the legacy 1v1 engine (what DUEL_1V1_ENGINE=legacy hosts). */
+export function runLegacyScenario(scenario: Scenario): Promise<void> {
+  return runScenarioOn(scenario, createLegacyGame as typeof createEngineGame);
+}
+
+async function runScenarioOn(scenario: Scenario, create: typeof createEngineGame): Promise<void> {
   const compiled = compileBoard(scenario.setup);
-  const game = await createEngineGame({
+  const game = await create({
     ...compiled.options,
     seed: scenario.seed ?? ["1", "2", "3", "4"],
     dataDirectory: engineDataDirectory,
