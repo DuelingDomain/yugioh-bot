@@ -13,13 +13,16 @@
 .cameraPanel { grid-area: camera; }
 /* Ready and Start sit on top of the sticky column, so they stay on screen while the camera step scrolls. */
 .side { grid-area: side; position: sticky; top: 24px; display: grid; gap: 16px; min-width: 0; }
-.actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; padding: 16px 18px; border: 1px solid var(--duel-rule); border-radius: 12px; background: linear-gradient(180deg, rgb(19 32 55 / 0.4), rgb(10 17 32 / 0.85)); }
-.primary { display: flex; flex-wrap: wrap; gap: 10px; }
-.actions > :nth-child(2) { margin-left: auto; }
-.closeConfirm { flex-basis: 100%; display: grid; gap: 8px; margin: 0; padding: 12px 14px; border: 1px solid rgb(228 90 77 / 0.4); border-radius: 10px; background: var(--duel-loss-soft); }
+.actions { display: grid; gap: 12px; padding: 16px 18px; border: 1px solid var(--duel-rule); border-radius: 12px; background: linear-gradient(180deg, rgb(19 32 55 / 0.4), rgb(10 17 32 / 0.85)); }
+/* Ready and Start share the row in equal halves; a lone Ready button takes the full width, and narrow cards stack them. */
+.primary { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 140px), 1fr)); gap: 10px; }
+.primary > button { padding-inline: 14px; white-space: nowrap; }
+/* Close, Leave and the close confirmation sit below a rule, full width, at the same height and radius as Ready and Start. */
+.leaveZone { display: grid; margin-top: 4px; padding-top: 14px; border-top: 1px solid var(--duel-rule-lo); }
+.closeConfirm { display: grid; gap: 8px; margin: 0; padding: 12px 14px; border: 1px solid rgb(228 90 77 / 0.4); border-radius: 10px; background: var(--duel-loss-soft); }
 .closeTitle { margin: 0; color: var(--duel-ink); font-size: 15px; font-weight: 450; }
-.closeRow { display: flex; flex-wrap: wrap; gap: 8px; }
-.startHint { flex-basis: 100%; margin: 0; color: var(--duel-ink-3); font-size: 13.5px; }
+.closeRow { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 120px), 1fr)); gap: 10px; margin-top: 4px; }
+.startHint { margin: 0; color: var(--duel-ink-3); font-size: 13.5px; }
 .seatsPanel ul > li { align-content: start; }
 
 /* ---------- seats and decks ---------- */
