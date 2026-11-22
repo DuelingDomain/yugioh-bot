@@ -1,6 +1,7 @@
 /** Full page load. Used to restart a flow from a dead end, which also drops Clerk's in-memory attempt. Tests mock this module. */
-export function hardNavigate(href: string): void {
-  window.location.assign(href);
+export function hardNavigate(href: string, replace = false): void {
+  if (replace) window.location.replace(href);
+  else window.location.assign(href);
 }
 
 /** Restart the current document, preserving its ticket/query/hash even when the URL has a fragment. */

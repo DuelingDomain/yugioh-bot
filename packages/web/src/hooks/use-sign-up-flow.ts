@@ -94,6 +94,31 @@ function useAccountFlow(opts: { ticket: string | null; returnTo: string; callbac
 
   const activeErrors = opts.callback && (resumeKind === "sign-in" || signInSignal?.signIn.status === "complete") ? signInSignal?.errors : signUpSignal.errors;
   const errorKey = JSON.stringify(opts.callback ? [signUpSignal.errors, signInSignal?.errors] : activeErrors);
+  // The person pressed Cancel on Discord. Go back to Sign-in with a neutral note (no spinner, no error). An invite sign-up stays on
+  // this card, which shows the create-account form again. Declared before the error effect so it sees the error first. Any doubt
+  // (a finished attempt, Clerk not loaded, a throw while reading) is not a cancel.
+  useEffect(() => {
+    if (!opts.callback || cancelled.current || loading) return;
+    try {
+      const signIn: Record<string, any> | undefined = latest.current.signInSignal?.signIn;
+      const signUp: Record<string, any> | undefined = latest.current.signUpSignal.signUp;
+      if (signIn?.status === "complete" || signUp?.status === "complete") return;
+      const kind = readResume().kind;
+      const inErrors = latest.current.signInSignal?.errors;
+      const upErrors = latest.current.signUpSignal.errors;
+      const denied = isOAuthCancel({ code: new URLSearchParams(window.location.search).get("error") })
+        || (kind !== "sign-up" && (isOAuthCancel(signIn?.firstFactorVerification?.error) || [...inErrors?.raw ?? [], ...inErrors?.global ?? []].some(isOAuthCancel)))
+        || (kind !== "sign-in" && (isOAuthCancel(signUp?.verifications?.externalAccount?.error) || [...upErrors?.raw ?? [], ...upErrors?.global ?? []].some(isOAuthCancel)));
+      if (!denied) return;
+      cancelled.current = true;
+      if (kind !== "sign-in" && signUp?.emailAddress) return;
+      leaving.current = true;
+      try { sessionStorage.removeItem("dd_auth_resume"); } catch { /* Storage may be disabled. */ }
+      const query = new URLSearchParams({ error: "discord_recovery_cancelled" });
+      if (state.returnTo !== DEFAULT_RETURN) query.set("redirect_url", state.returnTo);
+      hardNavigate(`/sign-in?${query}`, true);
+    } catch { /* Not a cancel: carry on with the normal callback. */ }
+  }, [errorKey, loading, fetching]);
   useEffect(() => {
     if (opts.callback) {
       signalError("sso", "sign-in");
@@ -104,8 +129,8 @@ function useAccountFlow(opts: { ticket: string | null; returnTo: string; callbac
   }, [errorKey]);
 
   const fail = (error: unknown, context: Parameters<typeof mapClerkError>[1]) => {
-    // A cancelled Discord trip is not an error; the cancel effect below sends the person back.
-    if (opts.callback && isOAuthCancel(error)) return;
+    // A cancel the cancel effect handled (leaving, or staying on the invite form) is not an error.
+    if (opts.callback && cancelled.current && isOAuthCancel(error)) return;
     if (context === "sso" && isWaitlistRefusal(error)) { recover(); return; }
     if (mounted.current) dispatch({ type: "error", view: mapClerkError(error, context) });
   };
@@ -173,24 +198,6 @@ function useAccountFlow(opts: { ticket: string | null; returnTo: string; callbac
     }
     return false;
   };
-  // The person pressed Cancel on Discord. Go back to Sign-in with a neutral note (no spinner, no error). A sign-up attempt that
-  // started from an invite stays on this card, which already shows the create-account form again.
-  useEffect(() => {
-    if (!opts.callback || cancelled.current) return;
-    const signIn: Record<string, any> | undefined = latest.current.signInSignal?.signIn;
-    const signUp: Record<string, any> | undefined = latest.current.signUpSignal.signUp;
-    const raw = [...latest.current.signInSignal?.errors?.raw ?? [], ...latest.current.signInSignal?.errors?.global ?? [], ...latest.current.signUpSignal.errors?.raw ?? [], ...latest.current.signUpSignal.errors?.global ?? []];
-    const denied = isOAuthCancel({ code: new URLSearchParams(window.location.search).get("error") }) || isOAuthCancel(signIn?.firstFactorVerification?.error)
-      || isOAuthCancel(signUp?.verifications?.externalAccount?.error) || raw.some(isOAuthCancel);
-    if (!denied) return;
-    cancelled.current = true;
-    if (readResume().kind === "sign-up" && signUp?.emailAddress) return;
-    leaving.current = true;
-    try { sessionStorage.removeItem("dd_auth_resume"); } catch { /* Storage may be disabled. */ }
-    const query = new URLSearchParams({ error: "discord_recovery_cancelled" });
-    if (state.returnTo !== DEFAULT_RETURN) query.set("redirect_url", state.returnTo);
-    hardNavigate(`/sign-in?${query}`);
-  }, [errorKey, loading, fetching]);
   useEffect(() => {
     if (started.current || recovering.current || fetching || loading || leaving.current) return;
     started.current = true;
