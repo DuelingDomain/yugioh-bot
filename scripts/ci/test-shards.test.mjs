@@ -5,7 +5,8 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
 import { balanceFiles, runVitestShard, verifyFiles } from "./test-shards.mjs";
-import { WEB_DATA_SHARDS, WEB_FULL_SHARDS, WEB_TIMING_LANE } from "./web-test-plan.mjs";
+import { selectionOutputs } from "./changed-layers.mjs";
+import { WEB_FULL_SHARDS, WEB_TIMING_LANE } from "./web-test-plan.mjs";
 
 test("places the longest files first and uses a default for new files", () => {
   assert.deepEqual(balanceFiles(["short", "long", "medium", "new"], 2, {
@@ -34,9 +35,14 @@ test("web matrix covers the data shards and the full or PR-selected shard list",
   const { shard } = jobs["unit-web"].strategy.matrix;
   const indices = size => Array.from({ length: size }, (_, index) => index + 1);
   const values = expression => [...expression.matchAll(/'(\[[\d,]+\])'/g)].map(([, json]) => JSON.parse(json));
-  assert.deepEqual(values(shard), [indices(WEB_DATA_SHARDS)]);
+  assert.deepEqual(values(shard), []);
   assert.match(shard, /needs\.changes\.outputs\.web_shards/);
   assert.deepEqual(values(jobs.changes.outputs.web_shards), [indices(WEB_FULL_SHARDS)]);
+  for (const count of [1, 2, 5]) {
+    const web = { files: indices(count).map(index => `tests/card-${index}.test.ts`) };
+    const output = selectionOutputs({ routes: {}, smoke: {}, typecheck: [], engine_diff: [] }, { web });
+    assert.deepEqual(JSON.parse(output.web_shards), indices(Math.min(count, WEB_FULL_SHARDS)));
+  }
   assert.match(jobs["unit-web"].name, /strategy\.job-total/);
   const artifact = jobs["unit-web"].steps.find(step => step.name === "Upload web file timings").with;
   const fullName = value => value.replace("${{ strategy.job-total }}", WEB_FULL_SHARDS).replace("${{ matrix.shard }}", 1);

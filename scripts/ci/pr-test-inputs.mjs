@@ -1,14 +1,13 @@
-import { appendFileSync, existsSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { resolve } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { isDoc, sourceFile } from "./test-areas.mjs";
 
 // Inputs whose effects cannot be bounded by module imports. Keep this list in
 // sync with test setup, runtime loaders, and workspace build entry points.
 const fullSuiteInputs = [
   // Installation, resolution, transforms, generated types and workflow wiring.
   /(?:^|\/)(?:package(?:-lock)?\.json|tsconfig[^/]*\.json|(?:vite|vitest|next|postcss)[^/]*\.config\.[^/]+|\.npmrc|\.nvmrc|turbo\.json)$/,
-  /(?:^|\/)\.env(?:\.|$)|\.d\.[cm]?ts$/,
-  /^(?:\.github\/|patches\/|scripts\/ci\/.*(?:test-inputs|test-files))/,
+  /(?:^|\/)\.env(?:\.|$)/,
 
   // Test bootstrap, global mocks, environment loaders and database initialization.
   /(?:^|\/)(?:__mocks__|mocks|migrations?|schema|fixtures|__snapshots__|seeds?|assets|public|data)\//,
@@ -23,8 +22,6 @@ const fullSuiteInputs = [
   /^packages\/duel-server\/src\/(?:card-effects|card-effect-facets|server)\.ts$/,
 ];
 
-export const sourceFile = /\.[cm]?[jt]sx?$/;
-
 function fullSuiteInput(file) {
   if (fullSuiteInputs.some(pattern => pattern.test(file))) return true;
   // JSON, SQL, CSS, snapshots, media, shell scripts, and new or unknown layouts
@@ -32,18 +29,10 @@ function fullSuiteInput(file) {
   return !sourceFile.test(file) || !/^packages\/[^/]+\/(?:app|src|tests|scripts)\//.test(file);
 }
 
-// The old layer detector doesn't know about these runtime file reads.
-export const extraFullSuites = {
-  web: /^Dockerfile$/,
-  shared: /^packages\/web\/src\/lib\/remote\/card-behaviour-data\.json$/,
-  duel_unit: /^packages\/web\/src\/lib\/(?:remote\/card-(?:logic|behaviour)-data|card-data-history)\.json$/,
-};
-
 export function fullSuiteReason(root, changes) {
-  if (!Array.isArray(changes) || changes.length === 0) return "no usable PR diff";
   for (const file of changes) {
-    if (/\.md$/i.test(file) || file.startsWith("docs/")) continue;
-    if (fullSuiteInput(file)) return `configuration, runtime or unknown input: ${file}`;
+    if (isDoc(file)) continue;
+    if (fullSuiteInput(file)) return `configuration or runtime input: ${file}`;
     if (!existsSync(resolve(root, file))) return `deleted or renamed input: ${file}`;
   }
 }
@@ -64,15 +53,3 @@ export const runtimeDependencies = {
   "packages/duel-server/tests/update-engine-data.test.ts": ["packages/duel-server/scripts/validate-engine-data.ts"],
   "packages/duel-server/tests/verify-deploy-multi-cores.test.ts": ["packages/duel-server/scripts/verify-deploy-multi-cores.mjs"],
 };
-
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const layers = JSON.parse(process.env.CI_LAYERS);
-  const files = JSON.parse(layers.test_diff);
-  const extra = Object.entries(extraFullSuites).filter(([, inputs]) => files.some(file => inputs.test(file)));
-  for (const [suite] of extra) appendFileSync(process.env.GITHUB_OUTPUT, `${suite}=true\n`);
-  if (["web", "shared", "bot", "ws", "worker", "duel_unit"].some(suite => layers[suite] === "true") || extra.length) {
-    const reason = fullSuiteReason(fileURLToPath(new URL("../../", import.meta.url)), files);
-    if (reason) console.log(`PR test selection falls back to full suites: ${reason}`);
-    else appendFileSync(process.env.GITHUB_OUTPUT, "scan=true\n");
-  }
-}

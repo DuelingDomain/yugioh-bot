@@ -2,24 +2,24 @@
 
 Workflow: `.github/workflows/test.yml`. Test layers: [ADR-0003](../adr/0003-duel-test-layers.md).
 
-PRs and main pushes select groups by changed paths and shared import reachability. Main compares with the last successful tested ancestor. Main images build concurrently with checks, but Deploy requires that entire push **Test** to succeed and uses its exact run/attempt artifacts. PR, nightly and manual Test runs never deploy.
+PRs select files by area. Hub and CI wiring changes use fixed smoke files and workspace typechecks. Engine jobs require a direct engine input or a full PR fallback. See [ADR-0003](../adr/0003-duel-test-layers.md).
 
-PR-only `engine_app` coverage puts imported Remote/tournament/series helpers on one host/recording integration runner with dependent web engine tests, instead of all pinned/surrender/legacy shards. Unimported Remote paths skip engine work. Engine/core/data inputs keep the full suites, as do imported helper changes on main. See [ADR-0003](../adr/0003-duel-test-layers.md) for the application boundary and conservative services-barrel handling.
+Main runs the full release test gate on every push. Main images build concurrently with checks, and Deploy requires that entire push **Test** to succeed and uses its exact run/attempt artifacts. PR, nightly and manual Test runs never deploy.
 
-Native ASan/UBSan and differential tests use the separate `core` selection: core C++/Lua sources, patches, source/binary pins, native tooling, core build scripts/toolchain and their CI wiring (including package scripts and the root lockfile). TS-only engine changes skip both on PRs and main pushes. Nightly/manual full runs and unavailable diffs run both. The final CI result accepts their intentional skips and rejects failures, cancellations or skips when core inputs require them.
+PRs select native ASan/UBSan and differential tests for core C++ or Lua sources, patches, pins, native tooling, engine package scripts and other direct core inputs. TypeScript engine runtime changes select the engine suites. Root configuration changes, unavailable PR diffs, main, nightly and manual runs also select native and differential. The final CI result requires every selected group to succeed.
 
 At 03:17 UTC the default-branch schedule selects every app, engine, legacy, surrender, differential, native, rule-coverage, effect-protocol and production dry-run group, plus all four nduel fuzz cases. The final CI result fails for failed/cancelled or missing required work and opens a **Nightly full Test failed** issue unless one is already open. No external secrets are needed for the no-publish dry run or offline effect test; native/engine builds need Docker and the pinned download sources. A manual `gh workflow run test.yml --ref main -f nightly=true` reproduces the full run; `nightly=false` skips only the nduel fuzz. Close the nightly issue after investigating and obtaining a green full run.
 
 ## Purpose
 
-Runs the affected checks, with a full nightly run. A green Test on a push to `main` is what lets [Deploy](deploy.md) start. Once a day it also runs the engine fuzz (`nduel`).
+PRs run affected checks. A green full Test on a push to `main` lets [Deploy](deploy.md) start. The nightly run also includes the engine fuzz (`nduel`).
 
 ## Schedule & triggers
 
 | Trigger | What runs |
 |---|---|
 | Pull request | Affected test groups; docs-only skips tests |
-| Push to `main` | Affected test groups, concurrent production bundle/image builds. Green = deploy starts |
+| Push to `main` | All release test groups, with concurrent production bundle and image builds |
 | Schedule `17 3 * * *` (daily 03:17 UTC) | Every test group, production dry run and `nduel-nightly` |
 | Manual | Inputs `nightly` (default true), `new_card_smoke`, `nduel_seeds` (default 100) |
 
