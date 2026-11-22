@@ -157,6 +157,7 @@
     "tests/scenarios/multiplayer/battlefield-tragedy.test.ts": 3.663,
     "tests/scenarios/multiplayer/black-dragon-return.test.ts": 2.616,
     "tests/scenarios/multiplayer/book-of-eclipse.test.ts": 2.599,
+    "tests/scenarios/multiplayer/both-players-jar.test.ts": 1.5,
     "tests/scenarios/multiplayer/bound-lasting-effects.test.ts": 2.906,
     "tests/scenarios/multiplayer/bound-lock-control-change.test.ts": 2.691,
     "tests/scenarios/multiplayer/bujinki-detach-state.test.ts": 2.165,

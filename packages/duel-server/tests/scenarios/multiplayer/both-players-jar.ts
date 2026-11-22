@@ -7,7 +7,7 @@ import {
 import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
 import { SOURCE } from "./nseat-scenarios.js";
 
-type Format = "ffa3" | "ffa4";
+type Format = "ffa3" | "ffa4" | "tag";
 const JAR = "Cyber Jar";
 const FIELD = ["Giant Rat", "Battle Ox", "Axe Raider", "Silver Fang"];
 const TOP = ["Mystical Elf", "Beaver Warrior", "Celtic Guardian", "Neo the Magic Swordsman"];
@@ -16,6 +16,7 @@ const seat = (n: number) => `p${n}` as DuelistId;
 
 function cyberJar(format: Format): Scenario {
   const n = format === "ffa3" ? 3 : 4;
+  const lp = format === "tag" ? 16000 : 8000;
   const setup: Scenario["setup"] = { format, skipOpeningDraw: true };
   const board: BoardExpect = {};
   const steps: Step[] = [changePosition(JAR, "p0")];
@@ -25,10 +26,11 @@ function cyberJar(format: Format): Scenario {
       deck: [TOP[i], FILLER, FILLER, FILLER, FILLER],
     };
     board[seat(i)] = {
-      lp: 8000, monsters: [TOP[i]], spells: [], hand: [FILLER, FILLER, FILLER, FILLER], banished: [],
+      lp, monsters: [TOP[i]], spells: [], hand: [FILLER, FILLER, FILLER, FILLER], banished: [],
       grave: i === 0 ? [JAR] : [FIELD[i]],
     };
     // The summon happens duelist by duelist from the turn player: one free zone is picked, then the position.
+    // In Tag each member (p0 and p2, p1 and p3) summons to its own field, so no field overflows.
     steps.push(zone(seat(i), "m0", seat(i)), position("atk", seat(i)));
   }
   steps.push(expectBoard(board));
@@ -40,4 +42,4 @@ function cyberJar(format: Format): Scenario {
   });
 }
 
-export const BOTH_PLAYERS_JAR_SCENARIOS: Scenario[] = [cyberJar("ffa3"), cyberJar("ffa4")];
+export const BOTH_PLAYERS_JAR_SCENARIOS: Scenario[] = [cyberJar("ffa3"), cyberJar("ffa4"), cyberJar("tag")];
