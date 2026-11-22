@@ -24,7 +24,24 @@ export function createOwnFeedBuffer(video:HTMLVideoElement,onFrame?:(count:numbe
     if(!stopped)timer=setTimeout(()=>{void capture();},200);
   }
   void capture();
+  // Small grey picture of the live camera for the zone watch (zone-events.ts): a 160 px wide draw, no full-size bitmap.
+  let grayCanvas:OffscreenCanvas|undefined,grayData:Uint8Array|undefined,lastGrayFrame=-1;
+  function gray() {
+    if(stopped||video.readyState<2||!video.videoWidth||!video.videoHeight||(typeof document!=='undefined'&&document.hidden))return undefined;
+    const presented=video.getVideoPlaybackQuality?.()?.totalVideoFrames;
+    if(presented&&presented===lastGrayFrame)return undefined;
+    const w=160,h=Math.max(8,Math.round(w*video.videoHeight/video.videoWidth));
+    if(!grayCanvas||grayCanvas.width!==w||grayCanvas.height!==h){grayCanvas=new OffscreenCanvas(w,h);grayData=new Uint8Array(w*h);}
+    const context=grayCanvas.getContext('2d',{willReadFrequently:true});
+    if(!context)return undefined;
+    context.drawImage(video,0,0,w,h);
+    const rgba=context.getImageData(0,0,w,h).data,out=grayData!;
+    for(let i=0,j=0;j<out.length;i+=4,j++)out[j]=(rgba[i]*77+rgba[i+1]*150+rgba[i+2]*29)>>8;
+    if(presented)lastGrayFrame=presented;
+    return {width:w,height:h,data:out};
+  }
   return {
+    gray,
     sample:(options?:{maxAgeMs?:number})=>serial(async()=>{
       if(stopped)throw new Error('Frame buffer is stopped');
       evict(performance.now());

@@ -52,3 +52,7 @@ export type {ReplayResult,ReplayEvent,ReplayRead,ReplayOptions,ReplayMetrics} fr
 export type { CardReader, ReaderDiagnostics } from './types';
 export {DEFAULT_SET_GUARDS,newSetCardMemory,ignoreSetRegion} from './set-card-evidence';
 export type {SetGuards,SetEvidence,SetDecision,SetCardMemory} from './set-card-evidence';
+export {pickZoneTier} from './zone-events';
+export type {GrayFrame,ZoneTier,TierProbe} from './zone-events';
+export {createZoneInstant} from './zone-instant';
+export type {ZoneInstant,ZoneInstantOptions,ZoneInstantRead,ZoneInstantStats} from './zone-instant';

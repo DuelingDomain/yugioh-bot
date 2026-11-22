@@ -1,8 +1,9 @@
 import { visionPaceFactor } from "@/lib/remote/send-health-store";
+import { zoneInstantOption } from "@/lib/remote/zone-instant-gate";
 import type { RecognizeRawFeed } from "@/lib/remote/video";
-import { relatedPriors, type RelatedCards, type RecognitionPriors } from '@yugidraft/vision';
+import { pickZoneTier, relatedPriors, type RelatedCards, type RecognitionPriors } from '@yugidraft/vision';
 import { voiceHintFor, type Priors } from '@/lib/remote/recognition-priors';
-import { cardReader, reportReaderNote, reportReaderRead, engineBackend, onRecognitionReset, reportBackend, reportGpuFailure, reportReadTime, type EngineBackend } from "./recognition-backend";
+import { cardReader, reportReaderNote, reportReaderRead, engineBackend, onRecognitionReset, reportBackend, reportGpuFailure, reportReadTime, recognitionBackendNow, type EngineBackend } from "./recognition-backend";
 
 /** One guess shown in the tray. `score` is null for guesses that are not image matches. */
 export type Guess = { cardId: number; name: string; score: number | null; source?: "ai" };
@@ -221,18 +222,30 @@ async function sampleFrames(track: MediaStreamTrack, signal: AbortSignal): Promi
   finally { element.pause(); element.srcObject = null; }
 }
 
-let chain: Promise<unknown> = Promise.resolve();
+/** Jobs wait here; the reader runs one at a time. A `high` job (the instant zone read) goes before queued ordinary jobs but never interrupts the running one. */
+const waiting: { high: boolean; run: () => Promise<unknown> }[] = [];
+let working = false;
+function pump() {
+  if (working) return;
+  const next = waiting.shift();
+  if (!next) return;
+  working = true;
+  void next.run().finally(() => { working = false; pump(); });
+}
 let pendingJobs = 0;
 /** Outline (detector) jobs among `pendingJobs`: a new resting card waits only for these, never for a queued read. */
 let pendingDetectJobs = 0;
 /** The reader handles one job at a time (reads and outlines share it). Later jobs wait their turn. */
-function enqueue<T>(job: () => Promise<T>, spectator = false): Promise<T> {
+function enqueue<T>(job: () => Promise<T>, spectator = false, high = false): Promise<T> {
   // Any job that is not a spectator's read is the owner's: it never waits behind a running or queued spectator read.
   if (!spectator) abortSpectatorReads();
   pendingJobs++;
-  const run = chain.then(job, job).finally(() => { pendingJobs--; });
-  chain = run.catch(() => undefined);
-  return run;
+  return new Promise<T>((resolve, reject) => {
+    const item = { high, run: () => Promise.resolve().then(job).then(resolve, reject) };
+    if (high) { const at = waiting.findIndex(w => !w.high); waiting.splice(at < 0 ? waiting.length : at, 0, item); }
+    else waiting.push(item);
+    pump();
+  }).finally(() => { pendingJobs--; });
 }
 /** True while the reader has a job running or queued (the owner's reads and the field watcher). */
 export const readerBusy = () => pendingJobs > 0;
@@ -394,7 +407,7 @@ export function makeRecognizeRawFeed(resolveNames: (ids: number[]) => Promise<Ma
   };
 }
 
-type OwnBuffer = { sample(options?:{maxAgeMs?:number}): Promise<{frame:ImageBitmap;at:number}>; snapshot(): Promise<ImageBitmap[]>; stop(): void };
+type OwnBuffer = { sample(options?:{maxAgeMs?:number}): Promise<{frame:ImageBitmap;at:number}>; gray?(): import("@yugidraft/vision").GrayFrame | undefined; snapshot(): Promise<ImageBitmap[]>; stop(): void };
 let ownBuffer: OwnBuffer | null = null; let ownVideo: HTMLVideoElement | null = null;
 /** Starts the always-on native-resolution frame ring on the own feed. One per page; clicks and remote reads take their frames from it. */
 export function attachOwnFeed(video: HTMLVideoElement) {
@@ -433,9 +446,9 @@ export async function ownFieldResources(getPriors: () => Priors) {
       get separateDetector() { return reader.separateDetector; },
       prepare:(opts?:import("@yugidraft/vision").PrepareOptions)=>enqueue(()=>reader.prepare({priors:priorsFor(found,getPriors()),...opts})).then(info=>{if(info?.backend)reportBackend(info.backend);return info;}),
       detectCards: (frame: ImageBitmap | ImageData, opts?:import("@yugidraft/vision").DetectOptions) => { pendingDetectJobs++; return enqueueScene(reader, () => reader.detectCards(frame as ImageBitmap,opts)).finally(() => { pendingDetectJobs--; }); },
-      recognize: (frames: ImageBitmap[] | ImageData[], opts?: import("@yugidraft/vision").RecognizeOptions) => enqueue(() => reader.recognize(frames as ImageBitmap[], opts)).then(result => { if (result.backend && result.timingsMs) reportBackend(result.backend, result.timingsMs.total); reportReaderRead(result.reader); return result; }) as Promise<import("@yugidraft/vision").RecognitionResult>,
+      recognize: (frames: ImageBitmap[] | ImageData[], opts?: import("@yugidraft/vision").RecognizeOptions) => enqueue(() => reader.recognize(frames as ImageBitmap[], opts), false, opts?.priority === "high").then(result => { if (result.backend && result.timingsMs) reportBackend(result.backend, result.timingsMs.total); reportReaderRead(result.reader); return result; }) as Promise<import("@yugidraft/vision").RecognitionResult>,
     },
-    buffer: { sample: async (options?:{maxAgeMs?:number;urgent?:boolean}) => {
+    buffer: { gray: () => ownBuffer?.gray?.(), sample: async (options?:{maxAgeMs?:number;urgent?:boolean}) => {
       // While the sent video is CPU limited, wait between samples so real passes come at most every slow x 100 ms.
       // Each bitmap belongs to the watcher once returned: always sample a fresh one after the wait.
       // An urgent sample (a new card just came to rest, short window set by the watcher) skips that wait.
@@ -449,6 +462,8 @@ export async function ownFieldResources(getPriors: () => Priors) {
       lastOwnSampleAt = Date.now();
       return sample;
     } },
+    // Per-zone settle watch: own seat only (this bridge is owner-only). Off on phones, low memory and under the kill switches.
+    zoneInstant: zoneInstantOption(pickZoneTier, recognitionBackendNow().backend, recognitionBackendNow().ms),
     getPriors: () => priorsFor(found, getPriors()),
     zoomSets: true, // The own-feed ring supplies native ImageBitmaps.
     cpuBusy: (urgent?: boolean) => (urgent ? pendingDetectJobs : pendingJobs) > 0,
