@@ -5,7 +5,7 @@
 // domain-ffa4-deck-master.test.ts runs it on a live Domain core. Decisions: docs/adr/0002-multiplayer-duel-rules.md.
 
 import {
-  activate, choose, endTurn, expectBoard, expectOffered, expectPrompt, no, normalSummon, yes,
+  activate, choose, endTurn, expectBoard, expectOffered, expectPrompt, no, normalSummon, setCard, yes,
   type Scenario,
 } from "../../support/dsl.js";
 import { defineScenarioWithFfaFirstDraw as defineScenario } from "./ffa-first-draw.js";
@@ -143,6 +143,33 @@ export const DOMAIN_FFA4_DECK_MASTER_SCENARIOS: Scenario[] = [
       normalSummon({ card: "Madolche Magileine", from: "dmz" }, "p0"),
       expectBoard({
         p0: { monsters: ["Madolche Anjelly", "Madolche Magileine"], spells: ["Madolche Salon"], deckMaster: { inZone: false, returns: 0, nextCost: 0 } },
+        p1: { monsters: [], deckMaster: { inZone: true, returns: 0 } },
+        p2: { monsters: [], deckMaster: { inZone: true, returns: 0 } },
+        p3: { monsters: [], deckMaster: { inZone: true, returns: 0 } },
+      }),
+    ],
+  }),
+  defineScenario({
+    id: "domain-ffa4-seraphinite-extra-set-from-the-deck-master-zone",
+    title: "Domain FFA4 (issue #654): after its Normal Summon, p0 uses the additional Set count of Gem-Knight Seraphinite to Set its Deck Master from the Deck Master zone",
+    source: `${SOURCE} [R-COMMON-SEP-FIELDS]: Domain Format rulebook v1.4, Deck Master, "Summoning from the DMZ": a Deck Master can leave the DMZ by being Set and "from the hand" clauses are ignored for it, so an additional Set count for monsters in the hand also covers the Deck Master`,
+    rules: ["R-COMMON-SEP-FIELDS"],
+    tags: ["multiplayer", "domain", "deck-master", "set", "ffa4", "card:3113836"],
+    setup: {
+      mode: "domain",
+      format: "ffa4",
+      p0: { deckMaster: "Celtic Guardian", hand: ["Madolche Anjelly"], monsters: ["Gem-Knight Seraphinite"] },
+      p1: { deckMaster: MASTERS.p1 },
+      p2: { deckMaster: MASTERS.p2 },
+      p3: { deckMaster: MASTERS.p3 },
+    },
+    steps: [
+      normalSummon("Madolche Anjelly", "p0"),
+      choose("opt:0", "p0"),
+      expectOffered("set", { card: "Celtic Guardian", from: "dmz" }, "p0"),
+      setCard({ card: "Celtic Guardian", from: "dmz" }, "p0"),
+      expectBoard({
+        p0: { monsters: ["Gem-Knight Seraphinite", "Madolche Anjelly", "Celtic Guardian"], deckMaster: { inZone: false, returns: 0, nextCost: 0 } },
         p1: { monsters: [], deckMaster: { inZone: true, returns: 0 } },
         p2: { monsters: [], deckMaster: { inZone: true, returns: 0 } },
         p3: { monsters: [], deckMaster: { inZone: true, returns: 0 } },
