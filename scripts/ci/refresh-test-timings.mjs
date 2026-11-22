@@ -19,7 +19,8 @@ function latestRun(lane, timingSets) {
   const ids = [...new Set(candidates.filter(Boolean))].sort((a, b) => Number(b) - Number(a));
   for (const id of ids) {
     const run = JSON.parse(gh("run", "view", id, "--json", "conclusion,event,headBranch,workflowName,url"));
-    if (run.conclusion !== "success" || run.event !== "push" || run.headBranch !== "main" || run.workflowName !== "Test") continue;
+    if (run.conclusion !== "success" || run.event !== "push" || run.headBranch !== "main" ||
+        !["Full Suite", "Test"].includes(run.workflowName)) continue;
     const available = gh("api", "--paginate", `${endpoint}/runs/${id}/artifacts?per_page=100`,
       "--jq", '.artifacts[] | select(.expired == false) | .name').trim().split("\n");
     const artifactNames = timingSets.find(names => names.every(name => available.includes(name)));

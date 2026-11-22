@@ -1,0 +1,107 @@
+name: Full Suite
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  # New pushes supersede one another. An operator rerunning an older SHA
+  # must not cancel the suite for the current push.
+  group: full-suite-main-${{ github.run_attempt == '1' && 'push' || github.run_id }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  suites:
+    uses: ./.github/workflows/test.yml
+    with:
+      full_suite: true
+    # The shared workflow declares these permissions for its other modes.
+    # PR status, nightly issue and production publishing jobs skip in this mode.
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: write
+      packages: write
+      statuses: write
+      issues: write
+
+  report:
+    name: Report full suite result
+    needs: suites
+    if: ${{ !cancelled() && (needs.suites.result == 'success' || needs.suites.result == 'failure') }}
+    concurrency:
+      group: full-suite-main-issue
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+    steps:
+      - name: Open, update or close the full suite issue
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+        env:
+          FULL_SUITE_RESULT: ${{ needs.suites.result }}
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const repository = { owner, repo };
+            const label = 'ci-full-suite-red';
+            const red = process.env.FULL_SUITE_RESULT === 'failure';
+            const issues = await github.paginate(github.rest.issues.listForRepo, {
+              ...repository, state: 'open', labels: label, per_page: 100,
+            });
+            const issue = issues.find(item => !item.pull_request);
+            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+            if (!red && !issue) return;
+
+            let body;
+            if (red) {
+              const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
+                ...repository, run_id: context.runId, filter: 'latest', per_page: 100,
+              });
+              const failed = jobs.filter(job => job.conclusion && !['success', 'skipped', 'neutral'].includes(job.conclusion));
+              body = [
+                `Full Suite failed for \`${context.sha}\` on main. [View the run](${runUrl}).`,
+                '',
+                '### Failed jobs',
+                ...failed.map(job => `- [${job.name}](${job.html_url}) (${job.conclusion})`),
+                ...(failed.length ? [] : ['- See the run for the workflow failure.']),
+                '',
+                '### Manual rollback',
+                'If production is affected, open Actions → Deploy → Run workflow from main.',
+                'Set `ref` to the full SHA of a previous healthy release, set `rollback=true`, and normally leave `force=false` to protect live duels.',
+                `[VM rollback runbook](${context.serverUrl}/${owner}/${repo}/blob/main/docs/deployment/vm-runbook.md#image-rollback)`,
+              ].join('\n');
+            }
+
+            // An older attempt can be rerun after a newer push. Only the current
+            // main revision can change the issue.
+            const { data: main } = await github.rest.repos.getBranch({ ...repository, branch: 'main' });
+            if (main.commit.sha !== context.sha) return;
+            if (!red) {
+              await github.rest.issues.update({
+                ...repository, issue_number: issue.number, state: 'closed', state_reason: 'completed',
+                body: `${issue.body || ''}\n\nFull Suite passed on main for \`${context.sha}\`. [View the run](${runUrl}).`,
+              });
+              return;
+            }
+
+            const title = `Full Suite failed on main (${context.sha.slice(0, 9)})`;
+            if (issue) {
+              await github.rest.issues.update({ ...repository, issue_number: issue.number, title, body });
+              return;
+            }
+            try {
+              await github.rest.issues.getLabel({ ...repository, name: label });
+            } catch (error) {
+              if (error.status !== 404) throw error;
+              await github.rest.issues.createLabel({
+                ...repository, name: label, color: 'b60205', description: 'Post-merge Full Suite is failing on main',
+              });
+            }
+            await github.rest.issues.create({ ...repository, title, body, labels: [label] });

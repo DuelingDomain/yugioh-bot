@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { appendFileSync, existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -38,8 +39,7 @@ function touchedTypechecks(files, { all, root }) {
 }
 
 export function changedLayers(files, event, options = {}) {
-  // Main is the full release gate. Partial PR results can never satisfy it.
-  if (event !== "pull_request" || !files?.length || files.some(globalInput)) return allLayers();
+  if (!selectsAreas(event) || !files?.length || files.some(globalInput)) return allLayers();
   const { typeOnly = new Set(), duelEngineTests, webEngineTests = new Set(), root: workspaceRoot = root } = options;
   const relevant = files.filter(file => !isDoc(file));
   const runtime = relevant.filter(file => !isDeclaration(file) && !typeOnly.has(file));
@@ -112,7 +112,7 @@ export function selectionOutputs(layers, results = {}, event = "pull_request") {
     ...flags, typecheck: typecheck.length ? JSON.stringify(typecheck) : "",
     engine_diff: engine_diff.length ? JSON.stringify(engine_diff) : "",
     effect_smoke: !flags.effects && smoke.effects ? JSON.stringify(smoke.effects) : "",
-    engine_matrix: JSON.stringify(engineMatrix(event === "pull_request" && flags.engine && !flags.tests_only)),
+    engine_matrix: JSON.stringify(engineMatrix(selectsAreas(event) && flags.engine && !flags.full && !flags.tests_only)),
   };
   for (const suite of Object.keys(workspaces)) {
     const result = results[suite];
@@ -131,23 +131,27 @@ export function selectionOutputs(layers, results = {}, event = "pull_request") {
 }
 
 const readCommand = (command, args) => execFileSync(command, args, {
-  encoding: "utf8", stdio: ["ignore", "pipe", "pipe"],
+  encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 8 * 1024 * 1024,
 });
 
-// The changed files, or null when there is no usable PR diff.
-function changedFiles(base, head) {
+const selectsAreas = event => event === "pull_request" || event === "push";
+
+// The changed files, or null when there is no usable diff. The push's
+// deployed ancestor is fetched as a separate shallow snapshot.
+function changedFiles(event, base, head) {
   if (!base || !head || /^0+$/.test(base)) return null;
   try {
-    if (process.env.PR_NUMBER) {
+    if (event === "pull_request" && process.env.PR_NUMBER) {
       const pages = JSON.parse(readCommand("gh", ["api", "--paginate", "--slurp",
         `repos/${process.env.GITHUB_REPOSITORY}/pulls/${process.env.PR_NUMBER}/files?per_page=100`]));
       const entries = pages.flat();
       if (entries.length >= 3000) throw new Error("PR file list may be truncated");
       return entries.flatMap(file => [file.filename, file.previous_filename].filter(Boolean));
     }
-    return readCommand("git", ["diff", "--name-only", "--no-renames", "-z", `${base}...${head}`]).split("\0").filter(Boolean);
+    const range = event === "push" ? `${base}..${head}` : `${base}...${head}`;
+    return readCommand("git", ["diff", "--name-only", "--no-renames", "-z", range]).split("\0").filter(Boolean);
   } catch (error) {
-    console.warn(`No usable PR diff for ${base}..${head}; every group runs. ${error.message}`);
+    console.warn(`No usable diff for ${base}..${head}; every group runs. ${error.message}`);
     return null;
   }
 }
@@ -159,10 +163,13 @@ export function writeOutputs(outputs) {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const event = process.env.EVENT;
-  const files = event === "pull_request" ? changedFiles(process.env.BASE, process.env.HEAD) : null;
+  const files = selectsAreas(event) ? changedFiles(event, process.env.BASE, process.env.HEAD) : null;
   console.log(files === null ? "(full run)" : files.join("\n"));
   const layers = changedLayers(files, event);
   const output = selectionOutputs(layers, {}, event);
+  if (files?.length) {
+    output.diff_hash = createHash("sha256").update(JSON.stringify([...new Set(files)].sort())).digest("hex");
+  }
   // Keep the complete diff in this job's checkout, including large PRs.
   if (!layers.full && files.some(file => !isDoc(file) && !isDeclaration(file) && !ciWiring.test(file) &&
     (sourceFile.test(file) || Object.values(layers.routes).some(route => route.owned.includes(file))))) {
