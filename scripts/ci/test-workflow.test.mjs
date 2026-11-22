@@ -29,7 +29,7 @@ const gateJobs = () => Object.fromEntries(jobs['ci-result'].needs.map(name => [n
 const gate = (results, event = 'workflow_dispatch', nightly = event === 'schedule') => runGate('ci-result', { RESULTS: JSON.stringify(results), EVENT: event, NIGHTLY: String(nightly) });
 
 test('CI result accepts intentional skips and rejects failed or cancelled jobs and detection', () => {
-  assert.deepEqual([...jobs['ci-result'].needs].sort(), Object.keys(jobs).filter(name => !['ci-result', 'image-prebuild'].includes(name)).sort());
+  assert.deepEqual([...jobs['ci-result'].needs].sort(), Object.keys(jobs).filter(name => !['ci-result', 'image-prebuild', 'duel-prebuild-inputs', 'duel-image-prebuild'].includes(name)).sort());
   assert.equal(jobs['ci-result'].if, 'always()');
   assert.equal(gate(gateJobs()), 0);
   for (const name of jobs['ci-result'].needs) {
@@ -263,6 +263,73 @@ test('PR image prebuild is non-blocking, same-repo only and skipped for docs and
   const main = jobs['production-images'].steps;
   assert.equal(main.find(step => step.id === 'reuse').uses, './.github/actions/reuse-production-image');
   assert.equal(main.find(step => step.name === 'Build production image').if, "steps.reuse.outputs.reused != 'true'");
+});
+
+test('duel prebuild uses the production bundle and hash path outside CI result', () => {
+  const main = jobs['production-images'];
+  const [duel] = main.strategy.matrix.include.filter(entry => entry.service === 'duel');
+  const inputs = jobs['duel-prebuild-inputs'];
+  const prebuild = jobs['duel-image-prebuild'];
+  for (const job of [inputs, prebuild]) {
+    assert.equal(job['continue-on-error'], true);
+    assert.doesNotMatch(JSON.stringify(job), /VM_|ssh|deploy-production/);
+  }
+  assert.match(inputs.if, /github\.event\.pull_request\.head\.repo\.full_name == github\.repository/);
+  assert.equal(inputs['runs-on'], jobs['production-bundle']['runs-on']);
+  const prepare = inputs.steps.find(step => step.uses === './.github/actions/prepare-production-bundle');
+  assert.equal(prepare.with['save-cache'], 'false');
+  const hash = inputs.steps.find(step => step.id === 'inputs');
+  const mainHash = main.steps.find(step => step.id === 'inputs');
+  assert.equal(hash.run, mainHash.run);
+  assert.equal(hash.env.IMAGE_SALT_EXTRA, `target:${duel.target}`);
+  assert.equal(hash.env.IMAGE_BUNDLE, inputs.steps.find(step => step.id === 'upload').with.path);
+  assert.deepEqual(prebuild.needs, ['duel-prebuild-inputs']);
+  assert.equal(prebuild.if, "needs.duel-prebuild-inputs.outputs.artifact != ''");
+  assert.equal(prebuild['runs-on'], main['runs-on']);
+  const build = prebuild.steps.find(step => step.uses === './.github/actions/build-production-image');
+  assert.deepEqual(build.with, {
+    ...duel,
+    'bundle-artifact': '${{ needs.duel-prebuild-inputs.outputs.artifact }}',
+    'inputs-hash': '${{ needs.duel-prebuild-inputs.outputs.hash }}',
+    'publish-artifacts': 'false',
+    'write-caches': 'false',
+  });
+});
+
+test('duel prebuild skips the ARM64 runner only for matching main image inputs', t => {
+  const dir = mkdtempSync(join(tmpdir(), 'duel-prebuild-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const output = join(dir, 'output');
+  const commit = 'a'.repeat(40);
+  const hash = 'b'.repeat(64);
+  const inputs = jobs['duel-prebuild-inputs'];
+  const compare = inputs.steps.find(step => step.id === 'compare');
+  assert.equal(inputs.steps.find(step => step.id === 'upload').if, "steps.compare.outputs.build == 'true'");
+  writeFileSync(join(dir, 'gh'), '#!/bin/sh\nprintf "%s\\n" "$MAIN_COMMIT"\n', { mode: 0o755 });
+  writeFileSync(join(dir, 'docker'), '#!/bin/sh\ntest "${6##*:}" = "$MAIN_COMMIT" && test -n "$MAIN_IMAGE" && printf "%s\\n" "$MAIN_IMAGE"\n', { mode: 0o755 });
+  const image = (inputsHash, revision = commit, architecture = 'arm64') => JSON.stringify({
+    os: 'linux', architecture, config: { Labels: { 'org.opencontainers.image.revision': revision, 'dev.duelingdomain.inputs': inputsHash } },
+  });
+  for (const [mainImage, mainCommit, expected] of [
+    [image(hash), commit, ''],
+    [image('c'.repeat(64)), commit, 'build=true\n'],
+    [image(hash, 'd'.repeat(40)), commit, 'build=true\n'],
+    [image(hash, commit, 'amd64'), commit, 'build=true\n'],
+    ['', commit, 'build=true\n'],
+    [image(hash), '', 'build=true\n'],
+  ]) {
+    writeFileSync(output, '');
+    const result = spawnSync('bash', ['-e', '-o', 'pipefail', '-c', compare.run], {
+      env: {
+        ...process.env, PATH: `${dir}:${process.env.PATH}`, GITHUB_OUTPUT: output, GITHUB_REPOSITORY: 'DuelingDomain/yugioh-bot',
+        IMAGE: 'ghcr.io/duelingdomain/yugioh-bot-duel', INPUTS_HASH: hash, MAIN_COMMIT: mainCommit, MAIN_IMAGE: mainImage,
+      },
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(readFileSync(output, 'utf8'), expected, mainImage);
+  }
 });
 
 test('automatic releases consume bundle and digests from the exact triggering Test run', () => {
