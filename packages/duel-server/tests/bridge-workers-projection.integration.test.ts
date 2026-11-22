@@ -8,13 +8,12 @@ import { createBridgeService } from "@yugidraft/shared/services";
 import { BridgeApi } from "../src/bridge-api.js";
 import { DeckSuggestionWorkers, type BridgeScan } from "../src/deck-suggestion-workers.js";
 import { seedIdentity } from "./helpers/identity.js";
-import { FAST_QUERY_TIMEOUT_MS, writeEffectDatabase } from "./helpers/bridge-worker-database.js";
+import { effectFileDatabase, FAST_QUERY_TIMEOUT_MS } from "./helpers/bridge-worker-database.js";
 
 describe("bridge scanner isolation", () => {
   it("projects full engines requests off the file-DB host loop and observes external feedback", async () => {
     const directory = mkdtempSync(join(tmpdir(), "bridge-worker-projection-"));
-    writeEffectDatabase(join(directory, "app.sqlite"));
-    const db = new Database(join(directory, "app.sqlite"));
+    const db = effectFileDatabase(join(directory, "app.sqlite"));
     db.pragma("journal_mode = WAL");
     const actor = seedIdentity(db), row = createBridgeService(db).bridgeBetween("Odion", "Argostars")!;
     const evidence = buildBridgeJudgeEvidence(db, row)!;

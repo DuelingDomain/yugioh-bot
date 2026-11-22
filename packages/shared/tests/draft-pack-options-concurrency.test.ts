@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it } from "vitest";
-import { migrate } from "../src/db/index.js";
+import { migratedFileDatabase } from "./helpers/memory-database.js";
 import { createDraftService } from "../src/services/drafts.js";
 
 // These tests do real disk-backed SQLite lock interleaving.
@@ -13,7 +13,7 @@ it("allows a concurrent pick during a pack read that cannot swap", () => {
   let interleave = false;
   let writeResult: string | undefined;
   let concurrentPick = () => {};
-  const db = new Database(join(dir, "draft.sqlite"), { verbose(sql) {
+  const db = migratedFileDatabase(join(dir, "draft.sqlite"), { verbose(sql) {
     if (interleave && String(sql).includes("select 1 from draft_passes")) {
       interleave = false;
       try { concurrentPick(); writeResult = "picked"; }
@@ -22,7 +22,6 @@ it("allows a concurrent pick during a pack read that cannot swap", () => {
   } });
   const other = new Database(join(dir, "draft.sqlite"), { timeout: 0 });
   try {
-    migrate(db);
     for (const name of ["A", "B"]) seedIdentity(db, { guildId: "g", name: name, userId: seedUser(db, name).userId, discordUserId: seedUser(db, name).discordUserId ?? name });
     for (let id = 1; id <= 24; id++) db.prepare("insert into card_catalog (ygoprodeck_id, name, type, frame_type, image_url, image_url_small, card_sets_json, cached_at) values (?, ?, 'Normal Monster', 'normal', 'i', 'i', '[]', 't')").run(id, `Card ${id}`);
     const drafts = createDraftService(db, { seedSource: () => 7 });
@@ -53,10 +52,9 @@ it("allows a concurrent pick during a pack read that cannot swap", () => {
 
 it.each([false, true])("reads an ordinary pack without acquiring a write lock (copyLimit %s)", (copyLimit) => {
   const dir = mkdtempSync(join(tmpdir(), "draft-options-read-"));
-  const db = new Database(join(dir, "draft.sqlite"), { timeout: 0 });
+  const db = migratedFileDatabase(join(dir, "draft.sqlite"), { timeout: 0 });
   const writer = new Database(join(dir, "draft.sqlite"));
   try {
-    migrate(db);
     for (const name of ["A", "B"]) seedIdentity(db, { guildId: "g", name: name, userId: seedUser(db, name).userId, discordUserId: seedUser(db, name).discordUserId ?? name });
     for (let id = 1; id <= 24; id++) db.prepare("insert into card_catalog (ygoprodeck_id, name, type, frame_type, image_url, image_url_small, card_sets_json, cached_at) values (?, ?, 'Normal Monster', 'normal', 'i', 'i', '[]', 't')")
       .run(id, `Card ${id}`);
@@ -76,10 +74,9 @@ it.each([false, true])("reads an ordinary pack without acquiring a write lock (c
 
 it.each(["empty", "capped artwork"])("reads a fully capped pack without a write lock when the undealt pile is %s", (pile) => {
   const dir = mkdtempSync(join(tmpdir(), "draft-options-capped-read-"));
-  const db = new Database(join(dir, "draft.sqlite"), { timeout: 0 });
+  const db = migratedFileDatabase(join(dir, "draft.sqlite"), { timeout: 0 });
   const writer = new Database(join(dir, "draft.sqlite"));
   try {
-    migrate(db);
     for (const name of ["A", "B"]) seedIdentity(db, { guildId: "g", name: name, userId: seedUser(db, name).userId, discordUserId: seedUser(db, name).discordUserId ?? name });
     for (let id = 1; id <= 24; id++) db.prepare("insert into card_catalog (ygoprodeck_id, name, type, frame_type, image_url, image_url_small, card_sets_json, cached_at) values (?, ?, 'Normal Monster', 'normal', 'i', 'i', '[]', 't')")
       .run(id, `Card ${id}`);
@@ -118,7 +115,7 @@ it("rechecks eligibility under the swap lock and stores one swap across retries"
   let interleave = false;
   let writeResult: string | undefined;
   let concurrentPick = () => {};
-  const db = new Database(join(dir, "draft.sqlite"), { verbose(sql) {
+  const db = migratedFileDatabase(join(dir, "draft.sqlite"), { verbose(sql) {
     if (interleave && String(sql).includes("select 1 from draft_passes") && db.inTransaction) {
       interleave = false;
       try { concurrentPick(); writeResult = "picked"; }
@@ -127,7 +124,6 @@ it("rechecks eligibility under the swap lock and stores one swap across retries"
   } });
   const other = new Database(join(dir, "draft.sqlite"), { timeout: 0 });
   try {
-    migrate(db);
     for (const name of ["A", "B"]) seedIdentity(db, { guildId: "g", name: name, userId: seedUser(db, name).userId, discordUserId: seedUser(db, name).discordUserId ?? name });
     for (let id = 1; id <= 24; id++) db.prepare("insert into card_catalog (ygoprodeck_id, name, type, frame_type, image_url, image_url_small, card_sets_json, cached_at) values (?, ?, 'Normal Monster', 'normal', 'i', 'i', '[]', 't')").run(id, `Card ${id}`);
     const drafts = createDraftService(db, { seedSource: () => 7 });

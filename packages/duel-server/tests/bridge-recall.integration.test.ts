@@ -1,8 +1,6 @@
 import { bridgeQueryFixture } from "./helpers/bridge-query-fixture.js";
-import Database from "better-sqlite3";
 import { describe, expect, it, vi } from "vitest";
-import { migrate } from "@yugidraft/shared/db";
-import { BRIDGE_JUDGE_FRAMINGS, bridgeGate, buildBridgeJudgeEvidence, importBridgeArtifact, makeBridgeJudgementRecord,
+import { BRIDGE_JUDGE_FRAMINGS, bridgeGate, buildBridgeJudgeEvidence, makeBridgeJudgementRecord,
   rankEngineCandidates, coPlayPair, saveBridgeJudgement, shownBridge, type ArchetypeBridge } from "@yugidraft/shared/cards/effects";
 import { createBridgeService } from "@yugidraft/shared/services";
 import { BridgeApi } from "../src/bridge-api.js";
@@ -11,6 +9,7 @@ import { bridgeProjectionRows, type BridgeProjectionInput } from "../src/bridge-
 import { searchBridgeEngines } from "../src/bridge-multi-search.js";
 import type { BridgeScan } from "../src/deck-suggestion-workers.js";
 import { seedIdentity } from "./helpers/identity.js";
+import { bridgeDatabase } from "./helpers/bridge-worker-database.js";
 
 vi.mock("node:fs", async original => {
   const { withPinnedBridgeObservations } = await import("./helpers/pinned-bridge-observations.js");
@@ -42,7 +41,7 @@ it("reuses a still-valid accepted line when a scan discovers alternative evidenc
 });
 
 function fixture() {
-  const db = new Database(":memory:"); migrate(db); importBridgeArtifact(db);
+  const db = bridgeDatabase();
   const queries = new BridgeEngineQueries(db), service = createBridgeService(db);
   const review = (row: ArchetypeBridge, verdicts: readonly ("valid" | "invalid")[] = ["valid", "valid"], line?: string[]) => {
     const evidence = buildBridgeJudgeEvidence(db, row)!;

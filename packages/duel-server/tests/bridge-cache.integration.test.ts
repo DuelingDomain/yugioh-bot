@@ -6,14 +6,13 @@ import { describe, expect, it } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
 import { storedBridgeEngine } from "../../shared/dist/cards/effects/bridge-graph-store.js";
 import { createBridgeService, createCardCatalogService } from "@yugidraft/shared/services";
-import { writeEffectDatabase } from "./helpers/bridge-worker-database.js";
+import { effectFileDatabase } from "./helpers/bridge-worker-database.js";
 
 describe("bridge engine cache and host isolation", () => {
   it("reuses the graph after catalog-only writes, and invalidates for capability and graph changes across connections", async () => {
     const directory = mkdtempSync(join(tmpdir(), "bridge-cache-"));
     const path = join(directory, "app.sqlite");
-    writeEffectDatabase(path);
-    const db = new Database(path);
+    const db = effectFileDatabase(path);
     const external = new Database(db.name);
     try {
       db.prepare(`INSERT INTO card_catalog(ygoprodeck_id,name,type,frame_type,effect_text,image_url,image_url_small,card_sets_json,cached_at)

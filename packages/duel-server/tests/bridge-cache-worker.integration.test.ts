@@ -9,14 +9,13 @@ import { storedBridgeLegalIds } from "../../shared/dist/cards/effects/bridge-leg
 import { BridgeApi } from "../src/bridge-api.js";
 import { DeckSuggestionWorkers } from "../src/deck-suggestion-workers.js";
 import { seedIdentity } from "./helpers/identity.js";
-import { writeBridgeDatabase, writeEffectDatabase } from "./helpers/bridge-worker-database.js";
+import { bridgeFileDatabase, effectFileDatabase } from "./helpers/bridge-worker-database.js";
 
 describe("bridge engine cache and host isolation", () => {
   it("builds cold and revised legality sets in a scanner and retries a stale worker snapshot", async () => {
     const directory = mkdtempSync(join(tmpdir(), "bridge-worker-legality-"));
     const path = join(directory, "app.sqlite");
-    writeBridgeDatabase(path);
-    const db = new Database(path);
+    const db = bridgeFileDatabase(path);
     db.pragma("journal_mode = WAL");
     const external = new Database(db.name);
     let calls = 0;
@@ -78,8 +77,7 @@ describe("bridge engine cache and host isolation", () => {
   it("keeps cold directed list projection and deep engine resolution out of the host catalog scan", async () => {
     const directory = mkdtempSync(join(tmpdir(), "bridge-cold-host-"));
     const path = join(directory, "app.sqlite");
-    writeEffectDatabase(path);
-    const db = new Database(path);
+    const db = effectFileDatabase(path);
     const identity = seedIdentity(db), workers = new DeckSuggestionWorkers(db, directory);
     const api = new BridgeApi(db, workers);
     const original = db.prepare.bind(db);
@@ -103,8 +101,7 @@ describe("bridge engine cache and host isolation", () => {
   it("projects directed deep results and next engines in one worker request within the status deadline", async () => {
     const directory = mkdtempSync(join(tmpdir(), "bridge-status-budget-"));
     const path = join(directory, "app.sqlite");
-    writeBridgeDatabase(path);
-    const db = new Database(path);
+    const db = bridgeFileDatabase(path);
     const identity = seedIdentity(db), workers = new DeckSuggestionWorkers(db, directory);
     vi.spyOn(workers, "bridgeCandidates").mockResolvedValue([]);
     let now = Date.now();

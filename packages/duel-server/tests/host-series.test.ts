@@ -102,6 +102,7 @@ class FakeWorker implements DuelGameWorker {
 }
 
 const hosts: DuelHost[] = [];
+const databases: Database.Database[] = [];
 
 afterEach(async () => {
   vi.useRealTimers();
@@ -109,16 +110,19 @@ afterEach(async () => {
     const host = hosts.pop();
     if (host) await host.close();
   }
+  for (const db of databases.splice(0)) db.close();
   vi.unstubAllEnvs();
 });
 
 function insertPlayer(db: Database.Database, discordUserId: string, displayName: string) {
-  return seedIdentity(db, { guildId: GUILD, name: displayName, userId: seedUser(db, discordUserId).userId, discordUserId: seedUser(db, discordUserId).discordUserId ?? discordUserId }).playerId;
+  const user = seedUser(db, discordUserId);
+  return seedIdentity(db, { guildId: GUILD, name: displayName, userId: user.userId, discordUserId: user.discordUserId ?? discordUserId }).playerId;
 }
 
 function setup() {
   vi.stubEnv("DUEL_DATA_DIR", DATA);
   const db = migratedMemoryDatabase();
+  databases.push(db);
   return {
     db,
     duels: createDuelService(db),

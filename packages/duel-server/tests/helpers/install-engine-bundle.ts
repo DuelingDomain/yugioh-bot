@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import Database from "better-sqlite3";
 import { afterEach } from "vitest";
+import { migratedFileDatabase } from "./memory-database.js";
 
 const script = fileURLToPath(new URL("../../scripts/install-engine-bundle.sh", import.meta.url));
 const roots: string[] = [];
@@ -63,7 +64,7 @@ interface Fixture {
 }
 
 /** `installed` is what the VM holds, `incoming` is the new bundle. The database sits next to the data directory. */
-export function fixture(installed: { tag: string; multi?: string }, incoming: { tag: string; multi?: string }, duels: Array<{ format: string | null; status: string }>): Fixture {
+export function fixture(installed: { tag: string; multi?: string }, incoming: { tag: string; multi?: string }, duels?: Array<{ format: string | null; status: string }>): Fixture {
   const root = mkdtempSync(join(tmpdir(), "install-bundle-"));
   roots.push(root);
   const dst = join(root, "data", "engine-bundle");
@@ -72,7 +73,12 @@ export function fixture(installed: { tag: string; multi?: string }, incoming: { 
   mkdirSync(src, { recursive: true });
   writeBundle(dst, installed);
   writeBundle(src, incoming);
-  const db = new Database(join(root, "data", "bot.sqlite"));
+  const databasePath = join(root, "data", "bot.sqlite");
+  if (!duels) {
+    migratedFileDatabase(databasePath).close();
+    return { src, dst, root };
+  }
+  const db = new Database(databasePath);
   const withFormat = duels.every((duel) => duel.format !== null);
   db.exec(withFormat ? "create table duels (id integer primary key, status text, format text)" : "create table duels (id integer primary key, status text)");
   for (const duel of duels) {
@@ -95,6 +101,7 @@ export function incompleteFixture(legacy: false | "bad-hash"): Fixture {
 export function run(f: Fixture, preflight: boolean, idleClose?: string): { status: number | null; out: string } {
   const result = spawnSync("sh", [script], {
     encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
     env: { PATH: process.env.PATH ?? "", DUEL_BUNDLE_SRC: f.src, DUEL_DATA_DIR: f.dst,
       ...(preflight ? { DUEL_PREFLIGHT: "1" } : {}), ...(idleClose === undefined ? {} : { DUEL_IDLE_CLOSE: idleClose }) },
   });

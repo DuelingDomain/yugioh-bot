@@ -1,17 +1,15 @@
 import { join } from "node:path";
 import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
-import { migrate } from "@yugidraft/shared/db";
 import { seedIdentity } from "./helpers/identity.js";
 import { fixture, run, snapshot } from "./helpers/install-engine-bundle.js";
 import { createDuelSeriesService, createDuelService } from "@yugidraft/shared/services";
 
 describe("install-engine-bundle.sh idle duels with the application schema", () => {
   it.each(["ranked", "tournament", "closed tournament"])("preserves an idle %s for host settlement while replacing the bundle", kind => {
-    const f = fixture({ tag: "old" }, { tag: "new" }, []);
+    const f = fixture({ tag: "old" }, { tag: "new" });
     const db = new Database(join(f.root, "data", "bot.sqlite"));
     try {
-      db.exec("drop table duels"); migrate(db);
       const owner = seedIdentity(db, { guildId: "g", name: "Owner" }).playerId;
       const guest = seedIdentity(db, { guildId: "g", name: "Guest" }).playerId;
       const series = createDuelSeriesService(db);
@@ -44,10 +42,9 @@ describe("install-engine-bundle.sh idle duels with the application schema", () =
   });
 
   it.each([undefined, "0", "true"])("leaves stale duel rows for the host to close during container startup (DUEL_IDLE_CLOSE=%s)", idleClose => {
-    const f = fixture({ tag: "old" }, { tag: "new" }, []);
+    const f = fixture({ tag: "old" }, { tag: "new" });
     const db = new Database(join(f.root, "data", "bot.sqlite"));
     try {
-      db.exec("drop table duels"); migrate(db);
       const owner = seedIdentity(db, { guildId: "g", name: "Owner" }).playerId;
       const service = createDuelService(db);
       const duel = service.create({ guildId: "g", organizerPlayerId: owner, name: "Stale", mode: "normal" });

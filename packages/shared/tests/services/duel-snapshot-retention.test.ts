@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { migrate } from "../../src/db/index.js";
+import { migratedFileDatabase, migratedMemoryDatabase } from "../helpers/memory-database.js";
 import { createDuelService } from "../../src/services/duels.js";
 import { readStoredBoard, storedTurnCount } from "../../src/services/stored-duel-snapshots.js";
 import { runDuelSnapshotRetention, duelSnapshotRetentionConfig } from "../../src/services/duel-snapshot-retention.js";
@@ -19,7 +19,8 @@ beforeEach(() => {
 });
 const now = Date.parse("2026-10-11T12:00:00Z");
 function fixture(path = ":memory:") {
-  const db = new Database(path); databases.push(db); db.pragma("foreign_keys=on"); migrate(db);
+  const db = path === ":memory:" ? migratedMemoryDatabase() : migratedFileDatabase(path);
+  databases.push(db); db.pragma("foreign_keys=on");
   seedIdentity(db, { guildId: "retention-test", playerId: 1, userId: 101 });
   return { db, duels: createDuelService(db) };
 }

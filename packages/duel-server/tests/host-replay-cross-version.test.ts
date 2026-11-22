@@ -1,10 +1,10 @@
-import type Database from "better-sqlite3";
+import Database from "better-sqlite3";
 import { signedRequestHeaders } from "@yugidraft/shared/internal-auth";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gzipSync } from "node:zlib";
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, expect, it, vi } from "vitest";
 import { migratedMemoryDatabase } from "./helpers/memory-database.js";
 import { createDuelService } from "@yugidraft/shared/services";
 import { seatCountFor, type DuelEngineView, type EngineIdentity, type ReplaySource } from "@yugidraft/shared/duels";
@@ -26,30 +26,45 @@ const identity: EngineIdentity = { version: 1, coreFamily: "legacy", mode: "norm
 let db: Database.Database, dir: string, host: DuelHost, slug: string, duelId: number;
 let workers: ReplayWorker[], configure: (worker: ReplayWorker) => void;
 let currentBundleVersion: string;
+let savedSource: Buffer;
 function start(extra: Partial<Parameters<typeof createDuelHost>[0]> = {}) {
   host = createDuelHost({ db, dataDirectory: dir, secret, searchCards: () => [], pollIntervalMs: 60_000,
     createWorker: () => { const worker = new ReplayWorker(); configure(worker); workers.push(worker); return worker; }, ...extra });
 }
-beforeEach(async () => {
+beforeAll(async () => {
+  const template = migratedMemoryDatabase();
+  const source = replaySource();
+  const worker = new ReplayWorker();
+  try {
+    for (const [playerId, userId] of [[61, 101], [64, 201], [65, 202]]) seedIdentity(template, { guildId: owner.guildId, playerId, userId });
+    const service = createDuelService(template);
+    const session = service.create({ guildId: owner.guildId, organizerPlayerId: 64, name: "Source fixture", mode: "normal" });
+    slug = session.slug;
+    duelId = session.id;
+    service.takeSeat(slug, owner.guildId, 65, 1);
+    template.prepare("update duel_seats set deck_json=?, ready=1 where duel_id=?").run(JSON.stringify(source.decks[0]), duelId);
+    template.prepare("update duels set status='active',seed_json=?,bundle_version=?,setup_json=? where id=?")
+      .run(JSON.stringify(source.seed), source.bundleVersion, JSON.stringify({ ...source.setup, engineIdentity: identity }), duelId);
+    for (const entry of source.commands) template.prepare("insert into duel_commands(duel_id,seq,seat,command_json) values(?,?,?,?)")
+      .run(duelId, entry.storedSeq, entry.seat, JSON.stringify(entry.command));
+    await worker.create({ mode: "normal", decks: source.decks, seed: source.seed, dataDirectory: "fixture" });
+    worker.revision = 3;
+    service.complete(slug, owner.guildId, 0, "Finished", { public: await worker.view(null), seats: [await worker.view(0), await worker.view(1)] });
+    savedSource = template.serialize();
+  } finally {
+    await worker.close();
+    template.close();
+  }
+});
+beforeEach(() => {
   vi.stubEnv("OWNER_USER_IDS", "101");
-  db = migratedMemoryDatabase(); dir = mkdtempSync(join(tmpdir(), "replay-cross-version-"));
+  db = new Database(savedSource);
+  dir = mkdtempSync(join(tmpdir(), "replay-cross-version-"));
   writeFileSync(join(dir, "manifest.json"), JSON.stringify({ bundleVersion: "test-bundle" }));
   currentBundleVersion = "test-bundle";
   vi.spyOn(EngineResourceCache.prototype, "get").mockImplementation(async () => ({ dataDirectory: dir,
     bundleVersion: currentBundleVersion, rawBundleVersion: currentBundleVersion, identity }));
-  for (const [playerId, userId] of [[61, 101], [64, 201], [65, 202]]) seedIdentity(db, { guildId: owner.guildId, playerId, userId });
-  const service = createDuelService(db), session = service.create({ guildId: owner.guildId, organizerPlayerId: 64, name: "Source fixture", mode: "normal" });
-  slug = session.slug; duelId = session.id; service.takeSeat(slug, owner.guildId, 65, 1);
-  const source = replaySource();
-  db.prepare("update duel_seats set deck_json=?, ready=1 where duel_id=?").run(JSON.stringify(source.decks[0]), duelId);
-  db.prepare("update duels set status='active',seed_json=?,bundle_version=?,setup_json=? where id=?")
-    .run(JSON.stringify(source.seed), source.bundleVersion, JSON.stringify({ ...source.setup, engineIdentity: identity }), duelId);
-  for (const entry of source.commands) db.prepare("insert into duel_commands(duel_id,seq,seat,command_json) values(?,?,?,?)")
-    .run(duelId, entry.storedSeq, entry.seat, JSON.stringify(entry.command));
-  const worker = new ReplayWorker(); await worker.create({ mode: "normal", decks: source.decks, seed: source.seed, dataDirectory: dir });
-  worker.revision = 3;
-  service.complete(slug, owner.guildId, 0, "Finished", { public: await worker.view(null), seats: [await worker.view(0), await worker.view(1)] });
-  await worker.close(); workers = []; configure = () => {}; start();
+  workers = []; configure = () => {}; start();
 });
 afterEach(async () => { await host.close(); db.close(); rmSync(dir, { recursive: true, force: true }); vi.restoreAllMocks(); vi.unstubAllEnvs(); });
 async function post(input: Record<string, unknown> = {}) {

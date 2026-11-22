@@ -1,6 +1,6 @@
 import type Database from "better-sqlite3";
 import { rmSync } from "node:fs";
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from "vitest";
 import { migratedMemoryDatabase } from "./helpers/memory-database.js";
 import { seatCountFor, type DuelClockState, type DuelEngineView, type DuelFormat, type DuelSession, type DuelVisibility } from "@yugidraft/shared/duels";
 import { createDuelSeriesService, createDuelService } from "@yugidraft/shared/services";
@@ -15,6 +15,13 @@ const MINUTE = 60_000;
 const SWEEP = 1_000;
 const SECRET = "live-idle-test";
 const cleanups: Array<() => Promise<void>> = [];
+let directory: string;
+let multiScriptsHash: string | null;
+beforeAll(() => {
+  directory = createHostDataFixture([]);
+  multiScriptsHash = activeMultiScriptsHash(directory);
+});
+afterAll(() => { if (directory) rmSync(directory, { recursive: true, force: true }); });
 beforeEach(() => vi.useFakeTimers());
 afterEach(async () => {
   while (cleanups.length) await cleanups.pop()!();
@@ -23,7 +30,6 @@ afterEach(async () => {
 
 function table(format: DuelFormat = "1v1", idleMs = 0, clock: DuelClockState | null = null, ranked = false, start = true, visibility: DuelVisibility = "public",
   beforeBoot?: (t: { db: Database.Database; session: DuelSession; players: number[] }) => void) {
-  const directory = createHostDataFixture([]);
   const db = migratedMemoryDatabase();
   const players = Array.from({ length: seatCountFor(format) }, (_, seat) =>
     seedIdentity(db, { guildId: "g", name: `P${seat}` }).playerId);
@@ -36,7 +42,7 @@ function table(format: DuelFormat = "1v1", idleMs = 0, clock: DuelClockState | n
   }
   for (const player of players) service.setDeck(session.slug, "g", player, { main: Array(40).fill(1), extra: [], side: [] });
   const activate = (initialClock: DuelClockState | null) => service.activate(session.slug, "g", players[0]!, ["1", "2", "3", "4"],
-    pinnedEngineVersion("fixture", players.length, activeMultiScriptsHash(directory)), initialClock, { firstTurnDraw: false });
+    pinnedEngineVersion("fixture", players.length, multiScriptsHash), initialClock, { firstTurnDraw: false });
   if (start) session = activate(clock);
   db.prepare("update duels set last_activity_at = ? where id = ?").run(new Date(Date.now() - idleMs).toISOString(), session.id);
   let running = true, revision = 1, turn = 1;
@@ -60,7 +66,7 @@ function table(format: DuelFormat = "1v1", idleMs = 0, clock: DuelClockState | n
   const startHost = () => createDuelHost({ db, dataDirectory: directory, secret: SECRET, searchCards: () => [], pollIntervalMs: SWEEP,
     idleWorkerMs: 24 * 60 * MINUTE, createWorker: () => worker, onChange: slug => { changes.push(slug); } });
   let host = startHost();
-  cleanups.push(async () => { await host.close(); db.close(); rmSync(directory, { recursive: true, force: true }); });
+  cleanups.push(async () => { await host.close(); db.close(); });
   const post = async (op: string, extra = {}) => {
     const body = JSON.stringify({ op, slug: session.slug, guildId: "g", playerId: players[0], ...extra });
     return host.handle(new Request("http://localhost/internal/duel", { method: "POST", body,

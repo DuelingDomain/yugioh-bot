@@ -4,8 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { migrate } from "@yugidraft/shared/db";
-import { migratedMemoryDatabase } from "./helpers/memory-database.js";
+import { migratedFileDatabase, migratedMemoryDatabase } from "./helpers/memory-database.js";
 import { importBridgeArtifact, type ArchetypeBridge } from "@yugidraft/shared/cards/effects";
 import { BridgeReviewUnavailableError, BridgeSearchJobs } from "../src/bridge-search-jobs.js";
 
@@ -106,8 +105,8 @@ describe("persistent bridge deep-search admission and lifecycle", () => {
   it("uses only reads for an absent join under a held writer lock and rejects starts with 503", async () => {
     const directory = mkdtempSync(join(tmpdir(), "bridge-admission-lock-"));
     const statements: string[] = [];
-    const db = new Database(join(directory, "app.sqlite"), { verbose: sql => { statements.push(String(sql)); } });
-    db.pragma("journal_mode = WAL"); migrate(db);
+    const db = migratedFileDatabase(join(directory, "app.sqlite"), { verbose: sql => { statements.push(String(sql)); } });
+    db.pragma("journal_mode = WAL");
     const execute = vi.fn(async () => []);
     const jobs = new BridgeSearchJobs(db, { execute, project: () => ({ results: [], inReview: 0 }), version: () => "admission-lock", completionTimeoutMs: 1 });
     const writer = new Database(db.name);
@@ -191,8 +190,8 @@ describe("persistent bridge deep-search admission and lifecycle", () => {
 
   it("keeps a finished result through a real SQLite writer lock longer than five seconds", async () => {
     const directory = mkdtempSync(join(tmpdir(), "bridge-completion-lock-"));
-    const db = new Database(join(directory, "app.sqlite"));
-    db.pragma("journal_mode = WAL"); migrate(db);
+    const db = migratedFileDatabase(join(directory, "app.sqlite"));
+    db.pragma("journal_mode = WAL");
     const writer = new Database(db.name);
     let release!: () => void;
     const gate = new Promise<void>(resolve => { release = resolve; });

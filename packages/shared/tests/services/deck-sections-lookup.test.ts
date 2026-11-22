@@ -5,7 +5,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { migrate } from "../../src/db/index.js";
+import { migratedFileDatabase } from "../helpers/memory-database.js";
+import { fileDatabaseFixture } from "../helpers/sqlite-memory-fixture.mjs";
 import { assertExtraDeckCards } from "../../src/duels/extra-deck.js";
 import { canonicalCardCode } from "../../src/duels/pool.js";
 import { loadArtworkIdentityCatalog } from "../../src/services/card-artworks.js";
@@ -20,26 +21,29 @@ const MAGIA = 12381100;
 const FAIRY = 43321985;
 const PRE_RELEASE = 100459004;
 
-beforeEach(() => {
-  directory = mkdtempSync(join(tmpdir(), "deck-type-lookup-"));
-  const data = join(directory, "data");
-  engineDirectory = join(data, "duel-engine");
-  mkdirSync(engineDirectory, { recursive: true });
-  db = new Database(join(data, "bot.sqlite"));
-  migrate(db);
-  db.prepare("insert into users(id,username,display_name) values (1,'owner','Owner')").run();
-  const engine = new Database(join(engineDirectory, "cards.cdb"));
+const engineDatabase = fileDatabaseFixture(engine => {
   engine.exec("create table datas(id integer primary key, alias integer, type integer); create table texts(id integer primary key, name text);");
+  const insertData = engine.prepare("insert into datas values (?,?,?)");
+  const insertText = engine.prepare("insert into texts values (?,?)");
   for (const [id, alias, type, name] of [
     [MAGIA, 0, 97, "Dragon Master Magia"], [FAIRY, 0, 8225, "Ancient Fairy Life Dragon"],
     [1546123, 0, 97, "Cyber End Dragon"], [1546124, 1546123, 97, "Cyber End Dragon"],
     [PRE_RELEASE, 0, 97, "Blue-Eyes Ultimate Dragon, the God-Surpassing Servant"],
     [55144522, 0, 2, "Pot of Greed"],
   ] as const) {
-    engine.prepare("insert into datas values (?,?,?)").run(id, alias, type);
-    engine.prepare("insert into texts values (?,?)").run(id, name);
+    insertData.run(id, alias, type);
+    insertText.run(id, name);
   }
-  engine.close();
+});
+
+beforeEach(() => {
+  directory = mkdtempSync(join(tmpdir(), "deck-type-lookup-"));
+  const data = join(directory, "data");
+  engineDirectory = join(data, "duel-engine");
+  mkdirSync(engineDirectory, { recursive: true });
+  db = migratedFileDatabase(join(data, "bot.sqlite"));
+  db.prepare("insert into users(id,username,display_name) values (1,'owner','Owner')").run();
+  engineDatabase(join(engineDirectory, "cards.cdb")).close();
   // npm workspace / Next dev can start with a package directory as cwd.
   vi.spyOn(process, "cwd").mockReturnValue(join(directory, "packages", "web"));
   vi.stubEnv("DATABASE_PATH", db.name);

@@ -22,6 +22,12 @@ let directory: string, db: Database.Database, host: DuelHost, playerId: number, 
 const effectDatabase = memoryDatabaseFixture(db => {
   migrate(db);
   importCardEffectArtifact(db);
+  const insert = db.prepare(`INSERT INTO card_catalog
+    (ygoprodeck_id,name,type,frame_type,effect_text,attribute,level,archetype,image_url,image_url_small,card_sets_json,cached_at)
+    VALUES(?,?,?,?,?,?,?,?,'fixture','fixture','[]','now')`);
+  insert.run(BLUE, "Blue-Eyes White Dragon", "Dragon / Normal Monster", "normal", "A powerful dragon.", "LIGHT", 8, "Blue-Eyes");
+  insert.run(SEARCH, "Summoner's Art", "Spell Card", "spell", "Add 1 Level 5 or higher Normal Monster from your Deck to your hand.", null, null, null);
+  for (let n = 0; n < 100; n++) insert.run(500000000 + n, `Unrelated catalog card ${n}`, "Spell Card", "spell", "", null, null, null);
 });
 
 beforeAll(() => {
@@ -40,12 +46,6 @@ beforeEach(() => {
   vi.stubEnv("EFFECT_SEARCH", "1"); vi.stubEnv("DECK_SUGGESTIONS", "1"); vi.stubEnv("BRIDGES_ENABLED", "0"); vi.stubEnv("DUEL_STANDARD_1V1_ENGINE", "pinned");
   db = effectDatabase();
   ({ playerId, userId } = seedIdentity(db));
-  const insert = db.prepare(`INSERT INTO card_catalog
-    (ygoprodeck_id,name,type,frame_type,effect_text,attribute,level,archetype,image_url,image_url_small,card_sets_json,cached_at)
-    VALUES(?,?,?,?,?,?,?,?,'fixture','fixture','[]','now')`);
-  insert.run(BLUE, "Blue-Eyes White Dragon", "Dragon / Normal Monster", "normal", "A powerful dragon.", "LIGHT", 8, "Blue-Eyes");
-  insert.run(SEARCH, "Summoner's Art", "Spell Card", "spell", "Add 1 Level 5 or higher Normal Monster from your Deck to your hand.", null, null, null);
-  for (let n = 0; n < 100; n++) insert.run(500000000 + n, `Unrelated catalog card ${n}`, "Spell Card", "spell", "", null, null, null);
   host = createDuelHost({ db, dataDirectory: directory, secret: SECRET, searchCards: () => [],
     createWorker: vi.fn(() => { throw new Error("Suggestions must not create an engine worker"); }) });
 });

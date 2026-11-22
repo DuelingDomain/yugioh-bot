@@ -1,17 +1,15 @@
 import { join } from "node:path";
 import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
-import { migrate } from "@yugidraft/shared/db";
 import { seedIdentity } from "./helpers/identity.js";
 import { fixture, run, snapshot } from "./helpers/install-engine-bundle.js";
 import { createDuelService } from "@yugidraft/shared/services";
 
 describe("install-engine-bundle.sh idle duels with the application schema", () => {
   it.each([9, 11, 1800])("ignores a fork idle for %i minutes and cancels stale forks only after services stop", minutes => {
-    const f = fixture({ tag: "old" }, { tag: "new" }, []);
+    const f = fixture({ tag: "old" }, { tag: "new" });
     const db = new Database(join(f.root, "data", "bot.sqlite"));
     try {
-      db.exec("drop table duels"); migrate(db);
       const owner = seedIdentity(db, { guildId: "g", name: "Owner" }).playerId;
       db.prepare(`insert into duels (guild_id, web_slug, name, organizer_player_id, mode, kind, status, last_activity_at)
         values ('g', 'idle-fork', 'Fork', ?, 'normal', 'replay-fork', 'active', datetime('now', ?))`).run(owner, `-${minutes} minutes`);
@@ -44,10 +42,9 @@ describe("install-engine-bundle.sh idle duels with the application schema", () =
   });
 
   it.each(["1v1", "tag", "ffa3", "ffa4"] as const)("closes stale %s duels after stop but still refuses a live duel", format => {
-    const f = fixture({ tag: "old", multi: "m1" }, { tag: "new", multi: "m2" }, []);
+    const f = fixture({ tag: "old", multi: "m1" }, { tag: "new", multi: "m2" });
     const db = new Database(join(f.root, "data", "bot.sqlite"));
     try {
-      db.exec("drop table duels"); migrate(db);
       const owner = seedIdentity(db, { guildId: "g", name: "Owner" }).playerId;
       const service = createDuelService(db);
       const create = (name: string) => service.create({ guildId: "g", organizerPlayerId: owner, name, mode: "normal", format });

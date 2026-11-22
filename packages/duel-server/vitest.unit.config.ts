@@ -7,6 +7,7 @@ import { duelTestFiles } from "../../scripts/ci/duel-test-files.mjs";
 export default mergeConfig(config, defineConfig({
   test: {
     include: duelTestFiles().unit,
-    maxWorkers: process.env.CI ? availableParallelism() : undefined,
+    // Host and bridge suites also start their own workers. Leave room for them and Vite.
+    maxWorkers: process.env.CI ? Math.max(1, availableParallelism() - 1) : undefined,
   },
 }));
