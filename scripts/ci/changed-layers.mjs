@@ -273,21 +273,25 @@ export function changedLayers(files, event, { serviceBarrelAppOnly = false } = {
   return { ...areas, data_only, effects, prod_build, docs_only: files.length > 0 && files.every(isDoc), engine, engine_app, core, golden, tests_only };
 }
 
+const readCommand = (command, args) => execFileSync(command, args, {
+  encoding: "utf8", stdio: ["ignore", "pipe", "pipe"],
+});
+
 // The changed files, or null when there is no usable diff (then every job runs).
 function changedFiles(event, base, head) {
   if (!["pull_request", "push"].includes(event) || !base || !head || ZERO_SHA.test(base)) return null;
   try {
     if (event === "pull_request" && process.env.PR_NUMBER) {
-      const pages = JSON.parse(execFileSync("gh", ["api", "--paginate", "--slurp",
-        `repos/${process.env.GITHUB_REPOSITORY}/pulls/${process.env.PR_NUMBER}/files?per_page=100`], { encoding: "utf8" }));
+      const pages = JSON.parse(readCommand("gh", ["api", "--paginate", "--slurp",
+        `repos/${process.env.GITHUB_REPOSITORY}/pulls/${process.env.PR_NUMBER}/files?per_page=100`]));
       const entries = pages.flat();
       // The API caps file lists at 3000. An incomplete list must never skip coverage.
       if (entries.length >= 3000) throw new Error("PR file list may be truncated");
       return entries.flatMap(file => [file.filename, file.previous_filename].filter(Boolean));
     }
-    if (event === "push") execFileSync("git", ["merge-base", "--is-ancestor", base, head]);
+    if (event === "push") readCommand("git", ["merge-base", "--is-ancestor", base, head]);
     const range = event === "pull_request" ? `${base}...${head}` : `${base}..${head}`;
-    return execFileSync("git", ["diff", "--name-only", "--no-renames", "-z", range], { encoding: "utf8" }).split("\0").filter(Boolean);
+    return readCommand("git", ["diff", "--name-only", "--no-renames", "-z", range]).split("\0").filter(Boolean);
   } catch (error) {
     console.warn(`No usable diff for ${event} ${base}..${head}; every job runs. ${error.message}`);
     return null;
@@ -305,11 +309,11 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     try {
       let before;
       try {
-        before = execFileSync("git", ["show", `${base}:${serviceBarrel}`], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+        before = readCommand("git", ["show", `${base}:${serviceBarrel}`]);
       } catch {
         // PR detection uses a shallow checkout. Read just this base file rather
         // than fetching the full history or installing compiler dependencies.
-        const response = JSON.parse(execFileSync("gh", ["api", `repos/${process.env.GITHUB_REPOSITORY}/contents/${serviceBarrel}?ref=${base}`], { encoding: "utf8" }));
+        const response = JSON.parse(readCommand("gh", ["api", `repos/${process.env.GITHUB_REPOSITORY}/contents/${serviceBarrel}?ref=${base}`]));
         before = Buffer.from(response.content, "base64").toString("utf8");
       }
       serviceBarrelAppOnly = remoteBarrelEdit(before, readFileSync(new URL("../../" + serviceBarrel, import.meta.url), "utf8"));
@@ -318,6 +322,12 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     }
   }
   const outputs = { ...changedLayers(files, event, { serviceBarrelAppOnly }), base: base ?? "", head: head ?? "" };
+  if (event === "pull_request" && files !== null) {
+    const testDiff = JSON.stringify(files);
+    // GitHub carries this through a Linux environment variable in the next step.
+    if (Buffer.byteLength(testDiff) <= 64 * 1024) outputs.test_diff = testDiff;
+    else console.warn("PR diff is too large to pass to the selector; running full suites in the selected groups.");
+  }
   console.log(outputs);
   for (const [key, value] of Object.entries(outputs)) appendFileSync(process.env.GITHUB_OUTPUT, `${key}=${value}\n`);
 }
