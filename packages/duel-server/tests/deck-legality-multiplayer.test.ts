@@ -84,7 +84,6 @@ describe("multiplayer forbidden list in deck validation", () => {
   it.each([
     [54475145, "Heart of the Blue-Eyes"],
     [100461101, "Arcana Force VIII - The Strength"],
-    [100464005, "Finger Game"],
   ] as const)("restricts the November 16 risk %s to 1v1", (code, name) => {
     for (const mode of ["normal", "domain"] as const) for (const validateDeck of [true, false]) {
       const deck: DuelDeck = { main: [code], extra: [], side: [code], ...(mode === "domain" ? { deckMaster: code } : {}) };

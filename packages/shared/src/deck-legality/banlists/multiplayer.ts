@@ -39,7 +39,6 @@ export const MULTIPLAYER_FORBIDDEN: readonly MultiplayerForbidden[] = [
   // --- 2026-11-16 data review: docs/audits/2026-11-16-engine-data-review.md
   { code: 54475145, name: "Heart of the Blue-Eyes", category: "global-state", reason: "Its Ankh flag and summon-event group need a live multiplayer proof that the flag belongs to the correct seat or team and only the chosen opponent's summoned monsters are sent to the GY.", formats: ALL },
   { code: 100461101, name: "Arcana Force VIII - The Strength", category: "control-swap", reason: "Its coin effect saves a folded opponent before the result. Both control branches need an explicit chosen opponent, including one opposing member in Tag, and a live multiplayer proof.", formats: ALL },
-  { code: 100464005, name: "Finger Game", category: "symmetry", reason: "Its each-player effect reads exactly two Decks and compares a declaration from 0 to 4 with four excavated cards. Multiplayer participation and the counting range need an owner decision and an adapted script.", formats: ALL },
   // --- 2026-11-09 data review: docs/audits/2026-11-09-engine-data-review.md
   // Stock scripts need multiplayer adaptation before admission.
   { code: 101403005, name: "Amazoness Chain Master - Brink of Death Chain Dance", category: "chooser", reason: "Its GY trigger does not declare one opponent. The Level 10 choice, summon and random hand discard must all use that same chosen opponent, including one opposing member in Tag.", formats: ALL },
@@ -305,6 +304,7 @@ const CARD_RULE_DRAFTS: readonly MultiplayerCardRuleDraft[] = [
   // --- count rules: one opponent in free-for-all, the joined opposing fields in Tag
   { code: 90669991, name: "Pineapple Blast", rule: `${PICK_ONE_COUNT} Only the monsters of that opponent are destroyed, and that opponent chooses their own monsters, as in 1v1. ${JOINED_COUNT} The count uses the monsters of both opposing members together.` },
   { code: 15693423, name: "Evenly Matched", rule: `${PICK_ONE_COUNT} Only the cards of that opponent are banished, and that opponent chooses their own cards, as in 1v1. ${JOINED_COUNT} The count uses the cards of both opposing members together.` },
+  { code: 100464005, name: "Finger Game", rule: "Owner exception to the each-player rule. In free-for-all and Tag, you pick one opponent when you activate it, as in 1v1. Only you and that opponent place 2 cards, declare a number from 0 to 4 and excavate 2 cards, so the number of monsters is counted among 4 cards. The other duelists are not affected. In Tag the picked opponent is one duelist of the other team." },
   // --- effect that Special Summons a card or tokens to the field of an opponent
   ...OPPONENT_FIELD_EFFECT_SUMMON.map(([code, name]) => ({ code, name, rule: OPPONENT_FIELD_SUMMON })),
   // --- other cards that compare you with the opponents, or roll against one opponent (owner-reviewed 2026-10-01)
@@ -363,6 +363,7 @@ export const CARD_RULE_PROOF: Readonly<Record<number, readonly MultiplayerFormat
   10000080: ["ffa3"], // The Winged Dragon of Ra - Sphere Mode
   90669991: ["ffa3", "ffa4", "tag"], // Pineapple Blast
   15693423: ["ffa3", "ffa4", "tag"], // Evenly Matched
+  100464005: ["ffa3", "tag"], // Finger Game (owner exception)
   29843091: ["ffa3", "ffa4", "tag"], // Ojama Trio
   71645242: ["ffa3", "tag"], // Black Garden
   80551022: ["ffa3"], // Mimighoul Slime

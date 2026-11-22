@@ -332,6 +332,12 @@ Droll & Lock Bird (94145021) is allowed in FFA3, FFA4 and Tag. The former FFA ba
 
 The catalog checks the real deck-validation result for Main Deck, Side Deck and Domain Deck Master positions in all three formats. Tag already had no multiplayer ban. The web duel deck editor displays the server's validation report; it has no separate copy of this ban. Normal format banlist copy limits still apply.
 
+## Owner 2026-11-22: Finger Game
+
+Finger Game (100464005) is allowed in FFA3, FFA4 and Tag. The card says "each player", but the owner rules that the activating duelist picks ONE opponent (R-COMMON-OPP-PICK) and only those two duelists play: each places 2 cards from their own Deck, declares a number from 0 to 4 and excavates 2 cards, so the monsters are counted among 4 cards, as in 1v1. The other duelists are not affected. In Tag the picked opponent is one duelist of the other team. This is an owner exception to R-COMMON-EACH-PLAYER.
+
+Overlay: `c100464005.lua` (`MPTarget` on the target, `MPOne` on the operation). Live proof: `finger-game.ts` (FFA3 and Tag: the picked opponent and the activator play, the other Decks stay untouched).
+
 ## Group (c): restricted multiplayer formats
 
 The deck check refuses these cards at the listed tables. "Tag too" says if the card also breaks in 2v2 Tag. Alternate-art passcodes are caught through the `alias` column of `cards.cdb` Exodia and Nibiru alternate arts are allowed under the owner 2026-10-18 rules.
