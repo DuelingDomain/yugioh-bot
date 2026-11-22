@@ -1,3 +1,4 @@
+// CI timing probe (temporary)
 import { errorResponseBody, report, log } from "@yugidraft/shared/observability";
 import { signedTransport } from "@yugidraft/shared/internal-auth";
 import { NextResponse } from "next/server";
