@@ -26,6 +26,13 @@ export const areas = {
     ],
     suites: ["duel_unit"],
     smoke: { duel_unit: ["tests/sort-response.test.ts"] },
+    // Real-core tests for the trusted main gate, separate from no-core area smoke.
+    smokeFiles: [
+      "tests/standard-engine-worker.test.ts",
+      "tests/scenarios/domain.test.ts",
+      "tests/scenarios/multiplayer/rule-proof-ffa-order.test.ts",
+      "tests/scenarios/multiplayer/rule-proof-tag-order.test.ts",
+    ],
   },
   effects: {
     paths: /^(?:scripts\/effects\/|packages\/shared\/(?:src\/cards\/effects|data\/effects)\/|packages\/duel-server\/src\/card-effect[^/]*\.ts$)/,

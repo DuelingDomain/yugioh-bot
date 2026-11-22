@@ -27,6 +27,19 @@ export function findReusableRun(api, downloadProof, selection) {
   return undefined;
 }
 
+export function readTreeProof(zipBytes) {
+  const dir = mkdtempSync(join(process.env.RUNNER_TEMP ?? tmpdir(), "pr-proof-"));
+  try {
+    const zip = join(dir, "proof.zip");
+    writeFileSync(zip, zipBytes);
+    return JSON.parse(execFileSync("unzip", ["-p", zip, "proof.json"], {
+      encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 64 * 1024,
+    }));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const git = ref => execFileSync("git", ["rev-parse", ref], { encoding: "utf8" }).trim();
   const gh = path => execFileSync("gh", ["api", `repos/${process.env.GITHUB_REPOSITORY}/${path}`], {
@@ -38,18 +51,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     if (EVENT === "pull_request") {
       appendFileSync(GITHUB_OUTPUT, `tree=${tree}\nparent=${git("HEAD^1")}\n`);
     } else if (EVENT === "push" && BASELINE && DIFF_HASH) {
-      const run = findReusableRun(path => JSON.parse(gh(path)), id => {
-        const dir = mkdtempSync(join(tmpdir(), "pr-proof-"));
-        try {
-          const zip = join(dir, "proof.zip");
-          writeFileSync(zip, gh(`actions/artifacts/${id}/zip`));
-          return JSON.parse(execFileSync("unzip", ["-p", zip, "proof.json"], {
-            encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 64 * 1024,
-          }));
-        } finally {
-          rmSync(dir, { recursive: true, force: true });
-        }
-      }, { tree, parent: BASELINE, diffHash: DIFF_HASH });
+      const run = findReusableRun(path => JSON.parse(gh(path)), id => readTreeProof(gh(`actions/artifacts/${id}/zip`)),
+        { tree, parent: BASELINE, diffHash: DIFF_HASH });
       if (run) {
         console.log(`Tree ${tree} already passed PR Test run ${run}; using its test result.`);
         appendFileSync(GITHUB_OUTPUT, "reused=true\n");

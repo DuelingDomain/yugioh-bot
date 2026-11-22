@@ -5,6 +5,7 @@ name: Test
 # Workflow/CI wiring runs CI helper checks and fixed smokes. Global inputs or
 # unavailable diffs run all groups. Engine jobs need a direct engine input,
 # with native/differential limited to core inputs in the selected gate.
+# Trusted engine pushes use a fixed real-core smoke set in the deploy gate.
 # Full Suite calls these same jobs independently. Nightly and manual runs
 # retain the full suite and optional extended nduel fuzz. See ADR 0003.
 
@@ -86,6 +87,7 @@ jobs:
       effect_types: ${{ steps.proof.outputs.reused != 'true' && (steps.selection.outputs.effect_types || steps.diff.outputs.effect_types) || 'false' }}
       prod_build: ${{ steps.selection.outputs.prod_build || steps.diff.outputs.prod_build }}
       engine: ${{ steps.proof.outputs.reused != 'true' && (steps.selection.outputs.engine || steps.diff.outputs.engine) || 'false' }}
+      trusted_engine: ${{ steps.trust.outcome == 'success' && steps.trust.outputs.engine || 'false' }}
       core: ${{ steps.proof.outputs.reused != 'true' && (steps.selection.outputs.core || steps.diff.outputs.core) || 'false' }}
       golden: ${{ steps.proof.outputs.reused != 'true' && (steps.selection.outputs.golden || steps.diff.outputs.golden) || 'false' }}
       tests_only: ${{ steps.selection.outputs.tests_only || steps.diff.outputs.tests_only }}
@@ -142,10 +144,37 @@ jobs:
           HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
         run: node scripts/ci/changed-layers.mjs
 
+      - name: Check admin spectate service configuration
+        if: ${{ !cancelled() }}
+        run: prlimit --core=0 -- node scripts/ci/check-admin-spectate-compose.mjs
+
+      - name: Restore dependencies for test selection
+        if: steps.diff.outputs.scan == 'true'
+        uses: ./.github/actions/setup-ci-node
+
+      - name: Select affected test files
+        id: selection
+        if: steps.diff.outputs.scan == 'true'
+        env:
+          BASELINE: ${{ steps.baseline.outputs.base }}
+        run: node scripts/ci/select-pr-test-files.mjs
+
+      - name: Verify merged PR Test results
+        id: trust
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && !inputs.full_suite
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASELINE: ${{ steps.baseline.outputs.base }}
+          DIFF_HASH: ${{ steps.diff.outputs.diff_hash }}
+          ENGINE_SELECTED: ${{ steps.selection.outputs.engine || steps.diff.outputs.engine }}
+        run: node scripts/ci/trusted-pr-gate.mjs
+
       - name: Resolve identical PR test proof
         id: proof
         if: >-
-          (github.event_name == 'push' && !inputs.full_suite && steps.baseline.outputs.base != '') ||
+          (github.event_name == 'push' && !inputs.full_suite && steps.trust.outcome == 'success' && steps.trust.outputs.trusted == 'true' &&
+          (steps.selection.outputs.engine || steps.diff.outputs.engine) == 'false') ||
           (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
         env:
           GH_TOKEN: ${{ github.token }}
@@ -153,21 +182,6 @@ jobs:
           BASELINE: ${{ steps.baseline.outputs.base }}
           DIFF_HASH: ${{ steps.diff.outputs.diff_hash }}
         run: node scripts/ci/reuse-pr-result.mjs
-
-      - name: Check admin spectate service configuration
-        if: ${{ !cancelled() && steps.proof.outputs.reused != 'true' }}
-        run: prlimit --core=0 -- node scripts/ci/check-admin-spectate-compose.mjs
-
-      - name: Restore dependencies for test selection
-        if: ${{ steps.diff.outputs.scan == 'true' && steps.proof.outputs.reused != 'true' }}
-        uses: ./.github/actions/setup-ci-node
-
-      - name: Select affected test files
-        id: selection
-        if: ${{ steps.diff.outputs.scan == 'true' && steps.proof.outputs.reused != 'true' }}
-        env:
-          BASELINE: ${{ steps.baseline.outputs.base }}
-        run: node scripts/ci/select-pr-test-files.mjs
 
       - name: Resolve new-card smoke PR
         if: ${{ !cancelled() }}
@@ -653,7 +667,8 @@ jobs:
     if: >-
       needs.changes.outputs.bot == 'true' || needs.changes.outputs.ws == 'true' ||
       needs.changes.outputs.worker == 'true' || needs.changes.outputs.e2e == 'true' ||
-      needs.changes.outputs.engine == 'true' || needs.changes.outputs.vision == 'true' ||
+      (needs.changes.outputs.engine == 'true' && needs.changes.outputs.trusted_engine != 'true') ||
+      needs.changes.outputs.vision == 'true' ||
       needs.changes.outputs.typecheck != ''
     runs-on: ubuntu-latest
     timeout-minutes: ${{ (needs.changes.outputs.bot == 'true' || needs.changes.outputs.ws == 'true' || needs.changes.outputs.worker == 'true') && 15 || 10 }}
@@ -675,7 +690,7 @@ jobs:
           CHECK_DUEL_UNIT: ${{ needs.changes.outputs.duel_unit }}
           CHECK_TYPES: ${{ needs.changes.outputs.typecheck }}
           VISION_TEST_FILES: ${{ needs.changes.outputs.vision_files }}
-          CHECK_RULE_COVERAGE: ${{ needs.changes.outputs.engine }}
+          CHECK_RULE_COVERAGE: ${{ needs.changes.outputs.engine == 'true' && needs.changes.outputs.trusted_engine != 'true' }}
           BOT_TEST_FILES: ${{ needs.changes.outputs.bot_files }}
           WS_TEST_FILES: ${{ needs.changes.outputs.ws_files }}
           WORKER_TEST_FILES: ${{ needs.changes.outputs.worker_files }}
@@ -800,10 +815,32 @@ jobs:
           tar -xzf "$RUNNER_TEMP/actionlint_1.7.12_linux_amd64.tar.gz" -C "$RUNNER_TEMP" actionlint
           "$RUNNER_TEMP/actionlint" -shellcheck= -pyflakes= .github/workflows/test.yml .github/workflows/full-suite.yml
 
+  engine-smoke:
+    name: Trusted engine smoke
+    if: ${{ !cancelled() && needs.cores.result == 'success' && needs.changes.outputs.trusted_engine == 'true' }}
+    needs: [cores, changes]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      DUEL_REQUIRE_CORES: "1"
+      DUEL_DATA_DIR: ${{ github.workspace }}/data/duel-engine-next
+      MULTI_WASM: ${{ github.workspace }}/packages/duel-server/domain-core/dist/ocgcore.multi.sync.wasm
+      DOMAIN_MULTI_WASM: ${{ github.workspace }}/packages/duel-server/domain-core/dist/ocgcore.multi-domain.sync.wasm
+      NSEAT_LIVE: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Restore engine bundle and test dependencies
+        uses: ./.github/actions/restore-engine-bundle
+        with:
+          key: ${{ needs.cores.outputs.key }}
+      - name: Run standard, Domain, FFA and Tag smoke tests
+        run: prlimit --core=1:1 -- node scripts/ci/run-engine-tests.mjs smoke 1/1
+
   engine-shards:
     name: >-
       Engine tests shard (${{ matrix.suite }} ${{ matrix.shard }}/${{ matrix.count }})${{ matrix.suite == 'compact' && matrix.shard == matrix.count && ' - smoke pool' || '' }}
-    if: ${{ !cancelled() && needs.cores.result == 'success' && needs.changes.outputs.engine == 'true' }}
+    if: ${{ !cancelled() && needs.cores.result == 'success' && needs.changes.outputs.engine == 'true' && needs.changes.outputs.trusted_engine != 'true' }}
     needs: [cores, changes]
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -888,7 +925,7 @@ jobs:
 
   engine-legacy-shards:
     name: Legacy 1v1 tests shard (${{ matrix.shard }}/1)
-    if: ${{ !cancelled() && needs.cores.result == 'success' && needs.changes.outputs.engine == 'true' }}
+    if: ${{ !cancelled() && needs.cores.result == 'success' && needs.changes.outputs.engine == 'true' && needs.changes.outputs.trusted_engine != 'true' }}
     needs: [cores, changes]
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -934,7 +971,7 @@ jobs:
 
   engine-differential:
     name: Differential engine tests (${{ matrix.shard }}/2)
-    if: ${{ !cancelled() && needs.cores.result == 'success' && needs.changes.outputs.core == 'true' }}
+    if: ${{ !cancelled() && needs.cores.result == 'success' && needs.changes.outputs.core == 'true' && needs.changes.outputs.trusted_engine != 'true' }}
     needs: [cores, changes]
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -962,7 +999,7 @@ jobs:
 
   native:
     name: Native checks (ASan and UBSan)
-    if: ${{ !cancelled() && needs.cores.result == 'success' && needs.changes.outputs.core == 'true' }}
+    if: ${{ !cancelled() && needs.cores.result == 'success' && needs.changes.outputs.core == 'true' && needs.changes.outputs.trusted_engine != 'true' }}
     needs: [cores, changes]
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -1502,7 +1539,7 @@ jobs:
     name: CI result
     if: always()
     # PR prebuilds only warm image reuse. The main image jobs still verify or build each image.
-    needs: [changes, core-build, cores, new-card-smoke-status-pending, new-card-smoke, new-card-smoke-report, new-card-smoke-status, effect-protocol, unit-web-build, unit-shared, small-checks, unit-duel, unit-web, ci-scripts, engine-shards, engine-legacy-shards, engine-differential, native, nduel-nightly, production-bundle, production-voice-assets, production-images, production-dry-run]
+    needs: [changes, core-build, cores, new-card-smoke-status-pending, new-card-smoke, new-card-smoke-report, new-card-smoke-status, effect-protocol, unit-web-build, unit-shared, small-checks, unit-duel, unit-web, ci-scripts, engine-smoke, engine-shards, engine-legacy-shards, engine-differential, native, nduel-nightly, production-bundle, production-voice-assets, production-images, production-dry-run]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -1526,15 +1563,17 @@ jobs:
             if (!['success', 'skipped'].includes(job.result)) failures.add(`${name}: ${job.result}`);
           }
           const selected = jobs.changes.outputs;
+          const trustedEngine = process.env.EVENT === 'push' && selected.trusted_engine === 'true';
           if (['engine', 'smoke_enabled'].some(area => selected[area] === 'true') && selected.core_status !== 'success') {
             failures.add(`Engine core cache lookup: ${selected.core_status || 'missing'}`);
           }
           for (const [area, names] of Object.entries({
             web: ['unit-web'], web_build: ['unit-web-build'], shared: ['unit-shared'], bot: ['small-checks'],
             ws: ['small-checks'], worker: ['small-checks'], duel_unit: ['unit-duel'], e2e: ['small-checks'],
-            ci_scripts: ['ci-scripts'], engine: ['cores', 'engine-shards', 'engine-legacy-shards', 'small-checks'],
+            ci_scripts: ['ci-scripts'],
+            engine: ['cores', ...(trustedEngine ? ['engine-smoke'] : ['engine-shards', 'engine-legacy-shards', 'small-checks'])],
             vision: ['small-checks'],
-            core: ['native', 'engine-differential'],
+            core: trustedEngine ? [] : ['native', 'engine-differential'],
           })) if (selected[area] === 'true') names.forEach(requireSuccess);
           if (process.env.NIGHTLY === 'true') requireSuccess('nduel-nightly');
           if (selected.typecheck) requireSuccess('small-checks');
