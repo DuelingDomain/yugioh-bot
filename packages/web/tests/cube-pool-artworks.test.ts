@@ -1,9 +1,18 @@
 import Database from "better-sqlite3";
 import { readFileSync } from "node:fs";
-import { expect, it, vi } from "vitest";
+import { beforeEach, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
-import { createCardLookupBudget, createCardCatalogService } from "@yugidraft/shared/services";
-import { ensureCatalogCards } from "../src/lib/cube-pool";
+
+let createCardLookupBudget: typeof import("@yugidraft/shared/services").createCardLookupBudget;
+let createCardCatalogService: typeof import("@yugidraft/shared/services").createCardCatalogService;
+let ensureCatalogCards: typeof import("../src/lib/cube-pool").ensureCatalogCards;
+
+beforeEach(async () => {
+  // The shared fetch scheduler retains timestamps after a test restores the real clock.
+  vi.resetModules();
+  ({ createCardLookupBudget, createCardCatalogService } = await import("@yugidraft/shared/services"));
+  ({ ensureCatalogCards } = await import("../src/lib/cube-pool"));
+});
 
 it("materializes engine-only artwork IDs before a cube can reference them", async () => {
   const db = new Database(":memory:"); migrate(db);

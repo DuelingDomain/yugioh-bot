@@ -28,9 +28,10 @@ describe("draft load resilience", () => {
   });
 
   afterEach(() => {
+    vi.doUnmock("@yugidraft/shared/services");
+    vi.doUnmock("../app/api/drafts/[slug]/helpers");
     vi.restoreAllMocks();
-    delete process.env.DATABASE_PATH;
-    delete process.env.DISCORD_GUILD_ID;
+    vi.unstubAllEnvs();
     while (tempDirs.length > 0) {
       const dir = tempDirs.pop();
       if (dir) rmSync(dir, { recursive: true, force: true });
@@ -41,8 +42,8 @@ describe("draft load resilience", () => {
     const tempDir = mkdtempSync(join(tmpdir(), "yugioh-load-"));
     const dbPath = join(tempDir, "bots.sqlite");
     tempDirs.push(tempDir);
-    process.env.DATABASE_PATH = dbPath;
-    process.env.DISCORD_GUILD_ID = "guild-1";
+    vi.stubEnv("DATABASE_PATH", dbPath);
+    vi.stubEnv("DISCORD_GUILD_ID", "guild-1");
 
     const Database = (await import("better-sqlite3")).default;
     const { migrate } = await import("@yugidraft/shared/db");
@@ -132,7 +133,6 @@ describe("draft load resilience", () => {
     });
 
     await expect(load(slug, "host")).rejects.toMatchObject({ code: "SQLITE_BUSY" });
-    vi.doUnmock("@yugidraft/shared/services");
     db.close();
   });
 
