@@ -4,22 +4,24 @@ The workflows are `.github/workflows/test.yml` and `.github/workflows/full-suite
 
 PRs and the main deploy gate select files by area. Hub and CI wiring changes use fixed smoke files and workspace typechecks. Workflow and CI helper changes also run the CI script checks. Engine jobs require a direct engine input or a full fallback.
 
-On main, **Test** diffs from the last healthy deployment. The gate runs every group when the baseline or diff is unavailable. It can reuse a green same-repository PR Test when its proof matches the tree, deployed base and changed paths. Production image build or verified reuse runs on every main push. **Deploy** requires a successful main push Test and uses its exact run and attempt artifacts.
+On main, **Test** diffs from the last healthy deployment. The gate runs every group when the baseline or diff is unavailable. Each first-parent commit in the range must be the recorded merge of a same-repository PR. The latest Test for each final PR head must have passed, including **CI result** before the merge. Any available selection proof must match the PR's changed paths and run attempt and cover the paths changed by the merge. Open the **Changed layers** job summary for the per-PR results and the gate decision. Direct pushes, forks, red PRs, missing required evidence and API errors use the regular area-selected gate.
 
-Area-selected gates run native ASan/UBSan and differential tests for core C++ or Lua sources, patches, pins, native tooling, engine package scripts and other direct core inputs. TypeScript engine runtime changes select the engine suites. Root configuration changes and unavailable diffs select every group. The final CI result requires each selected group to succeed.
+Trusted engine pushes restore the verified core bundle and run one smoke job for standard 1v1, Domain, FFA and Tag, alongside the usual non-engine checks. Trusted non-engine pushes can reuse a green same-repository PR Test when its proof matches the tree, deployed base and changed paths. Production image build or verified reuse runs on every main push. **Deploy** requires a successful main push Test and uses its exact run and attempt artifacts.
+
+Regular area-selected gates run native ASan/UBSan and differential tests for core C++ or Lua sources, patches, pins, native tooling, engine package scripts and other direct core inputs. TypeScript engine runtime changes select the engine suites. Root configuration changes select all areas. The final CI result requires each selected group to succeed.
 
 At 03:17 UTC the default-branch schedule selects every app, engine, legacy, surrender, differential, native, rule-coverage, effect-protocol and production dry-run group, plus all four nduel fuzz cases. The final CI result fails for failed/cancelled or missing required work and opens a **Nightly full Test failed** issue unless one is already open. No external secrets are needed for the no-publish dry run or offline effect test; native/engine builds need Docker and the pinned download sources. A manual `gh workflow run test.yml --ref main -f nightly=true` reproduces the full run; `nightly=false` skips only the nduel fuzz. Close the nightly issue after investigating and obtaining a green full run.
 
 ## Purpose
 
-**Full Suite** starts at the same time as the gate on each main push and reports regressions outside the gate's selection. A regression can reach production for roughly ten minutes before the full suite reports. Inspect the labeled issue and use the manual rollback path if production is affected. See [Deploy](deploy.md) and [image rollback](../deployment/vm-runbook.md#image-rollback).
+**Full Suite** starts at the same time as the gate on each main push and reports regressions outside the gate's selection. A regression from combining closely spaced engine merges can reach production before Full Suite reports, typically within 10–15 minutes of the push. Inspect `ci-full-suite-red` and dispatch **Deploy** with `rollback=true` and the previous healthy SHA if production is affected. See [Deploy](deploy.md) and [image rollback](../deployment/vm-runbook.md#image-rollback).
 
 ## Schedule & triggers
 
 | Trigger | What runs |
 |---|---|
 | Pull request | Affected test groups; docs-only skips tests |
-| Push to `main` | **Test** runs affected checks or reuses PR proof and prepares the deploy artifacts. **Full Suite** runs every regular test group independently, including pinned, surrender, legacy, differential, native ASan/UBSan and nduel golden hashes, plus the production dry run. |
+| Push to `main` | **Test** runs affected checks with engine smoke on trusted engine pushes and exact PR proof reuse on eligible non-engine pushes. It prepares the deploy artifacts. **Full Suite** runs every regular test group independently, including pinned, surrender, legacy, differential, native ASan/UBSan and nduel golden hashes, plus the production dry run. |
 | Schedule `17 3 * * *` (daily 03:17 UTC) | Every test group, production dry run and `nduel-nightly` |
 | Manual | Inputs `nightly` (default true), `new_card_smoke`, `nduel_seeds` (default 100) |
 

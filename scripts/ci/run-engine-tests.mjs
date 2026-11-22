@@ -1,11 +1,12 @@
 import { duelTestFiles } from "./duel-test-files.mjs";
 import { PINNED_SHARDS, COMPACT_ENGINE_SHARDS, LEGACY_SHARDS, SURRENDER_FILES, DIFFERENTIAL_FILES, TABLE_FILE, pinnedPlan, compactEnginePlan } from "./engine-test-plan.mjs";
 import { listVitestFiles, runVitestShard, saveTimings } from "./test-shards.mjs";
+import { areas } from "./test-areas.mjs";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 
 const [lane, shard] = process.argv.slice(2);
-const counts = { pinned: PINNED_SHARDS, compact: COMPACT_ENGINE_SHARDS, legacy: LEGACY_SHARDS, surrender: SURRENDER_FILES.length, differential: 2, web: 1 };
+const counts = { pinned: PINNED_SHARDS, compact: COMPACT_ENGINE_SHARDS, legacy: LEGACY_SHARDS, surrender: SURRENDER_FILES.length, differential: 2, web: 1, smoke: 1 };
 const [index, count] = (shard ?? "").split("/").map(Number);
 if (!Object.hasOwn(counts, lane) || count !== counts[lane] || !Number.isInteger(index) || index < 1 || index > count) {
   throw new Error("Expected a valid engine lane and shard index/count");
@@ -13,7 +14,7 @@ if (!Object.hasOwn(counts, lane) || count !== counts[lane] || !Number.isInteger(
 
 // Unset means the full suite. The selector emits an explicit empty duel list
 // only when it found a focused web engine selection.
-const requested = process.env.CI_TEST_FILES ? JSON.parse(process.env.CI_TEST_FILES) : undefined;
+const requested = lane !== "smoke" && process.env.CI_TEST_FILES ? JSON.parse(process.env.CI_TEST_FILES) : undefined;
 if (lane === "web" && !requested) throw new Error("The web dependent run requires an explicit file selection");
 if (requested?.length === 0) process.exit(0);
 const selected = requested;
@@ -21,7 +22,9 @@ const select = files => selected ? files.filter(file => selected.includes(file))
 const duel = (files, args = [], env = {}) =>
   runVitestShard("duel-server", select(files), ["--testTimeout=15000", ...args], env);
 
-if (lane === "pinned") {
+if (lane === "smoke") {
+  await duel(areas.engine.smokeFiles, ["--config=vitest.ci.config.ts"]);
+} else if (lane === "pinned") {
   const { files, seconds } = pinnedPlan(duelTestFiles().engine)[index - 1];
   console.log(`Pinned shard ${shard}: ${select(files).length} files, ${Math.round(seconds)} estimated worker-seconds including reserved work`);
   const results = await duel(files, ["--config=vitest.ci.config.ts"], { TABLE_SHARD: shard });

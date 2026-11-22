@@ -136,6 +136,10 @@ const readCommand = (command, args) => execFileSync(command, args, {
 
 const selectsAreas = event => event === "pull_request" || event === "push";
 
+export function changedPathHash(files) {
+  return createHash("sha256").update(JSON.stringify([...new Set(files)].sort())).digest("hex");
+}
+
 // The changed files, or null when there is no usable diff. The push's
 // deployed ancestor is fetched as a separate shallow snapshot.
 function changedFiles(event, base, head) {
@@ -168,7 +172,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const layers = changedLayers(files, event);
   const output = selectionOutputs(layers, {}, event);
   if (files?.length) {
-    output.diff_hash = createHash("sha256").update(JSON.stringify([...new Set(files)].sort())).digest("hex");
+    output.diff_hash = changedPathHash(files);
   }
   // Keep the complete diff in this job's checkout, including large PRs.
   if (!layers.full && files.some(file => !isDoc(file) && !isDeclaration(file) && !ciWiring.test(file) &&

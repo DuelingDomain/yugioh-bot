@@ -60,11 +60,17 @@ Deploy jobs run in the `production` GitHub Environment and require these GitHub 
 ## Deployment Pipeline
 
 1. Merge code to `main`. The push **Test** gate uses PR area selection against the last confirmed
-   deployed SHA and falls back to every regular test group when the diff is unavailable. A successful
-   PR proof covering the same tree, base and changed paths can satisfy the tests. The production bundle
-   and image artifacts are required either way. **Full Suite** runs all regular checks in parallel.
+   deployed SHA and falls back to every regular test group when the diff is unavailable. If every
+   intervening main commit has a green same-repository PR Test for its final head, the engine gate
+   restores the verified core bundle and runs the standard 1v1, Domain, FFA and Tag smoke set.
+   The usual non-engine checks still apply. A trusted non-engine push can reuse a successful PR proof
+   for the same tree, base and changed paths. Untrusted pushes use the regular area-selected suites.
+   The **Changed layers** summary records the decision. The production bundle and image artifacts
+   are always required. **Full Suite** runs all regular checks in parallel.
    A red Full Suite opens or updates the `ci-full-suite-red` issue and a later green main run closes it.
-   Review the issue and use [manual image rollback](#image-rollback) if the failure affects production.
+   A regression from closely spaced engine merges can reach production before Full Suite reports,
+   typically within 10–15 minutes of the push. If affected, dispatch **Deploy** with the previous
+   healthy SHA and `rollback=true`. See [manual image rollback](#image-rollback).
    Nightly Test runs extended nduel fuzz, which is also available on manual Test. Browser Playwright flows remain
    local under [ADR-0003](../adr/0003-duel-test-layers.md).
 2. **Deploy** listens for Test completion, accepts only successful `push` runs on `main`, and checks out
