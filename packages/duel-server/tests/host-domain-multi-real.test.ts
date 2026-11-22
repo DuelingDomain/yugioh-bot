@@ -158,7 +158,7 @@ describeWithCores("Domain tables through the real host and worker", [needs.cards
       { ...t.deck, main: [AXE_RAIDER, ...t.deck.main.slice(1)] },
       { ...t.deck, side: [t.deck.main[0]!] },
       { ...t.deck, main: [46986414, ...t.deck.main.slice(1)] },
-      { ...t.deck, main: [94212438, ...t.deck.main.slice(1)] },
+      { ...t.deck, main: [95308449, ...t.deck.main.slice(1)] },
     ];
     for (const deck of invalid) expect((await t.post("deck", { deck })).status).toBe(400);
     await t.start();

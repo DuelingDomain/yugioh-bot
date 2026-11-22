@@ -146,7 +146,7 @@ export type Step =
   | { op: "expectOffered"; action: ActionKind | "choice"; sel: CardSel; by?: DuelistId }
   | { op: "expectNotOffered"; action: ActionKind | "choice"; sel: CardSel; by?: DuelistId }
   | { op: "expectSeatNotOffered"; action: ActionKind | "choice"; sel: CardSel; by: DuelistId }
-  | { op: "expectResult"; winner?: DuelistId | null; team?: number | null; reason?: string }
+  | { op: "expectResult"; winner?: DuelistId | null; team?: number | null; reason?: string; victory?: string }
   | { op: "expectEliminated"; seats: DuelistId[] }
   | { op: "expectLp"; who: { seat: DuelistId } | { team: number }; value: number }
   | { op: "expectResponseOrder"; seats: DuelistId[] }
@@ -249,13 +249,15 @@ export interface ResultExpect {
   team?: number | null;
   /** Substring of the result reason. */
   reason?: string;
+  /** The stored result kind: "exodia" or "alt-win" (no places), as `result.victory`. */
+  victory?: string;
 }
 /** The duel is over. `expectResult("p0", "lp")` (1v1) or `expectResult({ team: 1, reason: "lp" })` (any format). */
 export function expectResult(winner: DuelistId | null, reason?: string): Step;
 export function expectResult(expected: ResultExpect): Step;
 export function expectResult(arg: DuelistId | null | ResultExpect, reason?: string): Step {
   if (arg === null || typeof arg === "string") return { op: "expectResult", winner: arg, reason };
-  return { op: "expectResult", winner: arg.seat, team: arg.team, reason: arg.reason };
+  return { op: "expectResult", winner: arg.seat, team: arg.team, reason: arg.reason, victory: arg.victory };
 }
 /** Exactly these seats are eliminated (FFA seat, or every seat of an eliminated Tag team). Every other seat is still in. */
 export const expectEliminated = (...seats: Array<DuelistId | DuelistId[]>): Step => ({ op: "expectEliminated", seats: seats.flat() });

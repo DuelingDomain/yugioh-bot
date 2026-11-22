@@ -602,8 +602,8 @@ export interface DuelEngineView {
     winnerSeat: number | null;
     winnerTeam?: number | null;
     reason: string;
-    /** Owner 2026-10-18: Exodia ends the whole table with winners and losers, without places. */
-    victory?: "exodia";
+    /** Owner 2026-10-18: Exodia ends the whole table with winners and losers, without places. Owner 2026-11-22: so does every other "you win" card ("alt-win"). Old duels only store "exodia". */
+    victory?: "exodia" | "alt-win";
   } | null;
 }
 

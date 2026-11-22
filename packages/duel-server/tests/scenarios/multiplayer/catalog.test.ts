@@ -86,8 +86,8 @@ describe("multiplayer card catalog", () => {
   it("keeps 21 all-seat or ongoing cards and 45 one-opponent cards after the FFA rule change", () => {
     expect(GROUP_ALL).toHaveLength(21);
     expect(GROUP_ONE).toHaveLength(45);
-    expect(MULTIPLAYER_FORBIDDEN).toHaveLength(35);
-    expect(MULTIPLAYER_FORBIDDEN.filter((entry) => entry.formats.includes("tag"))).toHaveLength(34);
+    expect(MULTIPLAYER_FORBIDDEN).toHaveLength(20);
+    expect(MULTIPLAYER_FORBIDDEN.filter((entry) => entry.formats.includes("tag"))).toHaveLength(19);
   });
 
   it("puts opponent-field cards in the one-opponent group with the declaration or response rule", () => {
@@ -181,22 +181,28 @@ describe("multiplayer card catalog", () => {
       .map(format => `${entry.name}: ${format}`))).toEqual([]);
   });
 
-  it("forbids the 17 'you win' cards in every format (owner decision 2026-10-01)", () => {
-    const winCards = [
-      37984331, 42776960, 13893596, 10000040, 15862758, 5008836, 53334641, 6165656, 66765023,
+  it("allows the 15 'you win' cards where the owner wins and keeps 4 forbidden (owner decision 2026-11-22)", () => {
+    const ownerWins = [
+      13893596, 10000040, 15862758, 5008836, 53334641, 6165656, 66765023,
       69553552, 77751766, 8062132, 81171949, 94212438, 96637156, 97795930, 48995978,
     ];
-    for (const code of winCards) {
+    for (const code of ownerWins) {
+      expect(MULTIPLAYER_FORBIDDEN.some((item) => item.code === code), String(code)).toBe(false);
+      const rule = MULTIPLAYER_CARD_RULES.find((item) => item.code === code);
+      expect(rule?.rule, String(code)).toContain("its owner wins and every other player loses");
+    }
+    // True Exodia and Relay Soul make their controller lose, Final Countdown and Last Turn compare two players: all four stay forbidden.
+    for (const code of [37984331, 42776960, 95308449, 28566710]) {
       const entry = MULTIPLAYER_FORBIDDEN.find((item) => item.code === code);
       expect(entry?.category, String(code)).toBe("alt-win");
       expect(entry?.formats, String(code)).toEqual(["ffa3", "ffa4", "tag"]);
     }
-    // Owner 2026-10-18: only Exodia the Forbidden One may call Duel.Win at multiplayer tables.
+    // Owner 2026-11-22: every other script that calls Duel.Win at multiplayer tables has a rule (Exodia the Forbidden One has its own overlay).
     const withWin = readdirSync(join(scripts, "official"))
       .filter((file) => /^c\d+\.lua$/.test(file) && readFileSync(join(scripts, "official", file), "utf8").includes("Duel.Win("))
       .map((file) => Number(file.slice(1, -4)));
     const forbidden = new Set(MULTIPLAYER_FORBIDDEN.map((entry) => entry.code));
-    expect(withWin.filter((code) => !forbidden.has(code))).toEqual([33396948]);
+    expect(withWin.filter((code) => !forbidden.has(code)).sort((x, y) => x - y)).toEqual([...ownerWins, 33396948].sort((x, y) => x - y));
   });
 
   it("allows proved Convulsion of Nature in every multiplayer format with Deck reverse evidence", () => {

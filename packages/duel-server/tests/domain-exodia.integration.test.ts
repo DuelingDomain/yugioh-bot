@@ -57,7 +57,7 @@ describeWithCores("Exodia Domain admission through the real host and engine", [n
       const insert = db.prepare(`INSERT INTO card_catalog (ygoprodeck_id, name, type, frame_type, image_url,
         image_url_small, card_sets_json, cached_at, genesys_points, genesys_revision)
         VALUES(?, ?, 'Normal Monster', 'normal', '', '', '[]', CURRENT_TIMESTAMP, 0, 'exodia-fixture')`);
-      for (const code of new Set([...winningDeck!.main, ...otherDeck!.main, MASTER, 94212438, 49003308])) insert.run(code, `Card ${code}`);
+      for (const code of new Set([...winningDeck!.main, ...otherDeck!.main, MASTER, 95308449, 49003308])) insert.run(code, `Card ${code}`);
       const session = service.create({ guildId: "g", organizerPlayerId: actors[0]!.playerId,
         name: "Domain Exodia", mode: "domain", format, settings });
       for (const actor of actors.slice(1)) service.takeSeat(session.slug, "g", actor.playerId);
@@ -94,8 +94,8 @@ describeWithCores("Exodia Domain admission through the real host and engine", [n
           const master = { ...winningDeck!, main: [...winningDeck!.main.filter(card => card !== code), otherDeck!.main[59]!], deckMaster: code };
           expect(await check(master)).toEqual([]);
         }
-        const destinyBoard = { ...winningDeck!, main: [94212438, ...winningDeck!.main.slice(1)] };
-        expect((await check(destinyBoard)).some(issue => /forbidden in/.test(issue.message))).toBe(format !== "1v1");
+        const finalCountdown = { ...winningDeck!, main: [95308449, ...winningDeck!.main.slice(1)] };
+        expect((await check(finalCountdown)).some(issue => /forbidden in/.test(issue.message))).toBe(format !== "1v1");
         for (let seat = 0; seat < actors.length; seat++) {
           const saved = await post({ op: "deck", deck: seat === 0 ? winningDeck : otherDeck }, seat);
           expect(saved.status, JSON.stringify(saved.data)).toBe(200);

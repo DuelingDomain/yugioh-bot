@@ -14,7 +14,7 @@ import { engineDataDirectory as DATA } from "./engine-data-dir.js";
 // so alt-win cards and the FFA turn-count cards were accepted at a real FFA or Tag table.
 
 const SECRET = "table-legality-secret";
-const DESTINY_BOARD = 94212438; // alt-win: forbidden at ffa3, ffa4 and tag
+const FINAL_COUNTDOWN = 95308449; // alt-win: forbidden at ffa3, ffa4 and tag
 const SWORDS = 72302403; // legal at every table (owner 2026-10-02 night)
 const DARK_MAGICIAN = 46986414; // a legal Deck Master for the Domain tests
 const NO_BANLIST = { banlist: "none" };
@@ -89,16 +89,16 @@ describe("host deck check uses the real table format", () => {
   it.each(["tag", "ffa3", "ffa4"] as const)("check-deck also applies the %s table's rules", async format => {
     const t = room(format);
     const checked = await t.post({ op: "check-deck", mode: "normal", format,
-      deck: deckWith("normal", DESTINY_BOARD), settings: NO_BANLIST });
+      deck: deckWith("normal", FINAL_COUNTDOWN), settings: NO_BANLIST });
     expect(checked.status).toBe(200);
-    expect(checked.data.report.issues[0].message).toMatch(/^Destiny Board is forbidden in /);
+    expect(checked.data.report.issues[0].message).toMatch(/^Final Countdown is forbidden in /);
   });
 
-  it.each(["ffa3", "ffa4", "tag"] as const)("refuses an alt-win card (Destiny Board) at %s", async (format) => {
+  it.each(["ffa3", "ffa4", "tag"] as const)("refuses an alt-win card (Final Countdown) at %s", async (format) => {
     const t = room(format);
-    const result = await t.post({ op: "deck", deck: deckWith("normal", DESTINY_BOARD) });
+    const result = await t.post({ op: "deck", deck: deckWith("normal", FINAL_COUNTDOWN) });
     expect(result.status).toBe(400);
-    expect(result.data.error).toMatch(/^Destiny Board is forbidden in /);
+    expect(result.data.error).toMatch(/^Final Countdown is forbidden in /);
     // The refused deck is not saved.
     expect(t.duels.get(t.who.slug, "g1").seats[0]!.ready).toBe(false);
   });
@@ -117,9 +117,9 @@ describe("host deck check uses the real table format", () => {
     expect(t.duels.get(t.who.slug, "g1").seats[0]!.ready).toBe(true);
   });
 
-  it("accepts Destiny Board and Swords of Revealing Light in 1v1", async () => {
+  it("accepts Final Countdown and Swords of Revealing Light in 1v1", async () => {
     const t = room("1v1");
-    expect((await t.post({ op: "deck", deck: deckWith("normal", DESTINY_BOARD, SWORDS) })).status).toBe(200);
+    expect((await t.post({ op: "deck", deck: deckWith("normal", FINAL_COUNTDOWN, SWORDS) })).status).toBe(200);
     expect(t.duels.get(t.who.slug, "g1").seats[0]!.ready).toBe(true);
   });
 
@@ -132,25 +132,25 @@ describe("host deck check uses the real table format", () => {
 
   it("the validate-deck check answers the same issues as the deck op", async () => {
     const ffa = room("ffa4");
-    const refused = await ffa.post({ op: "validate-deck", deck: deckWith("normal", DESTINY_BOARD) });
+    const refused = await ffa.post({ op: "validate-deck", deck: deckWith("normal", FINAL_COUNTDOWN) });
     expect(refused.status).toBe(200);
-    expect(refused.data.issues.map((issue: { message: string }) => issue.message)).toEqual([expect.stringMatching(/^Destiny Board is forbidden in 4-player/)]);
+    expect(refused.data.issues.map((issue: { message: string }) => issue.message)).toEqual([expect.stringMatching(/^Final Countdown is forbidden in 4-player/)]);
     const duel = room("1v1");
-    const accepted = await duel.post({ op: "validate-deck", deck: deckWith("normal", DESTINY_BOARD) });
+    const accepted = await duel.post({ op: "validate-deck", deck: deckWith("normal", FINAL_COUNTDOWN) });
     expect(accepted.data.issues).toEqual([]);
   });
 
   it("start refuses a saved deck that the table does not allow", async () => {
     // A deck saved by another path (old row, direct service call) must still be checked when the duel starts.
     const t = room("ffa3");
-    t.duels.setDeck(t.who.slug, "g1", t.who.playerId, deckWith("normal", DESTINY_BOARD));
+    t.duels.setDeck(t.who.slug, "g1", t.who.playerId, deckWith("normal", FINAL_COUNTDOWN));
     // Fill the other two seats with legal practice bots through the host (their decks are checked as well).
     expect((await t.post({ op: "add-bot", seat: 1 })).status).toBe(200);
     expect((await t.post({ op: "add-bot", seat: 2 })).status).toBe(200);
     expect(t.duels.get(t.who.slug, "g1").seats[0]!.ready).toBe(true);
     const started = await t.post({ op: "start" });
     expect(started.status).toBe(400);
-    expect(started.data.error).toMatch(/^Destiny Board is forbidden in 3-player/);
+    expect(started.data.error).toMatch(/^Final Countdown is forbidden in 3-player/);
     expect(t.duels.get(t.who.slug, "g1").status).toBe("lobby");
   });
 
@@ -164,19 +164,19 @@ describe("host deck check uses the real table format", () => {
   describe("Domain Format", () => {
     it.each(["ffa4", "tag"] as const)("refuses a forbidden card in a Domain deck at %s", async (format) => {
       const t = room(format, "domain");
-      const result = await t.post({ op: "validate-deck", deck: deckWith("domain", DESTINY_BOARD) });
+      const result = await t.post({ op: "validate-deck", deck: deckWith("domain", FINAL_COUNTDOWN) });
       expect(result.status).toBe(200);
       expect(result.data.issues.some((issue: { message: string }) => FORBIDDEN_AT_TABLE.test(issue.message))).toBe(true);
-      const saved = await t.post({ op: "deck", deck: deckWith("domain", DESTINY_BOARD) });
+      const saved = await t.post({ op: "deck", deck: deckWith("domain", FINAL_COUNTDOWN) });
       expect(saved.status).toBe(400);
-      expect(saved.data.error).toMatch(/^Destiny Board is forbidden in /);
+      expect(saved.data.error).toMatch(/^Final Countdown is forbidden in /);
     });
 
     it("accepts a Domain deck with a forbidden card in 1v1", async () => {
       const t = room("1v1", "domain");
-      const result = await t.post({ op: "validate-deck", deck: deckWith("domain", DESTINY_BOARD) });
+      const result = await t.post({ op: "validate-deck", deck: deckWith("domain", FINAL_COUNTDOWN) });
       expect(result.data.issues).toEqual([]);
-      expect((await t.post({ op: "deck", deck: deckWith("domain", DESTINY_BOARD) })).status).toBe(200);
+      expect((await t.post({ op: "deck", deck: deckWith("domain", FINAL_COUNTDOWN) })).status).toBe(200);
     });
   });
 });

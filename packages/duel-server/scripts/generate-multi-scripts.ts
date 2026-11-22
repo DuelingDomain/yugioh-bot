@@ -10,8 +10,8 @@
  *
  * The lists are pinned in this file. When the triage file (.status/multiplayer-triage.json, not in git) is present, the
  * lists are also compared with it:
- *   COMPARE (54) = triage group `field-count-compare` (51) minus 6 false positives, plus Evenly Matched and Pineapple Blast,
- *                  plus 7 cards of the scan gap (COMPARE_SCAN_ADDED, in other triage groups).
+ *   COMPARE (55) = triage group `field-count-compare` (51) minus 6 false positives, plus Evenly Matched and Pineapple Blast,
+ *                  plus 8 cards of the scan gap (COMPARE_SCAN_ADDED, in other triage groups).
  *   CHOOSER (77) = triage rule starting with `CHOOSER`, plus the reviewed resolution-time decisions in CHOOSER_TRIAGE_ADDED.
  *   R1           = triage rule starting with `EACH-DUELIST` or `SCRIPT`, minus Mirror Gate 43452193 (it belongs to Q7),
  *                  plus the reviewed cards in R1_TRIAGE_ADDED. A new scan does not remove these cards.
@@ -56,7 +56,7 @@ export const TRIAGE_FILE = resolve(PACKAGE_DIR, "..", "..", ".status", "multipla
  */
 export const COMPARE_FALSE_POSITIVES = [16191953, 22512406, 24175232, 35059553, 60623203, 70916046, 82693917];
 /** Real COMPARE cards that the triage does not list as `field-count-compare` (it groups a card by one primary group). */
-export const COMPARE_SCAN_ADDED = [25388971, 46772449, 50838440, 55273560, 62015408, 80551022, 89883517];
+export const COMPARE_SCAN_ADDED = [6165656, 25388971, 46772449, 50838440, 55273560, 62015408, 80551022, 89883517];
 /** Reviewed R1 cards that the scan does not list with an R1 rule. */
 export const R1_TRIAGE_ADDED = [31036355]; // Creature Swap: the C7 rotation in FFA; the stock swap in Tag.
 /** Reviewed resolution-time opponent decisions added after the original chooser triage. */
@@ -68,7 +68,7 @@ export const CHOOSER_TRIAGE_ADDED = [
 /** Compare AND chooser cards, counted once in the table (the original triage may put them in another group). */
 export const COMPARE_EXTRA = [15693423, 80551022, 90669991]; // Slime's stock Flip operation chooses through local p=1-tp.
 export const MIRROR_GATE = 43452193;
-export const EXPECTED_COUNTS = { compare: 54, chooser: 77, whole: 6, entries: 409, r1: 93, attack: 59 } as const;
+export const EXPECTED_COUNTS = { compare: 55, chooser: 77, whole: 6, entries: 410, r1: 93, attack: 59 } as const;
 /**
  * R1 cards whose stock script already acts on every living duelist after core patch 0053, so they need no suffix and no entry.
  * Pinned (a card is added here only after the script was read). Seventh Barian's (39513225) is an R1 entry:

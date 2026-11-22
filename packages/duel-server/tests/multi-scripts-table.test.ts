@@ -221,10 +221,13 @@ export function scanClasses(scan: Pick<CardScan, "rules">): CardClass[] {
 /**
  * Cards whose class in the manifest is NARROWER than the scan class, by decision of the design (the scan has both rules, the
  * card needs one class): Gigantic Thundercross is a compare (its `chooser-opp` hit is a one-opponent read inside the compare);
- * Weighbridge and Vesper Girsu are choosers (the compare runs on the opponent that the chooser picks).
+ * Weighbridge and Vesper Girsu are choosers (the compare runs on the opponent that the chooser picks). Disaster Leo is the other
+ * way: the scan has no rule for an LP threshold, so it lists no class, but the card is a compare (FFA wins only when every living
+ * opponent is at 2000 LP or less; MANIFEST class COMPARE).
  */
 export const CLASS_DECISIONS: Record<number, CardClass[]> = {
   34047456: ["COMPARE"],
+  6165656: ["COMPARE"],
   39103226: ["CHOOSER"],
   97345699: ["CHOOSER"],
 };
@@ -240,6 +243,7 @@ export const SCAN_CLASS_OF: Record<number, CardScan["cls"]> = {
   17484499: "F", // Exchange of the Spirit: each-player-pair
   30426226: "F", // Switcheroroo: swap-control
   33508719: "F", // Morphing Jar: each-player-pair
+  6165656: "F", // Number C88: Disaster Leo: FFA wins only when every living opponent is at 2000 LP or less (fold alone gives any-match)
 };
 
 /**

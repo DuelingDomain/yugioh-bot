@@ -229,8 +229,8 @@ describe("Domain membership from card text", () => {
   });
 
   it("admits a Divine Attribute monster whose Type is not Divine-Beast", () => {
-    // Holactie is Divine / Creator-God. It is forbidden by the separate multiplayer safety list,
-    // so use 1v1 to pin Domain membership without that independent refusal.
+    // Holactie is Divine / Creator-God. It has a separate multiplayer rule (owner wins),
+    // but the 1v1 check pins Domain membership alone.
     expect(inspectDeck("domain", deck([10000040]), DATA, settings).issues).toEqual([]);
   });
 

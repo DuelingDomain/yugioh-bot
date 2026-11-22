@@ -670,6 +670,9 @@ export class Session {
     if (step.team !== undefined && winnerTeam !== step.team) {
       this.fail(stepNo, step, `Winning team is ${winnerTeam}, expected ${step.team}.`, false);
     }
+    if (step.victory && result.victory !== step.victory) {
+      this.fail(stepNo, step, `Result victory is "${result.victory}", expected "${step.victory}".`, false);
+    }
     if (step.reason && !result.reason.toLowerCase().includes(step.reason.toLowerCase())) {
       this.fail(stepNo, step, `Result reason is "${result.reason}", expected it to contain "${step.reason}".`, false);
     }
