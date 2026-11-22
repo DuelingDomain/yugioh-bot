@@ -11,12 +11,12 @@ if (!Object.hasOwn(counts, lane) || count !== counts[lane] || !Number.isInteger(
   throw new Error("Expected a valid engine lane and shard index/count");
 }
 
-// An unset or empty duel selection runs the full suite: computed fixture paths can evade static selection.
+// Unset means the full suite. The selector emits an explicit empty duel list
+// only when it found a focused web engine selection.
 const requested = process.env.CI_TEST_FILES ? JSON.parse(process.env.CI_TEST_FILES) : undefined;
 if (lane === "web" && !requested) throw new Error("The web dependent run requires an explicit file selection");
-if (lane === "web" && !requested.length) process.exit(0);
-if (requested?.length === 0) console.warn("Empty CI test selection; falling back to the full suite.");
-const selected = requested?.length ? requested : undefined;
+if (requested?.length === 0) process.exit(0);
+const selected = requested;
 const select = files => selected ? files.filter(file => selected.includes(file)) : files;
 const duel = (files, args = [], env = {}) =>
   runVitestShard("duel-server", select(files), ["--testTimeout=15000", ...args], env);

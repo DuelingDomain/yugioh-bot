@@ -1,367 +1,173 @@
 import { execFileSync } from "node:child_process";
-import { appendFileSync, readFileSync, readdirSync } from "node:fs";
-import { posix } from "node:path";
-import { pathToFileURL } from "node:url";
-import { engineMatrix, NEEDS_ENGINE, SURRENDER_FILES, DIFFERENTIAL_FILES } from "./engine-test-plan.mjs";
+import { appendFileSync, existsSync, readFileSync, readdirSync } from "node:fs";
+import { join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { engineMatrix } from "./engine-test-plan.mjs";
+import { planUnitShards } from "./unit-test-plan.mjs";
+import {
+  additionalOwners, areaFor, areas, areaSmokes, ciWiring, coreInput, dataConsumers, effectTypeInput,
+  engineGraphInput, globalInput, goldenInput, isDeclaration, isDoc, isHub, productionInput,
+  sourceDependents, sourceFile, testFile, workspaces,
+} from "./test-areas.mjs";
 
-const ZERO_SHA = /^0+$/;
-const AREAS = ["web", "bot", "ws", "worker", "shared", "duel_unit", "e2e", "ci_scripts"];
-const globalInput = (file) => /^(package(-lock)?\.json$|turbo\.json$|tsconfig[^/]*\.json$|vitest[^/]*\.[cm]?[jt]s$|\.nvmrc$|\.github\/workflows\/|\.github\/actions\/setup-ci-node\/|patches\/)/.test(file);
-const allLayers = () => ({ ...Object.fromEntries(AREAS.map(area => [area, true])), docs_only: false, data_only: false, effects: true, prod_build: true, engine: true, engine_app: false, core: true, golden: true, tests_only: false });
+const root = fileURLToPath(new URL("../../", import.meta.url));
+const suites = [...Object.keys(workspaces), "ci_scripts"];
+const packagePath = file => /^packages\/([^/]+)\//.exec(file)?.[1];
+const testPath = file => /^packages\/[^/]+\/(?:tests|e2e)\//.test(file) || testFile.test(file);
+const duelTestPath = file => file.startsWith("packages/duel-server/tests/") && testFile.test(file);
+const allLayers = () => ({
+  ...Object.fromEntries(suites.map(suite => [suite, true])),
+  web_build: true, e2e: true, effects: true, effect_types: true, prod_build: true, engine: true, core: true,
+  golden: true, docs_only: false, tests_only: false, checks_only: false, full: true,
+  routes: {}, smoke: {}, typecheck: [], engine_diff: [],
+});
 
-// Native checks build the repo patch series and pinned Lua via multi-core-common.sh.
-// Differential uses the WASM targets built by build-core.sh/core-cache-key.mjs.
-// Include their build/test wiring and the data/Lua overlays read by native and golden checks.
-// TS host code alone does not select core checks.
-const coreInput = (file) =>
-  /^(patches\/|scripts\/native\/|scripts\/ci\/(?:build-core\.sh$|parallel-emxx\.py$|bin\/em\+\+$|core-cache-key\.mjs$|assemble-core-bundle\.mjs$|changed-layers\.mjs$|run-engine-(?:tests|case-shards)\.mjs$|test-shards\.mjs$|test-timing-reporter\.mjs$|engine-test-plan\.mjs$)|\.github\/workflows\/test\.yml$|\.github\/actions\/restore-engine-bundle\/|package(-lock)?\.json$|\.nvmrc$)/.test(file) ||
-  /^packages\/duel-server\/(?:card-script-patches\/|domain-core\/(?:src\/|lua\/|patches\/|multi-scripts\/|pins\.json$|expected-sha256\.txt$)|legacy-1v1\/(?:domain-core\/|scripts\/build-[^/]*core\.(?:sh|ts)$|expected-sha256\.txt$)|scripts\/(?:native\/|build-[^/]*core\.(?:sh|ts)$|(?:prepare-data|released-card-data|card-script-patches)\.ts$|(?:prepare-multi-core-tree|multi-core-common|check-legacy-pin|run-nduel)\.sh$)|tests\/(?:differential\/|fuzz\/|support\/(?:cores|shard|setup)\.ts$)|vitest\.config\.ts$|package\.json$)/.test(file);
-
-const docTestInputs = new Map([
-  ["docs/adr/0002-multiplayer-duel-rules.md", "engine"],
-  ["docs/specs/multiplayer-rule-coverage.md", "engine"],
-  ["docs/engine/core-pins.md", "ci_scripts"],
-]);
-const isDoc = (file) => !docTestInputs.has(file) && (/\.md$/i.test(file) || file.startsWith("docs/"));
-
-export function sharedEnginePullRequest(files, event, layers) {
-  const inputs = files?.filter(file => !isDoc(file));
-  return event === "pull_request" && layers.engine && !layers.core && !!inputs?.length &&
-    inputs.every(file => /^packages\/shared\/src\/.*\.[cm]?[jt]sx?$/.test(file));
+function touchedTypechecks(files, { all, root }) {
+  const packages = readdirSync(join(root, "packages"), { withFileTypes: true })
+    .filter(entry => entry.isDirectory() && existsSync(join(root, "packages", entry.name, "package.json")))
+    .map(({ name }) => [name, JSON.parse(readFileSync(join(root, "packages", name, "package.json"), "utf8"))]);
+  const touched = new Set(files.map(packagePath));
+  if (files.some(file => areaFor(file) === "vision")) touched.add("vision");
+  if (files.some(file => areaFor(file) === "web")) touched.add("web");
+  const names = packages.filter(([dir]) => touched.has(dir)).map(([, pkg]) => pkg.name);
+  const explicit = new Set([...touched].flatMap(dir => sourceDependents[dir] ?? []));
+  return packages.filter(([dir, pkg]) => pkg.scripts?.typecheck && (all || touched.has(dir) || explicit.has(dir) ||
+    names.some(name => name in { ...pkg.dependencies, ...pkg.devDependencies, ...pkg.peerDependencies, ...pkg.optionalDependencies })))
+    .map(([dir]) => dir).sort();
 }
 
-// Start at the engine host/workers and core suites, not HTTP/DB startup or unit tests.
-// DB connection/migration are fixture setup; card remaps and engine-used services
-// remain inputs. Resolve their named barrel imports so unrelated services stay out.
-const engineRuntimeRoots = ["host", "engine", "legacy/index", "worker", "engine-resource-worker",
-  "deck-suggestion-worker", "replay-worker", "replay-json-worker"].map(file => `packages/duel-server/src/${file}.ts`);
-const applicationSetup = file => /^packages\/shared\/src\/db\/(?:connection|schema)\.[cm]?[jt]s$/.test(file);
-const applicationBarrel = file => /^packages\/shared\/src\/(?:db|services)\/index\.ts$/.test(file);
-const moduleReferences = source => [...source.matchAll(/["'`]((?:\.\.?\/|@yugidraft\/shared\/|@\/)[^"'`\s]+)["'`]/g)];
-
-// These application boundaries have dedicated host/series/recording coverage.
-// This is a lane choice, never an exclusion: membership in the import graph is
-// still required. Other shared services (deck validation, replay, etc.) stay full.
-const applicationEngineInput = file => /^packages\/shared\/src\/(?:remote\/|services\/(?:remote-[^/]+|tournament-remote[^/]*|duel-series|matches|tournament-duels|tournaments|tournament-visibility|index)\.ts$)/.test(file);
-const serviceBarrel = "packages/shared/src/services/index.ts";
-// A barrel can redirect engine/deck exports too. Narrow it only when the actual
-// edit consists entirely of Remote service re-exports; unknown edits stay full.
-export function remoteBarrelEdit(before, after) {
-  const lines = source => new Set(source.split("\n").map(line => line.trim()).filter(Boolean));
-  const oldLines = lines(before), newLines = lines(after);
-  const changed = [...oldLines].filter(line => !newLines.has(line)).concat([...newLines].filter(line => !oldLines.has(line)));
-  return changed.length > 0 && changed.every(line => /^export\s+(?:\*|\{[^}]+\})\s+from\s+["']\.\/(?:remote-|tournament-remote)[^/"']*\.js["'];?$/.test(line));
-}
-export const webEngineTest = (file, source) => file.startsWith("packages/web/tests/") && /\.(test|spec)\.[cm]?[jt]sx?$/.test(file) &&
-  /duel-server\/tests\/support\/cores(?:\.js)?["']/.test(source);
-
-const prefix = "packages/duel-server/tests/";
-const webPrefix = "packages/web/tests/";
-const isTest = file => /\.(test|spec)\.[cm]?[jt]sx?$/.test(file) && !file.startsWith(prefix + "support/fixtures/");
-
-/** Follow changed application inputs from every duel and web engine test root.
- * Fixture-worker host tests matter too: they exercise the same service calls.
- * Keep lifecycle/recording gates as a minimum for engine-imported inputs.
- */
-export function selectApplicationTests(sources, changed, exports) {
-  const graph = engineDependencyGraph(sources, exports);
-  // Unit-only Remote consumers do not make an application input engine-relevant.
-  const engineInputs = reachableEngineFiles(sources, graph);
-  const inputs = changed.filter(input => engineInputs.has(input));
-  if (!inputs.length) return { files: [], webFiles: [] };
-  const affected = Object.entries(sources).filter(([file, source]) => {
-    if (!(file.startsWith(prefix) && isTest(file)) && !webEngineTest(file, source)) return false;
-    const dependencies = reachableEngineFiles(sources, graph, [file]);
-    return inputs.some(input => dependencies.has(input));
-  }).map(([file]) => file).sort();
-  return {
-    files: [...new Set([
-      "tests/host.test.ts", "tests/host-series.test.ts", "tests/draft-deck-legality.test.ts",
-      ...affected.filter(file => file.startsWith(prefix)).map(file => file.slice("packages/duel-server/".length)),
-    ])],
-    webFiles: affected.filter(file => file.startsWith(webPrefix)).map(file => file.slice("packages/web/".length)),
-  };
-}
-
-// Focused shards run whole files with plain Vitest sharding. Slow suites need
-// the full lane's surrender legs/differential jobs; broad selections need its LPT plan.
-export function applicationSelectionNeedsFullEngine(files, duelSuiteCount) {
-  return files.some(file => SURRENDER_FILES.includes(file) || DIFFERENTIAL_FILES.includes(file)) ||
-    files.length > duelSuiteCount / 2;
-}
-
-/** Follow literal imports, re-exports and file readers; keep missing paths for deletions.
- * Namespace/dynamic imports and unknown exports conservatively retain the whole barrel.
- */
-export function engineSharedFiles(sources, exports, roots) {
-  return reachableEngineFiles(sources, engineDependencyGraph(sources, exports), roots);
-}
-
-function engineDependencyGraph(sources, exports) {
-  const resolve = (file, reference) => {
-    let path;
-    if (reference.startsWith("@yugidraft/shared/")) {
-      const subpath = "./" + reference.slice("@yugidraft/shared/".length);
-      const entry = exports[subpath];
-      const target = typeof entry === "string" ? entry : entry?.source ?? entry?.default;
-      path = target ? "packages/shared/" + target.replace(/^\.\//, "").replace(/^dist\//, "src/")
-        : "packages/shared/src/" + subpath.slice(2);
-    } else if (reference.startsWith("@/")) path = "packages/web/src/" + reference.slice(2);
-    else path = posix.normalize(posix.join(posix.dirname(file), reference));
-    if (!/^(packages\/shared\/src|packages\/duel-server\/(src|tests|scripts)|packages\/web\/(src|tests|app|e2e))\//.test(path)) return [];
-    const stem = path.replace(/\.[cm]?jsx?$/, "");
-    return [...new Set([path, stem + ".ts", stem + ".tsx", stem + "/index.ts"])];
-  };
-  const exportedNames = (list) => list.split(",").map(item => item.trim().replace(/^type\s+/, "").split(/\s+as\s+/).at(-1)).filter(Boolean);
-  const ownsExport = (file, name, checking = new Set()) => {
-    if (checking.has(file)) return false;
-    checking.add(file);
-    const source = sources[file] ?? "";
-    if (new RegExp(`\\bexport\\s+(?:(?:declare|async|abstract)\\s+)?(?:const|let|var|function|class|interface|type|enum)\\s+${name}\\b`).test(source)) return true;
-    for (const [, list] of source.matchAll(/\bexport\s+(?:type\s+)?\{([^}]+)\}/g)) {
-      if (exportedNames(list).includes(name)) return true;
-    }
-    return [...source.matchAll(/\bexport\s+(?:type\s+)?\*\s+from\s+["']([^"']+)["']/g)]
-      .some(([, reference]) => resolve(file, reference).some(target => ownsExport(target, name, checking)));
-  };
-  // Resolve literal references and their import syntax once for all test roots.
-  const references = new Map(Object.entries(sources).map(([file, source]) => {
-    const edges = [];
-    for (const match of moduleReferences(source)) {
-      const targets = resolve(file, match[1]);
-      if (!targets.length) continue;
-      const before = source.slice(0, match.index);
-      const named = before.match(/\b(?:import|export)\s+(?:type\s+)?\{([^}]+)\}\s+from\s*$/)?.[1];
-      const star = /\bexport\s+(?:type\s+)?\*\s+from\s*$/.test(before);
-      const importedNames = named?.split(",").map(item => item.trim().replace(/^type\s+/, "").split(/\s+as\s+/)[0]).filter(Boolean);
-      edges.push({ targets, exported: named === undefined ? undefined : exportedNames(named), star, importedNames });
-    }
-    return [file, edges];
-  }));
-  const exportOwners = new Map();
-  const hasExport = (file, name) => {
-    const key = `${file}\0${name}`;
-    // Cache only complete lookups. Recursive lookups can be restricted by a cycle.
-    if (!exportOwners.has(key)) exportOwners.set(key, ownsExport(file, name));
-    return exportOwners.get(key);
-  };
-  return { references, hasExport };
-}
-
-function reachableEngineFiles(sources, { references, hasExport }, roots) {
-  const seen = new Set();
-  const expanded = new Set();
-  const visit = (file, names) => {
-    if (applicationSetup(file)) return;
-    const key = file + (applicationBarrel(file) && names ? ":" + [...names].sort().join(",") : ":*");
-    if (expanded.has(key)) return;
-    expanded.add(key);
-    seen.add(file);
-    const knownNames = names && applicationBarrel(file) ? names.filter(name => hasExport(file, name)) : undefined;
-    for (const { targets, exported, star, importedNames } of references.get(file) ?? []) {
-      if (knownNames && knownNames.length === names.length && (exported || star)) {
-        const relevant = exported ? knownNames.some(name => exported.includes(name))
-          : knownNames.some(name => targets.some(target => hasExport(target, name)));
-        // A deleted export target has unknown ownership and must keep coverage.
-        if (!relevant && targets.some(target => sources[target] !== undefined)) continue;
-      }
-      for (const candidate of targets) visit(candidate, importedNames);
-    }
-  };
-  if (roots) {
-    for (const file of roots) visit(file);
-    return seen;
-  }
-  const needsCores = new Set(["packages/duel-server/tests/support/cores.ts"]);
-  let added;
-  do {
-    added = false;
-    for (const [file, edges] of references) {
-      if (!needsCores.has(file) && edges.some(({ targets }) => targets.some(target => needsCores.has(target)))) {
-        needsCores.add(file);
-        added = true;
-      }
-    }
-  } while (added);
-  for (const file of engineRuntimeRoots) visit(file);
-  visit("packages/duel-server/tests/support/setup.ts");
-  visit("packages/duel-server/scripts/rule-coverage.ts");
-  for (const file of Object.keys(sources)) {
-    const relative = file.replace(/^packages\/duel-server\//, "");
-    if (file.startsWith("packages/duel-server/tests/scenarios/") ||
-      (relative.startsWith("tests/") && /\.(test|spec)\.[cm]?[jt]sx?$/.test(relative) &&
-        (needsCores.has(file) || NEEDS_ENGINE.some(pattern => pattern.endsWith("/**") ? relative.startsWith(pattern.slice(0, -2)) : relative === pattern))) ||
-      webEngineTest(file, sources[file])) visit(file);
-  }
-  return seen;
-}
-
-let sharedDependencies;
-let sharedSources;
-const applicationSelections = new Map();
-export function engineSources() {
-  const root = new URL("../../", import.meta.url);
-  const sources = {};
-  const collect = (dir) => {
-    for (const entry of readdirSync(new URL(dir, root), { withFileTypes: true })) {
-      const path = dir + entry.name;
-      if (entry.isDirectory()) collect(path + "/");
-      else if (/\.[cm]?[jt]sx?$/.test(path)) sources[path] = readFileSync(new URL(path, root), "utf8");
-    }
-  };
-  for (const dir of ["packages/duel-server/src/", "packages/duel-server/tests/", "packages/duel-server/scripts/", "packages/shared/src/",
-    "packages/web/src/", "packages/web/tests/", "packages/web/app/", "packages/web/e2e/"]) collect(dir);
-  return { sources, exports: JSON.parse(readFileSync(new URL("packages/shared/package.json", root), "utf8")).exports };
-}
-
-function sharedEngineInput(file) {
-  if (file.startsWith("packages/shared/src/duels/")) return true;
-  if (!file.startsWith("packages/shared/src/")) return false;
-  if (!sharedDependencies) {
-    sharedSources = engineSources();
-    const { sources, exports } = sharedSources;
-    sharedDependencies = engineSharedFiles(sources, exports);
-  }
-  return sharedDependencies.has(file);
-}
-
-// Main retains full suites for imported application helpers. Only small PR
-// selections use the focused lane. Missing diffs and nightly/manual stay full.
-export function changedLayers(files, event, { serviceBarrelAppOnly = false } = {}) {
-  if (!["pull_request", "push"].includes(event) || files === null) return allLayers();
-  const core = files.some(file => !isDoc(file) && coreInput(file));
-  const focusedInput = file => applicationEngineInput(file) && (file !== serviceBarrel || serviceBarrelAppOnly);
-  let engine = core || files.some((file) => !isDoc(file) && (
-    docTestInputs.get(file) === "engine" || globalInput(file) ||
-    (sharedEngineInput(file) && !(event === "pull_request" && focusedInput(file))) ||
-    file === "packages/web/src/components/duel/table/seat-state.ts" ||
-    // Remote Duels card logic/behaviour: the generated files are checked against the engine data in the engine shards.
-    /^(packages\/shared\/src\/remote\/card-behaviour\.ts|packages\/web\/src\/lib\/remote\/card-(?:logic|behaviour)-data\.json)$/.test(file) ||
-    /^(packages\/duel-server\/(?!domain-core\/proposals\/)|packages\/shared\/(package\.json$|tsconfig[^/]*\.json$)|data\/duel-engine[^/]*\/|patches\/|scripts\/(native\/|ci\/(?:build-core|parallel-emxx|bin\/em\+\+|core-cache-key|assemble-core-bundle|run-engine-(?:tests|case-shards)|select-engine-tests|engine-sequencer|engine-test-plan|engine-test-times|duel-test-files|check-engine-test-coverage|changed-layers|publish-engine-data))|\.github\/actions\/(restore-engine-bundle|prepare-production-bundle|setup-ci-node)\/|\.github\/workflows\/test\.yml$|package(-lock)?\.json$|turbo\.json$|tsconfig[^/]*\.json$|\.nvmrc$)/.test(file)
-  ));
-  let engine_app = event === "pull_request" && !engine && files.some(file => focusedInput(file) && sharedEngineInput(file));
-  if (engine_app) {
-    const { sources, exports } = sharedSources;
-    const inputs = files.filter(file => focusedInput(file) && sharedDependencies.has(file)).sort();
-    const key = JSON.stringify(inputs);
-    if (!applicationSelections.has(key)) {
-      const selected = selectApplicationTests(sources, inputs, exports);
-      const total = Object.keys(sources).filter(file => file.startsWith(prefix) && isTest(file)).length;
-      applicationSelections.set(key, applicationSelectionNeedsFullEngine(selected.files, total));
-    }
-    if (applicationSelections.get(key)) {
-      engine = true;
-      engine_app = false;
-    }
-  }
-  // Golden rows depend only on the core, overlay, data pins and native tooling (and the step's own wiring).
-  const golden = files.some((file) => /^(\.github\/workflows\/test\.yml$|scripts\/ci\/changed-layers\.mjs$)|^packages\/duel-server\/(card-script-patches\/|domain-core\/(patches\/|multi-scripts\/|pins\.json$)|scripts\/(native\/|(?:run-nduel|build-native-core|prepare-multi-core-tree|multi-core-common)\.sh$|(?:prepare-data|released-card-data|card-script-patches)\.ts$))/.test(file));
-  // Main pushes always run the full engine suites when engine=true; only pull requests get a narrow test selection.
-  const tests_only = event === "pull_request" && files.length > 0 && files.every((file) => file.startsWith("packages/duel-server/tests/"));
-  const areas = Object.fromEntries(AREAS.map(area => [area, false]));
-  const consumers = () => { for (const area of AREAS.filter(area => area !== "ci_scripts")) areas[area] = true; };
-  for (const file of files.filter(file => !isDoc(file))) {
-    if (docTestInputs.has(file)) {
-      if (docTestInputs.get(file) === "ci_scripts") areas.ci_scripts = true;
-    }
-    else if (globalInput(file)) { for (const area of AREAS) areas[area] = true; }
-    else if (/^packages\/shared\/(src\/|package\.json$|tsconfig)/.test(file)) consumers();
-    else if (/^packages\/shared\/data\/(effects|staples)\//.test(file)) { areas.web = true; areas.shared = true; areas.duel_unit = true; }
-    else if (file.startsWith("packages/shared/data/")) consumers();
-    else if (file.startsWith("packages/shared/tests/helpers/")) { areas.shared = true; areas.duel_unit = true; }
-    else if (file.startsWith("packages/shared/")) areas.shared = true;
-    else if (file.startsWith("packages/duel-server/")) {
-      areas.duel_unit = true;
-      // Tests in web/shared and E2E helpers import duel source/fixtures directly;
-      // the bot resolves duel card helpers at runtime.
-      if (/^packages\/duel-server\/(src|tests)\//.test(file)) {
-        for (const area of ["web", "shared", "bot", "e2e"]) areas[area] = true;
-      }
-      if (file === "packages/duel-server/card-block-list.json") areas.web = true;
-    }
-    else if (file.startsWith("site/")) areas.web = true;
-    else if (file === "packages/e2e/stack/start.mjs") { areas.e2e = true; areas.duel_unit = true; }
-    else if (/^packages\/(web|bot|ws|worker|e2e)\//.test(file)) areas[file.split("/")[1]] = true;
-    else if (file === "scripts/ci/duel-test-files.mjs" || file === "scripts/ci/publish-engine-data.mjs") { areas.duel_unit = true; areas.ci_scripts = true; }
-    else if (/^scripts\/ci\/(?:run-web-tests\.mjs|web-test-plan\.mjs|test-shards\.mjs|test-timing-reporter\.mjs|test-timings\/web\.json)$/.test(file)) { areas.web = true; areas.ci_scripts = true; }
-    else if (/^scripts\/ci\/(?:run-selected-unit-tests|unit-test-plan)\.mjs$/.test(file)) { areas.shared = true; areas.duel_unit = true; areas.ci_scripts = true; }
-    else if (file === "scripts/ci/test-timings/shared.json") { areas.shared = true; areas.ci_scripts = true; }
-    else if (file === "scripts/ci/test-timings/duel-unit.json") { areas.duel_unit = true; areas.ci_scripts = true; }
-    else if (/^scripts\/(ci|deployment)\/|^\.github\/actions\/|^Dockerfile$|^\.dockerignore$/.test(file)) areas.ci_scripts = true;
-    else if (file.startsWith("scripts/effects/")) { /* dedicated effect protocol job */ }
-    else if (/^(Caddyfile$|docker-compose[^/]*\.ya?ml$|data\/duel-engine[^/]*\/|scripts\/native\/|\.github\/|\.gitignore$|\.impeccable\.)/.test(file)) { /* compose checked in changes; engine/native/production have their own jobs */ }
-    else { consumers(); areas.ci_scripts = true; } // Unknown app/tooling paths fail open, without broadening engine inputs.
-  }
-  // Worker health integration starts the WS server from source.
-  if (areas.ws) areas.worker = true;
-  // E2E's bug-report helper imports web source (browser flows still stay local).
-  if (files.some(file => !isDoc(file) && file.startsWith("packages/web/src/"))) areas.e2e = true;
+export function changedLayers(files, event, options = {}) {
+  // Main is the full release gate. Partial PR results can never satisfy it.
+  if (event !== "pull_request" || !files?.length || files.some(globalInput)) return allLayers();
+  const { typeOnly = new Set(), duelEngineTests, webEngineTests = new Set(), root: workspaceRoot = root } = options;
   const relevant = files.filter(file => !isDoc(file));
-  const data_only = relevant.length > 0 && relevant.every(file => /^packages\/shared\/data\/(effects|staples)\//.test(file));
-  const effects = relevant.some(file => globalInput(file) || /^(scripts\/effects\/|scripts\/ci\/publish-effect-tags\.mjs$|packages\/shared\/(src\/(cards\/effects|duels)\/|data\/effects\/))/.test(file));
-  // Main exercises these same composites in the real production build instead.
-  const prod_build = relevant.some(file => globalInput(file) || /^(Dockerfile$|\.dockerignore$|\.github\/actions\/(prepare-production-bundle|build-production-image|reuse-production-image)\/|scripts\/deployment\/|packages\/shared\/(package\.json$|tsconfig[^/]*\.json$|src\/duels\/)|packages\/duel-server\/(domain-core\/(?!proposals\/)|legacy-1v1\/|card-script-patches\/|card-remap-overrides\.json$|scripts\/(?:prepare-data|released-card-data|prerelease[^/]*|card-script-patches|build-[^/]*core[^/]*|prepare-multi-core-tree|multi-core-common|install-engine-bundle|check-legacy-pin|package-deploy-multi-cores)\.|src\/(?:multi-scripts|released-database-files|cards|card-script-source|card-name-search|card-script-patches)\.ts$))/.test(file));
-  return { ...areas, data_only, effects, prod_build, docs_only: files.length > 0 && files.every(isDoc), engine, engine_app, core, golden, tests_only };
+  const runtime = relevant.filter(file => !isDeclaration(file) && !typeOnly.has(file));
+  const hubs = runtime.filter(isHub);
+  const direct = runtime.filter(file => !isHub(file));
+  const routes = Object.fromEntries(Object.keys(workspaces).map(suite => [suite, { owned: [], consumers: [], hubs: [] }]));
+  const engine = [];
+  let ci_scripts = false;
+  let effects = false;
+  let web_build = false;
+  let smoke = {};
+  for (const file of direct) {
+    const owners = [areaFor(file, duelEngineTests), ...(additionalOwners[file] ?? [])];
+    if (webEngineTests.has(file)) owners.push("engine");
+    if (dataConsumers.paths.test(file)) {
+      if (file.startsWith("packages/shared/data/staples/")) continue;
+    } else if (owners.includes("effects") && file.startsWith("packages/shared/")) {
+      owners.push("shared_services");
+    }
+    if (duelTestPath(file) && !existsSync(join(workspaceRoot, file)) && !owners.includes("engine")) owners.push("engine");
+    for (const owner of new Set(owners)) {
+      if (!owner || owner === "ci" || owner === "deploy") {
+        ci_scripts = true;
+        continue;
+      }
+      if (owner === "engine") engine.push(file);
+      if (owner === "effects") effects = true;
+      if (owner === "web" && !testPath(file)) web_build = true;
+      if (owner !== "engine" || !webEngineTests.has(file)) {
+        for (const suite of areas[owner].suites) routes[suite].owned.push(file);
+      }
+      if (areas[owner].consumerPaths?.test(file)) {
+        for (const suite of areas[owner].consumers) routes[suite].consumers.push(file);
+      }
+    }
+  }
+  for (const file of hubs) {
+    const owner = areaFor(file);
+    for (const suite of areas[owner]?.suites ?? []) routes[suite].hubs.push(file);
+  }
+  const wiring = direct.some(file => ciWiring.test(file));
+  if (hubs.length || wiring || direct.some(file => !areaFor(file))) smoke = areaSmokes();
+  else if (direct.some(file => areaFor(file) === "shared_db" && !testPath(file))) smoke = areaSmokes(["web", "ws", "worker", "bot", "duel_host"]);
+  if (direct.some(file => dataConsumers.paths.test(file))) {
+    for (const [suite, files] of Object.entries(dataConsumers.files)) smoke[suite] = [...(smoke[suite] ?? []), ...files];
+  }
+  if (wiring) ci_scripts = true;
+
+  const checkAllTypes = hubs.length > 0 || wiring || relevant.some(file => isDeclaration(file) && !packagePath(file));
+  const typecheck = relevant.length ? touchedTypechecks(relevant, { all: checkAllTypes, root: workspaceRoot }) : [];
+  const uniqueEngine = [...new Set(engine)];
+  return {
+    ...Object.fromEntries(Object.entries(routes).map(([suite, route]) => [suite, route.owned.length > 0 || !!smoke[suite]])),
+    web_build, e2e: typecheck.includes("e2e"), ci_scripts, effects,
+    effect_types: relevant.some(file => effectTypeInput.test(file)) || !!smoke.effects,
+    prod_build: direct.some(file => productionInput.test(file)),
+    engine: uniqueEngine.length > 0,
+    core: uniqueEngine.some(coreInput), golden: uniqueEngine.some(file => goldenInput.test(file)),
+    docs_only: relevant.length === 0,
+    tests_only: runtime.length > 0 && runtime.every(testPath),
+    checks_only: relevant.length > 0 && direct.every(file => ciWiring.test(file) || file === "docs/engine/core-pins.md"),
+    full: false, routes, smoke, typecheck,
+    engine_diff: uniqueEngine.length > 0 && !uniqueEngine.some(coreInput) && uniqueEngine.every(engineGraphInput) ? uniqueEngine : [],
+  };
+}
+
+export function selectionOutputs(layers, results = {}) {
+  const { routes, smoke, typecheck, engine_diff, ...flags } = layers;
+  const output = {
+    ...flags, typecheck: typecheck.length ? JSON.stringify(typecheck) : "",
+    engine_diff: engine_diff.length ? JSON.stringify(engine_diff) : "",
+    effect_smoke: !flags.effects && smoke.effects ? JSON.stringify(smoke.effects) : "",
+    engine_matrix: JSON.stringify(engineMatrix(false)),
+  };
+  for (const suite of Object.keys(workspaces)) {
+    const result = results[suite];
+    if (!result && !smoke[suite]) continue;
+    const files = result?.files === null ? null : [...new Set([...(result?.files ?? []), ...(smoke[suite] ?? [])])].sort();
+    output[suite] = files === null ? result.affected : files.length > 0;
+    if (!files?.length) continue;
+    output[suite + "_files"] = JSON.stringify(files);
+    if (suite === "web") output.web_shards = JSON.stringify(files.slice(0, 5).map((_, i) => i + 1));
+    if (suite === "shared" || suite === "duel_unit") {
+      const plan = planUnitShards(suite, files);
+      output[suite + "_shards"] = JSON.stringify(plan.map((_, i) => `${i + 1}/${plan.length}`));
+    }
+  }
+  return output;
 }
 
 const readCommand = (command, args) => execFileSync(command, args, {
   encoding: "utf8", stdio: ["ignore", "pipe", "pipe"],
 });
 
-// The changed files, or null when there is no usable diff (then every job runs).
-function changedFiles(event, base, head) {
-  if (!["pull_request", "push"].includes(event) || !base || !head || ZERO_SHA.test(base)) return null;
+// The changed files, or null when there is no usable PR diff.
+function changedFiles(base, head) {
+  if (!base || !head || /^0+$/.test(base)) return null;
   try {
-    if (event === "pull_request" && process.env.PR_NUMBER) {
+    if (process.env.PR_NUMBER) {
       const pages = JSON.parse(readCommand("gh", ["api", "--paginate", "--slurp",
         `repos/${process.env.GITHUB_REPOSITORY}/pulls/${process.env.PR_NUMBER}/files?per_page=100`]));
       const entries = pages.flat();
-      // The API caps file lists at 3000. An incomplete list must never skip coverage.
       if (entries.length >= 3000) throw new Error("PR file list may be truncated");
       return entries.flatMap(file => [file.filename, file.previous_filename].filter(Boolean));
     }
-    if (event === "push") readCommand("git", ["merge-base", "--is-ancestor", base, head]);
-    const range = event === "pull_request" ? `${base}...${head}` : `${base}..${head}`;
-    return readCommand("git", ["diff", "--name-only", "--no-renames", "-z", range]).split("\0").filter(Boolean);
+    return readCommand("git", ["diff", "--name-only", "--no-renames", "-z", `${base}...${head}`]).split("\0").filter(Boolean);
   } catch (error) {
-    console.warn(`No usable diff for ${event} ${base}..${head}; every job runs. ${error.message}`);
+    console.warn(`No usable PR diff for ${base}..${head}; every group runs. ${error.message}`);
     return null;
   }
 }
 
+export function writeOutputs(outputs) {
+  console.log(outputs);
+  appendFileSync(process.env.GITHUB_OUTPUT, Object.entries(outputs).map(([key, value]) => `${key}=${value}\n`).join(""));
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const event = process.env.EVENT;
-  const base = event === "push" ? process.env.PUSH_BEFORE : process.env.BASE;
-  const head = event === "push" ? process.env.PUSH_AFTER : process.env.HEAD;
-  const files = changedFiles(event, base, head);
-  console.log(files === null ? "(no diff)" : files.join("\n"));
-  let serviceBarrelAppOnly = false;
-  if (event === "pull_request" && files?.includes(serviceBarrel)) {
-    try {
-      let before;
-      try {
-        before = readCommand("git", ["show", `${base}:${serviceBarrel}`]);
-      } catch {
-        // PR detection uses a shallow checkout. Read just this base file rather
-        // than fetching the full history or installing compiler dependencies.
-        const response = JSON.parse(readCommand("gh", ["api", `repos/${process.env.GITHUB_REPOSITORY}/contents/${serviceBarrel}?ref=${base}`]));
-        before = Buffer.from(response.content, "base64").toString("utf8");
-      }
-      serviceBarrelAppOnly = remoteBarrelEdit(before, readFileSync(new URL("../../" + serviceBarrel, import.meta.url), "utf8"));
-    } catch (error) {
-      console.warn(`Cannot classify service barrel edit; retaining full engine coverage. ${error.message}`);
-    }
+  const files = event === "pull_request" ? changedFiles(process.env.BASE, process.env.HEAD) : null;
+  console.log(files === null ? "(full run)" : files.join("\n"));
+  const layers = changedLayers(files, event);
+  const output = selectionOutputs(layers);
+  // Keep the complete diff in this job's checkout, including large PRs.
+  if (!layers.full && files.some(file => !isDoc(file) && !isDeclaration(file) && !ciWiring.test(file) &&
+    (sourceFile.test(file) || Object.values(layers.routes).some(route => route.owned.includes(file))))) {
+    const { writeFileSync } = await import("node:fs");
+    writeFileSync(join(process.env.RUNNER_TEMP ?? process.cwd(), "pr-test-diff.json"), JSON.stringify(files));
+    output.scan = true;
   }
-  const outputs = { ...changedLayers(files, event, { serviceBarrelAppOnly }), base: base ?? "", head: head ?? "" };
-  const sharedEngine = sharedEnginePullRequest(files, event, outputs);
-  outputs.engine_shared = sharedEngine;
-  outputs.engine_matrix = JSON.stringify(engineMatrix(sharedEngine));
-  if (event === "pull_request" && files !== null) {
-    const testDiff = JSON.stringify(files);
-    // GitHub carries this through a Linux environment variable in the next step.
-    if (Buffer.byteLength(testDiff) <= 64 * 1024) outputs.test_diff = testDiff;
-    else console.warn("PR diff is too large to pass to the selector; running full suites in the selected groups.");
-  }
-  console.log(outputs);
-  for (const [key, value] of Object.entries(outputs)) appendFileSync(process.env.GITHUB_OUTPUT, `${key}=${value}\n`);
+  writeOutputs(output);
 }

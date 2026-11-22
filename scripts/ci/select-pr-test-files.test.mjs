@@ -88,3 +88,142 @@ test("configuration, runtime data, and deleted paths force full coverage", async
     assert.equal((await select([path])).files, null, path);
   }
 });
+
+test("a web route change keeps the runtime selection in web", async t => {
+  const select = await fixture(t);
+  const { changedLayers } = await import("./changed-layers.mjs");
+  const layers = changedLayers([web + "src/route.ts"], "pull_request");
+  assert.equal(layers.engine, false);
+  assert.equal(layers.shared, false);
+  assert.equal(layers.worker, false);
+  assert.deepEqual((await select([web + "src/route.ts"])).files, ["tests/first.test.ts", "tests/third.test.ts"]);
+});
+
+test("a shared service reaches the importing consumer, stopping at a generic utility", async t => {
+  const service = shared + "src/services/series.ts";
+  const select = await fixture(t, {
+    [service]: "export const series = 1;",
+    [roots[0]]: 'import "../../shared/src/services/series.js";',
+    [roots[1]]: 'import "../../shared/src/util/generic.js";',
+    [roots[2]]: 'import "../src/independent.js";',
+    [shared + "src/util/generic.ts"]: 'import "../services/series.js";',
+  });
+  assert.deepEqual((await select([service], false)).files, ["tests/first.test.ts"]);
+});
+
+test("type-only edits require no runtime suites, while deleting a value export still does", async () => {
+  const { isTypeOnlyEdit } = await import("./select-pr-test-files.mjs");
+  const { changedLayers } = await import("./changed-layers.mjs");
+  const path = shared + "src/duels/contract.ts";
+  const before = "export type Contract = string;\nexport const kind = 'duel';\n";
+  const after = before.replace("string", "number");
+  assert.equal(isTypeOnlyEdit(path, before, after), true);
+  assert.equal(isTypeOnlyEdit(path, before, "export type Contract = number;\n"), false);
+  const layers = changedLayers([path], "pull_request", { typeOnly: new Set([path]) });
+  for (const flag of ["engine", "core", "duel_unit", "shared", "web", "effects"]) assert.equal(layers[flag], false, flag);
+  assert.ok(layers.typecheck.includes("shared"));
+  assert.ok(layers.typecheck.includes("duel-server"));
+});
+
+test("the observability adapter and CI wiring keep smoke coverage without engine jobs", async () => {
+  const { changedLayers } = await import("./changed-layers.mjs");
+  for (const changes of [[shared + "src/observability/console-adapter.ts"], [".github/workflows/test.yml"]]) {
+    const layers = changedLayers(changes, "pull_request");
+    assert.equal(layers.engine, false);
+    assert.equal(layers.core, false);
+    assert.ok(layers.smoke.web.length > 0 && layers.smoke.web.length < 5);
+    assert.ok(layers.smoke.duel_unit.length > 0 && layers.smoke.duel_unit.length < 5);
+  }
+  const layers = changedLayers(["packages/duel-server/src/engine.ts"], "pull_request");
+  assert.equal(layers.engine, true);
+  assert.equal(layers.core, false);
+  assert.ok(layers.engine_diff.includes("packages/duel-server/src/engine.ts"));
+});
+
+test("a named shared re-export selects its own tests and only the importing consumer files", async t => {
+  const service = shared + "src/services/series.ts";
+  const sharedTest = shared + "tests/services/series.test.ts";
+  const other = shared + "src/services/other.ts";
+  const root = mkdtempSync(join(repo, ".ci-area-test-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const fixtureFiles = {
+    ...files,
+    [web + "package.json"]: JSON.stringify({ name: "@demo/web", dependencies: { "@demo/shared": "*" }, scripts: { typecheck: "tsc" } }),
+    [shared + "package.json"]: JSON.stringify({
+      name: "@demo/shared", scripts: { typecheck: "tsc" },
+      exports: { "./services": "./src/services/index.ts" },
+    }),
+    [shared + "src/services/index.ts"]: 'export * from "./series.js"; export * from "./other.js";',
+    [service]: "export const series = 1;",
+    [other]: "export const other = 2;",
+    [sharedTest]: 'import { series } from "../../src/services/index.js";',
+    [roots[0]]: 'import { series as current } from "@demo/shared/services";',
+    [roots[1]]: 'import { other } from "@demo/shared/services";',
+    [roots[2]]: 'import "../src/independent.js";',
+  };
+  for (const [path, content] of Object.entries(fixtureFiles)) {
+    mkdirSync(dirname(join(root, path)), { recursive: true });
+    writeFileSync(join(root, path), content);
+  }
+  const { selectPullRequest } = await import("./select-pr-test-files.mjs");
+  const suiteTests = { web: roots, shared: [sharedTest] };
+  const output = await selectPullRequest(root, [service], {
+    readBase: () => "export const series = 0;",
+    discover: (_root, suite, select) => select({ tests: suiteTests[suite] ?? [] }),
+  });
+  assert.deepEqual(JSON.parse(output.shared_files), ["tests/services/series.test.ts"]);
+  assert.deepEqual(JSON.parse(output.web_files), ["tests/first.test.ts"]);
+  assert.deepEqual(JSON.parse(output.typecheck), ["shared", "web"]);
+  for (const flag of ["engine", "core", "bot", "ws", "worker", "duel_unit", "web_build"]) assert.equal(output[flag], false, flag);
+});
+
+test("adding a type specifier to a mixed re-export leaves its value export unchanged", async () => {
+  const { isTypeOnlyEdit } = await import("./select-pr-test-files.mjs");
+  const path = shared + "src/services/index.ts";
+  assert.equal(isTypeOnlyEdit(path, 'export { current } from "./service.js";', 'export { current, type Contract } from "./service.js";'), true);
+  assert.equal(isTypeOnlyEdit(path, 'export { current } from "./service.js";', 'export { replacement, type Contract } from "./service.js";'), false);
+});
+
+test("inserting a standalone export type before a value is typecheck-only", async () => {
+  const { isTypeOnlyEdit } = await import("./select-pr-test-files.mjs");
+  const path = shared + "src/services/index.ts";
+  const without = "export const kind = 'duel';\n";
+  const withType = "export type Contract = string;\n" + without;
+  assert.equal(isTypeOnlyEdit(path, without, withType), true);
+  assert.equal(isTypeOnlyEdit(path, withType, without), true);
+});
+
+test("a console adapter comment runs its own tests and the exact fixed runtime smokes", async t => {
+  const root = mkdtempSync(join(repo, ".ci-hub-test-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const hub = shared + "src/observability/console-adapter.ts";
+  const dedicated = shared + "tests/observability/adapter.test.ts";
+  const unrelated = shared + "tests/services/unrelated.test.ts";
+  const source = "export const adapter = console;";
+  for (const [file, text] of Object.entries({
+    [hub]: source + " // Adapter used by the app.",
+    [dedicated]: 'import "../../src/observability/console-adapter.js";',
+    [unrelated]: "export {};",
+    [shared + "package.json"]: JSON.stringify({ name: "@demo/shared", scripts: { typecheck: "tsc" } }),
+    [web + "package.json"]: JSON.stringify({ name: "@demo/web", scripts: { typecheck: "tsc" } }),
+  })) {
+    mkdirSync(dirname(join(root, file)), { recursive: true });
+    writeFileSync(join(root, file), text);
+  }
+  const { selectPullRequest } = await import("./select-pr-test-files.mjs");
+  const output = await selectPullRequest(root, [hub], {
+    readBase: () => source,
+    discover: (_root, suite, select) => {
+      assert.equal(suite, "shared");
+      return select({ tests: [dedicated, unrelated] });
+    },
+  });
+  assert.equal(output.engine, false);
+  assert.equal(output.core, false);
+  assert.equal(output.web_build, false);
+  assert.deepEqual(JSON.parse(output.typecheck), ["shared", "web"]);
+  assert.deepEqual(JSON.parse(output.web_files), ["tests/observability-migration.test.ts"]);
+  assert.deepEqual(JSON.parse(output.duel_unit_files), ["tests/decision-clock-credit.test.ts", "tests/sort-response.test.ts"]);
+  assert.deepEqual(JSON.parse(output.shared_files),
+    ["tests/db/schema.test.ts", "tests/observability/adapter.test.ts", "tests/services/drafts.test.ts"]);
+});

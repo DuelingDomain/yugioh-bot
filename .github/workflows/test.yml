@@ -1,17 +1,12 @@
 name: Test
 
-# Path-selected app groups: web, bot, ws, worker, shared, duel (no core), e2e and CI scripts.
-# PR unit groups use file lists when the import graph can bound their coverage.
-# Shared source selects all app consumers; only shared imports reachable from engine host/test roots
-# select engine suites. Root build/install/workflow configuration selects app/engine groups.
-# Small PR selections for imported tournament/series/Remote helpers use focused shards.
-# Slow suites or selections over half the duel suites use the tuned full engine lane.
-# Native/differential checks select only core source/pin/patch/build inputs and their CI wiring.
-# Docs-only changes run detection and the final CI result, with no test groups.
-# Engine suites and their sharding are described in docs/adr/0003-duel-test-layers.md.
-# Main uses the same paths, diffing from its last successful tested ancestor.
-# Missing diffs, manual and nightly runs select all groups; nightly also runs nduel fuzz.
-# Deploy requires a successful main push Test, even when PR prebuilds supply reusable images.
+# PRs use explicit path ownership and file-level test selection inside each area.
+# Hubs run their tests, fixed consumer smokes and all workspace typechecks.
+# Workflow/CI wiring runs CI helper checks and fixed smokes. Global inputs or
+# unavailable PR diffs run all groups. Engine jobs need a direct engine input,
+# with native/differential limited to core inputs. See ADR 0003 for the map.
+# Main runs the full release gate before Deploy. Nightly and manual runs use
+# full suites and can run the extended nduel fuzz matrix.
 
 on:
   pull_request:
@@ -60,8 +55,7 @@ env:
   BUNDLE_DIR: data/duel-engine-next
 
 jobs:
-  # PR file lists come from the paginated API (including old names for renames).
-  # Main keeps full history for the last-successful-ancestor diff; missing diffs run everything.
+  # PR file lists come from the paginated API, including old names for renames.
   changes:
     name: Changed layers
     runs-on: ubuntu-latest
@@ -69,32 +63,27 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
-      actions: read
     outputs:
-      web: ${{ steps.reuse.outputs.web || steps.selection.outputs.web || steps.test-inputs.outputs.web || steps.diff.outputs.web }}
-      bot: ${{ steps.reuse.outputs.bot || steps.selection.outputs.bot || steps.diff.outputs.bot }}
-      ws: ${{ steps.reuse.outputs.ws || steps.selection.outputs.ws || steps.diff.outputs.ws }}
-      worker: ${{ steps.reuse.outputs.worker || steps.selection.outputs.worker || steps.diff.outputs.worker }}
-      shared: ${{ steps.reuse.outputs.shared || steps.selection.outputs.shared || steps.test-inputs.outputs.shared || steps.diff.outputs.shared }}
-      duel_unit: ${{ steps.reuse.outputs.duel_unit || steps.selection.outputs.duel_unit || steps.test-inputs.outputs.duel_unit || steps.diff.outputs.duel_unit }}
-      e2e: ${{ steps.reuse.outputs.e2e || steps.diff.outputs.e2e }}
-      ci_scripts: ${{ steps.reuse.outputs.ci_scripts || steps.diff.outputs.ci_scripts }}
-      docs_only: ${{ steps.diff.outputs.docs_only }}
-      data_only: ${{ steps.diff.outputs.data_only }}
-      effects: ${{ steps.reuse.outputs.effects || steps.diff.outputs.effects }}
-      prod_build: ${{ steps.diff.outputs.prod_build }}
-      engine: ${{ steps.reuse.outputs.engine || steps.diff.outputs.engine }}
-      engine_shared: ${{ steps.diff.outputs.engine_shared }}
-      engine_matrix: ${{ steps.diff.outputs.engine_matrix }}
-      engine_app: ${{ steps.reuse.outputs.engine_app || steps.diff.outputs.engine_app }}
-      core: ${{ steps.reuse.outputs.core || steps.diff.outputs.core }}
-      golden: ${{ steps.reuse.outputs.golden || steps.diff.outputs.golden }}
-      tests_only: ${{ steps.diff.outputs.tests_only }}
-      reused: ${{ steps.reuse.outputs.reused }}
-      tree: ${{ steps.reuse.outputs.tree }}
-      parent: ${{ steps.reuse.outputs.parent }}
-      base: ${{ steps.diff.outputs.base }}
-      head: ${{ steps.diff.outputs.head }}
+      web: ${{ steps.selection.outputs.web || steps.diff.outputs.web }}
+      bot: ${{ steps.selection.outputs.bot || steps.diff.outputs.bot }}
+      ws: ${{ steps.selection.outputs.ws || steps.diff.outputs.ws }}
+      worker: ${{ steps.selection.outputs.worker || steps.diff.outputs.worker }}
+      shared: ${{ steps.selection.outputs.shared || steps.diff.outputs.shared }}
+      duel_unit: ${{ steps.selection.outputs.duel_unit || steps.diff.outputs.duel_unit }}
+      vision: ${{ steps.selection.outputs.vision || steps.diff.outputs.vision }}
+      web_build: ${{ steps.selection.outputs.web_build || steps.diff.outputs.web_build }}
+      e2e: ${{ steps.selection.outputs.e2e || steps.diff.outputs.e2e }}
+      ci_scripts: ${{ steps.selection.outputs.ci_scripts || steps.diff.outputs.ci_scripts }}
+      docs_only: ${{ steps.selection.outputs.docs_only || steps.diff.outputs.docs_only }}
+      checks_only: ${{ steps.selection.outputs.checks_only || steps.diff.outputs.checks_only }}
+      effects: ${{ steps.selection.outputs.effects || steps.diff.outputs.effects }}
+      effect_types: ${{ steps.selection.outputs.effect_types || steps.diff.outputs.effect_types }}
+      prod_build: ${{ steps.selection.outputs.prod_build || steps.diff.outputs.prod_build }}
+      engine: ${{ steps.selection.outputs.engine || steps.diff.outputs.engine }}
+      core: ${{ steps.selection.outputs.core || steps.diff.outputs.core }}
+      golden: ${{ steps.selection.outputs.golden || steps.diff.outputs.golden }}
+      tests_only: ${{ steps.selection.outputs.tests_only || steps.diff.outputs.tests_only }}
+      engine_matrix: ${{ steps.selection.outputs.engine_matrix || steps.diff.outputs.engine_matrix }}
       smoke_enabled: ${{ steps.smoke.outputs.smoke_enabled }}
       smoke_pr: ${{ steps.smoke.outputs.smoke_pr }}
       smoke_base: ${{ steps.smoke.outputs.smoke_base }}
@@ -105,34 +94,30 @@ jobs:
         ${{ (steps.wrapper.outcome == 'failure' && 'engine wrapper pin failed') ||
         (steps.key.outcome == 'failure' && 'engine cache key failed') ||
         (steps.emsdk.outcome == 'failure' && 'emsdk pin read failed') || steps.bundle.outcome }}
-      web_files: ${{ steps.selection.outputs.web_files }}
-      web_shards: ${{ steps.selection.outputs.web_shards || '[1,2,3,4,5]' }}
-      shared_files: ${{ steps.selection.outputs.shared_files }}
-      shared_shards: ${{ steps.selection.outputs.shared_shards || '["1/2","2/2"]' }}
-      duel_unit_files: ${{ steps.selection.outputs.duel_unit_files }}
-      duel_unit_shards: ${{ steps.selection.outputs.duel_unit_shards || '["1/2","2/2"]' }}
-      bot_files: ${{ steps.selection.outputs.bot_files }}
-      ws_files: ${{ steps.selection.outputs.ws_files }}
-      worker_files: ${{ steps.selection.outputs.worker_files }}
-      test_graph: ${{ steps.test-inputs.outputs.scan }}
-      engine_focus: ${{ steps.diff.outputs.tests_only == 'true' && steps.test-inputs.outputs.scan == 'true' && steps.selection.outcome == 'success' }}
+      typecheck: ${{ steps.selection.outputs.typecheck || (steps.diff.outputs.scan != 'true' && steps.diff.outputs.typecheck) || '' }}
+      effect_smoke: ${{ steps.selection.outputs.effect_smoke || (steps.diff.outputs.scan != 'true' && steps.diff.outputs.effect_smoke) || '' }}
+      web_files: ${{ steps.selection.outputs.web_files || (steps.diff.outputs.scan != 'true' && steps.diff.outputs.web_files) || '' }}
+      shared_files: ${{ steps.selection.outputs.shared_files || (steps.diff.outputs.scan != 'true' && steps.diff.outputs.shared_files) || '' }}
+      duel_unit_files: ${{ steps.selection.outputs.duel_unit_files || (steps.diff.outputs.scan != 'true' && steps.diff.outputs.duel_unit_files) || '' }}
+      bot_files: ${{ steps.selection.outputs.bot_files || (steps.diff.outputs.scan != 'true' && steps.diff.outputs.bot_files) || '' }}
+      ws_files: ${{ steps.selection.outputs.ws_files || (steps.diff.outputs.scan != 'true' && steps.diff.outputs.ws_files) || '' }}
+      worker_files: ${{ steps.selection.outputs.worker_files || (steps.diff.outputs.scan != 'true' && steps.diff.outputs.worker_files) || '' }}
+      vision_files: ${{ steps.selection.outputs.vision_files || (steps.diff.outputs.scan != 'true' && steps.diff.outputs.vision_files) || '' }}
+      web_shards: ${{ steps.selection.outputs.web_shards || (steps.diff.outputs.scan != 'true' && steps.diff.outputs.web_shards) || '[1,2,3,4,5]' }}
+      shared_shards: ${{ steps.selection.outputs.shared_shards || (steps.diff.outputs.scan != 'true' && steps.diff.outputs.shared_shards) || '["1/2","2/2"]' }}
+      duel_unit_shards: ${{ steps.selection.outputs.duel_unit_shards || (steps.diff.outputs.scan != 'true' && steps.diff.outputs.duel_unit_shards) || '["1/2","2/2"]' }}
+      engine_files: ${{ steps.selection.outputs.engine_files }}
+      engine_web_files: ${{ steps.selection.outputs.engine_web_files }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          # Depth 2 keeps the merge ref's first parent, which the tested-tree proof records (HEAD^1).
-          fetch-depth: ${{ github.event_name == 'pull_request' && '2' || '0' }}
+          # Type-only classification compares the synthetic merge with its first parent.
+          fetch-depth: ${{ github.event_name == 'pull_request' && '2' || '1' }}
 
       - name: Check admin spectate service configuration
         if: ${{ !cancelled() }}
         run: prlimit --core=0 -- node scripts/ci/check-admin-spectate-compose.mjs
-
-      - name: Find tested main ancestor
-        id: baseline
-        if: ${{ !cancelled() && github.event_name == 'push' }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: node scripts/ci/tested-main-base.mjs
 
       - name: Diff changed files
         if: ${{ !cancelled() }}
@@ -143,21 +128,16 @@ jobs:
           EVENT: ${{ github.event_name }}
           BASE: ${{ github.event.pull_request.base.sha }}
           HEAD: ${{ github.event.pull_request.head.sha }}
-          PUSH_BEFORE: ${{ steps.baseline.outputs.base }}
-          PUSH_AFTER: ${{ github.sha }}
         run: node scripts/ci/changed-layers.mjs
 
-      # A main push whose tree a passing PR run already tested (same areas selected) skips the repeated
-      # test jobs; production images are still built. Fails open. PRs record the tested tree in ci-result.
-      - name: Reuse passing PR result for an identical tree
-        if: ${{ !cancelled() }}
-        id: reuse
-        env:
-          GH_TOKEN: ${{ github.token }}
-          EVENT: ${{ github.event_name }}
-          DIFF: ${{ toJSON(steps.diff.outputs) }}
-          BASE: ${{ steps.baseline.outputs.base }}
-        run: prlimit --core=0 -- node scripts/ci/reuse-pr-result.mjs
+      - name: Restore dependencies for PR test selection
+        if: ${{ steps.diff.outputs.scan == 'true' }}
+        uses: ./.github/actions/setup-ci-node
+
+      - name: Select PR test files
+        id: selection
+        if: ${{ steps.diff.outputs.scan == 'true' }}
+        run: node scripts/ci/select-pr-test-files.mjs
 
       - name: Resolve new-card smoke PR
         if: ${{ !cancelled() }}
@@ -172,8 +152,8 @@ jobs:
       - name: Compute engine wrapper pin
         id: wrapper
         if: >-
-          !cancelled() && ((steps.reuse.outputs.engine || steps.diff.outputs.engine) == 'true' ||
-          (steps.reuse.outputs.engine_app || steps.diff.outputs.engine_app) == 'true' || steps.smoke.outputs.smoke_enabled == 'true')
+          !cancelled() && ((steps.selection.outputs.engine || steps.diff.outputs.engine) == 'true' ||
+          steps.smoke.outputs.smoke_enabled == 'true')
         continue-on-error: true
         run: |
           node --input-type=module <<'JS'
@@ -206,31 +186,6 @@ jobs:
             data/duel-engine-next
             packages/duel-server/domain-core/dist
           key: ${{ steps.key.outputs.key }}
-
-      - name: Check PR inputs for whole-suite fallback
-        id: test-inputs
-        if: ${{ !cancelled() && steps.diff.outputs.test_diff != '' && steps.diff.outputs.data_only != 'true' }}
-        env:
-          CI_LAYERS: ${{ toJSON(steps.diff.outputs) }}
-        run: node scripts/ci/pr-test-inputs.mjs
-
-      - name: Restore dependencies for PR test selection
-        id: selector-node
-        if: ${{ !cancelled() && steps.test-inputs.outputs.scan == 'true' }}
-        continue-on-error: true
-        uses: ./.github/actions/setup-ci-node
-
-      - name: Select PR test files
-        id: selection
-        if: ${{ !cancelled() && steps.selector-node.outcome == 'success' }}
-        continue-on-error: true
-        env:
-          CI_LAYERS: ${{ toJSON(steps.diff.outputs) }}
-        run: node scripts/ci/select-pr-test-files.mjs
-
-      - name: Report PR selector fallback
-        if: ${{ !cancelled() && steps.test-inputs.outputs.scan == 'true' && steps.selection.outcome != 'success' }}
-        run: echo "::warning::PR test selection failed. Running full suites in the selected groups."
 
   core-build:
     name: Build core (${{ matrix.target }})
@@ -581,7 +536,7 @@ jobs:
   effect-protocol:
     name: Effect tagging protocol
     needs: changes
-    if: needs.changes.outputs.effects == 'true'
+    if: needs.changes.outputs.effects == 'true' || needs.changes.outputs.effect_types == 'true' || needs.changes.outputs.effect_smoke != ''
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -591,11 +546,19 @@ jobs:
         uses: ./.github/actions/setup-ci-node
       - name: Build shared
         run: npx turbo run build --cache-dir=.turbo/cache --filter=@yugidraft/shared
+      - name: Test fixed effects smoke
+        if: needs.changes.outputs.effect_smoke != ''
+        env:
+          EFFECT_SMOKE: ${{ needs.changes.outputs.effect_smoke }}
+        run: node scripts/ci/run-pr-tests.mjs effects
+      - name: Typecheck effect scripts
+        run: prlimit --core=0 -- npx tsc -p scripts/effects/tsconfig.json --noEmit
       - name: Validate effect tagging protocol without paid requests
+        if: needs.changes.outputs.effects == 'true'
         run: |
-          prlimit --core=0 -- npx tsc -p scripts/effects/tsconfig.json --noEmit
           prlimit --core=0 -- npx vitest run scripts/effects/tests/effect-tagging.integration.test.ts scripts/effects/tests/bridge-batch.integration.test.ts --maxWorkers=1
       - name: Evaluate bridge precision and recall
+        if: needs.changes.outputs.effects == 'true'
         run: |
           prlimit --core=0 -- npx tsx scripts/effects/evaluate-bridges.ts --check
           prlimit --core=0 -- npx vitest run packages/shared/tests/archetype-bridges.integration.test.ts packages/shared/tests/bridge-judge.integration.test.ts packages/duel-server/tests/bridge-workers packages/duel-server/tests/bridge-search-jobs packages/duel-server/tests/bridge-api.integration.test.ts scripts/effects/tests/bridge-artifacts.integration.test.ts --maxWorkers=1 --testTimeout=15000
@@ -603,7 +566,7 @@ jobs:
   unit-web-build:
     name: Web production build
     needs: changes
-    if: needs.changes.outputs.web == 'true' && needs.changes.outputs.data_only != 'true'
+    if: needs.changes.outputs.web_build == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -645,7 +608,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: ${{ fromJSON(needs.changes.outputs.data_only == 'true' && '["1/1"]' || needs.changes.outputs.shared_shards) }}
+        shard: ${{ fromJSON(needs.changes.outputs.shared_shards) }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -654,10 +617,9 @@ jobs:
       - name: Build shared
         run: npx turbo run build --cache-dir=.turbo/cache --filter=@yugidraft/shared
       - name: Typecheck shared
-        if: needs.changes.outputs.data_only != 'true' && startsWith(matrix.shard, '1/')
+        if: startsWith(matrix.shard, '1/')
         run: npm run typecheck --workspace=packages/shared
       - name: Test shared
-        if: needs.changes.outputs.data_only != 'true'
         env:
           CI_TEST_FILES: ${{ needs.changes.outputs.shared_files }}
         run: |
@@ -666,9 +628,6 @@ jobs:
           else
             node scripts/ci/run-pr-tests.mjs shared --shard=${{ matrix.shard }}
           fi
-      - name: Test shared effects and staple data consumers
-        if: needs.changes.outputs.data_only == 'true'
-        run: npm test --workspace=packages/shared -- tests/effect-artifact tests/effect-search.integration.test.ts tests/cube-effect-search.integration.test.ts
 
   small-checks:
     name: Service tests, typechecks and rule coverage
@@ -676,7 +635,8 @@ jobs:
     if: >-
       needs.changes.outputs.bot == 'true' || needs.changes.outputs.ws == 'true' ||
       needs.changes.outputs.worker == 'true' || needs.changes.outputs.e2e == 'true' ||
-      needs.changes.outputs.engine == 'true'
+      needs.changes.outputs.engine == 'true' || needs.changes.outputs.vision == 'true' ||
+      needs.changes.outputs.typecheck != ''
     runs-on: ubuntu-latest
     timeout-minutes: ${{ (needs.changes.outputs.bot == 'true' || needs.changes.outputs.ws == 'true' || needs.changes.outputs.worker == 'true') && 15 || 10 }}
     steps:
@@ -691,6 +651,12 @@ jobs:
           CHECK_WS: ${{ needs.changes.outputs.ws }}
           CHECK_WORKER: ${{ needs.changes.outputs.worker }}
           CHECK_E2E: ${{ needs.changes.outputs.e2e }}
+          CHECK_VISION: ${{ needs.changes.outputs.vision }}
+          CHECK_WEB_BUILD: ${{ needs.changes.outputs.web_build }}
+          CHECK_SHARED: ${{ needs.changes.outputs.shared }}
+          CHECK_DUEL_UNIT: ${{ needs.changes.outputs.duel_unit }}
+          CHECK_TYPES: ${{ needs.changes.outputs.typecheck }}
+          VISION_TEST_FILES: ${{ needs.changes.outputs.vision_files }}
           CHECK_RULE_COVERAGE: ${{ needs.changes.outputs.engine }}
           BOT_TEST_FILES: ${{ needs.changes.outputs.bot_files }}
           WS_TEST_FILES: ${{ needs.changes.outputs.ws_files }}
@@ -706,7 +672,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: ${{ fromJSON(needs.changes.outputs.data_only == 'true' && '["1/1"]' || needs.changes.outputs.duel_unit_shards) }}
+        shard: ${{ fromJSON(needs.changes.outputs.duel_unit_shards) }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -715,10 +681,9 @@ jobs:
       - name: Build shared
         run: npx turbo run build --cache-dir=.turbo/cache --filter=@yugidraft/shared
       - name: Typecheck duel-server
-        if: needs.changes.outputs.data_only != 'true' && startsWith(matrix.shard, '1/')
+        if: startsWith(matrix.shard, '1/')
         run: npm run typecheck --workspace=packages/duel-server
       - name: Test duel-server (no core)
-        if: needs.changes.outputs.data_only != 'true'
         env:
           CI_TEST_FILES: ${{ needs.changes.outputs.duel_unit_files }}
         run: |
@@ -727,11 +692,6 @@ jobs:
           else
             node scripts/ci/run-pr-tests.mjs duel-server --shard=${{ matrix.shard }}
           fi
-      - name: Test duel effects and staple data consumers
-        if: needs.changes.outputs.data_only == 'true'
-        env:
-          CI_TEST_FILES: '["tests/host-deck-suggestions.integration.test.ts","tests/host-deck-suggestion-scope.integration.test.ts","tests/deck-suggestion-workers.integration.test.ts"]'
-        run: node scripts/ci/run-pr-tests.mjs duel-server --shard=${{ matrix.shard }}
 
   unit-web:
     name: Web unit tests (${{ matrix.shard }}/${{ strategy.job-total }})
@@ -742,7 +702,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: ${{ fromJSON(needs.changes.outputs.data_only == 'true' && '[1,2,3]' || needs.changes.outputs.web_shards) }}
+        shard: ${{ fromJSON(needs.changes.outputs.web_shards) }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -752,15 +712,12 @@ jobs:
         run: npx turbo run build --cache-dir=.turbo/cache --filter=@yugidraft/shared
       # The shard runner receives the whole eligible file list before splitting it.
       - name: Test web
-        if: needs.changes.outputs.data_only != 'true'
         env:
           CI_TEST_FILES: ${{ needs.changes.outputs.web_files }}
         run: node scripts/ci/run-web-tests.mjs ${{ matrix.shard }}/${{ strategy.job-total }}
-      - name: Test web effects and staple data consumers
-        if: needs.changes.outputs.data_only == 'true'
-        run: node scripts/ci/run-web-tests.mjs ${{ matrix.shard }}/${{ strategy.job-total }} tests/cube-effects-routes.integration.test.ts tests/effect-startup.integration.test.ts tests/deck-effect-search-route.integration.test.ts tests/deck-effect-search-ui.integration.test.tsx tests/effect-standalone.integration.test.ts
+
       - name: Upload web file timings
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.data_only != 'true'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: actions/upload-artifact@v4
         with:
           name: test-timings-web-${{ matrix.shard }}
@@ -825,67 +782,6 @@ jobs:
           tar -xzf "$RUNNER_TEMP/actionlint_1.7.12_linux_amd64.tar.gz" -C "$RUNNER_TEMP" actionlint
           "$RUNNER_TEMP/actionlint" -shellcheck= -pyflakes= .github/workflows/test.yml
 
-  engine-app:
-    name: Engine application integration (${{ matrix.shard }}/8)
-    if: ${{ !cancelled() && needs.cores.result == 'success' && needs.changes.outputs.engine_app == 'true' }}
-    needs: [cores, changes]
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8]
-    env:
-      DUEL_REQUIRE_CORES: "1"
-      DUEL_DATA_DIR: ${{ github.workspace }}/data/duel-engine-next
-      MULTI_WASM: ${{ github.workspace }}/packages/duel-server/domain-core/dist/ocgcore.multi.sync.wasm
-      DOMAIN_MULTI_WASM: ${{ github.workspace }}/packages/duel-server/domain-core/dist/ocgcore.multi-domain.sync.wasm
-      NSEAT_LIVE: "1"
-      TABLE_TRAP_WASM: ${{ github.workspace }}/packages/duel-server/domain-core/dist/ocgcore.multi-trap.sync.wasm
-      TABLE_TRAP_DOMAIN_WASM: ${{ github.workspace }}/packages/duel-server/domain-core/dist/ocgcore.multi-domain-trap.sync.wasm
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: Restore engine bundle and test dependencies
-        uses: ./.github/actions/restore-engine-bundle
-        with:
-          key: ${{ needs.cores.outputs.key }}
-      - name: Select application integration tests
-        id: selection
-        env:
-          BASE: ${{ needs.changes.outputs.base }}
-          HEAD: ${{ needs.changes.outputs.head }}
-        run: node scripts/ci/select-engine-tests.mjs --application
-      # Use the default config for both fixture-worker and real-core callers.
-      # Shard the complete selection; each suite helper runs through its test roots.
-      - name: Host admission, series and tournament recording
-        env:
-          CI_TEST_FILES: ${{ steps.selection.outputs.files }}
-          SHARD: ${{ matrix.shard }}/8
-        run: |
-          node --input-type=module <<'JS'
-          import { spawnSync } from 'node:child_process';
-          const files = JSON.parse(process.env.CI_TEST_FILES);
-          if (!files.length) throw new Error('Missing application integration tests');
-          const run = (args, env = {}) => {
-            const result = spawnSync('prlimit', ['--core=1:1', '--', 'npm', 'exec', '--workspace=packages/duel-server', '--', 'vitest', 'run', ...args, '--testTimeout=15000', '--passWithNoTests'], { stdio: 'inherit', env: { ...process.env, ...env } });
-            if (result.error) throw result.error;
-            if (result.status !== 0) process.exit(result.status ?? 1);
-          };
-          const table = 'tests/multi-scripts-table.test.ts';
-          const regular = files.filter(file => file !== table);
-          if (regular.length) run([...regular, `--shard=${process.env.SHARD}`, `--exclude=${table}`]);
-          // Table is one long file: distribute its rows across every runner.
-          if (files.includes(table)) run([table], { TABLE_SHARD: process.env.SHARD });
-          JS
-      - name: Web engine tests that depend on changed application helpers
-        if: matrix.shard == 1
-        env:
-          CI_TEST_FILES: ${{ steps.selection.outputs.web_files }}
-        run: prlimit --core=1:1 -- node scripts/ci/run-engine-tests.mjs web 1/1
-
   engine-shards:
     name: Engine tests shard (${{ matrix.suite }} ${{ matrix.shard }}/${{ matrix.count }})
     if: ${{ !cancelled() && needs.cores.result == 'success' && needs.changes.outputs.engine == 'true' }}
@@ -910,21 +806,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: ${{ needs.changes.outputs.engine_focus == 'true' && '0' || '1' }}
 
       - name: Restore engine bundle and test dependencies
         uses: ./.github/actions/restore-engine-bundle
         with:
           key: ${{ needs.cores.outputs.key }}
-
-      - name: Select changed test files
-        id: selection
-        if: needs.changes.outputs.engine_focus == 'true'
-        env:
-          BASE: ${{ needs.changes.outputs.base }}
-          HEAD: ${{ needs.changes.outputs.head }}
-        run: node scripts/ci/select-engine-tests.mjs
 
       - name: Verify engine test file coverage
         if: matrix.suite != 'surrender' && matrix.shard == 1
@@ -940,7 +826,7 @@ jobs:
       - name: Engine tests
         if: needs.changes.outputs.engine == 'true'
         env:
-          CI_TEST_FILES: ${{ steps.selection.outputs.files }}
+          CI_TEST_FILES: ${{ needs.changes.outputs.engine_files }}
         run: prlimit --core=1:1 -- node scripts/ci/run-engine-tests.mjs ${{ matrix.suite }} ${{ matrix.shard }}/${{ matrix.count }}
 
       # Web tests that run a real stock-core duel. The unit job has no engine bundle, so they skip there.
@@ -950,7 +836,7 @@ jobs:
       # Only direct imports of the cores helper are found. A web test that gets the helper through another module is not run here.
       # The full web suite (about 400 files) already runs in the unit job, so only the matching files run again.
       - name: Web tests with the engine
-        if: matrix.suite != 'surrender' && matrix.shard == 1 && needs.changes.outputs.engine_focus != 'true'
+        if: matrix.suite != 'surrender' && matrix.shard == 1 && needs.changes.outputs.engine_files == ''
         run: |
           set -o pipefail
           # Lines that start with // or * are comments: a comment that names the helper does not count.
@@ -961,9 +847,9 @@ jobs:
           prlimit --core=1:1 -- npm exec --workspace=packages/web -- vitest run "${test_files[@]}"
 
       - name: Web engine tests that depend on changed duel helpers
-        if: matrix.suite == 'pinned' && matrix.shard == 1 && needs.changes.outputs.engine_focus == 'true'
+        if: matrix.suite == 'pinned' && matrix.shard == 1 && needs.changes.outputs.engine_files != ''
         env:
-          CI_TEST_FILES: ${{ steps.selection.outputs.web_files }}
+          CI_TEST_FILES: ${{ needs.changes.outputs.engine_web_files }}
         run: prlimit --core=1:1 -- node scripts/ci/run-engine-tests.mjs web 1/1
 
       # tests/*.smoke.ts are plain assert scripts (vitest does not match them); one failing script fails the step.
@@ -1006,25 +892,15 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: ${{ needs.changes.outputs.engine_focus == 'true' && '0' || '1' }}
 
       - name: Restore engine bundle and test dependencies
         uses: ./.github/actions/restore-engine-bundle
         with:
           key: ${{ needs.cores.outputs.key }}
 
-      - name: Select changed test files
-        id: selection
-        if: needs.changes.outputs.engine_focus == 'true'
-        env:
-          BASE: ${{ needs.changes.outputs.base }}
-          HEAD: ${{ needs.changes.outputs.head }}
-        run: node scripts/ci/select-engine-tests.mjs
-
       - name: Engine tests, legacy 1v1 engine
         env:
-          CI_TEST_FILES: ${{ steps.selection.outputs.files }}
+          CI_TEST_FILES: ${{ needs.changes.outputs.engine_files }}
         run: prlimit --core=1:1 -- node scripts/ci/run-engine-tests.mjs legacy ${{ matrix.shard }}/1
 
       - name: Upload legacy file timings
@@ -1219,7 +1095,7 @@ jobs:
 
   production-voice-assets:
     needs: changes
-    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name != 'push' && (needs.changes.outputs.prod_build == 'true' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.tests_only != 'true')))
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name != 'push' && (needs.changes.outputs.prod_build == 'true' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.tests_only != 'true' && needs.changes.outputs.checks_only != 'true')))
     uses: ./.github/workflows/prepare-voice-assets.yml
     with:
       ref: ${{ github.sha }}
@@ -1317,7 +1193,7 @@ jobs:
     needs: [changes, production-voice-assets]
     if: >-
       github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository &&
-      needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.tests_only != 'true'
+      needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.tests_only != 'true' && needs.changes.outputs.checks_only != 'true'
     runs-on: ubuntu-24.04-arm
     continue-on-error: true
     permissions:
@@ -1328,7 +1204,7 @@ jobs:
     strategy:
       fail-fast: false
       # Leave room for the wider shared engine matrix on the org's free runners.
-      max-parallel: ${{ needs.changes.outputs.engine_shared == 'true' && 1 || 4 }}
+      max-parallel: 4
       matrix:
         include:
           - service: web
@@ -1397,7 +1273,7 @@ jobs:
     needs: changes
     if: >-
       github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository &&
-      needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.tests_only != 'true'
+      needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.tests_only != 'true' && needs.changes.outputs.checks_only != 'true'
     runs-on: ubuntu-latest
     continue-on-error: true
     timeout-minutes: 90
@@ -1531,7 +1407,7 @@ jobs:
     name: CI result
     if: always()
     # PR prebuilds only warm image reuse. The main image jobs still verify or build each image.
-    needs: [changes, core-build, cores, new-card-smoke-status-pending, new-card-smoke, new-card-smoke-report, new-card-smoke-status, effect-protocol, unit-web-build, unit-shared, small-checks, unit-duel, unit-web, ci-scripts, engine-app, engine-shards, engine-legacy-shards, engine-differential, native, nduel-nightly, production-bundle, production-voice-assets, production-images, production-dry-run]
+    needs: [changes, core-build, cores, new-card-smoke-status-pending, new-card-smoke, new-card-smoke-report, new-card-smoke-status, effect-protocol, unit-web-build, unit-shared, small-checks, unit-duel, unit-web, ci-scripts, engine-shards, engine-legacy-shards, engine-differential, native, nduel-nightly, production-bundle, production-voice-assets, production-images, production-dry-run]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -1555,18 +1431,19 @@ jobs:
             if (!['success', 'skipped'].includes(job.result)) failures.add(`${name}: ${job.result}`);
           }
           const selected = jobs.changes.outputs;
-          if (['engine', 'engine_app', 'smoke_enabled'].some(area => selected[area] === 'true') && selected.core_status !== 'success') {
+          if (['engine', 'smoke_enabled'].some(area => selected[area] === 'true') && selected.core_status !== 'success') {
             failures.add(`Engine core cache lookup: ${selected.core_status || 'missing'}`);
           }
           for (const [area, names] of Object.entries({
-            web: selected.data_only === 'true' ? ['unit-web'] : ['unit-web', 'unit-web-build'], shared: ['unit-shared'], bot: ['small-checks'],
+            web: ['unit-web'], web_build: ['unit-web-build'], shared: ['unit-shared'], bot: ['small-checks'],
             ws: ['small-checks'], worker: ['small-checks'], duel_unit: ['unit-duel'], e2e: ['small-checks'],
             ci_scripts: ['ci-scripts'], engine: ['cores', 'engine-shards', 'engine-legacy-shards', 'small-checks'],
-            engine_app: ['cores', 'engine-app'],
+            vision: ['small-checks'],
             core: ['native', 'engine-differential'],
           })) if (selected[area] === 'true') names.forEach(requireSuccess);
           if (process.env.NIGHTLY === 'true') requireSuccess('nduel-nightly');
-          if (selected.effects === 'true') requireSuccess('effect-protocol');
+          if (selected.typecheck) requireSuccess('small-checks');
+          if (selected.effects === 'true' || selected.effect_types === 'true' || selected.effect_smoke) requireSuccess('effect-protocol');
           if (selected.smoke_enabled === 'true') requireSuccess('new-card-smoke-report');
           if (process.env.EVENT === 'push') ['production-bundle', 'production-voice-assets', 'production-images'].forEach(requireSuccess);
           if (process.env.EVENT !== 'push' && selected.prod_build === 'true') requireSuccess('production-dry-run');
@@ -1578,27 +1455,6 @@ jobs:
             process.exitCode = 1;
           }
           JS
-      # Proof for the main push of this exact tree (scripts/ci/reuse-pr-result.mjs). Only a passing PR run
-      # of this repository writes it; the gate above already failed the job otherwise.
-      - name: Record tested tree for the merge
-        if: success() && github.event_name == 'pull_request' && needs.changes.outputs.test_graph != 'true' && needs.changes.outputs.tree != '' && needs.changes.outputs.parent != ''
-        env:
-          PROOF: ${{ toJSON(needs.changes.outputs) }}
-          RUN: ${{ github.run_id }}
-          TREE: ${{ needs.changes.outputs.tree }}
-          PARENT: ${{ needs.changes.outputs.parent }}
-        run: |
-          mkdir -p "$RUNNER_TEMP/pr-proof"
-          node -e 'const f=JSON.parse(process.env.PROOF);require("fs").writeFileSync(process.argv[1],JSON.stringify({tree:process.env.TREE,parent:process.env.PARENT,run:process.env.RUN,result:"success",flags:f}))' "$RUNNER_TEMP/pr-proof/proof.json"
-      - name: Upload tested tree proof
-        if: success() && github.event_name == 'pull_request' && needs.changes.outputs.test_graph != 'true' && needs.changes.outputs.tree != '' && needs.changes.outputs.parent != ''
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: pr-tested-tree-${{ needs.changes.outputs.tree }}
-          path: ${{ runner.temp }}/pr-proof/proof.json
-          if-no-files-found: error
-          retention-days: 7
-          overwrite: true
       - name: Report nightly failure
         if: failure() && github.event_name == 'schedule'
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0

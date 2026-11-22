@@ -17,10 +17,9 @@ const runGate = (job, env) => {
 };
 
 const areaJobs = {
-  web: ['unit-web', 'unit-web-build'], shared: ['unit-shared'], bot: ['small-checks'],
+  web: ['unit-web'], web_build: ['unit-web-build'], vision: ['small-checks'], shared: ['unit-shared'], bot: ['small-checks'],
   ws: ['small-checks'], worker: ['small-checks'], duel_unit: ['unit-duel'], e2e: ['small-checks'],
   ci_scripts: ['ci-scripts'], engine: ['cores', 'engine-shards', 'engine-legacy-shards', 'small-checks'],
-  engine_app: ['cores', 'engine-app'],
   core: ['native', 'engine-differential'],
 };
 const gateJobs = () => Object.fromEntries(jobs['ci-result'].needs.map(name => [name, {
@@ -50,7 +49,7 @@ test('CI result requires every selected group, including all engine suites', () 
     const outputs = results.changes.outputs;
     outputs[area] = 'true';
     for (const name of names) results[name].result = 'success';
-    if (area === 'engine' || area === 'engine_app') {
+    if (area === 'engine') {
       assert.notEqual(gate(results), 0, `${area} requires a cache lookup`);
       outputs.core_status = 'failure';
       assert.notEqual(gate(results), 0, `${area} rejects a failed cache lookup`);
@@ -79,7 +78,7 @@ test('TS engine changes allow skipped core checks; core selection requires both 
     results[name].result = 'success';
   }
   assert.equal(gate(results, 'pull_request'), 0);
-  assert.equal(jobs.changes.outputs.core, '${{ steps.reuse.outputs.core || steps.diff.outputs.core }}');
+  assert.equal(jobs.changes.outputs.core, '${{ steps.selection.outputs.core || steps.diff.outputs.core }}');
   assert.deepEqual(engineMatrix(false), [
     ...Array.from({ length: PINNED_SHARDS }, (_, i) => ({ suite: 'pinned', shard: i + 1, count: PINNED_SHARDS })),
     ...SURRENDER_FILES.map((_, i) => ({ suite: 'surrender', shard: i + 1, count: SURRENDER_FILES.length })),
@@ -91,16 +90,15 @@ test('TS engine changes allow skipped core checks; core selection requires both 
 
 test('pure known data changes require consumer integration tests and skip web build', () => {
   const results = gateJobs();
-  results.changes.outputs = { data_only: 'true', web: 'true', shared: 'true', duel_unit: 'true' };
+  results.changes.outputs = { web_build: 'false', web: 'true', shared: 'true', duel_unit: 'true' };
   for (const name of ['unit-web', 'unit-shared', 'unit-duel']) results[name].result = 'success';
   assert.equal(gate(results, 'pull_request'), 0);
   results['unit-web'].result = 'skipped';
   assert.notEqual(gate(results, 'pull_request'), 0);
-  assert.match(jobs['unit-web-build'].if, /data_only != 'true'/);
-  for (const name of ['unit-web', 'unit-shared']) {
-    const step = jobs[name].steps.find(step => step.name.includes('staple data consumers'));
-    assert.match(step.run, /integration.test/);
-    assert.equal(step.if, "needs.changes.outputs.data_only == 'true'");
+  assert.equal(jobs['unit-web-build'].if, "needs.changes.outputs.web_build == 'true'");
+  for (const [name, area] of [['unit-web', 'web'], ['unit-shared', 'shared'], ['unit-duel', 'duel_unit']]) {
+    const step = jobs[name].steps.find(step => step.env?.CI_TEST_FILES);
+    assert.equal(step.env.CI_TEST_FILES, '${{ needs.changes.outputs.' + area + '_files }}');
   }
 });
 
@@ -126,7 +124,7 @@ test('slow jobs are required only for their selected inputs; main uses real prod
   assert.equal(gate(main, 'push'), 0);
   const voice = jobs['production-voice-assets'];
   assert.equal(voice.needs, 'changes');
-  assert.equal(voice.if, "(github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name != 'push' && (needs.changes.outputs.prod_build == 'true' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.tests_only != 'true')))");
+  assert.equal(voice.if, "(github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name != 'push' && (needs.changes.outputs.prod_build == 'true' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.tests_only != 'true' && needs.changes.outputs.checks_only != 'true')))");
   assert.equal(voice.with['save-cache'], "${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}");
   for (const job of ['production-bundle', 'production-images']) {
     main[job].result = 'skipped';
@@ -136,10 +134,10 @@ test('slow jobs are required only for their selected inputs; main uses real prod
 });
 
 test('app groups run only when their area is selected', () => {
-  const foldedChecks = { bot: 'BOT', ws: 'WS', worker: 'WORKER', e2e: 'E2E', engine: 'RULE_COVERAGE' };
+  const foldedChecks = { bot: 'BOT', ws: 'WS', worker: 'WORKER', e2e: 'E2E', engine: 'RULE_COVERAGE', vision: 'VISION' };
   const small = jobs['small-checks'];
   assert.equal(small.needs, 'changes');
-  assert.deepEqual(small.if.split(/\s+\|\|\s+/), Object.keys(foldedChecks).map(area => `needs.changes.outputs.${area} == 'true'`));
+  assert.deepEqual(small.if.split(/\s+\|\|\s+/), [...Object.keys(foldedChecks).map(area => `needs.changes.outputs.${area} == 'true'`), "needs.changes.outputs.typecheck != ''"]);
   const step = small.steps.find(step => step.run === 'bash scripts/ci/run-small-checks.sh');
   assert.equal(step.if, '${{ !cancelled() }}');
   for (const [area, check] of Object.entries(foldedChecks)) {
@@ -187,30 +185,24 @@ printf '%s\\n' "$suite" >> "$CALLS"
   }
 });
 
-test('application engine coverage shards affected tests and cannot select the full matrices', () => {
+test('unselected engine matrices do not gate a PR, and selected files reach the existing runners', () => {
   const results = gateJobs();
-  results.changes.outputs = { engine: 'false', engine_app: 'true', core: 'false', core_status: 'success' };
-  for (const name of areaJobs.engine_app) results[name].result = 'success';
-  assert.equal(gate(results, 'pull_request'), 0);
-  results['engine-app'].result = 'skipped';
+  results.changes.outputs = { engine: 'false', core: 'false', typecheck: '["shared","web"]' };
   assert.notEqual(gate(results, 'pull_request'), 0);
-  assert.equal(jobs.changes.outputs.engine_app, '${{ steps.reuse.outputs.engine_app || steps.diff.outputs.engine_app }}');
-  const wrapper = jobs.changes.steps.find(step => step.id === 'wrapper');
-  assert.match(wrapper.if, /\(steps\.reuse\.outputs\.engine_app \|\| steps\.diff\.outputs\.engine_app\) == 'true'/);
-  const job = jobs['engine-app'];
-  assert.equal(job.strategy['fail-fast'], false);
-  assert.deepEqual(job.strategy.matrix.shard, [1, 2, 3, 4, 5, 6, 7, 8]);
-  const host = job.steps.find(step => step.name === 'Host admission, series and tournament recording');
-  assert.equal(host.env.SHARD, '${{ matrix.shard }}/8');
-  assert.match(host.run, /--shard=\$\{process\.env\.SHARD\}/);
-  assert.match(host.run, /--passWithNoTests/);
-  assert.equal(job.steps.find(step => step.run?.includes('run-engine-tests.mjs web')).if, 'matrix.shard == 1');
-  assert.deepEqual(job.needs, ['cores', 'changes']);
-  assert.match(job.if, /needs\.changes\.outputs\.engine_app == 'true'/);
-  assert.equal(job.env.DUEL_REQUIRE_CORES, '1');
-  assert.deepEqual(job.env, jobs['engine-shards'].env);
-  assert.ok(job.steps.some(step => step.run?.includes('select-engine-tests.mjs --application')));
-  assert.ok(job.steps.some(step => step.run?.includes('run-engine-tests.mjs web 1/1')));
+  results['small-checks'].result = 'success';
+  assert.equal(gate(results, 'pull_request'), 0);
+  assert.equal(jobs['engine-app'], undefined);
+  const steps = jobs.changes.steps;
+  assert.ok(steps.findIndex(step => step.id === 'selection') < steps.findIndex(step => step.id === 'wrapper'));
+  assert.match(steps.find(step => step.id === 'wrapper').if, /steps\.selection\.outputs\.engine/);
+  for (const [name, run] of [['engine-shards', 'matrix.suite'], ['engine-legacy-shards', 'legacy']]) {
+    const job = jobs[name];
+    const step = job.steps.find(step => step.run?.includes('run-engine-tests.mjs') && step.run.includes(run));
+    assert.equal(step.env.CI_TEST_FILES, '${{ needs.changes.outputs.engine_files }}');
+    assert.equal(job.env.DUEL_REQUIRE_CORES, '1');
+  }
+  assert.equal(jobs['engine-shards'].steps.find(step => step.run?.includes('run-engine-tests.mjs web')).env.CI_TEST_FILES,
+    '${{ needs.changes.outputs.engine_web_files }}');
 });
 
 test('nightly runs every selected suite and requires fuzz; scheduled/manual Test cannot deploy', () => {
@@ -385,44 +377,16 @@ test('engine bundle cache ignores unrelated dependencies but retains the actual 
   assert.equal(run(undefined).status, 1);
 });
 
-test('application shards partition normal files and cover every Table row shard once', t => {
-  const bin = mkdtempSync(join(tmpdir(), 'application-shards-'));
-  t.after(() => rmSync(bin, { recursive: true, force: true }));
-  const calls = join(bin, 'npm-calls.jsonl');
-  writeFileSync(join(bin, 'npm'), `#!${process.execPath}
-const { appendFileSync } = require('node:fs');
-appendFileSync(process.env.NPM_CALLS, JSON.stringify({ args: process.argv.slice(2), table: process.env.TABLE_SHARD }) + '\\n');
-process.exit(Number(process.env.STUB_NPM_EXIT ?? 0));
-`, { mode: 0o755 });
-  const step = jobs['engine-app'].steps.find(step => step.name === 'Host admission, series and tournament recording');
-  const table = 'tests/multi-scripts-table.test.ts';
-  const run = (files, shard, extra = {}) => {
-    writeFileSync(calls, '');
-    const result = spawnSync('bash', ['-e', '-o', 'pipefail', '-c', step.run], {
-      stdio: 'ignore',
-      env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, NPM_CALLS: calls, CI_TEST_FILES: JSON.stringify(files), SHARD: `${shard}/8`, ...extra },
-    });
-    assert.ifError(result.error);
-    return { status: result.status, calls: readFileSync(calls, 'utf8').split('\n').filter(Boolean).map(line => JSON.parse(line)) };
-  };
-  const tableShards = [];
-  for (const shard of jobs['engine-app'].strategy.matrix.shard) {
-    const result = run(['tests/host.test.ts', table], shard);
-    assert.equal(result.status, 0);
-    const [regular, rows] = result.calls;
-    assert.ok(regular.args.includes(`--shard=${shard}/8`));
-    assert.ok(regular.args.includes(`--exclude=${table}`));
-    assert.ok(regular.args.includes('tests/host.test.ts'));
-    assert.equal(regular.args.includes(table), false);
-    assert.ok(rows.args.includes(table));
-    assert.equal(rows.args.some(arg => arg.startsWith('--shard=')), false);
-    tableShards.push(rows.table);
-  }
-  assert.deepEqual(tableShards, Array.from({ length: 8 }, (_, i) => `${i + 1}/8`));
-  assert.equal(run(['tests/host.test.ts'], 1).calls.length, 1);
-  assert.equal(run([table], 1).calls.length, 1);
-  assert.equal(run([], 1).status, 1);
-  assert.equal(run(['tests/host.test.ts', table], 1, { STUB_NPM_EXIT: '7' }).status, 7);
+test('a focused engine PR retains all Table row partitions while a push runs the full plan', async () => {
+  const { pinnedPlan, TABLE_FILE } = await import('./engine-test-plan.mjs');
+  const files = ['tests/host.test.ts', TABLE_FILE];
+  const shardPlan = pinnedPlan(files);
+  assert.equal(shardPlan.length, PINNED_SHARDS);
+  assert.ok(shardPlan.every(shard => shard.files.includes(TABLE_FILE)));
+  assert.equal(shardPlan.flatMap(shard => shard.files).filter(file => file === 'tests/host.test.ts').length, 1);
+  assert.equal(jobs['engine-shards'].strategy.matrix.include, '${{ fromJSON(needs.changes.outputs.engine_matrix) }}');
+  assert.equal(jobs.changes.outputs.engine_files, '${{ steps.selection.outputs.engine_files }}');
+  assert.equal(jobs.changes.steps.find(step => step.id === 'selection').if, "${{ steps.diff.outputs.scan == 'true' }}");
 });
 
 test("every docker run/exec in the stdin deploy script reads /dev/null", () => {
@@ -439,8 +403,8 @@ test("every docker run/exec in the stdin deploy script reads /dev/null", () => {
   });
 });
 
-test('PR runs keep the merge ref parent for the tested-tree proof, and a reused web image finds its maps', () => {
-  // A depth-1 PR checkout has no HEAD^1, so no proof was recorded and every merge re-ran the full tests.
+test('PR runs keep the merge ref parent for type-only edits, and a reused web image finds its maps', () => {
+  // A depth-1 PR checkout has no HEAD^1 for comparing runtime statements.
   const checkout = jobs.changes.steps.find(step => step.name === 'Checkout');
   assert.match(checkout.with['fetch-depth'], /'pull_request' && '2'/);
   // A download by artifact id lands in a subfolder unless merged; the relabel step reads the maps at the top level.
