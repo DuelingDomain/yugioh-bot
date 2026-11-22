@@ -59,13 +59,14 @@ Deploy jobs run in the `production` GitHub Environment and require these GitHub 
 
 ## Deployment Pipeline
 
-1. Merge code to `main`. Its push **Test** run must succeed in full: unit/typecheck (including WS)/web shards,
-   engine core build/restore, pinned and legacy engine shards (including web engine tests and smoke),
-   native ASan/UBSan checks and strict rule coverage. All regular suites run on every main push.
-   Native golden checks run when core/data/native inputs or their CI wiring change. The scheduled nduel
-   fuzz runs only on schedule or explicit dispatch, so it cannot fail a push release for nightly-only reasons.
-   E2E helper unit tests run in Test; browser Playwright flows remain local-only under ADR-0003 and
-   `packages/e2e/README.md`. No separate CI test workflow needs another deployment gate.
+1. Merge code to `main`. The push **Test** gate uses PR area selection against the last confirmed
+   deployed SHA and falls back to every regular test group when the diff is unavailable. A successful
+   PR proof covering the same tree, base and changed paths can satisfy the tests. The production bundle
+   and image artifacts are required either way. **Full Suite** runs all regular checks in parallel.
+   A red Full Suite opens or updates the `ci-full-suite-red` issue and a later green main run closes it.
+   Review the issue and use [manual image rollback](#image-rollback) if the failure affects production.
+   Nightly Test runs extended nduel fuzz, which is also available on manual Test. Browser Playwright flows remain
+   local under [ADR-0003](../adr/0003-duel-test-layers.md).
 2. **Deploy** listens for Test completion, accepts only successful `push` runs on `main`, and checks out
    that run's `head_sha`, never a later `main` tip. It ignores PR, scheduled and manually dispatched Test runs.
    The whole workflow uses `deploy-production` concurrency with `cancel-in-progress: false`
@@ -89,11 +90,10 @@ Deploy jobs run in the `production` GitHub Environment and require these GitHub 
    Right after target checkout, the runner runs `git fetch origin main && git merge-base --is-ancestor HEAD FETCH_HEAD`.
    This check runs before `npm rebuild`, `duel:prepare`, `tsx` or other code from that ref.
    `VM_SSH_PRIVATE_KEY` is in the Configure SSH key step only. This placement does not isolate the key from code that ran earlier.
-3. A main push **Test** run prepares the production bundle while its independent unit groups and selected engine jobs run.
-   The image matrix waits for the strict `unit` gate, then runs at most three ARM64 builds together,
-   still in parallel with engine shards. All Test jobs must succeed before automatic Deploy starts.
-   PRs run the same bundle composite and one native amd64 bot image build with no registry login,
-   push, digest publication or production environment. They do not run Deploy.
+3. A main push **Test** run prepares the production bundle and voice inputs while the selected checks run.
+   The ARM64 image jobs verify and reuse matching images or build replacements. All selected Test jobs
+   and production artifact jobs must succeed before automatic Deploy starts.
+   The production dry run prepares the same bundle and builds one amd64 bot image without publishing.
    Test builds or restores the pinned duel-engine resource bundle
    (`cards.cdb`, `card-scripts/`, `strings.conf`, `ocgcore.domain.wasm`, `ocgcore.standard.wasm`, `manifest.json`, and the legacy 1v1 files `ocgcore.domain.legacy.wasm` and `card-scripts/domain.legacy.lua`)
    using `npm run duel:prepare`, `packages/duel-server/scripts/build-domain-core.ts` (Domain wasm) and `packages/duel-server/scripts/build-domain-core.ts standard` (Standard wasm: stock rules plus the shared fixes in `domain-core/src/apply-core-fixes.mjs`, `build-standard-core.sh`)
@@ -127,7 +127,7 @@ Deploy jobs run in the `production` GitHub Environment and require these GitHub 
    Web imports a digest-pinned `:nextcache` image and exports only sanitized `.next/cache` after its build.
    Docker sets `NEXT_BUILD_FS_CACHE=0`, removes inherited Turbopack data before building, and removes
    and checks for Turbopack folders again before export. Source maps are removed in the same build layer.
-   Test may update this sanitized cache before the full run succeeds; it contains no Turbopack folder.
+   Test may update this sanitized cache before the Test gate succeeds; it contains no Turbopack folder.
    Only `unit-web-build` sets `NEXT_BUILD_FS_CACHE=1`. Actions Next/Turbo caches restore on PRs but
    save only on main pushes. npm download caching starts only when the installed dependency cache misses.
    A missing Next cache starts with an empty directory. Local Compose builds use the empty fallback

@@ -16,10 +16,11 @@ const pr = files => classify(files, "pull_request");
 const engine = "packages/duel-server/";
 const shared = "packages/shared/";
 
-test("runtime engine PRs use the compact matrix and full non-PR runs retain the release matrix", () => {
+test("area-selected engine changes use the compact matrix and full runs retain the release matrix", () => {
   assert.deepEqual(JSON.parse(selectionOutputs(pr([engine + "src/engine.ts"])).engine_matrix), engineMatrix(true));
   assert.deepEqual(JSON.parse(selectionOutputs(pr([engine + "tests/legacy-main/engine.test.ts"])).engine_matrix), engineMatrix(false));
-  for (const event of ["push", "schedule", "workflow_dispatch"]) {
+  assert.deepEqual(JSON.parse(selectionOutputs(classify([engine + "src/engine.ts"], "push"), {}, "push").engine_matrix), engineMatrix(true));
+  for (const event of ["full_suite", "schedule", "workflow_dispatch"]) {
     const output = selectionOutputs(classify([engine + "src/engine.ts"], event), {}, event);
     assert.deepEqual(JSON.parse(output.engine_matrix), engineMatrix(false));
   }
@@ -182,7 +183,7 @@ test("generated data readers receive explicit coverage", () => {
 });
 
 test("full gates ignore the diff and select all release suites", () => {
-  for (const event of ["push", "schedule", "workflow_dispatch"]) {
+  for (const event of ["full_suite", "schedule", "workflow_dispatch"]) {
     for (const files of [null, [], ["README.md"], ["packages/web/src/page.tsx"], [engine + "src/engine.ts"]]) {
       const layers = classify(files, event);
       for (const key of ["full", "engine", "core", "golden", "effects", "prod_build", ...Object.keys(workspaces)]) {
@@ -251,18 +252,24 @@ test("local PR detection scans the whole range, including old names", t => {
   assert.equal(f.run(tip, f.git("rev-parse", "HEAD")).engine, "true");
 });
 
-test("a web-only merge still runs all suites on main", t => {
+test("the main gate includes core changes from a push that did not deploy", t => {
   const f = fixture(t);
   f.git("checkout", "-b", "web", f.base);
   f.commit("packages/web/src/app/page.tsx");
   f.git("checkout", "main");
-  const before = f.commit(engine + "src/engine.ts");
+  const before = f.commit(engine + "domain-core/src/field.cpp");
   f.git("merge", "--no-ff", "web", "-m", "Merge web");
   const head = f.git("rev-parse", "HEAD");
   assert.equal(f.git("rev-parse", "HEAD^1"), before);
-  const result = f.run(before, head, { EVENT: "push" });
+  const result = f.run(f.base, head, { EVENT: "push" });
   assert.equal(result.engine, "true");
   assert.equal(result.core, "true");
+  assert.equal(result.web, "true");
+  const webOnly = f.run(before, head, { EVENT: "push" });
+  assert.equal(webOnly.engine, "false");
+  assert.equal(webOnly.core, "false");
+  assert.equal(webOnly.web, "true");
+  assert.equal(webOnly.scan, "true");
 });
 
 test("renamed or deleted core inputs retain both native and differential checks", t => {

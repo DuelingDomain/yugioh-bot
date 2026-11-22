@@ -1,12 +1,12 @@
 name: Test
 
-# PRs use explicit path ownership and file-level test selection inside each area.
+# PRs and the main deploy gate use path ownership and file-level test selection.
 # Hubs run their tests, fixed consumer smokes and all workspace typechecks.
 # Workflow/CI wiring runs CI helper checks and fixed smokes. Global inputs or
-# unavailable PR diffs run all groups. Engine jobs need a direct engine input,
-# with native/differential limited to core inputs. See ADR 0003 for the map.
-# Main runs the full release gate before Deploy. Nightly and manual runs use
-# full suites and can run the extended nduel fuzz matrix.
+# unavailable diffs run all groups. Engine jobs need a direct engine input,
+# with native/differential limited to core inputs in the selected gate.
+# Full Suite calls these same jobs independently. Nightly and manual runs
+# retain the full suite and optional extended nduel fuzz. See ADR 0003.
 
 on:
   pull_request:
@@ -15,6 +15,11 @@ on:
       - main
   schedule:
     - cron: "17 3 * * *"
+  workflow_call:
+    inputs:
+      full_suite:
+        type: boolean
+        required: true
   workflow_dispatch:
     inputs:
       nightly:
@@ -36,7 +41,7 @@ concurrency:
   # Superseded main tests cancel to free runner slots; production Deploy stays serialized.
   # Bot PR/dispatch runs for one head share a serial group so an older PASS cannot
   # overwrite a newer FAIL. Different heads and ordinary nightly/main runs stay independent.
-  group: test-${{ github.workflow }}-${{ ((github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'chore/engine-data-update' && github.event.pull_request.head.repo.full_name == github.repository) || (github.event_name == 'workflow_dispatch' && inputs.new_card_smoke && github.ref == 'refs/heads/chore/engine-data-update')) && format('card-data-{0}', github.event.pull_request.head.sha || github.sha) || format('{0}-{1}', github.event_name, github.ref) }}
+  group: test-${{ github.workflow }}-${{ inputs.full_suite && format('call-{0}', github.run_id) || ((github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'chore/engine-data-update' && github.event.pull_request.head.repo.full_name == github.repository) || (github.event_name == 'workflow_dispatch' && inputs.new_card_smoke && github.ref == 'refs/heads/chore/engine-data-update')) && format('card-data-{0}', github.event.pull_request.head.sha || github.sha) || format('{0}-{1}', github.event_name, github.ref) }}
   cancel-in-progress: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'pull_request' && (github.event.pull_request.head.ref != 'chore/engine-data-update' || github.event.pull_request.head.repo.full_name != github.repository) }}
 
 permissions:
@@ -55,7 +60,7 @@ env:
   BUNDLE_DIR: data/duel-engine-next
 
 jobs:
-  # PR file lists come from the paginated API, including old names for renames.
+  # PRs use paginated changed paths. The deploy gate diffs from the last healthy release.
   changes:
     name: Changed layers
     runs-on: ubuntu-latest
@@ -63,25 +68,26 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
+      actions: read
     outputs:
-      web: ${{ steps.selection.outputs.web || steps.diff.outputs.web }}
-      bot: ${{ steps.selection.outputs.bot || steps.diff.outputs.bot }}
-      ws: ${{ steps.selection.outputs.ws || steps.diff.outputs.ws }}
-      worker: ${{ steps.selection.outputs.worker || steps.diff.outputs.worker }}
-      shared: ${{ steps.selection.outputs.shared || steps.diff.outputs.shared }}
-      duel_unit: ${{ steps.selection.outputs.duel_unit || steps.diff.outputs.duel_unit }}
-      vision: ${{ steps.selection.outputs.vision || steps.diff.outputs.vision }}
-      web_build: ${{ steps.selection.outputs.web_build || steps.diff.outputs.web_build }}
-      e2e: ${{ steps.selection.outputs.e2e || steps.diff.outputs.e2e }}
-      ci_scripts: ${{ steps.selection.outputs.ci_scripts || steps.diff.outputs.ci_scripts }}
+      web: ${{ steps.proof.outputs.reused != 'true' && (steps.selection.outputs.web || steps.diff.outputs.web) || 'false' }}
+      bot: ${{ steps.proof.outputs.reused != 'true' && (steps.selection.outputs.bot || steps.diff.outputs.bot) || 'false' }}
+      ws: ${{ steps.proof.outputs.reused != 'true' && (steps.selection.outputs.ws || steps.diff.outputs.ws) || 'false' }}
+      worker: ${{ steps.proof.outputs.reused != 'true' && (steps.selection.outputs.worker || steps.diff.outputs.worker) || 'false' }}
+      shared: ${{ steps.proof.outputs.reused != 'true' && (steps.selection.outputs.shared || steps.diff.outputs.shared) || 'false' }}
+      duel_unit: ${{ steps.proof.outputs.reused != 'true' && (steps.selection.outputs.duel_unit || steps.diff.outputs.duel_unit) || 'false' }}
+      vision: ${{ steps.proof.outputs.reused != 'true' && (steps.selection.outputs.vision || steps.diff.outputs.vision) || 'false' }}
+      web_build: ${{ steps.proof.outputs.reused != 'true' && (steps.selection.outputs.web_build || steps.diff.outputs.web_build) || 'false' }}
+      e2e: ${{ steps.proof.outputs.reused != 'true' && (steps.selection.outputs.e2e || steps.diff.outputs.e2e) || 'false' }}
+      ci_scripts: ${{ steps.proof.outputs.reused != 'true' && (steps.selection.outputs.ci_scripts || steps.diff.outputs.ci_scripts) || 'false' }}
       docs_only: ${{ steps.selection.outputs.docs_only || steps.diff.outputs.docs_only }}
       checks_only: ${{ steps.selection.outputs.checks_only || steps.diff.outputs.checks_only }}
-      effects: ${{ steps.selection.outputs.effects || steps.diff.outputs.effects }}
-      effect_types: ${{ steps.selection.outputs.effect_types || steps.diff.outputs.effect_types }}
+      effects: ${{ steps.proof.outputs.reused != 'true' && (steps.selection.outputs.effects || steps.diff.outputs.effects) || 'false' }}
+      effect_types: ${{ steps.proof.outputs.reused != 'true' && (steps.selection.outputs.effect_types || steps.diff.outputs.effect_types) || 'false' }}
       prod_build: ${{ steps.selection.outputs.prod_build || steps.diff.outputs.prod_build }}
-      engine: ${{ steps.selection.outputs.engine || steps.diff.outputs.engine }}
-      core: ${{ steps.selection.outputs.core || steps.diff.outputs.core }}
-      golden: ${{ steps.selection.outputs.golden || steps.diff.outputs.golden }}
+      engine: ${{ steps.proof.outputs.reused != 'true' && (steps.selection.outputs.engine || steps.diff.outputs.engine) || 'false' }}
+      core: ${{ steps.proof.outputs.reused != 'true' && (steps.selection.outputs.core || steps.diff.outputs.core) || 'false' }}
+      golden: ${{ steps.proof.outputs.reused != 'true' && (steps.selection.outputs.golden || steps.diff.outputs.golden) || 'false' }}
       tests_only: ${{ steps.selection.outputs.tests_only || steps.diff.outputs.tests_only }}
       engine_matrix: ${{ steps.selection.outputs.engine_matrix || steps.diff.outputs.engine_matrix }}
       smoke_enabled: ${{ steps.smoke.outputs.smoke_enabled }}
@@ -94,8 +100,8 @@ jobs:
         ${{ (steps.wrapper.outcome == 'failure' && 'engine wrapper pin failed') ||
         (steps.key.outcome == 'failure' && 'engine cache key failed') ||
         (steps.emsdk.outcome == 'failure' && 'emsdk pin read failed') || steps.bundle.outcome }}
-      typecheck: ${{ steps.selection.outputs.typecheck || (steps.diff.outputs.scan != 'true' && steps.diff.outputs.typecheck) || '' }}
-      effect_smoke: ${{ steps.selection.outputs.effect_smoke || (steps.diff.outputs.scan != 'true' && steps.diff.outputs.effect_smoke) || '' }}
+      typecheck: ${{ steps.proof.outputs.reused != 'true' && (steps.selection.outputs.typecheck || (steps.diff.outputs.scan != 'true' && steps.diff.outputs.typecheck)) || '' }}
+      effect_smoke: ${{ steps.proof.outputs.reused != 'true' && (steps.selection.outputs.effect_smoke || (steps.diff.outputs.scan != 'true' && steps.diff.outputs.effect_smoke)) || '' }}
       web_files: ${{ steps.selection.outputs.web_files || (steps.diff.outputs.scan != 'true' && steps.diff.outputs.web_files) || '' }}
       shared_files: ${{ steps.selection.outputs.shared_files || (steps.diff.outputs.scan != 'true' && steps.diff.outputs.shared_files) || '' }}
       duel_unit_files: ${{ steps.selection.outputs.duel_unit_files || (steps.diff.outputs.scan != 'true' && steps.diff.outputs.duel_unit_files) || '' }}
@@ -108,6 +114,9 @@ jobs:
       duel_unit_shards: ${{ steps.selection.outputs.duel_unit_shards || (steps.diff.outputs.scan != 'true' && steps.diff.outputs.duel_unit_shards) || '["1/2","2/2"]' }}
       engine_files: ${{ steps.selection.outputs.engine_files }}
       engine_web_files: ${{ steps.selection.outputs.engine_web_files }}
+      tree: ${{ steps.proof.outputs.tree }}
+      parent: ${{ steps.proof.outputs.parent }}
+      diff_hash: ${{ steps.diff.outputs.diff_hash }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -115,9 +124,12 @@ jobs:
           # Type-only classification compares the synthetic merge with its first parent.
           fetch-depth: ${{ github.event_name == 'pull_request' && '2' || '1' }}
 
-      - name: Check admin spectate service configuration
-        if: ${{ !cancelled() }}
-        run: prlimit --core=0 -- node scripts/ci/check-admin-spectate-compose.mjs
+      - name: Resolve deployed main baseline
+        id: baseline
+        if: github.event_name == 'push' && !inputs.full_suite
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/ci/tested-main-base.mjs
 
       - name: Diff changed files
         if: ${{ !cancelled() }}
@@ -125,18 +137,36 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
-          EVENT: ${{ github.event_name }}
-          BASE: ${{ github.event.pull_request.base.sha }}
-          HEAD: ${{ github.event.pull_request.head.sha }}
+          EVENT: ${{ inputs.full_suite && 'full_suite' || github.event_name }}
+          BASE: ${{ steps.baseline.outputs.base || github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
         run: node scripts/ci/changed-layers.mjs
 
-      - name: Restore dependencies for PR test selection
-        if: ${{ steps.diff.outputs.scan == 'true' }}
+      - name: Resolve identical PR test proof
+        id: proof
+        if: >-
+          (github.event_name == 'push' && !inputs.full_suite && steps.baseline.outputs.base != '') ||
+          (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          BASELINE: ${{ steps.baseline.outputs.base }}
+          DIFF_HASH: ${{ steps.diff.outputs.diff_hash }}
+        run: node scripts/ci/reuse-pr-result.mjs
+
+      - name: Check admin spectate service configuration
+        if: ${{ !cancelled() && steps.proof.outputs.reused != 'true' }}
+        run: prlimit --core=0 -- node scripts/ci/check-admin-spectate-compose.mjs
+
+      - name: Restore dependencies for test selection
+        if: ${{ steps.diff.outputs.scan == 'true' && steps.proof.outputs.reused != 'true' }}
         uses: ./.github/actions/setup-ci-node
 
-      - name: Select PR test files
+      - name: Select affected test files
         id: selection
-        if: ${{ steps.diff.outputs.scan == 'true' }}
+        if: ${{ steps.diff.outputs.scan == 'true' && steps.proof.outputs.reused != 'true' }}
+        env:
+          BASELINE: ${{ steps.baseline.outputs.base }}
         run: node scripts/ci/select-pr-test-files.mjs
 
       - name: Resolve new-card smoke PR
@@ -152,7 +182,8 @@ jobs:
       - name: Compute engine wrapper pin
         id: wrapper
         if: >-
-          !cancelled() && ((steps.selection.outputs.engine || steps.diff.outputs.engine) == 'true' ||
+          !cancelled() && steps.proof.outputs.reused != 'true' &&
+          ((steps.selection.outputs.engine || steps.diff.outputs.engine) == 'true' ||
           steps.smoke.outputs.smoke_enabled == 'true')
         continue-on-error: true
         run: |
@@ -704,7 +735,7 @@ jobs:
         run: node scripts/ci/run-web-tests.mjs ${{ matrix.shard }}/${{ strategy.job-total }}
 
       - name: Upload web file timings
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: inputs.full_suite
         uses: actions/upload-artifact@v4
         with:
           name: test-timings-web-${{ strategy.job-total }}-shards-${{ matrix.shard }}
@@ -767,7 +798,7 @@ jobs:
             sleep $((attempt * 5))
           done
           tar -xzf "$RUNNER_TEMP/actionlint_1.7.12_linux_amd64.tar.gz" -C "$RUNNER_TEMP" actionlint
-          "$RUNNER_TEMP/actionlint" -shellcheck= -pyflakes= .github/workflows/test.yml
+          "$RUNNER_TEMP/actionlint" -shellcheck= -pyflakes= .github/workflows/test.yml .github/workflows/full-suite.yml
 
   engine-shards:
     name: >-
@@ -846,7 +877,7 @@ jobs:
         run: prlimit --core=1:1 -- npm run test:smoke --workspace=packages/duel-server
 
       - name: Upload engine file timings
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: inputs.full_suite
         uses: actions/upload-artifact@v4
         with:
           name: test-timings-engine-${{ matrix.suite }}-${{ matrix.shard }}
@@ -892,7 +923,7 @@ jobs:
         run: prlimit --core=1:1 -- node scripts/ci/run-engine-tests.mjs legacy ${{ matrix.shard }}/1
 
       - name: Upload legacy file timings
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: inputs.full_suite
         uses: actions/upload-artifact@v4
         with:
           name: test-timings-engine-legacy-${{ matrix.shard }}
@@ -1060,7 +1091,7 @@ jobs:
     name: Prepare production image bundle
     outputs:
       artifact: ${{ steps.bundle-name.outputs.artifact }}
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: ${{ !inputs.full_suite && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -1083,15 +1114,19 @@ jobs:
 
   production-voice-assets:
     needs: changes
-    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name != 'push' && (needs.changes.outputs.prod_build == 'true' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.tests_only != 'true' && needs.changes.outputs.checks_only != 'true')))
+    if: >-
+      (github.event_name == 'push' && github.ref == 'refs/heads/main' && !inputs.full_suite) ||
+      needs.changes.outputs.prod_build == 'true' ||
+      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository &&
+      needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.tests_only != 'true' && needs.changes.outputs.checks_only != 'true')
     uses: ./.github/workflows/prepare-voice-assets.yml
     with:
       ref: ${{ github.sha }}
-      save-cache: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+      save-cache: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && !inputs.full_suite }}
 
   production-images:
     name: Build ARM64 ${{ matrix.service }} image
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: ${{ !inputs.full_suite && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     needs: [production-bundle, production-voice-assets]
     runs-on: ubuntu-24.04-arm
     permissions:
@@ -1422,7 +1457,7 @@ jobs:
   production-dry-run:
     name: Production composites dry run (bundle, bot and voice assets)
     needs: [changes, production-voice-assets]
-    if: github.event_name != 'push' && needs.changes.outputs.prod_build == 'true'
+    if: (github.event_name != 'push' || inputs.full_suite) && needs.changes.outputs.prod_build == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 90
     permissions:
@@ -1477,7 +1512,7 @@ jobs:
       - name: Check selected jobs
         env:
           RESULTS: ${{ toJSON(needs) }}
-          EVENT: ${{ github.event_name }}
+          EVENT: ${{ inputs.full_suite && 'full_suite' || github.event_name }}
           NIGHTLY: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.nightly) }}
         run: |
           node --input-type=module <<'JS'
@@ -1515,6 +1550,34 @@ jobs:
             process.exitCode = 1;
           }
           JS
+      # Reuse is optional. A proof can only come from the successful PR gate
+      # of this repository and binds the checked-out tree, base and selected paths.
+      - name: Write tested tree proof
+        id: proof
+        if: >-
+          success() && github.event_name == 'pull_request' && needs.changes.outputs.tree != '' &&
+          needs.changes.outputs.parent != '' && needs.changes.outputs.diff_hash != ''
+        continue-on-error: true
+        env:
+          TREE: ${{ needs.changes.outputs.tree }}
+          PARENT: ${{ needs.changes.outputs.parent }}
+          DIFF_HASH: ${{ needs.changes.outputs.diff_hash }}
+        run: |
+          node --input-type=module <<'JS'
+          import { writeFileSync } from 'node:fs';
+          const { TREE: tree, PARENT: parent, DIFF_HASH: diffHash, GITHUB_RUN_ATTEMPT: attempt, RUNNER_TEMP } = process.env;
+          writeFileSync(`${RUNNER_TEMP}/proof.json`, JSON.stringify({ tree, parent, diffHash, attempt }));
+          JS
+      - name: Upload tested tree proof
+        if: steps.proof.outcome == 'success'
+        continue-on-error: true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: pr-tested-tree-${{ needs.changes.outputs.tree }}
+          path: ${{ runner.temp }}/proof.json
+          if-no-files-found: error
+          retention-days: 7
+          overwrite: true
       - name: Report nightly failure
         if: failure() && github.event_name == 'schedule'
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0

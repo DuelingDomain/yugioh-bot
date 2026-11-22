@@ -317,13 +317,13 @@ export async function selectSuiteFiles({ root, suite, tests, setup = [], changes
   return { files, affected: files.length > 0 };
 }
 
-function baseSources(root) {
-  // The workflow checks out the PR merge commit at depth two. Compare against
-  // its first parent so type-only classification uses the exact tree under test.
+function baseSources(root, base = "HEAD^1") {
+  // For PRs, compare the synthetic merge commit with its first parent.
+  // For main, compare with the same deployed ancestor used for changed paths.
   const git = args => execFileSync("git", args, { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
   try {
-    const old = new Set(git(["ls-tree", "-r", "--name-only", "-z", "HEAD^1"]).split("\0"));
-    return file => old.has(file) ? git(["show", `HEAD^1:${file}`]) : "";
+    const old = new Set(git(["ls-tree", "-r", "--name-only", "-z", base]).split("\0"));
+    return file => old.has(file) ? git(["show", `${base}:${file}`]) : "";
   } catch {
     return () => undefined;
   }
@@ -401,5 +401,5 @@ async function withSuiteTests(root, suite, select) {
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const root = fileURLToPath(new URL("../../", import.meta.url));
   const changes = JSON.parse(readFileSync(resolve(process.env.RUNNER_TEMP ?? process.cwd(), "pr-test-diff.json"), "utf8"));
-  writeOutputs(await selectPullRequest(root, changes));
+  writeOutputs(await selectPullRequest(root, changes, { readBase: baseSources(root, process.env.BASELINE || undefined) }));
 }

@@ -83,9 +83,9 @@ test('image publication runs parallel to tests; the complete Test still gates de
   assert.doesNotMatch(JSON.stringify(job), /SENTRY_AUTH_TOKEN/);
 });
 
-test('PR composite dry run has read-only permissions and no registry publication', () => {
+test('the production composite dry run has read-only permissions and no registry publication', () => {
   const job = workflow('test').jobs['production-dry-run'];
-  assert.equal(job.if, "github.event_name != 'push' && needs.changes.outputs.prod_build == 'true'");
+  assert.equal(job.if, "(github.event_name != 'push' || inputs.full_suite) && needs.changes.outputs.prod_build == 'true'");
   assert.deepEqual(job.permissions, { contents: 'read' });
   assert.ok(job.steps.some(step => step.uses === './.github/actions/prepare-production-bundle'));
   const image = job.steps.find(step => step.uses === './.github/actions/build-production-image');

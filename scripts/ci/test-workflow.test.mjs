@@ -7,7 +7,9 @@ import { test } from "node:test";
 import { parse } from "yaml";
 import { engineMatrix, PINNED_SHARDS, SURRENDER_FILES } from "./engine-test-plan.mjs";
 
-const { jobs } = parse(readFileSync(new URL("../../.github/workflows/test.yml", import.meta.url), "utf8"));
+const workflow = name => parse(readFileSync(new URL(`../../.github/workflows/${name}.yml`, import.meta.url), "utf8"));
+const testWorkflow = workflow("test");
+const { jobs } = testWorkflow;
 const runGate = (job, env) => {
   const result = spawnSync("bash", ["-e", "-o", "pipefail", "-c", jobs[job].steps[0].run], {
     env: { ...process.env, ...env, GITHUB_STEP_SUMMARY: '/dev/null' }, stdio: 'ignore',
@@ -78,7 +80,7 @@ test('TS engine changes allow skipped core checks; core selection requires both 
     results[name].result = 'success';
   }
   assert.equal(gate(results, 'pull_request'), 0);
-  assert.equal(jobs.changes.outputs.core, '${{ steps.selection.outputs.core || steps.diff.outputs.core }}');
+  assert.match(jobs.changes.outputs.core, /steps\.selection\.outputs\.core \|\| steps\.diff\.outputs\.core/);
   assert.deepEqual(engineMatrix(false), [
     ...Array.from({ length: PINNED_SHARDS }, (_, i) => ({ suite: 'pinned', shard: i + 1, count: PINNED_SHARDS })),
     ...SURRENDER_FILES.map((_, i) => ({ suite: 'surrender', shard: i + 1, count: SURRENDER_FILES.length })),
@@ -153,8 +155,10 @@ test('slow jobs are required only for their selected inputs; main uses real prod
   assert.equal(gate(main, 'push'), 0);
   const voice = jobs['production-voice-assets'];
   assert.equal(voice.needs, 'changes');
-  assert.equal(voice.if, "(github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name != 'push' && (needs.changes.outputs.prod_build == 'true' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.tests_only != 'true' && needs.changes.outputs.checks_only != 'true')))");
-  assert.equal(voice.with['save-cache'], "${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}");
+  assert.match(voice.if, /github\.event_name == 'push' && github\.ref == 'refs\/heads\/main' && !inputs\.full_suite/);
+  assert.match(voice.if, /needs\.changes\.outputs\.prod_build == 'true'/);
+  assert.match(voice.if, /github\.event\.pull_request\.head\.repo\.full_name == github\.repository/);
+  assert.equal(voice.with['save-cache'], "${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && !inputs.full_suite }}");
   for (const job of ['production-bundle', 'production-images']) {
     main[job].result = 'skipped';
     assert.notEqual(gate(main, 'push'), 0, job);
@@ -429,7 +433,7 @@ test('engine bundle cache ignores unrelated dependencies but retains the actual 
   assert.equal(run(undefined).status, 1);
 });
 
-test('a focused engine PR retains all Table row partitions while a push runs the full plan', async () => {
+test('selected engine jobs retain the Table row partitions and use the shared file selector', async () => {
   const { pinnedPlan, TABLE_FILE } = await import('./engine-test-plan.mjs');
   const files = ['tests/host.test.ts', TABLE_FILE];
   const shardPlan = pinnedPlan(files);
@@ -438,7 +442,106 @@ test('a focused engine PR retains all Table row partitions while a push runs the
   assert.equal(shardPlan.flatMap(shard => shard.files).filter(file => file === 'tests/host.test.ts').length, 1);
   assert.equal(jobs['engine-shards'].strategy.matrix.include, '${{ fromJSON(needs.changes.outputs.engine_matrix) }}');
   assert.equal(jobs.changes.outputs.engine_files, '${{ steps.selection.outputs.engine_files }}');
-  assert.equal(jobs.changes.steps.find(step => step.id === 'selection').if, "${{ steps.diff.outputs.scan == 'true' }}");
+  const selector = jobs.changes.steps.find(step => step.id === 'selection');
+  assert.match(selector.if, /steps\.diff\.outputs\.scan == 'true' && steps\.proof\.outputs\.reused != 'true'/);
+  assert.equal(selector.env.BASELINE, '${{ steps.baseline.outputs.base }}');
+});
+
+test('covered PR proofs skip all test jobs but still require production artifacts on main', () => {
+  const { outputs, steps } = jobs.changes;
+  for (const key of [...Object.keys(areaJobs), 'effect_types', 'effects', 'effect_smoke', 'typecheck']) {
+    assert.match(outputs[key], /steps\.proof\.outputs\.reused != 'true'/, key);
+  }
+  assert.match(steps.find(step => step.id === 'wrapper').if, /steps\.proof\.outputs\.reused != 'true'/);
+  const upload = jobs['ci-result'].steps.find(step => step.name === 'Upload tested tree proof');
+  assert.match(upload.with.name, /^pr-tested-tree-/);
+  const results = gateJobs();
+  assert.notEqual(gate(results, 'push'), 0);
+  for (const name of ['production-bundle', 'production-voice-assets', 'production-images']) results[name].result = 'success';
+  assert.equal(gate(results, 'push'), 0);
+});
+
+test('Full Suite uses the same tests on every main push and has no production publish or Deploy trigger', () => {
+  const full = workflow("full-suite");
+  assert.deepEqual(full.on, { push: { branches: ['main'] } });
+  assert.equal(full.concurrency['cancel-in-progress'], true);
+  assert.notEqual(full.concurrency.group, testWorkflow.concurrency.group);
+  assert.match(testWorkflow.concurrency.group, /github\.event_name/);
+  assert.deepEqual(testWorkflow.on.schedule, [{ cron: '17 3 * * *' }]);
+  assert.equal(full.jobs.suites.uses, './.github/workflows/test.yml');
+  assert.equal(full.jobs.suites.with.full_suite, true);
+  assert.equal(testWorkflow.on.workflow_call.inputs.full_suite.type, 'boolean');
+  const diff = jobs.changes.steps.find(step => step.id === 'diff');
+  assert.match(diff.env.EVENT, /inputs\.full_suite && 'full_suite'/);
+  const result = jobs['ci-result'].steps[0];
+  assert.equal(result.env.EVENT, diff.env.EVENT);
+  for (const name of ['production-bundle', 'production-images']) assert.match(jobs[name].if, /!inputs\.full_suite/);
+  assert.match(jobs.native.steps.find(step => step.name.startsWith('nduel golden')).if, /outputs\.golden == 'true'/);
+  assert.deepEqual(workflow("deploy").on.workflow_run.workflows, ['Test']);
+  const results = gateJobs();
+  results.changes.outputs.prod_build = 'true';
+  assert.notEqual(gate(results, 'full_suite'), 0);
+  results['production-dry-run'].result = 'success';
+  assert.equal(gate(results, 'full_suite'), 0);
+});
+
+test('Full Suite creates one labeled red issue, updates it, and closes it after a current main pass', async () => {
+  const report = workflow("full-suite").jobs.report;
+  assert.equal(report.permissions.issues, 'write');
+  assert.match(report.if, /!cancelled\(\)/);
+  const { script } = report.steps[0].with;
+  const execute = new (Object.getPrototypeOf(async function () {}).constructor)('github', 'context', 'process', script);
+  const sha = 'a'.repeat(40);
+  const label = 'ci-full-suite-red';
+  const runUrl = 'https://github.com/owner/repo/actions/runs/123';
+  const context = { sha, runId: 123, serverUrl: 'https://github.com', repo: { owner: 'owner', repo: 'repo' } };
+  const run = async (result, open = [], main = sha) => {
+    const changes = [];
+    const github = {
+      paginate: (method, options) => method(options),
+      rest: {
+        repos: { getBranch: async () => ({ data: { commit: { sha: main } } }) },
+        actions: { listJobsForWorkflowRun: async ({ run_id }) => {
+          assert.equal(run_id, context.runId);
+          return [{ name: 'Engine tests (1/8)', conclusion: 'failure', html_url: `${runUrl}/job/5` },
+            { name: 'Web unit tests', conclusion: 'success' }];
+        } },
+        issues: {
+          listForRepo: async options => {
+            assert.equal(options.labels, label);
+            assert.equal(options.state, 'open');
+            return open;
+          },
+          getLabel: async () => { throw Object.assign(new Error('Missing label'), { status: 404 }); },
+          createLabel: async data => changes.push(['label', data]),
+          create: async data => changes.push(['create', data]),
+          update: async data => changes.push(['update', data]),
+        },
+      },
+    };
+    await execute(github, context, { env: { FULL_SUITE_RESULT: result } });
+    return changes;
+  };
+  const created = await run('failure', [{ pull_request: {} }]);
+  assert.deepEqual(created.map(([action]) => action), ['label', 'create']);
+  const data = created[1][1];
+  assert.deepEqual(data.labels, [label]);
+  assert.match(data.title, new RegExp(sha.slice(0, 9)));
+  assert.ok(data.body.includes(runUrl));
+  assert.ok(data.body.includes('Engine tests (1/8)'));
+  assert.ok(!data.body.includes('Web unit tests'));
+  assert.match(data.body, /rollback=true.*force=false/);
+
+  const issue = { number: 14, body: data.body };
+  const updated = await run('failure', [issue]);
+  assert.deepEqual(updated.map(([action]) => action), ['update']);
+  assert.equal(updated[0][1].issue_number, issue.number);
+  const green = await run('success', [issue]);
+  assert.deepEqual(green.map(([action]) => action), ['update']);
+  assert.equal(green[0][1].state, 'closed');
+  assert.match(green[0][1].body, /passed on main/);
+  assert.deepEqual(await run('success'), []);
+  for (const result of ['success', 'failure']) assert.deepEqual(await run(result, [issue], 'b'.repeat(40)), []);
 });
 
 test("every docker run/exec in the stdin deploy script reads /dev/null", () => {
