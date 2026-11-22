@@ -1041,7 +1041,7 @@ export function createDuelHost(options: {
     // Replay verification compares board state, not log history. Final snapshots keep the normal 400-entry tail.
     const publicView = await game.view(null);
     const result: NonNullable<DuelEngineView["result"]> = { winnerSeat, reason,
-      ...(publicView.result?.victory === "exodia" ? { victory: "exodia" as const } : {}) };
+      ...(publicView.result?.victory ? { victory: publicView.result.victory } : {}) };
     // Tag: a team wins. `winnerSeat` is the lowest seat of the team; `winnerTeam` names it.
     if (format === "tag") result.winnerTeam = winnerSeat === null ? null : teamOfSeat(format, winnerSeat);
     const seats: DuelEngineView[] = [];
@@ -2139,7 +2139,7 @@ export function createDuelHost(options: {
               winnerSeat: source.session.winnerSeat, reason: source.session.resultReason ?? "Duel ended",
               ...(source.session.format === "tag" ? { winnerTeam: source.session.winnerSeat === null ? null
                 : teamOfSeat("tag", source.session.winnerSeat) } : {}),
-              ...(rebuilt.result?.victory === "exodia" ? { victory: "exodia" } : {}),
+              ...(rebuilt.result?.victory ? { victory: rebuilt.result.victory } : {}),
             };
             if (rebuilt.result && (rebuilt.result.winnerSeat !== expected.winnerSeat
               || (source.session.format === "tag" && rebuilt.result.winnerTeam !== expected.winnerTeam))) return false;

@@ -94,11 +94,11 @@ These rules come from ADR-0002 and spec section 4.2.
 
 ## Owner 2026-11-22: "you win" cards
 
-15 cards that end the duel with a plain win are allowed in FFA3, FFA4 and Tag. The rule is the same as Exodia the Forbidden One (R-COMMON-EXODIA): when the win fires, its owner wins (in Tag, the owner's team wins) and every other player loses at the same time, with no places. The multi cores already do this for `Duel.Win`: the first win in an Adjust window counts, and every living player who is not a teammate loses. No overlay or patch was needed.
+15 cards that end the duel with a plain win are allowed in FFA3, FFA4 and Tag. The result is the same as for Exodia the Forbidden One (R-COMMON-EXODIA), except for simultaneous wins (Exodia has a draw overlay; the 15 others do not, so the first Duel.Win call counts) and the saved result kind ("alt-win", not "exodia"; neither has places): when the win fires, its owner wins (in Tag, the owner's team wins) and every other player loses at the same time, with no places. The multi cores already do this for `Duel.Win`: the first win in an Adjust window counts, and every living player who is not a teammate loses. No overlay or patch was needed.
 
 Allowed: Exodius the Ultimate Forbidden Lord, Holactie the Creator of Light, Number iC1000: Numerounius Numerounia, Exodia, the Legendary Defender, Ghostrick Angel of Mischief, Number C88: Gimmick Puppet Disaster Leo, Flying Elephant, F.A. Winners, Summer Schoolwork Successful!, Vennominaga the Deity of Poisonous Snakes, Jackpot 7, Destiny Board, Musical Sumo Dice Games, Phantasm Spiral Assault and Number 88: Gimmick Puppet of Leo. Each one calls `Duel.Win(tp, ...)` with the owner (Holactie: the summoning player).
 
-"Your opponent" wording follows the LP comparison rule ("your opponent" = choose one): Disaster Leo wins when one opponent of its owner has 2000 LP or less (in Tag, the opposing team LP).
+Disaster Leo wins when any one living opponent has 2000 LP or less (in Tag, the opposing team LP). Its End Phase condition runs once for each living opponent, so there is no choice and the LP fold (all living opponents) does not apply. Live probe 2026-11-22 on the multi core: p1 1000 / p2 2500 and p1 2500 / p2 1000 both win; 2500 / 2500 gives no win. An "all living opponents" rule needs a new card overlay (not built).
 
 Still forbidden: Final Countdown and Last Turn (they compare two players). True Exodia (`Duel.Win(1-controller)`) and Relay Soul (`Duel.Win` with the saved opponent) make their controller lose. Whether only the controller or team loses while the duel goes on is not decided, so both stay forbidden until the owner decides.
 

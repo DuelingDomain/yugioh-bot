@@ -838,9 +838,10 @@ ${Array.from({ length: seatCount }, (_, seat) => `        Duel.ShuffleDeck(${sea
             }
           }
           // Owner 2026-10-18: Exodia has no elimination places, including losses before the win.
-          if (message.reason === 0x10) eliminationOrder.length = 0;
-          result = { winnerSeat, ...(format === "tag" ? { winnerTeam } : {}), reason,
-            ...(message.reason === 0x10 ? { victory: "exodia" as const } : {}) };
+          // Owner 2026-11-22: every other "you win" card (card win reasons above 0x10) ends the table the same way.
+          const victory = message.reason === 0x10 ? "exodia" as const : message.reason > 0x10 ? "alt-win" as const : undefined;
+          if (victory) eliminationOrder.length = 0;
+          result = { winnerSeat, ...(format === "tag" ? { winnerTeam } : {}), reason, ...(victory ? { victory } : {}) };
           appendLog(winnerSeat == null ? `Draw (${reason})` : format === "tag" ? `Team ${winnerTeam! + 1} wins (${reason})` : `Player ${winnerSeat + 1} wins (${reason})`);
           return;
         }
