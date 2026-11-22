@@ -393,3 +393,4 @@ export function duelAnimationSpeed(request: Request): { animationSpeed?: number 
   const speed = Number(raw);
   return Number.isFinite(speed) && speed >= 0.5 && speed <= 2 ? { animationSpeed: speed } : {};
 }
+// ci probe
