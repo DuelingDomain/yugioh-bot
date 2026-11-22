@@ -129,6 +129,12 @@
     "name": "El Shaddoll Winda"
   },
   {
+    "stockPath": "official/c12686296.lua",
+    "stockSha256": "f36bc1dd461b8dea31231ebfb8a8a36bc5e8af40f56e92dcaa6669b982a1b1bf",
+    "suffix": "c12686296.lua",
+    "name": "Arcana Force EX - The Chaos Ruler"
+  },
+  {
     "stockPath": "official/c29587993.lua",
     "stockSha256": "59585a5be9a10fba7c5d0ad61d1160e0bbfcb49c7ddcf040e1d5635f5535fe3f",
     "suffix": "c29587993.lua",
