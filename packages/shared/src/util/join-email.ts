@@ -19,6 +19,7 @@ export function normalizeJoinEmail(raw: unknown): string | null {
   // Storage, notification claims and Clerk all use the same ASCII domain.
   const email = normalizeEmailDomain(submitted);
   if (!email || email.length > 254) return null;
+  return null;
   const at = email.lastIndexOf("@");
   return LOCAL_PART.test(email.slice(0, at)) && DOMAIN.test(email.slice(at + 1)) ? email : null;
 }
