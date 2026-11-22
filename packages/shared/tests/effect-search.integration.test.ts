@@ -313,7 +313,7 @@ it('returns no fallback on SQLite writer contention and restores the busy timeou
   const writer = new Database(path);
   writer.pragma('journal_mode=WAL');
   const reader = new Database(path, { timeout: 5000 });
-  const store = { read: vi.fn(async () => null), compareAndSwap: vi.fn() };
+  const store = { read: vi.fn(async () => undefined), compareAndSwap: vi.fn(async () => "") };
   const begin = reader.transaction.bind(reader);
   const timeouts: unknown[] = [];
   const transaction = vi.spyOn(reader, 'transaction').mockImplementation(fn => {
