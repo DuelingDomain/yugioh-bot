@@ -251,7 +251,7 @@ async function main() {
       console.log(`${suite}: full suite (${result.reason ?? "no test files reached the changed paths"})`);
     }
   }
-  output.web_shards = JSON.stringify([1, 2, 3].slice(0, output.web_files ? JSON.parse(output.web_files).length : 3));
+  output.web_shards = JSON.stringify([1, 2, 3, 4, 5].slice(0, output.web_files ? JSON.parse(output.web_files).length : 5));
   // Emit all outputs only after graph construction. An unexpected error in any
   // suite leaves the workflow on the original, full-suite defaults.
   appendFileSync(process.env.GITHUB_OUTPUT, Object.entries(output).map(([key, value]) => `${key}=${value}\n`).join(""));

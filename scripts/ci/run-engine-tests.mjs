@@ -1,42 +1,44 @@
-import { spawnSync } from "node:child_process";
-import { PINNED_SHARDS, SURRENDER_FILES, DIFFERENTIAL_FILES, surrenderLeg } from "./engine-test-plan.mjs";
+import { duelTestFiles } from "./duel-test-files.mjs";
+import { PINNED_SHARDS, LEGACY_SHARDS, SURRENDER_FILES, DIFFERENTIAL_FILES, pinnedPlan } from "./engine-test-plan.mjs";
+import { listVitestFiles, runVitestShard, saveTimings } from "./test-shards.mjs";
 
-const [selector, shard] = process.argv.slice(2);
-const web = selector === "web";
-const counts = { pinned: PINNED_SHARDS, legacy: 2, surrender: 4, differential: 2, web: 1 };
-const count = counts[selector];
-if (!count || !new RegExp(`^[1-${count}]/${count}$`).test(shard ?? "")) throw new Error("Expected pinned i/8, surrender i/4, legacy|differential i/2 or web 1/1");
-// An unset or empty selection runs the full suite: computed fixture paths can evade static selection.
-const requested = process.env.CI_TEST_FILES ? JSON.parse(process.env.CI_TEST_FILES) : undefined;
-if (web && !requested) throw new Error("The web dependent run requires an explicit file selection");
-// An explicit empty web dependency set has no callers. Never turn it into every
-// web test (the duel-only selector retains its conservative empty fallback).
-if (web && requested.length === 0) process.exit(0);
-const selected = requested?.length ? requested : undefined;
-if (requested?.length === 0) console.warn("Empty CI test selection; falling back to the full suite.");
-const slow = [...SURRENDER_FILES, ...DIFFERENTIAL_FILES];
-const leg = surrenderLeg(Number(shard.split("/")[0]));
-const group = selector === "surrender" ? [leg.file] : selector === "differential" ? DIFFERENTIAL_FILES : undefined;
-const files = group
-  ? group.filter((file) => !selected || selected.includes(file))
-  : selected?.filter((file) => selector !== "pinned" || !slow.includes(file)) ?? ["tests"];
-const run = (args, env = {}) => {
-  const result = spawnSync("npm", ["exec", `--workspace=packages/${web ? "web" : "duel-server"}`, "--", "vitest", "run", ...args, ...(web ? [] : ["--testTimeout=15000"])], {
-    stdio: "inherit", env: { ...process.env, ...env },
-  });
-  if (result.error) throw result.error;
-  if (result.status !== 0) process.exit(result.status ?? 1);
-};
-const args = [...files, ...(selected ? ["--passWithNoTests"] : [])];
-const env = {};
-if (selector === "pinned") {
-  args.push(`--shard=${shard}`, "--config=vitest.ci.config.ts", ...slow.map((file) => `--exclude=${file}`));
-  env.TABLE_SHARD = shard;
-} else if (selector === "legacy") {
-  args.push(`--shard=${shard}`, "--config=vitest.legacy.config.ts");
-} else if (selector === "surrender") {
-  args.push(`--testNamePattern=^${leg.mode} host immediate surrender`);
-} else if (selector === "differential") {
-  env.DIFF_SHARD = shard;
+const [lane, shard] = process.argv.slice(2);
+const counts = { pinned: PINNED_SHARDS, legacy: LEGACY_SHARDS, surrender: SURRENDER_FILES.length, differential: 2, web: 1 };
+const [index, count] = (shard ?? "").split("/").map(Number);
+if (!Object.hasOwn(counts, lane) || count !== counts[lane] || !Number.isInteger(index) || index < 1 || index > count) {
+  throw new Error("Expected a valid engine lane and shard index/count");
 }
-if (files.length) run(args, env);
+
+// An unset or empty duel selection runs the full suite: computed fixture paths can evade static selection.
+const requested = process.env.CI_TEST_FILES ? JSON.parse(process.env.CI_TEST_FILES) : undefined;
+if (lane === "web" && !requested) throw new Error("The web dependent run requires an explicit file selection");
+if (lane === "web" && !requested.length) process.exit(0);
+if (requested?.length === 0) console.warn("Empty CI test selection; falling back to the full suite.");
+const selected = requested?.length ? requested : undefined;
+const select = files => selected ? files.filter(file => selected.includes(file)) : files;
+const duel = (files, args = [], env = {}) =>
+  runVitestShard("duel-server", select(files), ["--testTimeout=15000", ...args], env);
+
+if (lane === "pinned") {
+  const { files, seconds } = pinnedPlan(duelTestFiles().engine)[index - 1];
+  console.log(`Pinned shard ${shard}: ${select(files).length} files, ${Math.round(seconds)} estimated worker-seconds including reserved work`);
+  const results = await duel(files, ["--config=vitest.ci.config.ts"], { TABLE_SHARD: shard });
+  if (!selected) saveTimings("engine-pinned", index, { files: results });
+} else if (lane === "legacy") {
+  const args = ["--config=vitest.legacy.config.ts"];
+  const results = await duel(listVitestFiles("duel-server", ["tests", ...args]), args);
+  if (!selected) saveTimings("engine-legacy", index, { files: results });
+} else if (lane === "surrender") {
+  const file = SURRENDER_FILES[index - 1];
+  // The same file is invoked for the two existing, disjoint case-name filters.
+  // Both invocations get their own worker, report and failure status.
+  const modes = ["normal", "domain"];
+  const results = await Promise.allSettled(modes.map(mode =>
+    duel([file], [`--testNamePattern=^${mode} host immediate surrender`])));
+  for (const result of results) if (result.status === "rejected") throw result.reason;
+  if (!selected) saveTimings("engine-surrender", index, Object.fromEntries(modes.map((mode, i) => [mode, results[i].value])));
+} else if (lane === "differential") {
+  await duel(DIFFERENTIAL_FILES, [], { DIFF_SHARD: shard });
+} else {
+  await runVitestShard("web", selected);
+}

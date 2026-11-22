@@ -722,7 +722,7 @@ test("a small application diff stays focused in the dependency-free detection CL
   for (const dir of ["scripts/ci", "packages/duel-server/src", "packages/duel-server/tests",
     "packages/duel-server/scripts", "packages/shared/src/services", "packages/web/src",
     "packages/web/tests", "packages/web/app", "packages/web/e2e"]) mkdirSync(join(f.root, dir), { recursive: true });
-  for (const file of ["changed-layers.mjs", "engine-test-plan.mjs", "engine-test-times.json"]) {
+  for (const file of ["changed-layers.mjs", "engine-test-plan.mjs", "engine-test-times.json", "test-shards.mjs"]) {
     copyFileSync(new URL(file, import.meta.url), join(f.root, "scripts/ci", file));
   }
   writeFileSync(join(f.root, "packages/shared/package.json"), '{"exports":{}}');

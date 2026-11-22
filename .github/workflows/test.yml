@@ -104,7 +104,7 @@ jobs:
         (steps.key.outcome == 'failure' && 'engine cache key failed') ||
         (steps.emsdk.outcome == 'failure' && 'emsdk pin read failed') || steps.bundle.outcome }}
       web_files: ${{ steps.selection.outputs.web_files }}
-      web_shards: ${{ steps.selection.outputs.web_shards || '[1,2,3]' }}
+      web_shards: ${{ steps.selection.outputs.web_shards || '[1,2,3,4,5]' }}
       shared_files: ${{ steps.selection.outputs.shared_files }}
       duel_unit_files: ${{ steps.selection.outputs.duel_unit_files }}
       bot_files: ${{ steps.selection.outputs.bot_files }}
@@ -734,7 +734,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: ${{ fromJSON(needs.changes.outputs.web_shards) }}
+        shard: ${{ fromJSON(needs.changes.outputs.data_only == 'true' && '[1,2,3]' || needs.changes.outputs.web_shards) }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -747,10 +747,19 @@ jobs:
         if: needs.changes.outputs.data_only != 'true'
         env:
           CI_TEST_FILES: ${{ needs.changes.outputs.web_files }}
-        run: node scripts/ci/run-pr-tests.mjs web --shard=${{ matrix.shard }}/${{ strategy.job-total }}
+        run: node scripts/ci/run-web-tests.mjs ${{ matrix.shard }}/${{ strategy.job-total }}
       - name: Test web effects and staple data consumers
         if: needs.changes.outputs.data_only == 'true'
-        run: npm test --workspace=packages/web -- tests/cube-effects-routes.integration.test.ts tests/effect-startup.integration.test.ts tests/deck-effect-search-route.integration.test.ts tests/deck-effect-search-ui.integration.test.tsx tests/effect-standalone.integration.test.ts --shard=${{ matrix.shard }}/3
+        run: node scripts/ci/run-web-tests.mjs ${{ matrix.shard }}/${{ strategy.job-total }} tests/cube-effects-routes.integration.test.ts tests/effect-startup.integration.test.ts tests/deck-effect-search-route.integration.test.ts tests/deck-effect-search-ui.integration.test.tsx tests/effect-standalone.integration.test.ts
+      - name: Upload web file timings
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.changes.outputs.data_only != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-timings-web-${{ matrix.shard }}
+          path: ${{ runner.temp }}/test-timings/web-${{ matrix.shard }}.json
+          if-no-files-found: error
+          retention-days: 30
+          overwrite: true
 
   ci-scripts:
     name: CI and deployment script checks
@@ -881,15 +890,10 @@ jobs:
         suite: [pinned]
         shard: [1, 2, 3, 4, 5, 6, 7, 8]
         count: [8]
-        # Eight measured-time pinned shards + four surrender parts.
-        # Core changes also select two differential jobs and native (17 engine jobs total).
-        # Keep surrender/differential files off the regular+Table shards.
-        # Both surrender modes and all differential seeds still run across these groups.
+        # Run both surrender modes on each of two runners, with independent Vitest workers.
         include:
-          - { suite: surrender, shard: 1, count: 4 }
-          - { suite: surrender, shard: 2, count: 4 }
-          - { suite: surrender, shard: 3, count: 4 }
-          - { suite: surrender, shard: 4, count: 4 }
+          - { suite: surrender, shard: 1, count: 2 }
+          - { suite: surrender, shard: 2, count: 2 }
     env:
       DUEL_REQUIRE_CORES: "1"
       DUEL_DATA_DIR: ${{ github.workspace }}/data/duel-engine-next
@@ -965,8 +969,18 @@ jobs:
         if: needs.changes.outputs.engine == 'true' && matrix.suite == 'pinned' && matrix.shard == 1
         run: prlimit --core=1:1 -- npm run test:smoke --workspace=packages/duel-server
 
+      - name: Upload engine file timings
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-timings-engine-${{ matrix.suite }}-${{ matrix.shard }}
+          path: ${{ runner.temp }}/test-timings/engine-${{ matrix.suite }}-${{ matrix.shard }}.json
+          if-no-files-found: error
+          retention-days: 30
+          overwrite: true
+
   engine-legacy-shards:
-    name: Legacy 1v1 tests shard (${{ matrix.shard }}/2)
+    name: Legacy 1v1 tests shard (${{ matrix.shard }}/1)
     if: ${{ !cancelled() && needs.cores.result == 'success' && needs.changes.outputs.engine == 'true' }}
     needs: [cores, changes]
     runs-on: ubuntu-latest
@@ -974,7 +988,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2]
+        shard: [1]
     env:
       DUEL_REQUIRE_CORES: "1"
       DUEL_DATA_DIR: ${{ github.workspace }}/data/duel-engine-next
@@ -1009,7 +1023,17 @@ jobs:
       - name: Engine tests, legacy 1v1 engine
         env:
           CI_TEST_FILES: ${{ steps.selection.outputs.files }}
-        run: prlimit --core=1:1 -- node scripts/ci/run-engine-tests.mjs legacy ${{ matrix.shard }}/2
+        run: prlimit --core=1:1 -- node scripts/ci/run-engine-tests.mjs legacy ${{ matrix.shard }}/1
+
+      - name: Upload legacy file timings
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-timings-engine-legacy-${{ matrix.shard }}
+          path: ${{ runner.temp }}/test-timings/engine-legacy-${{ matrix.shard }}.json
+          if-no-files-found: error
+          retention-days: 30
+          overwrite: true
 
   engine-differential:
     name: Differential engine tests (${{ matrix.shard }}/2)
