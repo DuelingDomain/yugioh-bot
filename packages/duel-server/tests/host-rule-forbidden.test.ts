@@ -16,7 +16,6 @@ import { describeWithCores, needs } from "./support/cores.js";
 export { HOST_FORBIDDEN_RULE_IDS } from "./host-rule-forbidden.rules.js";
 
 const SECRET = "rule-forbidden-test";
-const DESTINY_BOARD = 94212438;
 const FINAL_COUNTDOWN = 95308449;
 
 function legalDeck(mode: DuelMode): DuelDeck {
@@ -76,7 +75,7 @@ describeWithCores("live host forbidden list (" + mode + ")",
     };
     try {
       const legal = legalDeck(mode);
-      const banned = format === "tag" ? DESTINY_BOARD : FINAL_COUNTDOWN;
+      const banned = FINAL_COUNTDOWN;
       const invalid = { ...legal, main: [banned, ...legal.main.slice(1)] };
       for (let index = 0; index < count; index++) {
         const submitted = await post(players[index]!, { op: "deck", deck: index === seat ? invalid : legal });

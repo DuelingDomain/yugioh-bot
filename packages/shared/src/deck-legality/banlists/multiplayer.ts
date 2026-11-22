@@ -17,7 +17,7 @@ export type MultiplayerCategory =
   | "control-swap" // the script swaps control between two named players
   | "turn-count" // a counter or a reset that counts "the opponent's turns"
   | "turn-order" // the script skips or adds a turn for one player
-  | "alt-win" // the script ends the duel with Duel.Win ("you win"); forbidden except Exodia the Forbidden One (owner 2026-10-18)
+  | "alt-win" // the script ends the duel with Duel.Win; allowed when the owner wins (owner 2026-10-18, 2026-11-22), forbidden when the owner loses or both players are compared
   | "global-state" // a per-player global flag table with two slots
   | "chooser" // the script asks "the opponent" to choose and assumes only one
   | "lp-reset"; // the script sets or compares the LP of exactly two players
@@ -34,7 +34,6 @@ export interface MultiplayerForbidden {
 
 const FFA: MultiplayerFormat[] = ["ffa3", "ffa4"];
 const ALL: MultiplayerFormat[] = ["ffa3", "ffa4", "tag"];
-const NO_RESULT = " A 'you win' effect has no defined result for the other players.";
 
 export const MULTIPLAYER_FORBIDDEN: readonly MultiplayerForbidden[] = [
   // --- 2026-11-16 data review: docs/audits/2026-11-16-engine-data-review.md
@@ -61,23 +60,8 @@ export const MULTIPLAYER_FORBIDDEN: readonly MultiplayerForbidden[] = [
   // --- alt-win
   { code: 95308449, name: "Final Countdown", category: "alt-win", reason: "It keeps one counter for each of two players and then ends the duel.", formats: ALL },
   { code: 28566710, name: "Last Turn", category: "alt-win", reason: "It compares two players and ends the duel with win, loss or draw.", formats: ALL },
-  { code: 37984331, name: "True Exodia", category: "alt-win", reason: "It ends the duel with a win for 'the opponent of the controller'. FFA and Tag have no single opponent.", formats: ALL },
-  { code: 42776960, name: "Relay Soul", category: "alt-win", reason: `It ends the duel with a win for one saved player when its monster leaves the field.${NO_RESULT}`, formats: ALL },
-  { code: 13893596, name: "Exodius the Ultimate Forbidden Lord", category: "alt-win", reason: `It ends the duel with a win for its controller when 5 Forbidden One monsters are in the GY.${NO_RESULT}`, formats: ALL },
-  { code: 10000040, name: "Holactie the Creator of Light", category: "alt-win", reason: `The player who Special Summons it wins the duel.${NO_RESULT}`, formats: ALL },
-  { code: 15862758, name: "Number iC1000: Numerounius Numerounia", category: "alt-win", reason: `It ends the duel with a win for its controller when it has not battled in an opponent turn.${NO_RESULT}`, formats: ALL },
-  { code: 5008836, name: "Exodia, the Legendary Defender", category: "alt-win", reason: `It ends the duel with a win for its controller when it destroys a DARK Fiend of an opponent by battle.${NO_RESULT}`, formats: ALL },
-  { code: 53334641, name: "Ghostrick Angel of Mischief", category: "alt-win", reason: `It ends the duel with a win for its controller when it has 10 Xyz Materials.${NO_RESULT}`, formats: ALL },
-  { code: 6165656, name: "Number C88: Gimmick Puppet Disaster Leo", category: "alt-win", reason: `It ends the duel with a win for its controller in their turn when one opponent has 2000 LP or less.${NO_RESULT}`, formats: ALL },
-  { code: 66765023, name: "Flying Elephant", category: "alt-win", reason: `It ends the duel with a win for its controller when it deals battle damage with a direct attack.${NO_RESULT}`, formats: ALL },
-  { code: 69553552, name: "F.A. Winners", category: "alt-win", reason: `It ends the duel with a win for its controller when 3 of its banished cards have different names.${NO_RESULT}`, formats: ALL },
-  { code: 77751766, name: "Summer Schoolwork Successful!", category: "alt-win", reason: `It ends the duel with a win for its controller when their Deck has 1 card or less after its effect.${NO_RESULT}`, formats: ALL },
-  { code: 8062132, name: "Vennominaga the Deity of Poisonous Snakes", category: "alt-win", reason: `It ends the duel with a win for its controller when it has 3 counters.${NO_RESULT}`, formats: ALL },
-  { code: 81171949, name: "Jackpot 7", category: "alt-win", reason: `It ends the duel with a win for its controller when 3 copies are banished.${NO_RESULT}`, formats: ALL },
-  { code: 94212438, name: "Destiny Board", category: "alt-win", reason: `It ends the duel with a win for its controller when 4 Spirit Message cards are on their field.${NO_RESULT}`, formats: ALL },
-  { code: 96637156, name: "Musical Sumo Dice Games", category: "alt-win", reason: `It ends the duel with a win for its controller when it gets its 7th Xyz Material.${NO_RESULT}`, formats: ALL },
-  { code: 97795930, name: "Phantasm Spiral Assault", category: "alt-win", reason: `It ends the duel with a win for its controller when its counter reaches 3.${NO_RESULT}`, formats: ALL },
-  { code: 48995978, name: "Number 88: Gimmick Puppet of Leo", category: "alt-win", reason: `It ends the duel with a win for its controller when it has 3 counters.${NO_RESULT}`, formats: ALL },
+  { code: 37984331, name: "True Exodia", category: "alt-win", reason: "It ends the duel with a win for 'the opponent of the controller', so its controller loses. The owner decision of 2026-11-22 covers wins for the owner only. FFA and Tag have no single opponent, and it is not decided whether only the controller (or team) loses and the duel goes on.", formats: ALL },
+  { code: 42776960, name: "Relay Soul", category: "alt-win", reason: "It ends the duel with a win for the opponent saved when it was summoned, so its controller loses. The owner decision of 2026-11-22 covers wins for the owner only. FFA and Tag have no single saved opponent, and it is not decided whether only the controller (or team) loses and the duel goes on.", formats: ALL },
 ];
 
 /**
@@ -255,6 +239,22 @@ const CARD_RULE_DRAFTS: readonly MultiplayerCardRuleDraft[] = [
   { code: 72892473, name: "Card Destruction", rule: "In FFA3, FFA4 and Tag, every living player discards their whole hand, then draws the same number of cards. Draw in turn order from the turn player. Owner 2026-10-18." },
   { code: 74519184, name: "Hand Destruction", rule: "In FFA3, FFA4 and Tag, every living player chooses 2 cards from their own hand in turn order from the turn player. Send those cards to the GY, then each player draws 2. Owner 2026-10-18." },
   { code: 33396948, name: "Exodia the Forbidden One", rule: "Five pieces in one player's hand win the whole duel. All other players lose at the same time, with no places. In Tag, that player's team wins and the other team loses. Count one claim per team in Tag: simultaneous complete hands on the same team win for that team and the other team loses; only simultaneous claims from both teams draw. In FFA, two or more players completing Exodia at the same time give everyone a draw. Reveal complete hands to every living player. Other 'you win' cards stay forbidden. Owner 2026-10-18." },
+  // --- 'you win' cards: the owner wins, every other player loses (owner 2026-11-22; same result as Exodia the Forbidden One)
+  { code: 13893596, name: "Exodius the Ultimate Forbidden Lord", rule: "Its win fires after 5 different Forbidden One monsters sent by its own effect are in the owner's GY. When its condition is met in FFA, its owner wins and every other player loses at the same time, with no places. In Tag, the owner's team wins and the other team loses. Owner 2026-11-22." },
+  { code: 10000040, name: "Holactie the Creator of Light", rule: "The player who Special Summons it is the owner of the win. When its condition is met in FFA, its owner wins and every other player loses at the same time, with no places. In Tag, the owner's team wins and the other team loses. Owner 2026-11-22." },
+  { code: 15862758, name: "Number iC1000: Numerounius Numerounia", rule: "It wins for its controller when it has not battled in an opponent turn. When its condition is met in FFA, its owner wins and every other player loses at the same time, with no places. In Tag, the owner's team wins and the other team loses. Owner 2026-11-22." },
+  { code: 5008836, name: "Exodia, the Legendary Defender", rule: "It wins for its controller when it destroys a DARK Fiend of any opponent by battle. When its condition is met in FFA, its owner wins and every other player loses at the same time, with no places. In Tag, the owner's team wins and the other team loses. Owner 2026-11-22." },
+  { code: 53334641, name: "Ghostrick Angel of Mischief", rule: "It wins for its controller when it has 10 Xyz Materials. When its condition is met in FFA, its owner wins and every other player loses at the same time, with no places. In Tag, the owner's team wins and the other team loses. Owner 2026-11-22." },
+  { code: 6165656, name: "Number C88: Gimmick Puppet Disaster Leo", rule: "It wins for its controller at the End Phase of their turn when one opponent of their choice has 2000 LP or less ('your opponent' = choose one, as in the LP comparison rule). In Tag the opposing team LP is compared. When its condition is met in FFA, its owner wins and every other player loses at the same time, with no places. In Tag, the owner's team wins and the other team loses. Owner 2026-11-22." },
+  { code: 66765023, name: "Flying Elephant", rule: "It wins for its controller when it deals battle damage to any opponent with a direct attack. When its condition is met in FFA, its owner wins and every other player loses at the same time, with no places. In Tag, the owner's team wins and the other team loses. Owner 2026-11-22." },
+  { code: 69553552, name: "F.A. Winners", rule: "It wins for its controller when 3 of their banished cards have different names. When its condition is met in FFA, its owner wins and every other player loses at the same time, with no places. In Tag, the owner's team wins and the other team loses. Owner 2026-11-22." },
+  { code: 77751766, name: "Summer Schoolwork Successful!", rule: "It wins for its controller when their Deck has 1 card or less after its effect. When its condition is met in FFA, its owner wins and every other player loses at the same time, with no places. In Tag, the owner's team wins and the other team loses. Owner 2026-11-22." },
+  { code: 8062132, name: "Vennominaga the Deity of Poisonous Snakes", rule: "It wins for its controller when it has 3 counters. Each counter comes from battle damage dealt to any opponent. When its condition is met in FFA, its owner wins and every other player loses at the same time, with no places. In Tag, the owner's team wins and the other team loses. Owner 2026-11-22." },
+  { code: 81171949, name: "Jackpot 7", rule: "It wins for its controller when 3 copies are banished. When its condition is met in FFA, its owner wins and every other player loses at the same time, with no places. In Tag, the owner's team wins and the other team loses. Owner 2026-11-22." },
+  { code: 94212438, name: "Destiny Board", rule: "It wins for its controller when 4 Spirit Message cards are on their field. When its condition is met in FFA, its owner wins and every other player loses at the same time, with no places. In Tag, the owner's team wins and the other team loses. Owner 2026-11-22." },
+  { code: 96637156, name: "Musical Sumo Dice Games", rule: "It wins for its controller when it gets its 7th Xyz Material. When its condition is met in FFA, its owner wins and every other player loses at the same time, with no places. In Tag, the owner's team wins and the other team loses. Owner 2026-11-22." },
+  { code: 97795930, name: "Phantasm Spiral Assault", rule: "It wins for its controller when its counter reaches 3. When its condition is met in FFA, its owner wins and every other player loses at the same time, with no places. In Tag, the owner's team wins and the other team loses. Owner 2026-11-22." },
+  { code: 48995978, name: "Number 88: Gimmick Puppet of Leo", rule: "It wins for its controller when it has 3 counters. When its condition is met in FFA, its owner wins and every other player loses at the same time, with no places. In Tag, the owner's team wins and the other team loses. Owner 2026-11-22." },
   { code: 35059553, name: "Kaiser Colosseum", rule: "In FFA, compare the monster count of the actual summoning opponent with your field. Other opponents' monsters do not count. Tag keeps the joined team fields, including partner monsters used for a Tribute Summon. (owner 2026-10-18)" },
   { code: 21208154, name: "The Wicked Avatar", rule: "In FFA, choose one opponent. Only that opponent cannot activate Spells and Traps for two of their turns. In Tag, lock the opposing team for two opposing turns. The source must be Normal Summoned as its card text requires. (owner 2026-10-18)" },
   { code: 23846921, name: "Arcana Force XXI - The World", rule: "Heads skips only the chosen opponent's next turn in FFA and Tag. Other duelists keep their turns. Tails chooses one opponent's top GY card during an opposing Draw Phase, including a non-turn opponent. Count and index the same chosen GY. (owner 2026-10-18)" },
@@ -328,6 +328,7 @@ export const CARD_RULE_PROOF: Readonly<Record<number, readonly MultiplayerFormat
   72892473: ["ffa3", "ffa4", "tag"], // owner 2026-10-18
   74519184: ["ffa3", "ffa4", "tag"], // owner 2026-10-18
   33396948: ["ffa3", "ffa4", "tag"], // owner 2026-10-18
+  6165656: ["ffa3", "tag"], // owner 2026-11-22
   92182447: ["ffa3", "ffa4", "tag"], // owner 2026-10-18
   53334471: ["ffa3", "ffa4", "tag"], // receiving-field restrictions
   90846359: ["ffa3", "ffa4", "tag"], // receiving-field restrictions

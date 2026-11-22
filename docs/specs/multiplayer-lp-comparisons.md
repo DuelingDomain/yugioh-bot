@@ -154,7 +154,7 @@ These cards query an opponent's LP for a fixed threshold, direct LP change, dama
 - Contract with Don Thousand (56673480)
 - Meteor Flare (56856951)
 - Reversal Quiz (5990062)
-- Number C88: Gimmick Puppet Disaster Leo (6165656)
+- Number C88: Gimmick Puppet Disaster Leo (6165656) (owner 2026-11-22: allowed; it wins when one opponent of its owner has 2000 LP or less)
 - Number C6: Chronomaly Chaos Atlandis (6387204)
 - Deception of the Sinful Spoils (66328392)
 - Earthbound Prison (71089030)

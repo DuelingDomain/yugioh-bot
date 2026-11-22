@@ -92,9 +92,21 @@ These rules come from ADR-0002 and spec section 4.2.
 10. **Tribute of an opponent monster (owner answer to triage question 8, 2026-10-01).** A Tribute of a monster of an opponent works for the monsters of any opponent, not only seat 1. This includes the Kaiju, Lava Golem and The Winged Dragon of Ra - Sphere Mode. For Ra Sphere Mode, all Tributed monsters come from ONE opponent, and it goes to the field of that opponent.
 11. **Turn count (owner answer to triage question 1, 2026-10-01).** Every turn of any opponent counts as one opponent turn (in Tag, only a turn of the two opposing duelists). The turn-count review found no card to ban. The owner 2026-10-18 audit below replaces the four earlier FFA turn-count bans. Swords of Revealing Light is legal and protects only its controller in FFA (R-FFA-SWORDS-PROTECT).
 
+## Owner 2026-11-22: "you win" cards
+
+15 cards that end the duel with a plain win are allowed in FFA3, FFA4 and Tag. The rule is the same as Exodia the Forbidden One (R-COMMON-EXODIA): when the win fires, its owner wins (in Tag, the owner's team wins) and every other player loses at the same time, with no places. The multi cores already do this for `Duel.Win`: the first win in an Adjust window counts, and every living player who is not a teammate loses. No overlay or patch was needed.
+
+Allowed: Exodius the Ultimate Forbidden Lord, Holactie the Creator of Light, Number iC1000: Numerounius Numerounia, Exodia, the Legendary Defender, Ghostrick Angel of Mischief, Number C88: Gimmick Puppet Disaster Leo, Flying Elephant, F.A. Winners, Summer Schoolwork Successful!, Vennominaga the Deity of Poisonous Snakes, Jackpot 7, Destiny Board, Musical Sumo Dice Games, Phantasm Spiral Assault and Number 88: Gimmick Puppet of Leo. Each one calls `Duel.Win(tp, ...)` with the owner (Holactie: the summoning player).
+
+"Your opponent" wording follows the LP comparison rule ("your opponent" = choose one): Disaster Leo wins when one opponent of its owner has 2000 LP or less (in Tag, the opposing team LP).
+
+Still forbidden: Final Countdown and Last Turn (they compare two players). True Exodia (`Duel.Win(1-controller)`) and Relay Soul (`Duel.Win` with the saved opponent) make their controller lose. Whether only the controller or team loses while the duel goes on is not decided, so both stay forbidden until the owner decides.
+
+Live proof: `alt-win.ts` (Disaster Leo in FFA3 and Tag; the engine path is the same for all 15). The other cards have no live scenario.
+
 ## Owner 2026-10-18: hand effects and Exodia
 
-These three cards are allowed in FFA3, FFA4 and Tag. Other alternative-win cards stay forbidden.
+These three cards are allowed in FFA3, FFA4 and Tag. Owner 2026-11-22 allows 15 more alternative-win cards (next section).
 
 | Card | Code | Rule | Live proof |
 |---|---|---|---|
@@ -324,7 +336,7 @@ The catalog checks the real deck-validation result for Main Deck, Side Deck and 
 
 The deck check refuses these cards at the listed tables. "Tag too" says if the card also breaks in 2v2 Tag. Alternate-art passcodes are caught through the `alias` column of `cards.cdb` Exodia and Nibiru alternate arts are allowed under the owner 2026-10-18 rules.
 
-Categories: symmetry (two equal sides), hand-swap (both hands), control-swap, turn-count (counts opponent turns), turn-order (skips a turn), alt-win (ends the duel with a plain win; forbidden except Exodia the Forbidden One under owner 2026-10-18), global-state (two-slot player tables), chooser (asks one opponent), lp-reset (sets or compares the LP of two players).
+Categories: symmetry (two equal sides), hand-swap (both hands), control-swap, turn-count (counts opponent turns), turn-order (skips a turn), alt-win (ends the duel with a plain win; only four stay forbidden, see Owner 2026-11-22), global-state (two-slot player tables), chooser (asks one opponent), lp-reset (sets or compares the LP of two players).
 
 | Card | Passcode | Category | Reason | Script evidence | Tables | Tag too |
 |---|---|---|---|---|---|---|
@@ -332,25 +344,10 @@ Categories: symmetry (two equal sides), hand-swap (both hands), control-swap, tu
 | Last Turn | 28566710 | alt-win | It compares two players and ends the duel with win, loss or draw. | `c28566710.lua:64`, `c28566710.lua:66` | 3-FFA, 4-FFA, Tag | yes |
 | True Exodia | 37984331 | alt-win | It ends the duel with a win for 'the opponent of the controller'. FFA and Tag have no single opponent. | `c37984331.lua:23` | 3-FFA, 4-FFA, Tag | yes |
 | Relay Soul | 42776960 | alt-win | It ends the duel with a win for one saved player when its monster leaves the field. A 'you win' effect has no defined result for the other players. | `c42776960.lua:56` | 3-FFA, 4-FFA, Tag | yes |
-| Exodius the Ultimate Forbidden Lord | 13893596 | alt-win | It ends the duel with a win for its controller when 5 Forbidden One monsters are in the GY. A 'you win' effect has no defined result for the other players. | `c13893596.lua:75` | 3-FFA, 4-FFA, Tag | yes |
-| Holactie the Creator of Light | 10000040 | alt-win | The player who Special Summons it wins the duel. A 'you win' effect has no defined result for the other players. | `c10000040.lua:29` | 3-FFA, 4-FFA, Tag | yes |
-| Number iC1000: Numerounius Numerounia | 15862758 | alt-win | It ends the duel with a win for its controller when it has not battled in an opponent turn. A 'you win' effect has no defined result for the other players. | `c15862758.lua:71` | 3-FFA, 4-FFA, Tag | yes |
-| Exodia, the Legendary Defender | 5008836 | alt-win | It ends the duel with a win for its controller when it destroys a DARK Fiend of an opponent by battle. A 'you win' effect has no defined result for the other players. | `c5008836.lua:50` | 3-FFA, 4-FFA, Tag | yes |
-| Ghostrick Angel of Mischief | 53334641 | alt-win | It ends the duel with a win for its controller when it has 10 Xyz Materials. A 'you win' effect has no defined result for the other players. | `c53334641.lua:47` | 3-FFA, 4-FFA, Tag | yes |
-| Number C88: Gimmick Puppet Disaster Leo | 6165656 | alt-win | It ends the duel with a win for its controller in their turn when one opponent has 2000 LP or less. A 'you win' effect has no defined result for the other players. | `c6165656.lua:84` | 3-FFA, 4-FFA, Tag | yes |
-| Flying Elephant | 66765023 | alt-win | It ends the duel with a win for its controller when it deals battle damage with a direct attack. A 'you win' effect has no defined result for the other players. | `c66765023.lua:50` | 3-FFA, 4-FFA, Tag | yes |
-| F.A. Winners | 69553552 | alt-win | It ends the duel with a win for its controller when 3 of its banished cards have different names. A 'you win' effect has no defined result for the other players. | `c69553552.lua:61` | 3-FFA, 4-FFA, Tag | yes |
-| Summer Schoolwork Successful! | 77751766 | alt-win | It ends the duel with a win for its controller when their Deck has 1 card or less after its effect. A 'you win' effect has no defined result for the other players. | `c77751766.lua:58` | 3-FFA, 4-FFA, Tag | yes |
-| Vennominaga the Deity of Poisonous Snakes | 8062132 | alt-win | It ends the duel with a win for its controller when it has 3 counters. A 'you win' effect has no defined result for the other players. | `c8062132.lua:105` | 3-FFA, 4-FFA, Tag | yes |
-| Jackpot 7 | 81171949 | alt-win | It ends the duel with a win for its controller when 3 copies are banished. A 'you win' effect has no defined result for the other players. | `c81171949.lua:52` | 3-FFA, 4-FFA, Tag | yes |
-| Destiny Board | 94212438 | alt-win | It ends the duel with a win for its controller when 4 Spirit Message cards are on their field. A 'you win' effect has no defined result for the other players. | `c94212438.lua:122` | 3-FFA, 4-FFA, Tag | yes |
-| Musical Sumo Dice Games | 96637156 | alt-win | It ends the duel with a win for its controller when it gets its 7th Xyz Material. A 'you win' effect has no defined result for the other players. | `c96637156.lua:57` | 3-FFA, 4-FFA, Tag | yes |
-| Phantasm Spiral Assault | 97795930 | alt-win | It ends the duel with a win for its controller when its counter reaches 3. A 'you win' effect has no defined result for the other players. | `c97795930.lua:77` | 3-FFA, 4-FFA, Tag | yes |
-| Number 88: Gimmick Puppet of Leo | 48995978 | alt-win | It ends the duel with a win for its controller when it has 3 counters. A 'you win' effect has no defined result for the other players. | `c48995978.lua:58` | 3-FFA, 4-FFA, Tag | yes |
 
 No turn-count ban remains after the owner 2026-10-18 fixes. Swords of Revealing Light is legal under R-FFA-SWORDS-PROTECT (owner correction, 2026-10-02 night). Other cards with an opponent-turn count are legal and follow rule 11; the review is in `.status/multiplayer-turncount-review.md`.
 
-Total: 19 cards. FFA3 and FFA4: 19 cards. Tag: 19 cards. Owner 2026-10-18 removes Card Destruction, Hand Destruction, Exodia the Forbidden One and the chooser audit cards.
+Total: 4 alt-win cards. FFA3 and FFA4: 4 cards. Tag: 4 cards. Owner 2026-10-18 removes Card Destruction, Hand Destruction, Exodia the Forbidden One and the chooser audit cards.
 
 Error message format: `<card> is forbidden in 4-player free-for-all: <reason>`. The table name is "3-player free-for-all", "4-player free-for-all" or "2v2 Tag Duel".
 
