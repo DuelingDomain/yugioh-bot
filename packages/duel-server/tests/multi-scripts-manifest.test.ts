@@ -80,7 +80,7 @@ describe("MANIFEST.json of the overlay", () => {
     expect(files).toEqual(cards.map((card) => card.file).sort());
   });
 
-  it("has no problem in the lists and counts (54 compare, 77 chooser, 6 whole)", () => {
+  it("has no problem in the lists and counts (55 compare, 77 chooser, 6 whole)", () => {
     expect(checkLists(manifest, null)).toEqual([]);
     expect(cards.filter((card) => card.classes.includes("COMPARE"))).toHaveLength(EXPECTED_COUNTS.compare);
     expect(cards.filter((card) => card.classes.includes("CHOOSER") && !COMPARE_EXTRA.includes(card.code))).toHaveLength(EXPECTED_COUNTS.chooser);
@@ -94,7 +94,7 @@ describe("MANIFEST.json of the overlay", () => {
     const fewer = clone();
     fewer.cards = fewer.cards.filter((card) => card.code !== 8814959);
     const problems = checkLists(fewer, null).join("\n");
-    expect(problems).toContain("COMPARE has 53 cards");
+    expect(problems).toContain("COMPARE has 54 cards");
     expect(problems).toContain(`${EXPECTED_COUNTS.whole - 1} whole files`);
     expect(problems).toContain(`${EXPECTED_COUNTS.entries - 1} entries`);
     const noFix = clone();
@@ -452,7 +452,8 @@ describeWithCores("the overlay against the stock scripts", stock, () => {
     const scanned = scanCorpus(stockDirectory).filter((card) => card.rules.includes("field-count-compare")).map((card) => card.code)
       .filter((code) => !COMPARE_FALSE_POSITIVES.includes(code));
     const compare = cards.filter((card) => card.classes.includes("COMPARE")).map((card) => card.code);
-    expect(compare.filter((code) => !scanned.includes(code))).toEqual([]);
+    // Disaster Leo (6165656) is an LP-threshold compare (GetLP(1-tp)<=2000), which the field-count scan rule does not flag.
+    expect(compare.filter((code) => !scanned.includes(code) && code !== 6165656)).toEqual([]);
     const listed = new Set(cards.map((card) => card.code));
     expect(scanned.filter((code) => !listed.has(code)).sort((a, b) => a - b)).toEqual([]);
   }, 30_000);
@@ -469,7 +470,7 @@ describeWithCores("the overlay against the stock scripts", stock, () => {
 });
 
 describeWithCores("the overlay against the triage file", triageNeed, () => {
-  it("the lists equal the triage (COMPARE 54, CHOOSER 77, R1 93)", () => {
+  it("the lists equal the triage (COMPARE 55, CHOOSER 77, R1 93)", () => {
     const triage = readTriage();
     expect(triage).not.toBeNull();
     expect(checkLists(manifest, triage)).toEqual([]);

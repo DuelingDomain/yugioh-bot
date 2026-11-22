@@ -71,6 +71,7 @@ Single-branch effects retain unanimous comparisons. Soul Drain Dragon gains ATK 
 | 59900655 | Gold Pride - Nytro Head | Shared unanimous comparison helper. |
 | 60203670 | Gold Pride - Eliminator | Shared unanimous comparison helper. |
 | 60465049 | Psychic End Punisher | Condition only; existing numerical difference unchanged. |
+| 6165656 | Number C88: Gimmick Puppet Disaster Leo | Owner 2026-11-22 (FFA): its End Phase win needs **every living opponent** at 2000 LP or less (own overlay `c6165656.lua`, reads each seat with `aux.MPOpponentLPs`). The stock condition runs once for each living opponent, so one opponent was enough. The 1000 burn keeps the choose-one rule. Tag keeps the stock team LP check. |
 | 62991886 | Unstable Evolution | Two-branch lower-first fallback; see table above. |
 | 63875853 | Trading Places | Prior owner ruling (ADR Q4): exchange LP with one chosen opponent. |
 | 65430834 | Jurassic Impact | Shared unanimous comparison helper. |
@@ -154,7 +155,6 @@ These cards query an opponent's LP for a fixed threshold, direct LP change, dama
 - Contract with Don Thousand (56673480)
 - Meteor Flare (56856951)
 - Reversal Quiz (5990062)
-- Number C88: Gimmick Puppet Disaster Leo (6165656) (owner 2026-11-22: allowed; its End Phase condition runs once for each living opponent, so one opponent at 2000 LP or less is enough and the maximum-LP fold does not apply to it; no overlay)
 - Number C6: Chronomaly Chaos Atlandis (6387204)
 - Deception of the Sinful Spoils (66328392)
 - Earthbound Prison (71089030)

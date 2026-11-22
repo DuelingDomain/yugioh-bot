@@ -466,6 +466,24 @@
       "note": "FFA chain reads skip removed links; Tag and 1v1 keep the stock functions."
     },
     {
+      "code": 6165656,
+      "file": "c6165656.lua",
+      "name": "Number C88: Gimmick Puppet Disaster Leo",
+      "kind": "hand",
+      "classes": [
+        "COMPARE"
+      ],
+      "effectType": "FIELD+CONTINUOUS",
+      "compareIn": [
+        "wincon"
+      ],
+      "redefined": [
+        "wincon"
+      ],
+      "stockSha256": "03f7ef03c61a5af5f30b7b42765457d949474a70d0f005955a841430b15c1524",
+      "note": "R-COMMON-EXODIA, owner 2026-11-22: the End Phase win needs every living opponent at 2000 LP or less in FFA (the stock condition runs once per living opponent, so one was enough). The 1000 burn keeps the choose-one rule; Tag unchanged."
+    },
+    {
       "code": 6180710,
       "file": "c6180710.lua",
       "name": "Dream Shark",

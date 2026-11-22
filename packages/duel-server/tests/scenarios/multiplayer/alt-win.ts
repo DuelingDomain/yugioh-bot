@@ -1,6 +1,6 @@
 // Owner 2026-11-22: a 'you win' card ends a multiplayer duel with a win for its owner (the owner's team in Tag) and a loss for every
 // other player, like Exodia the Forbidden One (R-COMMON-EXODIA). Number C88: Gimmick Puppet Disaster Leo wins at the End Phase of its controller's turn
-// when its opponent has 2000 LP or less. The End Phase condition runs once per living opponent in FFA, so one opponent at 2000 LP or less is enough (live probe 2026-11-22: p1 1000 / p2 2500 and p1 2500 / p2 1000 both win; the LP fold of multiplayer-lp-comparisons.md does not apply to this field-effect condition).
+// when its opponent has 2000 LP or less. In FFA every living opponent must have 2000 LP or less (owner 2026-11-22; overlay domain-core/multi-scripts/c6165656.lua, the stock condition ran once per living opponent so one was enough). In Tag the stock team LP check stays.
 // Plain data; tests/scenarios/multiplayer/alt-win.test.ts runs them on a live core (NSEAT_LIVE=1).
 import { activate, defineScenario, endTurn, expectEliminated, expectLp, expectPrompt, expectResult, type Scenario } from "../../support/dsl.js";
 import { SOURCE } from "./nseat-scenarios.js";
@@ -11,14 +11,14 @@ const OOKAZI = "Ookazi"; // 800 damage to one opponent
 
 const ffa3Leo: Scenario = defineScenario({
   id: "alt-win-leo-ffa3",
-  title: "FFA3: Disaster Leo gives no win while every opponent has more than 2000 LP",
+  title: "FFA3: Disaster Leo gives no win while one opponent has more than 2000 LP",
   source: `${SOURCE} [R-COMMON-EXODIA] owner 2026-11-22`,
   rules: ["R-COMMON-EXODIA"],
   tags: ["multiplayer", "ffa3", "card:6165656"],
-  setup: baseSetup("ffa3", { p0: { monsters: [LEO] }, p1: { lp: 2500 }, p2: { lp: 2500 } }),
+  setup: baseSetup("ffa3", { p0: { monsters: [LEO] }, p1: { lp: 1000 }, p2: { lp: 2500 } }),
   steps: [
-    expectLp({ seat: "p1" }, 2500), expectLp({ seat: "p2" }, 2500),
-    // No opponent has 2000 LP or less, so the End Phase of p0 gives no win.
+    expectLp({ seat: "p1" }, 1000), expectLp({ seat: "p2" }, 2500),
+    // p1 is at 2000 LP or less but p2 is not, so the End Phase of p0 gives no win.
     endTurn("p0"),
     expectPrompt({ by: "p1", context: "action" }),
   ],
