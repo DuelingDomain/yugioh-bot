@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import { Check, Crosshair } from "lucide-react";
 import { createFieldCalibration, type FieldCalibration, type FieldFormat } from "@yugidraft/vision";
 import { cx, SheetButton, sheetRoot } from "@/components/duel/sheet-ui";
-import { defaultSideFor } from "@/lib/remote/zone-grid";
+import { defaultSideFor, startGridCorners } from "@/lib/remote/zone-grid";
 import { FieldMoveSurface, FieldTransformControls, useFieldTransform } from "../field-transform";
 import { FieldOrientationControls } from "../field-orientation";
 import { PreviewGrid } from "./lobby-preview-grid";
@@ -34,7 +34,9 @@ export function LobbyZonesView({ stream, ratio, format, calibration, calibrated,
     const side = latest.current?.orientation;
     if (!side) return;
     try { onChange(createFieldCalibration(corners, side)); } catch { /* the transform keeps the field inside the picture */ }
-  }, ratio);
+  }, ratio, () => startGridCorners(latest.current?.orientation));
+  // A side makes the start layout, which relabels the corners: move the handles with them.
+  const chooseSide = (grid: FieldCalibration) => { if (grid.corners.some((p, i) => Math.hypot(p.x - tf.corners[i].x, p.y - tf.corners[i].y) > 1e-9)) tf.rebase(grid.corners); onChange(grid); };
 
   useEffect(() => {
     const el = video.current;
@@ -84,7 +86,7 @@ export function LobbyZonesView({ stream, ratio, format, calibration, calibrated,
       </div>
       <div className={s.controls}>
         {usable ? <>
-          <FieldOrientationControls calibration={calibration} defaultSide={defaultSideFor("webcam")} confirmHint={false} onChange={onChange} />
+          <FieldOrientationControls calibration={calibration} defaultSide={defaultSideFor("webcam")} confirmHint={false} onChange={chooseSide} />
           <FieldTransformControls tf={tf} />
         </> : <p className={s.note}>Press Calibrate zones to place the grid on your mat. Then you can move it, resize it and set the side here.</p>}
         <div className={s.actions}>

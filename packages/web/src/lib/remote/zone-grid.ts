@@ -1,7 +1,7 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
-import { normalizeZoneSpacing, fieldZoneCells, createFieldCalibration, fieldMatPoint, onMat, zoneCellAt, type FieldCalibration, type FieldDebug, type FieldFormat, type FieldTrack, type PlayerSide, type ZoneOverrides } from "@yugidraft/vision";
+import { normalizeZoneSpacing, fieldZoneCells, createFieldCalibration, fieldMatPoint, FIELD_ROW, onMat, zoneCellAt, type FieldCalibration, type FieldDebug, type FieldFormat, type FieldOrientation, type FieldTrack, type PlayerSide, type ZoneOverrides } from "@yugidraft/vision";
 
 type Point = { x: number; y: number };
 /** One zone of the Master Rule mat, in mat units (0..1 across and down, seen from the owner's seat). */
@@ -23,9 +23,27 @@ export const byAreaDesc = <T extends { w: number; h: number }>(cells: readonly T
 export const DEFAULT_GRID_CORNERS: Point[] = [{ x: .08, y: .08 }, { x: .92, y: .08 }, { x: .92, y: .92 }, { x: .08, y: .92 }];
 let defaultGrid: FieldCalibration | undefined;
 export const defaultGridCalibration = () => defaultGrid ??= createFieldCalibration(DEFAULT_GRID_CORNERS);
-/** Legacy records have no saved flag: they count as placed when the corners left the first guess. */
+/** The same picture area with the corner labels turned half a way round: Spell & Trap row on top for a bottom-side grid. */
+const relabelHalfTurn = (corners: Point[]) => [corners[2], corners[3], corners[0], corners[1]];
+const DEFAULT_GRID_CORNERS_TURNED = relabelHalfTurn(DEFAULT_GRID_CORNERS);
+/** Legacy records have no saved flag: they count as placed when the corners left the first guess (in either corner labelling). */
 export const isPlacedCalibration = (calibration?: FieldCalibration) => !!calibration?.orientation
-  && calibration.corners.some((corner, i) => Math.abs(corner.x - DEFAULT_GRID_CORNERS[i].x) > .002 || Math.abs(corner.y - DEFAULT_GRID_CORNERS[i].y) > .002);
+  && [DEFAULT_GRID_CORNERS, DEFAULT_GRID_CORNERS_TURNED].every(guess => calibration.corners.some((corner, i) => Math.abs(corner.x - guess[i].x) > .002 || Math.abs(corner.y - guess[i].y) > .002));
+/**
+ * The start layout of every camera choice: the Spell & Trap row (Deck, S5..S1, Extra) at the top of the picture, the Main Monster row
+ * in the middle and the Extra Monster row at the bottom. Only the corner labels move, half a way round; the grid stays where it is, so a
+ * Bottom-side grid is drawn like a Top-side one. A side turned to Left or Right is a sideways camera and is left alone.
+ * The Turn buttons, Mirror and the two-card setup change the layout afterwards.
+ */
+export function startLayoutCorners(corners: Point[], orientation?: FieldOrientation): Point[] {
+  if (corners.length !== 4 || !orientation || (orientation.playerSide !== "top" && orientation.playerSide !== "bottom")) return corners;
+  try {
+    const grid = createFieldCalibration(corners, orientation);
+    return fieldMatPoint({ x: .5, y: 2.5 * FIELD_ROW }, grid).y > fieldMatPoint({ x: .5, y: .5 * FIELD_ROW }, grid).y ? relabelHalfTurn(corners) : corners;
+  } catch { return corners; }
+}
+/** Corners of a fresh grid for a camera choice (the guess before the player has chosen). */
+export const startGridCorners = (orientation?: FieldOrientation): Point[] => startLayoutCorners(DEFAULT_GRID_CORNERS, orientation);
 /** Webcams usually face the player across the table (flipped); a phone is held from the player's own side. */
 export const defaultSideFor = (kind: "webcam" | "phone"): PlayerSide => kind === "phone" ? "bottom" : "top";
 const guessed = new Map<PlayerSide, FieldCalibration>(); const guessedFrom = new WeakMap<FieldCalibration, Map<PlayerSide, FieldCalibration>>();

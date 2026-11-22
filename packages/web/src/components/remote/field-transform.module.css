@@ -2,26 +2,36 @@
 .surface{position:absolute;inset:0;z-index:3;touch-action:none;cursor:grab;outline:none;user-select:none}
 .surface:active{cursor:grabbing}
 .surface:focus-visible{box-shadow:inset 0 0 0 2px var(--duel-chain,#f3ca75)}
-.controls{display:flex;flex-direction:column;gap:8px;width:100%}
+.controls{display:flex;flex-direction:column;gap:6px;width:100%}
 .knob{position:absolute;z-index:4;width:44px;height:44px;margin:-22px 0 0 -22px;padding:0;border:0;background:transparent;cursor:grab;touch-action:none;outline:none}
-.knob::before{content:'';position:absolute;inset:11px;border-radius:50%;border:2px solid var(--duel-chain,#f3ca75);background:rgb(12 8 20/.85);box-shadow:0 0 0 1px rgb(0 0 0/.7)}
+.knob::before{content:'';position:absolute;inset:14px;border-radius:50%;border:1.5px solid var(--duel-chain,#f3ca75);background:rgb(12 8 20/.8);box-shadow:0 0 0 1px rgb(0 0 0/.6)}
+.knob:hover::before{background:var(--duel-chain,#f3ca75)}
 .knob:active{cursor:grabbing}
 .knob:focus-visible::before{box-shadow:0 0 0 3px var(--duel-ink,#f4eefc)}
-.nudges{display:flex;flex-wrap:wrap;gap:8px 18px}
-.nudge{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--duel-ink-2,#cfc8dc)}
-.nudge output{min-width:52px;text-align:center;font-variant-numeric:tabular-nums;color:var(--duel-ink,#f4eefc)}
-.nudge button{min-width:40px;min-height:40px;padding:0;border:1px solid var(--duel-rule-hi,#6b5a8a);border-radius:6px;background:var(--duel-panel-2,#1c1430);color:var(--duel-ink,#f4eefc);font:inherit;font-size:18px;line-height:1;cursor:pointer}
-.nudge button:disabled{opacity:.45;cursor:default}
-.nudge button:focus-visible{outline:2px solid var(--duel-chain,#f3ca75);outline-offset:2px}
-.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
-.row button{min-height:40px;padding:0 12px;border:1px solid var(--duel-rule-hi,#6b5a8a);border-radius:6px;background:var(--duel-panel-2,#1c1430);color:var(--duel-ink,#f4eefc);font:inherit;font-size:13px;cursor:pointer}
-.row button:disabled{opacity:.45;cursor:default}
-.row button:focus-visible{outline:2px solid var(--duel-chain,#f3ca75);outline-offset:2px}
+/* One toolbar: Move and Turn as joined groups, Undo and Reset at the end. */
+.toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;padding:6px 8px;border:1px solid var(--line,var(--duel-rule-hi,#6b5a8a));border-radius:8px;background:rgb(255 255 255/.03)}
+.nudge{display:flex;align-items:center;gap:3px;font-size:12px;color:var(--ink3,var(--duel-ink-2,#cfc8dc))}
+.nudge>span{margin-right:2px;font-size:10.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase}
+.nudge output{min-width:40px;text-align:center;font-variant-numeric:tabular-nums;color:var(--ink,var(--duel-ink,#f4eefc))}
+.nudge button,.history button{min-width:28px;height:28px;padding:0;border:1px solid var(--line2,var(--duel-rule-hi,#6b5a8a));border-radius:6px;background:var(--p2,var(--duel-panel-2,#1c1430));color:var(--ink,var(--duel-ink,#f4eefc));font:inherit;font-size:15px;line-height:1;cursor:pointer}
+.nudge button:hover:not(:disabled),.history button:hover:not(:disabled){border-color:var(--pen,var(--duel-chain,#f3ca75))}
+.nudge button:disabled,.history button:disabled{opacity:.4;cursor:default}
+.nudge button:focus-visible,.history button:focus-visible{outline:2px solid var(--duel-chain,#f3ca75);outline-offset:2px}
+.history{display:flex;gap:6px;margin-left:auto}
+.history button{padding:0 10px;font-size:12px;font-weight:700}
+.help{font-size:12px;color:var(--ink3,var(--duel-ink-2,#cfc8dc))}
+.help>summary{display:inline-flex;align-items:center;gap:6px;min-height:24px;cursor:pointer;list-style:none;user-select:none}
+.help>summary::-webkit-details-marker{display:none}
+.help>summary::before{content:'';width:6px;height:6px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(-45deg);transition:transform .15s}
+.help[open]>summary::before{transform:rotate(45deg)}
+.help>summary:hover{color:var(--ink,var(--duel-ink,#f4eefc))}
+.help>summary:focus-visible{outline:2px solid var(--duel-chain,#f3ca75);outline-offset:2px;border-radius:4px}
+.help .hint{margin:6px 0 0;padding-left:12px;border-left:1px solid var(--line2,var(--duel-rule-hi,#6b5a8a));line-height:1.45}
 .hint{margin:0;font-size:12px;color:var(--duel-ink-2,#cfc8dc)}
-@media (max-width:600px){.row button{flex:1 1 40%}}
+@media(pointer:coarse){.nudge button,.history button{min-width:40px;height:40px}}
 /* Resize handles: a 44px target around a small dot (corners) or bar (edges), above the grid and below the round turn handle. */
 .handle{position:absolute;z-index:4;width:44px;height:44px;margin:-22px 0 0 -22px;padding:0;border:0;background:transparent;touch-action:none;outline:none}
-.handle::before{content:'';position:absolute;left:50%;top:50%;width:14px;height:14px;margin:-7px 0 0 -7px;border:2px solid var(--duel-chain,#f3ca75);background:rgb(12 8 20/.9);box-shadow:0 0 0 1px rgb(0 0 0/.7)}
-.edge::before{width:12px;height:12px;margin:-6px 0 0 -6px;border-radius:50%}
+.handle::before{content:'';position:absolute;left:50%;top:50%;width:10px;height:10px;margin:-5px 0 0 -5px;border:1.5px solid var(--duel-chain,#f3ca75);border-radius:2px;background:rgb(12 8 20/.85);box-shadow:0 0 0 1px rgb(0 0 0/.6)}
+.edge::before{width:8px;height:8px;margin:-4px 0 0 -4px;border-radius:50%}
 .handle:focus-visible::before,.handle:hover::before{background:var(--duel-chain,#f3ca75)}
 .angle{position:absolute;z-index:5;margin:-62px 0 0 -26px;min-width:52px;padding:3px 8px;border-radius:6px;background:rgb(12 8 20/.92);border:1px solid var(--duel-chain,#f3ca75);color:var(--duel-ink,#f4eefc);font-size:13px;text-align:center;font-variant-numeric:tabular-nums;pointer-events:none}

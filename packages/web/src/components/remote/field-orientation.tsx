@@ -1,7 +1,7 @@
 "use client";
 
 import { createFieldCalibration, DEFAULT_FIELD_ORIENTATION, mirrorFieldCalibration, type FieldCalibration, type PlayerSide } from '@yugidraft/vision';
-import { DEFAULT_GRID_CORNERS, displayCalibration } from '@/lib/remote/zone-grid';
+import { DEFAULT_GRID_CORNERS, displayCalibration, startLayoutCorners } from '@/lib/remote/zone-grid';
 import { ThemedSelect } from '@/components/ui/themed-select';
 import s from './field-orientation.module.css';
 
@@ -16,7 +16,8 @@ function useOrientation({ calibration, defaultSide='bottom', onChange }: Orienta
     orientation,
     unconfirmed:!calibration?.orientation,
     flipped:orientation.playerSide==='top',
-    set:(side:PlayerSide)=>onChange(createFieldCalibration(corners,{...orientation,playerSide:side})),
+    /** A side makes the start layout (Spell & Trap row on top, Extra Monster row at the bottom); `keep` leaves the corners as they are. */
+    set:(side:PlayerSide,keep=false)=>{const next={...orientation,playerSide:side};onChange(createFieldCalibration(keep?corners:startLayoutCorners(corners,next),next));},
     mirror:()=>onChange(mirrorFieldCalibration(createFieldCalibration(corners,orientation))),
   };
 }
@@ -33,7 +34,7 @@ function MirrorButton({ orientation:{orientation,mirror}, disabled }: { orientat
 }
 function ConfirmHint({ orientation:{orientation,set}, disabled, className }: { orientation:Orientation; disabled:boolean; className:string }) {
   return <span className={className} role="status" data-testid="orientation-hint">Is this right? <small>Auto-placement paused</small>
-    <button type="button" disabled={disabled} data-testid="orientation-confirm" onClick={()=>set(orientation.playerSide)}>Yes</button></span>;
+    <button type="button" disabled={disabled} data-testid="orientation-confirm" onClick={()=>set(orientation.playerSide,true)}>Yes</button></span>;
 }
 
 /**
