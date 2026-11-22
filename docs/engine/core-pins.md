@@ -29,6 +29,9 @@ the deploy and image checks do that separately.
 
 Both multi modes also read `cards.cdb`, the pinned `card-scripts` directory and the `multi-scripts` Lua
 overlay (`mp-utility.lua`, `MANIFEST.json` and the card overrides). Domain loads `card-scripts/domain.lua`.
+`domain.lua` (and `domain.legacy.lua` for the legacy 1v1 core) wraps `Fusion.ContactCon` once: a Deck Master in the DMZ is face-up,
+so the wrapper makes only that card read as face-down while its own Contact Fusion condition runs. All 68 Contact Fusion cards then
+summon from the DMZ with their own materials and cost; no per-card patch is needed. Standard has no DMZ card, so it is unchanged.
 The startup bundle check also requires the pinned Standard/Domain 1v1 cores, `manifest.json` and the
 legacy files/hashes. The installer requires `strings.conf` and verifies the overlay hash. Installing
 only two WASMs into an empty directory is insufficient.
