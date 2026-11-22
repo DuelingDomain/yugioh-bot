@@ -16,6 +16,7 @@ import { matchCard } from "../src/cards/effects/effect-match.js";
 import type { Card } from "../src/cards/effects/card.js";
 import { cardSynergy } from "../src/cards/effects/synergy.js";
 import { formatStaples } from "../src/cards/effects/staples.js";
+import { fallbackEffectReading } from "../src/cards/effects/reading-fallback.js";
 
 async function listen(server: Server): Promise<string> {
   const ready = once(server, 'listening');
@@ -302,22 +303,41 @@ it('declines before spending near UTC rollover and when rollover occurs during a
   } finally { await context.close(); }
 });
 
-it('silently skips SQLite writer contention without inheriting the five-second busy timeout', async () => {
-  const { mkdtempSync, rmSync } = await import('node:fs');
-  const { tmpdir } = await import('node:os');
-  const { join } = await import('node:path');
-  const { fallbackEffectReading } = await import('../src/cards/effects/reading-fallback.js');
-  const { createEmptyLedger } = await import('../src/cards/effects/budget-ledger.js');
+it('returns no fallback on SQLite writer contention and restores the busy timeout', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'reader-contention-'));
-  const writer = new Database(join(directory, 'shared.sqlite')); migrate(writer); writer.pragma('journal_mode=WAL');
-  const reader = new Database(writer.name); reader.pragma('busy_timeout=5000');
-  writer.exec('BEGIN IMMEDIATE');
+  const path = join(directory, 'shared.sqlite');
+  // Create the real schema in memory to avoid a disk commit for every migration statement.
+  const schema = new Database(':memory:');
+  try { migrate(schema); writeFileSync(path, schema.serialize()); }
+  finally { schema.close(); }
+  const writer = new Database(path);
+  writer.pragma('journal_mode=WAL');
+  const reader = new Database(path, { timeout: 5000 });
+  const store = { read: vi.fn(async () => null), compareAndSwap: vi.fn() };
+  const begin = reader.transaction.bind(reader);
+  const timeouts: unknown[] = [];
+  const transaction = vi.spyOn(reader, 'transaction').mockImplementation(fn => {
+    timeouts.push(reader.pragma('busy_timeout', { simple: true }));
+    return begin(fn);
+  });
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
   try {
-    const start = performance.now();
-    expect(await fallbackEffectReading(reader, 'contended phrase', 'user', { apiKey: 'mock', store: { read: async () => ({ revision: 'fixture', ledger: createEmptyLedger() }), compareAndSwap: async () => 'fixture' } })).toBeNull();
-    expect(performance.now() - start).toBeLessThan(250);
+    writer.exec('BEGIN IMMEDIATE');
+    expect(await fallbackEffectReading(reader, 'contended phrase', 'user', {
+      apiKey: 'mock', store, now: () => new Date('2026-10-19T12:00:00Z'),
+    })).toBeNull();
+    expect(timeouts).toEqual([0]);
+    expect(warn).toHaveBeenCalledWith('Effect reading fallback failed', expect.objectContaining({ code: 'SQLITE_BUSY' }));
+    expect(store.read).not.toHaveBeenCalled();
+    expect(store.compareAndSwap).not.toHaveBeenCalled();
     expect(reader.pragma('busy_timeout', { simple: true })).toBe(5000);
-  } finally { writer.exec('ROLLBACK'); reader.close(); writer.close(); rmSync(directory, { recursive: true, force: true }); }
+  } finally {
+    warn.mockRestore();
+    transaction.mockRestore();
+    reader.close();
+    writer.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 it('reads a ledger over 1 MB via Git blobs and rejects a concurrent non-fast-forward runtime CAS', async () => {

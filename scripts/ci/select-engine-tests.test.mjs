@@ -1,86 +1,104 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { changedLayers, compactEnginePullRequest, engineSources } from "./changed-layers.mjs";
-import { selectApplicationTests } from "./select-engine-tests.mjs";
-import { SURRENDER_FILES, TABLE_FILE } from "./engine-test-plan.mjs";
+import { changedLayers } from "./changed-layers.mjs";
+import { selectTests } from "./select-engine-tests.mjs";
 
-test("focused selection retains host lifecycle and recording gates and only dependent web engine tests", () => {
+const duel = "packages/duel-server/";
+const shared = "packages/shared/";
+const web = "packages/web/";
+
+test("the smoke worker is a focusable engine input for the dedicated pool test", () => {
+  const worker = duel + "scripts/new-card-smoke-worker.ts";
+  const pool = duel + "scripts/lib/new-card-smoke-pool.ts";
+  const testFile = duel + "tests/new-card-smoke-pool.test.ts";
   const sources = {
-    "packages/web/tests/dependent.test.ts": 'import "../../../duel-server/tests/support/cores.js"; import "@/lib/helper";',
-    "packages/web/src/lib/helper.ts": 'import { service } from "@yugidraft/shared/services";',
-    "packages/web/tests/unrelated.test.ts": 'import "../../../duel-server/tests/support/cores.js"; import "@yugidraft/shared/duels";',
-    "packages/web/tests/unit.test.ts": 'import { service } from "@yugidraft/shared/services";',
-    "packages/shared/src/services/index.ts": 'export { service } from "./matches.js";',
-    "packages/shared/src/services/matches.ts": 'export const service = true;',
+    [worker]: 'import "./lib/new-card-smoke-pool.js";',
+    [pool]: 'new URL("../new-card-smoke-worker.ts", import.meta.url);',
+    [testFile]: 'import "../scripts/lib/new-card-smoke-pool.js";',
+    [duel + "tests/unrelated.test.ts"]: "export {};",
   };
-  const exports = { "./services": "./dist/services/index.js", "./duels": "./dist/duels/index.js" };
-  const result = selectApplicationTests(sources, ["packages/shared/src/services/matches.ts"], exports);
-  assert.deepEqual(result.files, ["tests/host.test.ts", "tests/host-series.test.ts", "tests/draft-deck-legality.test.ts"]);
-  assert.deepEqual(result.webFiles, ["tests/dependent.test.ts"]);
-  assert.deepEqual(selectApplicationTests(sources, ["packages/shared/src/services/index.ts"], exports).webFiles, ["tests/dependent.test.ts"]);
-  assert.deepEqual(selectApplicationTests(sources, ["packages/shared/src/remote/unused.ts"], exports).webFiles, []);
+  const layers = changedLayers([worker], "pull_request");
+  assert.equal(layers.core, false);
+  assert.deepEqual(layers.engine_diff, [worker]);
+  assert.deepEqual(selectTests(sources, layers.engine_diff), [testFile]);
 });
 
-test("application selection follows every duel test root through host and suite helpers", () => {
+test("the shared table rules select their real-core scenarios as well as web checks", () => {
+  const seatState = web + "src/components/duel/table/seat-state.ts";
+  const suite = duel + "tests/scenarios/multiplayer/owner-hands-exodia-host.suite.ts";
+  const testFile = duel + "tests/scenarios/multiplayer/owner-hands-exodia-host.test.ts";
   const sources = {
-    "packages/duel-server/tests/host-deck-master-type.test.ts": 'import "../src/host.js";',
-    "packages/duel-server/tests/host-live-idle.test.ts": 'import "../src/host.js";',
-    "packages/duel-server/tests/host-owner-history-access.test.ts": 'import "../src/host.js";',
-    "packages/duel-server/tests/host-replay-fork-real.test.ts": 'import "./host-replay-fork-real.suite.js";',
-    "packages/duel-server/tests/host-replay-fork-real-part2.test.ts": 'import "./host-replay-fork-real.suite.js";',
-    "packages/duel-server/tests/host-replay-fork-real.suite.ts": 'import "../src/host.js"; import "./support/cores.js";',
-    "packages/duel-server/src/host.ts": 'import { createDuelSeriesService } from "@yugidraft/shared/services";',
-    "packages/shared/src/services/index.ts": 'export * from "./duel-series.js"; export * from "./remote-unused.js";',
-    "packages/shared/src/services/duel-series.ts": 'export const createDuelSeriesService = true;',
-    "packages/shared/src/services/remote-unused.ts": 'export const unused = true;',
-    "packages/duel-server/tests/unrelated.test.ts": 'import "./support/cores.js";',
-    "packages/duel-server/tests/remote-unit.test.ts": 'import "@yugidraft/shared/services/remote-unused";',
+    [seatState]: "export const placings = () => [];",
+    [suite]: 'import(fileURLToPath(new URL("../../../../web/src/components/duel/table/seat-state.ts", import.meta.url)));',
+    [testFile]: 'import "./owner-hands-exodia-host.suite.js";',
+    [duel + "tests/unrelated.test.ts"]: "export {};",
   };
-  const exports = { "./services": "./dist/services/index.js" };
-  const selected = selectApplicationTests(sources, ["packages/shared/src/services/duel-series.ts"], exports);
-  for (const file of Object.keys(sources).filter(file => /host-.*\.test\.ts$/.test(file))) {
-    assert.ok(selected.files.includes(file.slice("packages/duel-server/".length)), file);
-  }
-  assert.equal(selected.files.includes("tests/unrelated.test.ts"), false);
-  assert.equal(selected.files.some(file => file.endsWith(".suite.ts")), false);
-  assert.equal(new Set(selected.files).size, selected.files.length);
-  assert.deepEqual(selectApplicationTests(sources, ["packages/shared/src/services/remote-unused.ts"], exports), { files: [], webFiles: [] });
+  const layers = changedLayers([seatState], "pull_request");
+  assert.equal(layers.web, true);
+  assert.equal(layers.core, false);
+  assert.deepEqual(layers.engine_diff, [seatState]);
+  assert.deepEqual(selectTests(sources, layers.engine_diff), [testFile]);
 });
 
-test("real duel-series-only input retains every reported host regression and both replay roots", () => {
-  const { sources, exports } = engineSources();
-  const { files } = selectApplicationTests(sources, ["packages/shared/src/services/duel-series.ts"], exports);
-  for (const file of [
-    "tests/host.test.ts", "tests/host-series.test.ts", "tests/draft-deck-legality.test.ts",
-    "tests/host-deck-master-type.test.ts", "tests/host-live-idle.test.ts", "tests/host-owner-history-access.test.ts",
-    "tests/host-replay-fork-real.test.ts", "tests/host-replay-fork-real-part2.test.ts",
-  ]) assert.ok(files.includes(file), file);
-  assert.deepEqual(selectApplicationTests(sources, ["packages/shared/src/services/remote-retention.ts"], exports),
-    { files: [], webFiles: [] });
-});
-
-test("engine-imported application inputs keep the minimum gates without a discovered test caller", () => {
+test("a change to an engine module reaches pinned, surrender, legacy and web callers", () => {
+  const file = duel + "src/engine.ts";
   const sources = {
-    "packages/duel-server/src/host.ts": 'import "@yugidraft/shared/services/duel-series";',
-    "packages/shared/src/services/duel-series.ts": 'export const series = true;',
+    [file]: "export const round = 1;",
+    [duel + "tests/pinned.test.ts"]: 'import "../src/engine.js";',
+    [duel + "tests/host-surrender-eot.test.ts"]: 'import "../src/engine.js";',
+    [duel + "tests/legacy-main/engine.test.ts"]: 'import "../../src/engine.js";',
+    [web + "tests/duel.test.ts"]: 'import "../../duel-server/src/engine.js";',
+    [duel + "tests/unrelated.test.ts"]: 'import "./support/cores.js";',
   };
-  assert.deepEqual(selectApplicationTests(sources, ["packages/shared/src/services/duel-series.ts"], {}).files,
-    ["tests/host.test.ts", "tests/host-series.test.ts", "tests/draft-deck-legality.test.ts"]);
+  assert.deepEqual(selectTests(sources, [file]), [
+    duel + "tests/host-surrender-eot.test.ts", duel + "tests/legacy-main/engine.test.ts",
+    duel + "tests/pinned.test.ts", web + "tests/duel.test.ts",
+  ]);
 });
 
-test("full engine PRs use compact shards while focused selections and full non-PR runs keep their lanes", () => {
-  const changes = ["packages/shared/src/observability/console-adapter.ts"];
-  const { sources, exports } = engineSources();
-  const { files } = selectApplicationTests(sources, changes, exports);
-  for (const file of [TABLE_FILE, ...SURRENDER_FILES, "tests/host-first-turn-draw.test.ts"]) {
-    assert.ok(files.includes(file), file);
-  }
-  const layers = changedLayers(changes, "pull_request");
-  assert.equal(compactEnginePullRequest("pull_request", layers), true);
-  assert.equal(compactEnginePullRequest("pull_request", changedLayers([".github/workflows/test.yml"], "pull_request")), true);
-  assert.equal(compactEnginePullRequest("pull_request", { ...layers, tests_only: true }), false);
-  assert.equal(compactEnginePullRequest("pull_request", { ...layers, engine: false }), false);
-  for (const event of ["push", "schedule", "workflow_dispatch"]) {
-    assert.equal(compactEnginePullRequest(event, layers), false);
-  }
+test("engine selection follows shared exports and web aliases", () => {
+  const file = shared + "src/duels/rule.ts";
+  const sources = {
+    [shared + "src/duels/index.ts"]: 'export * from "./rule.js";',
+    [file]: "export const rule = true;",
+    [duel + "tests/rule.test.ts"]: 'import("@yugidraft/shared/duels");',
+    [web + "src/lib/duel.ts"]: 'import "@yugidraft/shared/duels";',
+    [web + "tests/duel.test.ts"]: 'import "@/lib/duel";',
+  };
+  const exports = { "./duels": { source: "./src/duels/index.ts" } };
+  assert.deepEqual(selectTests(sources, [file], exports), [duel + "tests/rule.test.ts", web + "tests/duel.test.ts"]);
+});
+
+test("engine graph does not fan out from an observability hub in a mixed change", () => {
+  const hub = shared + "src/observability/console-adapter.ts";
+  const file = duel + "src/engine.ts";
+  const sources = {
+    [hub]: "export const changed = true;",
+    [file]: "export const round = 1;",
+    [duel + "tests/engine.test.ts"]: 'import "../src/engine.js";',
+    [duel + "tests/multi-scripts-table.test.ts"]: 'import "@yugidraft/shared/observability/console-adapter";',
+    [duel + "tests/host-surrender-eot.test.ts"]: 'import "@yugidraft/shared/observability/console-adapter";',
+  };
+  const exports = { "./observability/console-adapter": "./dist/observability/console-adapter.js" };
+  assert.deepEqual(selectTests(sources, [hub, file], exports), [duel + "tests/engine.test.ts"]);
+});
+
+test("engine graph stops when a changed dependency is reached through a hub", () => {
+  const file = duel + "src/engine.ts";
+  const sources = {
+    [file]: "export const round = 1;",
+    [duel + "src/config.ts"]: 'import "./engine.js";',
+    [duel + "tests/config-consumer.test.ts"]: 'import "../src/config.js";',
+  };
+  assert.deepEqual(selectTests(sources, [file]), []);
+});
+
+test("engine graph retains deleted helper and changed snapshot readers", () => {
+  const deleted = duel + "tests/helpers/engine.ts";
+  const snapshot = duel + "tests/__snapshots__/state.test.ts.snap";
+  const sources = {
+    [duel + "tests/engine.test.ts"]: 'import "./helpers/engine.js";',
+    [duel + "tests/state.test.ts"]: "export {};",
+  };
+  assert.deepEqual(selectTests(sources, [deleted, snapshot]), [duel + "tests/engine.test.ts", duel + "tests/state.test.ts"]);
 });

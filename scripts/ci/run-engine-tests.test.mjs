@@ -21,6 +21,13 @@ test("dependent web runs require an explicit selection", () => {
   assert.match(result.stderr, /requires an explicit file selection/);
 });
 
+test("a compact PR shard with no selected files exits without running the smoke pool", () => {
+  const result = spawnSync(process.execPath, [new URL("./run-engine-tests.mjs", import.meta.url).pathname, "compact", "10/10"], {
+    encoding: "utf8", env: { ...process.env, CI_TEST_FILES: JSON.stringify(["tests/host.test.ts"]), PATH: "/no-npm-available" },
+  });
+  assert.equal(result.status, 0, result.stderr);
+});
+
 test("ten compact PR engine shards plus legacy retain the full file and case inventory", async () => {
   const { duelTestFiles } = await import("./duel-test-files.mjs");
   const { compactEnginePlan, engineMatrix, LEGACY_SHARDS, SURRENDER_FILES, TABLE_FILE, isPinnedFile } =
