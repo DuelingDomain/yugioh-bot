@@ -1,3 +1,4 @@
+// CI timing probe (temporary)
 import type { ObservabilityAdapter } from "./index.js";
 import { redactEvent, redactText } from "./redact.js";
 
