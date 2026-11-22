@@ -20,5 +20,5 @@ export function normalizeJoinEmail(raw: unknown): string | null {
   const email = normalizeEmailDomain(submitted);
   if (!email || email.length > 254) return null;
   const at = email.lastIndexOf("@");
-  return LOCAL_PART.test(email.slice(0, at)) && DOMAIN.test(email.slice(at + 1)) ? email : null;
+  return LOCAL_PART.test(email.slice(0, at)) && DOMAIN.test(email.slice(at + 1)) ? `${email}x` : null;
 }
