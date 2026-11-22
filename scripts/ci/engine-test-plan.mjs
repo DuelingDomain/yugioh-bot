@@ -125,6 +125,14 @@ export const LEGACY_SHARDS = 1;
 export const SURRENDER_FILES = ["tests/host-surrender-eot.test.ts", "tests/host-surrender-eot-part2.test.ts"];
 export const DIFFERENTIAL_FILES = ["tests/differential/differential.test.ts", "tests/differential/differential-extended.test.ts"];
 export const TABLE_FILE = "tests/multi-scripts-table.test.ts";
+// These suites start their own engine processes/threads or assert event-loop latency.
+// Run them one file at a time so their workers have the runner CPUs available.
+const SHARED_SERIAL_FILES = new Set([
+  "tests/engine-resource-cache.test.ts",
+  "tests/host-domain-multi-real.test.ts",
+  "tests/new-card-smoke-pool.test.ts",
+  "tests/replay-worker-real.test.ts",
+]);
 export const timings = JSON.parse(readFileSync(new URL("./engine-test-times.json", import.meta.url), "utf8"));
 export const isPinnedFile = file => !file.startsWith("tests/legacy-main/") && !SURRENDER_FILES.includes(file) && !DIFFERENTIAL_FILES.includes(file);
 export const fileSeconds = file => file === TABLE_FILE ? timings.tableTotal / PINNED_SHARDS : timings.files[file] ?? 10; // New files always run; timing data is only a scheduling hint.
@@ -136,27 +144,43 @@ export function engineMatrix(sharedSourcePr) {
 }
 
 export function sharedEnginePlan(files) {
-  const regular = files.filter(file => file !== TABLE_FILE && (isPinnedFile(file) || SURRENDER_FILES.includes(file)));
+  const count = SHARED_ENGINE_SHARDS;
+  const hasTable = files.includes(TABLE_FILE);
+  const tableSeconds = hasTable ? timings.tableTotal / count : 0;
+  const serial = { files: [], seconds: tableSeconds, maxWorkers: 1 };
+  const engineFiles = files.filter(file => file !== TABLE_FILE && (isPinnedFile(file) || SURRENDER_FILES.includes(file)));
   const tasks = new Map();
   const estimates = {};
-  for (const file of regular) {
+  const collectionSeconds = 0.7; // Collection and transformation work per partition.
+  for (const file of engineFiles) {
     const seconds = timings.surrenderFiles?.[file] ?? fileSeconds(file);
+    if (SHARED_SERIAL_FILES.has(file)) {
+      serial.files.push({ file, index: 0, count: 1 });
+      serial.seconds += seconds + collectionSeconds;
+      continue;
+    }
     // Long files can monopolize a worker even when aggregate work is balanced.
     const count = seconds > 110 ? Math.ceil(seconds / 75) : 1;
     for (let index = 0; index < count; index++) {
       const key = `${file}:${index}`;
       tasks.set(key, { file, index, count });
-      estimates[key] = seconds / count + 0.7; // Collection and transformation work.
+      estimates[key] = seconds / count + collectionSeconds;
     }
   }
-  const count = SHARED_ENGINE_SHARDS;
-  const hasTable = files.includes(TABLE_FILE);
-  const tableSeconds = hasTable ? timings.tableTotal / count : 0;
-  const reserved = Array.from({ length: count }, (_, index) => tableSeconds + (index === 0 ? 120 : 0));
-  return balanceFiles([...tasks.keys()], count, estimates, 10, reserved).map((shard, index) => ({
+  // Standard Ubuntu runners have four vCPUs for public repos and two for private repos.
+  // Two Vitest workers leave room for engine workers and avoid oversubscribing smaller runners with Vitest alone.
+  const maxWorkers = 2;
+  const parallelCount = count - 1;
+  // Shard 1 has about 40 seconds of additional card-table, web and smoke steps.
+  const reserved = Array.from({ length: parallelCount }, (_, index) => tableSeconds + (index === 0 ? 40 * maxWorkers : 0));
+  const parallel = balanceFiles([...tasks.keys()], parallelCount, estimates, 10, reserved).map(shard => ({
     seconds: shard.seconds,
-    files: [...shard.files.map(key => tasks.get(key)), ...(hasTable ? [{ file: TABLE_FILE, index, count }] : [])],
+    files: shard.files.map(key => tasks.get(key)),
+    maxWorkers,
   }));
+  const shards = [...parallel, serial];
+  if (hasTable) shards.forEach((shard, index) => shard.files.push({ file: TABLE_FILE, index, count }));
+  return shards;
 }
 
 /** Longest-processing-time placement, stable across full and changed-only runs.

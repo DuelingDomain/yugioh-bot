@@ -23,12 +23,12 @@ test("dependent web runs require an explicit selection", () => {
 
 test("shared PR engine shards retain every full-engine file and stay within the runner budget", async () => {
   const { duelTestFiles } = await import("./duel-test-files.mjs");
-  const { sharedEnginePlan, SHARED_ENGINE_SHARDS, SURRENDER_FILES, TABLE_FILE, isPinnedFile } = await import("./engine-test-plan.mjs");
+  const { sharedEnginePlan, SHARED_ENGINE_SHARDS, LEGACY_SHARDS, SURRENDER_FILES, TABLE_FILE, isPinnedFile } = await import("./engine-test-plan.mjs");
   const { verifyFiles } = await import("./test-shards.mjs");
   const { engine } = duelTestFiles();
   const plan = sharedEnginePlan(engine);
   assert.equal(plan.length, SHARED_ENGINE_SHARDS);
-  assert.ok(plan.length + 1 < 20, "leave room for the legacy and CI jobs");
+  assert.ok(plan.length + LEGACY_SHARDS < 20, "keep shared and legacy engine jobs under 20");
   const tasks = plan.flatMap(shard => shard.files).filter(task => task.file !== TABLE_FILE);
   verifyFiles(engine.filter(file => file !== TABLE_FILE && (isPinnedFile(file) || SURRENDER_FILES.includes(file))),
     [...new Set(tasks.map(task => task.file))]);
@@ -37,7 +37,26 @@ test("shared PR engine shards retain every full-engine file and stay within the 
     assert.equal(parts.length, parts[0].count, file);
     assert.deepEqual(parts.map(task => task.index).sort((a, b) => a - b), parts.map((_, index) => index), file);
   }
-  assert.ok(plan.every(shard => shard.files.filter(task => task.file === TABLE_FILE).length === 1));
+  for (const [index, shard] of plan.entries()) {
+    assert.deepEqual(shard.files.filter(task => task.file === TABLE_FILE), [{ file: TABLE_FILE, index, count: plan.length }]);
+  }
+});
+
+test("shared engine shards reserve a single Vitest worker for CPU-sensitive worker suites", async () => {
+  const { duelTestFiles } = await import("./duel-test-files.mjs");
+  const { sharedEnginePlan, TABLE_FILE } = await import("./engine-test-plan.mjs");
+  const plan = sharedEnginePlan(duelTestFiles().engine);
+  const serial = plan.filter(shard => shard.maxWorkers === 1);
+  assert.equal(serial.length, 1);
+  assert.deepEqual(serial[0].files.filter(task => task.file !== TABLE_FILE).map(task => task.file).sort(), [
+    "tests/engine-resource-cache.test.ts",
+    "tests/host-domain-multi-real.test.ts",
+    "tests/new-card-smoke-pool.test.ts",
+    "tests/replay-worker-real.test.ts",
+  ]);
+  assert.ok(plan.filter(shard => shard !== serial[0]).every(shard => shard.maxWorkers === 2));
+  const estimatedWallTimes = plan.map(shard => shard.seconds / shard.maxWorkers);
+  assert.ok(Math.max(...estimatedWallTimes) <= 1.2 * Math.min(...estimatedWallTimes), "balance estimated wall time at each shard's concurrency");
 });
 
 test("engine case partitions execute every collected case once, even when titles repeat", async t => {
