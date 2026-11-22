@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { engineSources } from "./changed-layers.mjs";
+import { changedLayers, engineSources, sharedEnginePullRequest } from "./changed-layers.mjs";
 import { selectApplicationTests } from "./select-engine-tests.mjs";
+import { SURRENDER_FILES, TABLE_FILE } from "./engine-test-plan.mjs";
 
 test("focused selection retains host lifecycle and recording gates and only dependent web engine tests", () => {
   const sources = {
@@ -65,4 +66,18 @@ test("engine-imported application inputs keep the minimum gates without a discov
   };
   assert.deepEqual(selectApplicationTests(sources, ["packages/shared/src/services/duel-series.ts"], {}).files,
     ["tests/host.test.ts", "tests/host-series.test.ts", "tests/draft-deck-legality.test.ts"]);
+});
+
+test("observability reaches the slow engine suites and gets the shared PR schedule", () => {
+  const changes = ["packages/shared/src/observability/console-adapter.ts"];
+  const { sources, exports } = engineSources();
+  const { files } = selectApplicationTests(sources, changes, exports);
+  for (const file of [TABLE_FILE, ...SURRENDER_FILES, "tests/host-first-turn-draw.test.ts"]) {
+    assert.ok(files.includes(file), file);
+  }
+  const layers = changedLayers(changes, "pull_request");
+  assert.equal(sharedEnginePullRequest(changes, "pull_request", layers), true);
+  assert.equal(sharedEnginePullRequest(changes, "push", layers), false);
+  assert.equal(sharedEnginePullRequest(changes, "schedule", layers), false);
+  assert.equal(sharedEnginePullRequest([...changes, "package-lock.json"], "pull_request", layers), false);
 });
