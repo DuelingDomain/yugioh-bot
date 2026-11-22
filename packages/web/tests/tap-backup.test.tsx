@@ -5,15 +5,13 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { projectRemoteState, type RemoteActionProposal, type TwinCard } from '@yugidraft/shared/remote';
 import { createRoomMutationQueue } from '../src/lib/remote/room-mutations';
 import { createManualCorrections, correctionsFor, type CorrectionObservation } from '../src/lib/remote/manual-corrections';
-import { zonePlacement, zoneSet, zoneCardAction } from '../src/components/remote/ui/zone-placement';
+import { zonePlacement, zoneSet } from '../src/components/remote/ui/zone-placement';
 import { ZoneCardPicker } from '../src/components/remote/ui/zone-card-picker';
 import { RecentDepartures } from '../src/components/remote/ui/recent-departures';
 import { FieldWatcherUI } from '../src/components/remote/field-watcher-ui';
 import { InspectorBody, type CardActions } from '../src/components/remote/ui/card-view';
 import { useTokens } from '../src/components/remote/ui/token-ui';
 import { useLayers } from '../src/components/remote/ui/use-layers';
-import { ZoneActions } from '../src/components/remote/ui/zone-actions';
-import { loadCards } from '../src/components/remote/ui/catalog';
 import { createChangedZones } from '../src/lib/remote/changed-zones';
 import type { FieldTrack } from '@yugidraft/vision';
 import { tapRoom, applyTap } from './tap-room-fixture';
@@ -159,6 +157,12 @@ it('uncertainty stays on its zone when ignored, with explicit choices and no aut
 const topCard = { ref:'top', cardId:900001001, name:'Test Xyz', slot:1, faceUp:true, position:'attack' as const };
 const summonTop = (): RemoteActionProposal => ({type:'twin.place',actorSeat:0,seat:0,zone:'monster',card:topCard,anotherCopy:true,summon:{kind:'xyz',materialRefs:['paper']}});
 
+function stubTopCardLookup() {
+  vi.stubGlobal('fetch', vi.fn(async () => Response.json({
+    cards: [{ id: topCard.cardId, name: topCard.name, type: 'Warrior / Xyz Monster', frameType: 'xyz' }],
+  })));
+}
+
 it('a shared stack hold survives covered-card removal and a stale reread of the top, including reload', async () => {
   let room=tapRoom();room.state.seats[0].twin=[monster(),{...monster('under'),zone:'material',slot:undefined,materialOf:'paper'}];room.state.seats[0].twin[0].materials=['under'];
   const holds=correctionsFor(room,0);holds.observe([observed()],0);
@@ -214,16 +218,19 @@ it('a nameless sleeved Set flips through the picker and shares the normal manual
 });
 
 it('top placement uses the existing summon model and rejects a zone changed since the tap',async()=>{
-  vi.stubGlobal('fetch',vi.fn(async()=>Response.json({cards:[{id:900001001,name:'Test Xyz',type:'Warrior / Xyz Monster',frameType:'xyz'}]})));
+  vi.resetModules();
+  const { loadCards } = await import('../src/components/remote/ui/catalog');
+  const placement = await import('../src/components/remote/ui/zone-placement');
+  stubTopCardLookup();
   await loadCards([900001001]);let room=tapRoom();room.state.seats[0].twin=[monster(),{...monster('second'),slot:2}];
   const pick={seat:0,key:'m1' as const,cardId:900001001,name:'Test Xyz',faceUp:true,top:{ref:'paper',kind:'summon' as const,materialRefs:['paper','second']}};
-  for(const a of zonePlacement(room,pick,'top'))room=applyTap(room,a);
+  for(const a of placement.zonePlacement(room,pick,'top'))room=applyTap(room,a);
   expect(room.state.seats[0].twin.find(c=>c.ref==='top')).toMatchObject({materials:['paper','second'],zone:'monster',slot:1});
-  expect(()=>zonePlacement(room,pick,'stale')).toThrow(/zone changed/);
-  expect(()=>zoneCardAction(room,'m2',{type:'twin.flip',actorSeat:0,seat:0,cardRef:'top',faceUp:false})).toThrow(/zone changed/);
-  expect(()=>zonePlacement(room,{...pick,anotherCopy:true,top:{...pick.top,ref:'top',materialRefs:['paper']}},'wrong')).toThrow(/material/);
+  expect(()=>placement.zonePlacement(room,pick,'stale')).toThrow(/zone changed/);
+  expect(()=>placement.zoneCardAction(room,'m2',{type:'twin.flip',actorSeat:0,seat:0,cardRef:'top',faceUp:false})).toThrow(/zone changed/);
+  expect(()=>placement.zonePlacement(room,{...pick,anotherCopy:true,top:{...pick.top,ref:'top',materialRefs:['paper']}},'wrong')).toThrow(/material/);
   const replace={...pick,top:{ref:'top',kind:'replace' as const},anotherCopy:true};
-  for(const a of zonePlacement(room,replace,'replacement'))room=applyTap(room,a);
+  for(const a of placement.zonePlacement(room,replace,'replacement'))room=applyTap(room,a);
   expect(room.state.seats[0].twin.find(c=>c.ref==='top')?.zone).toBe('graveyard');
   expect(room.state.seats[0].twin.filter(c=>c.zone==='material')).toEqual([]);
   expect(room.state.seats[0].twin.find(c=>c.ref==='replacement')).toMatchObject({slot:1,zone:'monster'});
@@ -245,6 +252,9 @@ it('Changed here waits for resting evidence, survives track churn, and clears on
 });
 
 it('own-zone actions offer top placement, both detach destinations, tokens and a nameless Set without changing the board on open',async()=>{
+  vi.resetModules();
+  const { ZoneActions } = await import('../src/components/remote/ui/zone-actions');
+  stubTopCardLookup();
   vi.stubGlobal('ResizeObserver',class {observe(){} disconnect(){}});
   const room=tapRoom();room.state.seats[0].twin=[{...monster(),materials:['under']},{...monster('under'),zone:'material',materialOf:'paper',slot:undefined}];
   const action=vi.fn(),token=vi.fn(),set=vi.fn(),pick=vi.fn();

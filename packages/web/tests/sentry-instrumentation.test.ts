@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, expect, it, vi } from "vitest";
 import * as Sentry from "@sentry/browser";
 import type { Envelope, Event, TransactionEvent } from "@sentry/core";
 import { initializeSentry } from "../src/lib/sentry";
@@ -23,11 +23,24 @@ vi.mock("@sentry/nextjs", async () => {
     }),
   };
 });
-afterEach(async () => { await Sentry.close(); vi.unstubAllGlobals(); recording.envelopes.length = 0; recording.collectedQueries.length = 0; Sentry.getCurrentScope().clear(); });
-
-it("sends redacted transactions and errors from real fetch instrumentation", async () => {
+beforeAll(() => {
+  // Sentry wraps fetch once. Keep the wrapper installed until both tests finish.
   vi.stubGlobal("fetch", async () => new Response("{}", { status: 200 }));
   initializeSentry("https://public@example.test/1", "test", "release-one");
+});
+afterEach(async () => {
+  await Sentry.flush(2000);
+  recording.envelopes.length = 0;
+  recording.collectedQueries.length = 0;
+  Sentry.getIsolationScope().clear();
+  Sentry.getCurrentScope().clear();
+});
+afterAll(async () => {
+  await Sentry.close();
+  vi.unstubAllGlobals();
+});
+
+it("sends redacted transactions and errors from real fetch instrumentation", async () => {
   await Sentry.startSpan({ name: "player request", op: "test" }, async () => {
     await fetch("/api/players?q=Alice#profile");
   });
@@ -52,7 +65,6 @@ it("sends redacted transactions and errors from real fetch instrumentation", asy
 });
 
 it("sends transactions with circular captured scope metadata", async () => {
-  initializeSentry("https://public@example.test/1", "test", "release-one");
   const client: Record<string, unknown> = {}; client.self = client;
   const capturedSpanScope = new Sentry.Scope();
   capturedSpanScope.setClient(Sentry.getClient()!);

@@ -6,25 +6,39 @@ import type { CaptureResult, PostHog } from "posthog-js";
 
 const state = vi.hoisted(() => ({ pathname: "/access", imported: false, events: [] as CaptureResult[], sdk: null as PostHog | null }));
 vi.mock("next/navigation", () => ({ usePathname: () => state.pathname }));
-// Keep the real SDK: observe its final events, replacing only external network I/O.
-vi.mock("posthog-js", async importOriginal => {
-  state.imported = true;
-  const actual = await importOriginal<typeof import("posthog-js")>();
-  state.sdk = actual.default;
-  actual.default.on("eventCaptured", event => state.events.push(event));
-  return actual;
-});
 import { PageViews } from "../src/lib/analytics/page-views";
 
+let stopRecording: (() => void) | undefined;
+const originalTitle = document.title;
+
 beforeEach(() => {
+  // Register a fresh mock so its factory observes imports in the current test.
+  vi.doMock("posthog-js", async importOriginal => {
+    state.imported = true;
+    const actual = await importOriginal<typeof import("posthog-js")>();
+    state.sdk = actual.default;
+    stopRecording = actual.default.on("eventCaptured", event => state.events.push(event));
+    return actual;
+  });
   vi.stubEnv("NEXT_PUBLIC_POSTHOG_KEY", "");
   const offlineFetch = async () => new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } });
   vi.stubGlobal("fetch", offlineFetch);
-  window.fetch = offlineFetch;
   state.pathname = "/access";
   window.history.replaceState(null, "", "/access");
 });
-afterEach(() => { cleanup(); vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
+afterEach(async () => {
+  cleanup();
+  stopRecording?.();
+  if (state.sdk?.__loaded) await state.sdk.shutdown();
+  stopRecording = undefined;
+  state.sdk = null;
+  state.imported = false;
+  state.events.length = 0;
+  document.title = originalTitle;
+  vi.doUnmock("posthog-js");
+  vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
+});
 
 it("loads no analytics module with an empty key or on pages outside the page-view scope", async () => {
   for (const [key, pathname] of [["", "/access"], ["   ", "/dashboard"], ["test-project", "/settings/account"], ["test-project", "/decks/12"], ["test-project", "/duels/new"], ["test-project", "/drafts/new"], ["test-project", "/sign-in"]]) {
@@ -32,6 +46,7 @@ it("loads no analytics module with an empty key or on pages outside the page-vie
     state.pathname = pathname;
     const view = render(<PageViews />);
     await act(async () => {});
+    await vi.dynamicImportSettled();
     expect(view.container).toBeEmptyDOMElement();
     expect(state.imported).toBe(false);
     view.unmount();

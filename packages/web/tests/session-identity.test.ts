@@ -5,7 +5,6 @@ import { createUserService } from "@yugidraft/shared/services";
 import { ClerkBackendError } from "@yugidraft/shared/clerk";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 const recording = useRecordingObservability();
-const warnings: Array<{ message: string; fields: Record<string, unknown> }> = [];
 const state = vi.hoisted(() => ({ db: null as Database.Database | null, auth: vi.fn(), getUser: vi.fn(), update: vi.fn(), cookie: undefined as string | undefined }));
 vi.mock("@/lib/db", () => ({ getDb: () => state.db! }));
 vi.mock("@clerk/nextjs/server", () => ({ auth: state.auth }));
@@ -15,8 +14,6 @@ import { resolveSessionIdentity } from "../src/lib/session-identity";
 import { signE2ESession } from "../src/lib/e2e-auth";
 const json = { id: "user_one", username: "yugi", first_name: "Yugi", last_name: null, image_url: "avatar", external_id: null, primary_email_address_id: "email", email_addresses: [{ id: "email", email_address: "yugi@example.com", verification: { status: "verified" } }], external_accounts: [{ provider: "oauth_discord", provider_user_id: "123", verification: { status: "verified" } }] };
 beforeEach(() => {
-  warnings.length = 0;
-  recording.log.mockImplementation((level, message, fields) => { if (level === "warn") warnings.push({ message, fields }); });
   state.db = new Database(":memory:"); migrate(state.db); state.db.pragma("foreign_keys=on");
   vi.clearAllMocks(); state.cookie = undefined; state.auth.mockResolvedValue({ userId: "user_one" }); state.getUser.mockResolvedValue(json); state.update.mockResolvedValue(json);
   vi.stubEnv("CLERK_SECRET_KEY", "test-secret"); vi.stubEnv("E2E_AUTH", "0");
@@ -57,12 +54,14 @@ it.each([
   { error: new ClerkBackendError("private provider message", 429, null, null), reason: "rate_limited" },
   { error: new Error("private user id and token"), reason: "session_check_failed" },
 ])("logs a safe reason and duration for $reason", async ({ error, reason }) => {
+  recording.log.mockClear();
   state.getUser.mockRejectedValue(error);
   expect(await resolveSessionIdentity()).toEqual({ ok: false, status: 503 });
-  expect(warnings).toEqual([{ message: "[web-access] session check unavailable", fields: {
+  const warnings = recording.log.mock.calls.filter(([level]) => level === "warn");
+  expect(warnings).toEqual([["warn", "[web-access] session check unavailable", {
     reason, durationMs: expect.any(Number),
-  } }]);
-  const diagnostic = warnings[0].fields as { durationMs: number };
+  }]]);
+  const diagnostic = warnings[0][2] as { durationMs: number };
   expect(diagnostic.durationMs).toBeGreaterThanOrEqual(0);
 });
 it("bypasses Clerk entirely only with the enabled gate and a signed cookie for an existing user", async () => {
