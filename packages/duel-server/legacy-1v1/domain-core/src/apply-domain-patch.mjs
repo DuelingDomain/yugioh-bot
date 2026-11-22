@@ -446,6 +446,22 @@ patch("processor.cpp", [
 
 patch("effect.cpp", [
   [
+    `int32_t effect::is_target(card* pcard) {
+	if(type & EFFECT_TYPE_ACTIONS)
+		return FALSE;`,
+    `int32_t effect::is_target(card* pcard) {
+	if(pcard && pcard->current.location == LOCATION_DECKMASTER && (type & EFFECT_TYPE_FIELD)
+		&& (code == EFFECT_EXTRA_SUMMON_COUNT || code == EFFECT_EXTRA_SET_COUNT) && !domain_is_extra_type(pcard)) {
+		// For an additional Normal Summon/Set count the DMZ counts as the hand (see card::is_affect_by_effect).
+		pcard->current.location = LOCATION_HAND;
+		const int32_t result = is_target(pcard);
+		pcard->current.location = LOCATION_DECKMASTER;
+		return result;
+	}
+	if(type & EFFECT_TYPE_ACTIONS)
+		return FALSE;`,
+  ],
+  [
     `int32_t effect::is_activateable(uint8_t playerid, const tevent& e, int32_t neglect_cond, int32_t neglect_cost, int32_t neglect_target, int32_t neglect_loc, int32_t neglect_faceup) {
 	if(!(type & EFFECT_TYPE_ACTIONS))
 		return FALSE;`,
@@ -508,6 +524,10 @@ patch("card.cpp", [
 		// Summon procedures belong to this DM; other cards cannot bypass DMZ protection.
 		if(peffect->get_handler() == this && peffect->owner == this
 			&& (peffect->code == EFFECT_SPSUMMON_PROC || peffect->code == EFFECT_SPSUMMON_PROC_G || peffect->code == EFFECT_SUMMON_PROC))
+			return TRUE;
+		// The rulebook ignores "from the hand" for a Normal Summon/Set of the DM, so an additional Normal Summon/Set count
+		// (Madolche Salon) also covers a main deck DM in the DMZ. It only grants a count; it does not act on the DM.
+		if((peffect->code == EFFECT_EXTRA_SUMMON_COUNT || peffect->code == EFFECT_EXTRA_SET_COUNT) && !domain_is_extra_type(this))
 			return TRUE;
 		return FALSE;
 	}
