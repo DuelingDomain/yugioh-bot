@@ -26,8 +26,12 @@ export type RoomTransaction = <T>(work:(room:RemoteRoom,act:RoomMutation)=>Promi
 export const hasPendingTwinConfirmation = (room: RemoteRoom) =>
   !!(room.state.twinConfirmation || room.state.twinConfirmationQueue?.length);
 
-/** Serialize board transactions. Notes can use the manual chain independently. */
-export function createRoomMutationQueue(read:()=>RemoteRoom|undefined,post:RoomMutation,giveUp?:(error:Error)=>void,valid?:()=>boolean) {
+/**
+ * Serialize board transactions. Notes can use the manual chain independently.
+ * `onPost` runs once per write, the moment it passes the local checks (valid, camera correction), before it waits for the post gate or an
+ * older write. A retry never runs it again.
+ */
+export function createRoomMutationQueue(read:()=>RemoteRoom|undefined,post:RoomMutation,giveUp?:(error:Error)=>void,valid?:()=>boolean,onPost?:(proposal:RemoteActionProposal,key:string,room:RemoteRoom|undefined)=>void) {
   const idle = Promise.resolve();
   let manual: Promise<unknown> = idle;
   let latest: RemoteRoom | undefined;
@@ -35,6 +39,16 @@ export function createRoomMutationQueue(read:()=>RemoteRoom|undefined,post:RoomM
     const rendered = read();
     if (rendered && (!latest || rendered.lastSeq >= latest.lastSeq)) latest = rendered;
     return latest;
+  };
+  // A retry (camera retry, outage retry, Retry button) calls `act` again with the same key: it previews once.
+  const announced = new Set<string>();
+  const announce = (proposal:RemoteActionProposal, key:string|undefined) => {
+    if (!onPost || !key || announced.has(key)) return;
+    const now = current();
+    if (valid?.() === false || (now && cameraCorrectionBlocked(now, proposal))) return;
+    announced.add(key);
+    if (announced.size > 64) announced.delete(announced.values().next().value!);
+    try { onPost(proposal, key, now); } catch { /* A preview never blocks a write. */ }
   };
   const write = async (proposal:RemoteActionProposal, key?:string, prepared?:()=>void, patient=false) => {
     const now = current();
@@ -79,8 +93,10 @@ export function createRoomMutationQueue(read:()=>RemoteRoom|undefined,post:RoomM
       if (!room) throw new Error('Table is not loaded');
       let writes: Promise<unknown> = idle;
       // A callback can start more than one write before awaiting either.
-      const act: RoomMutation = (proposal, key) => {
+      const act: RoomMutation = (proposal, given) => {
+        const key = given ?? (onPost ? crypto.randomUUID() : undefined);
         if (key) markFieldAction(key, 'writeQueued');
+        announce(proposal, key);
         const sent = writes.then(() => post1(() => write(proposal, key)));
         writes = sent.catch(() => undefined);
         return sent;
@@ -107,6 +123,7 @@ export function createRoomMutationQueue(read:()=>RemoteRoom|undefined,post:RoomM
       const rollback = room && beginManualCorrection(room, proposal);
       const key = idempotencyKey ?? crypto.randomUUID();
       if (idempotencyKey) markFieldAction(key, 'writeQueued');
+      announce(proposal, key);
       const prior = manual;
       const run = () => prior.then(() => write(proposal, key, rollback, true));
       // A log note can clear a pending placement confirmation in the reducer. A response never touches the board, so it skips the queue.

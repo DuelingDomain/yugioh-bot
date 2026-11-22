@@ -11,7 +11,7 @@ name: Test
 # Engine suites and their sharding are described in docs/adr/0003-duel-test-layers.md.
 # Main uses the same paths, diffing from its last successful tested ancestor.
 # Missing diffs, manual and nightly runs select all groups; nightly also runs nduel fuzz.
-# PRs never publish production images; Deploy requires a successful main push Test.
+# Deploy requires a successful main push Test, even when PR prebuilds supply reusable images.
 
 on:
   pull_request:
@@ -84,6 +84,8 @@ jobs:
       effects: ${{ steps.reuse.outputs.effects || steps.diff.outputs.effects }}
       prod_build: ${{ steps.diff.outputs.prod_build }}
       engine: ${{ steps.reuse.outputs.engine || steps.diff.outputs.engine }}
+      engine_shared: ${{ steps.diff.outputs.engine_shared }}
+      engine_matrix: ${{ steps.diff.outputs.engine_matrix }}
       engine_app: ${{ steps.reuse.outputs.engine_app || steps.diff.outputs.engine_app }}
       core: ${{ steps.reuse.outputs.core || steps.diff.outputs.core }}
       golden: ${{ steps.reuse.outputs.golden || steps.diff.outputs.golden }}
@@ -106,7 +108,9 @@ jobs:
       web_files: ${{ steps.selection.outputs.web_files }}
       web_shards: ${{ steps.selection.outputs.web_shards || '[1,2,3,4,5]' }}
       shared_files: ${{ steps.selection.outputs.shared_files }}
+      shared_shards: ${{ steps.selection.outputs.shared_shards || '["1/2","2/2"]' }}
       duel_unit_files: ${{ steps.selection.outputs.duel_unit_files }}
+      duel_unit_shards: ${{ steps.selection.outputs.duel_unit_shards || '["1/2","2/2"]' }}
       bot_files: ${{ steps.selection.outputs.bot_files }}
       ws_files: ${{ steps.selection.outputs.ws_files }}
       worker_files: ${{ steps.selection.outputs.worker_files }}
@@ -317,19 +321,13 @@ jobs:
             packages/duel-server/domain-core/dist
           key: ${{ needs.changes.outputs.core_key }}
           fail-on-cache-miss: true
-      - name: Setup Node.js
+      - name: Restore Node dependencies and Turbo cache
         if: needs.changes.outputs.core_hit != 'true'
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: npm
-      - name: Install
-        if: needs.changes.outputs.core_hit != 'true'
-        run: npm ci
+        uses: ./.github/actions/setup-ci-node
       # The prerelease smoke check uses the shared artwork resolver through src/cards.ts.
       - name: Build shared for card preparation
         if: needs.changes.outputs.core_hit != 'true'
-        run: npm run build --workspace=packages/shared
+        run: npx --no-install turbo run build --cache-dir=.turbo/cache --filter=@yugidraft/shared
       - name: Prepare card data and scripts
         if: needs.changes.outputs.core_hit != 'true'
         env:
@@ -647,7 +645,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: ${{ fromJSON((needs.changes.outputs.data_only == 'true' || needs.changes.outputs.shared_files != '') && '["1/1"]' || '["1/2","2/2"]') }}
+        shard: ${{ fromJSON(needs.changes.outputs.data_only == 'true' && '["1/1"]' || needs.changes.outputs.shared_shards) }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -662,7 +660,12 @@ jobs:
         if: needs.changes.outputs.data_only != 'true'
         env:
           CI_TEST_FILES: ${{ needs.changes.outputs.shared_files }}
-        run: node scripts/ci/run-pr-tests.mjs shared --shard=${{ matrix.shard }}
+        run: |
+          if [ -n "$CI_TEST_FILES" ]; then
+            node scripts/ci/run-selected-unit-tests.mjs shared ${{ matrix.shard }}
+          else
+            node scripts/ci/run-pr-tests.mjs shared --shard=${{ matrix.shard }}
+          fi
       - name: Test shared effects and staple data consumers
         if: needs.changes.outputs.data_only == 'true'
         run: npm test --workspace=packages/shared -- tests/effect-artifact tests/effect-search.integration.test.ts tests/cube-effect-search.integration.test.ts
@@ -703,7 +706,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: ${{ fromJSON((needs.changes.outputs.data_only == 'true' || needs.changes.outputs.duel_unit_files != '') && '["1/1"]' || '["1/2","2/2"]') }}
+        shard: ${{ fromJSON(needs.changes.outputs.data_only == 'true' && '["1/1"]' || needs.changes.outputs.duel_unit_shards) }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -718,7 +721,12 @@ jobs:
         if: needs.changes.outputs.data_only != 'true'
         env:
           CI_TEST_FILES: ${{ needs.changes.outputs.duel_unit_files }}
-        run: node scripts/ci/run-pr-tests.mjs duel-server --shard=${{ matrix.shard }}
+        run: |
+          if [ -n "$CI_TEST_FILES" ]; then
+            node scripts/ci/run-selected-unit-tests.mjs duel_unit ${{ matrix.shard }}
+          else
+            node scripts/ci/run-pr-tests.mjs duel-server --shard=${{ matrix.shard }}
+          fi
       - name: Test duel effects and staple data consumers
         if: needs.changes.outputs.data_only == 'true'
         env:
@@ -887,13 +895,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        suite: [pinned]
-        shard: [1, 2, 3, 4, 5, 6, 7, 8]
-        count: [8]
-        # Run both surrender modes on each of two runners, with independent Vitest workers.
-        include:
-          - { suite: surrender, shard: 1, count: 2 }
-          - { suite: surrender, shard: 2, count: 2 }
+        include: ${{ fromJSON(needs.changes.outputs.engine_matrix) }}
     env:
       DUEL_REQUIRE_CORES: "1"
       DUEL_DATA_DIR: ${{ github.workspace }}/data/duel-engine-next
@@ -925,12 +927,12 @@ jobs:
         run: node scripts/ci/select-engine-tests.mjs
 
       - name: Verify engine test file coverage
-        if: matrix.suite == 'pinned' && matrix.shard == 1
+        if: matrix.suite != 'surrender' && matrix.shard == 1
         run: node scripts/ci/check-engine-test-coverage.mjs
 
       # The generated Remote Duels tables must match the engine data. This also runs when only their scanner or encoder changed.
       - name: Check Remote Duels card logic and behaviour are current
-        if: matrix.suite == 'pinned' && matrix.shard == 1
+        if: matrix.suite != 'surrender' && matrix.shard == 1
         run: |
           prlimit --core=0 -- node --import tsx packages/duel-server/scripts/build-card-logic.ts --check
           prlimit --core=0 -- node --import tsx packages/duel-server/scripts/build-card-behaviour.ts --check
@@ -948,7 +950,7 @@ jobs:
       # Only direct imports of the cores helper are found. A web test that gets the helper through another module is not run here.
       # The full web suite (about 400 files) already runs in the unit job, so only the matching files run again.
       - name: Web tests with the engine
-        if: matrix.suite == 'pinned' && matrix.shard == 1 && needs.changes.outputs.engine_focus != 'true'
+        if: matrix.suite != 'surrender' && matrix.shard == 1 && needs.changes.outputs.engine_focus != 'true'
         run: |
           set -o pipefail
           # Lines that start with // or * are comments: a comment that names the helper does not count.
@@ -966,7 +968,7 @@ jobs:
 
       # tests/*.smoke.ts are plain assert scripts (vitest does not match them); one failing script fails the step.
       - name: Engine smoke scripts
-        if: needs.changes.outputs.engine == 'true' && matrix.suite == 'pinned' && matrix.shard == 1
+        if: needs.changes.outputs.engine == 'true' && matrix.suite != 'surrender' && matrix.shard == 1
         run: prlimit --core=1:1 -- npm run test:smoke --workspace=packages/duel-server
 
       - name: Upload engine file timings
@@ -1189,7 +1191,7 @@ jobs:
           if-no-files-found: ignore
 
   # These artifacts are unverified until this whole main push Test run succeeds.
-  # Deploy uses this exact run ID and commit; PRs never publish production images.
+  # Deploy uses this exact run ID and commit. Only main publishes these deploy artifacts.
   production-bundle:
     name: Prepare production image bundle
     outputs:
@@ -1256,9 +1258,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: ${{ github.sha }}
-      # Fingerprint the engine bundle: the duel image holds its files, so identical files mean an identical image.
-      # The *.SOURCE sidecars only record the deploy commit, so they stay out of the fingerprint (checked: they are the only files that differ between commits).
-      - name: Fingerprint the engine bundle
+      - name: Download verified engine bundle for hashing
         if: matrix.service == 'duel'
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
@@ -1270,18 +1270,12 @@ jobs:
           IMAGE_SERVICE: ${{ matrix.service }}
           IMAGE_SALT_ENV: ${{ matrix.service == 'web' && 'NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY,NEXT_PUBLIC_POSTHOG_KEY,NEXT_PUBLIC_SENTRY_DSN,SENTRY_ORG,SENTRY_PROJECT' || '' }}
           IMAGE_SALT_EXTRA: target:${{ matrix.target }}
+          IMAGE_BUNDLE: ${{ runner.temp }}/release/deploy-bundle.tar.gz
           NEXT_PUBLIC_POSTHOG_KEY: ${{ vars.NEXT_PUBLIC_POSTHOG_KEY }}
           NEXT_PUBLIC_SENTRY_DSN: ${{ vars.NEXT_PUBLIC_SENTRY_DSN }}
           SENTRY_ORG: ${{ vars.SENTRY_ORG }}
           SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
-        run: |
-          if [ "$IMAGE_SERVICE" = duel ]; then
-            mkdir -p "$RUNNER_TEMP/bundle-files"
-            tar -C "$RUNNER_TEMP/bundle-files" -xzf "$RUNNER_TEMP/release/deploy-bundle.tar.gz"
-            IMAGE_SALT_EXTRA="$IMAGE_SALT_EXTRA bundle:$(cd "$RUNNER_TEMP/bundle-files" && find . -type f ! -name '*.SOURCE' -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)"
-            export IMAGE_SALT_EXTRA
-          fi
-          node scripts/ci/image-inputs.mjs
+        run: node scripts/ci/image-inputs.mjs
       # Same inputs as an image built earlier (often on the PR): stamp it with this commit instead of building.
       - name: Reuse an image built from the same inputs
         id: reuse
@@ -1333,6 +1327,8 @@ jobs:
     timeout-minutes: 45
     strategy:
       fail-fast: false
+      # Leave room for the wider shared engine matrix on the org's free runners.
+      max-parallel: ${{ needs.changes.outputs.engine_shared == 'true' && 1 || 4 }}
       matrix:
         include:
           - service: web
@@ -1394,6 +1390,99 @@ jobs:
           SENTRY_ORG: ${{ vars.SENTRY_ORG }}
           SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
 
+  # Keep both jobs outside CI result. The x64 job uses the same bundle preparation as main
+  # and only requests an ARM64 runner when the latest main image has different inputs.
+  duel-prebuild-inputs:
+    name: Prepare duel prebuild inputs
+    needs: changes
+    if: >-
+      github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository &&
+      needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.tests_only != 'true'
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      actions: read
+    env:
+      IMAGE: ghcr.io/duelingdomain/yugioh-bot-duel
+      BUNDLE_ARTIFACT: duel-prebuild-bundle-${{ github.sha }}-${{ github.run_attempt }}
+    outputs:
+      hash: ${{ steps.inputs.outputs.hash }}
+      artifact: ${{ steps.upload.outputs.artifact-id != '' && env.BUNDLE_ARTIFACT || '' }}
+    steps:
+      - name: Checkout merge commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Prepare production engine bundle
+        uses: ./.github/actions/prepare-production-bundle
+        with:
+          save-cache: 'false'
+      - name: Compute build-input hash
+        id: inputs
+        env:
+          IMAGE_SERVICE: duel
+          IMAGE_SALT_EXTRA: target:duel-bundled
+          IMAGE_BUNDLE: ${{ runner.temp }}/deploy-bundle.tar.gz
+        run: node scripts/ci/image-inputs.mjs
+      - name: Compare with the latest successful main image
+        id: compare
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUTS_HASH: ${{ steps.inputs.outputs.hash }}
+        shell: bash
+        run: |
+          if main_commit=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/test.yml/runs?branch=main&event=push&status=success&per_page=1" --jq '.workflow_runs[0].head_sha') &&
+             [[ "$main_commit" =~ ^[0-9a-f]{40}$ ]] &&
+             main_image=$(docker buildx imagetools inspect --format '{{json .Image}}' "$IMAGE:$main_commit") &&
+             python3 -c '
+          import json, sys
+          image = json.load(sys.stdin)
+          labels = image.get("config", {}).get("Labels", {})
+          sys.exit(not (image.get("os") == "linux" and image.get("architecture") == "arm64"
+                        and labels.get("org.opencontainers.image.revision") == sys.argv[1]
+                        and labels.get("dev.duelingdomain.inputs") == sys.argv[2]))
+          ' "$main_commit" "$INPUTS_HASH" <<< "$main_image"; then
+            echo "The latest successful main duel image already has these inputs."
+          else
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Upload verified duel prebuild bundle
+        id: upload
+        if: steps.compare.outputs.build == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ${{ env.BUNDLE_ARTIFACT }}
+          path: ${{ runner.temp }}/deploy-bundle.tar.gz
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+  duel-image-prebuild:
+    name: Prebuild ARM64 duel image
+    needs: [duel-prebuild-inputs]
+    if: needs.duel-prebuild-inputs.outputs.artifact != ''
+    runs-on: ubuntu-24.04-arm
+    continue-on-error: true
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+    env:
+      DEPLOY_COMMIT: ${{ github.sha }}
+      IMAGE: ghcr.io/duelingdomain/yugioh-bot-duel
+    steps:
+      - name: Checkout merge commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Build production image
+        uses: ./.github/actions/build-production-image
+        with:
+          service: duel
+          target: duel-bundled
+          bundle-artifact: ${{ needs.duel-prebuild-inputs.outputs.artifact }}
+          inputs-hash: ${{ needs.duel-prebuild-inputs.outputs.hash }}
+          publish-artifacts: 'false'
+          write-caches: 'false'
+
   production-dry-run:
     name: Production composites dry run (bundle, bot and voice assets)
     needs: [changes, production-voice-assets]
@@ -1441,7 +1530,8 @@ jobs:
   ci-result:
     name: CI result
     if: always()
-    needs: [changes, core-build, cores, new-card-smoke-status-pending, new-card-smoke, new-card-smoke-report, new-card-smoke-status, effect-protocol, unit-web-build, unit-shared, small-checks, unit-duel, unit-web, ci-scripts, engine-app, engine-shards, engine-legacy-shards, engine-differential, native, nduel-nightly, production-bundle, production-voice-assets, production-images, image-prebuild, production-dry-run]
+    # PR prebuilds only warm image reuse. The main image jobs still verify or build each image.
+    needs: [changes, core-build, cores, new-card-smoke-status-pending, new-card-smoke, new-card-smoke-report, new-card-smoke-status, effect-protocol, unit-web-build, unit-shared, small-checks, unit-duel, unit-web, ci-scripts, engine-app, engine-shards, engine-legacy-shards, engine-differential, native, nduel-nightly, production-bundle, production-voice-assets, production-images, production-dry-run]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:

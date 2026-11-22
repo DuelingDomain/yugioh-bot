@@ -27,6 +27,17 @@ const files = {
   [shared + "src/leaf.ts"]: 'export const x = 1;',
 };
 
+test("selected unit shards use file durations and cover the selection exactly", async () => {
+  const { planUnitShards } = await import("./unit-test-plan.mjs");
+  const files = ["a", "b", "c", "d", "new"];
+  const timings = { a: 180, b: 180, c: 20, d: 10 };
+  const shards = planUnitShards("duel_unit", files, timings);
+  assert.equal(shards.length, 2);
+  assert.deepEqual(shards.flatMap(shard => shard.files).sort(), files);
+  assert.ok(shards.every(shard => shard.seconds <= 205));
+  assert.equal(planUnitShards("duel_unit", ["a"], timings).length, 1);
+});
+
 async function fixture(t, overrides = {}) {
   const root = mkdtempSync(join(repo, ".ci-selector-test-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));

@@ -305,6 +305,7 @@ test("core sources, pins, patches, native tooling and build inputs select both c
     "patches/ocgcore-wasm+0.1.2.patch",
     "scripts/ci/build-core.sh", "scripts/ci/parallel-emxx.py", "scripts/ci/bin/em++",
     "scripts/ci/core-cache-key.mjs", "scripts/ci/assemble-core-bundle.mjs", "scripts/ci/changed-layers.mjs",
+    "scripts/ci/run-engine-case-shards.mjs",
     ".github/workflows/test.yml", ".github/actions/restore-engine-bundle/action.yml",
     "packages/duel-server/package.json",
     "package.json", "package-lock.json", ".nvmrc",
@@ -315,6 +316,19 @@ test("core sources, pins, patches, native tooling and build inputs select both c
       assert.equal(result.core, true, `${event}: ${file}`);
       assert.equal(classify([file], event).engine, true, `${event}: core checks need the engine bundle`);
       assert.equal(result.tests_only, false, `${event}: ${file}`);
+    }
+  }
+});
+
+test("unit shard wiring and timing changes select the suites they affect", () => {
+  for (const event of ["pull_request", "push"]) {
+    for (const file of ["scripts/ci/run-selected-unit-tests.mjs", "scripts/ci/unit-test-plan.mjs"]) {
+      const result = classify([file], event);
+      assert.ok(result.shared && result.duel_unit && result.ci_scripts, `${event}: ${file}`);
+    }
+    for (const [file, suite] of [["shared", "shared"], ["duel-unit", "duel_unit"]]) {
+      const result = classify([`scripts/ci/test-timings/${file}.json`], event);
+      assert.ok(result[suite] && result.ci_scripts, `${event}: ${file}`);
     }
   }
 });

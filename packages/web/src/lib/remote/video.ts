@@ -19,6 +19,7 @@ import { readVideoRate, saveVideoRate, type VideoRate } from './video-rate';
 import { cameraTraffic, type CameraTraffic } from './video-stats';
 import { PEER_VISION_INTERVAL_MS, PEER_VISION_REFRESH_MS, PEER_VISION_TOPIC, PeerVisionCache, encodePeerVision, peerVisionChanged, roundMs, type PeerVision } from './peer-vision';
 import { watchSendHealth } from './send-health';
+import { PEER_PREVIEW_TOPIC, peerPreviews, releasePeerPreviewTransport, setPeerPreviewTransport } from './peer-preview';
 import { recognitionGeneration } from '@/components/remote/ui/recognition-backend';
 
 export type VideoFeed = { seat: number; video?: LocalVideoTrack | RemoteVideoTrack; audio?: RemoteAudioTrack; quality: ConnectionQuality; muted: boolean; phone?: boolean; mode?: string };
@@ -90,6 +91,8 @@ export class RemoteVideo {
     this.room.on(RoomEvent.SignalConnected, () => this.patch({ signalLost: false }));
     this.room.on(RoomEvent.ConnectionStateChanged, connection => {
       this.patch({ connection, ...(connection === ConnectionState.Connected ? { signalLost: false } : {}) }); this.sync();
+      if (connection === ConnectionState.Connected) setPeerPreviewTransport(this.sendPreview);
+      else releasePeerPreviewTransport(this.sendPreview);
       if (connection !== ConnectionState.Connected) { this.fieldTracks.clear(); this.vision.clear(); this.stopVisionTimer(); }
       else if (!this.visionTimer) { this.visionTimer = setInterval(() => void this.sendVision(), PEER_VISION_INTERVAL_MS); void this.sendVision(); }
       if (connection === ConnectionState.Disconnected) {
@@ -112,6 +115,8 @@ export class RemoteVideo {
         member.userId !== null && identity === `remote-user-${member.userId}`)?.seat;
       if (from === undefined) return;
       if (topic === PEER_VISION_TOPIC) { if (from !== this.options.seat) this.vision.receive(from, bytes); return; }
+      // A board preview of the sender's own seat. The seat is the sender's, never a field of the packet. Display only.
+      if (topic === PEER_PREVIEW_TOPIC) { if (from !== this.options.seat) peerPreviews.receive(bytes, from); return; }
       try {
         const value = JSON.parse(new TextDecoder().decode(bytes));
         if(topic===FIELD_TRACKS_TOPIC){this.fieldTracks.receive(from,value,{keepBacks:true});return;}
@@ -124,6 +129,8 @@ export class RemoteVideo {
     });
     this.room.on(RoomEvent.MediaDevicesChanged, () => void this.refreshDevices().catch(error => this.fail(error)));
   }
+  /** Board previews of my own changes go out to everyone at the table (players and spectators), reliable, one tiny packet each. */
+  private sendPreview = (bytes: Uint8Array<ArrayBuffer>) => { void this.room.localParticipant.publishData(bytes, { reliable: true, topic: PEER_PREVIEW_TOPIC }).catch(() => undefined); };
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
   getSnapshot = () => this.snapshot;
   /** Raw camera capture, before any SFU encoding, available at its actual native resolution. */
@@ -547,5 +554,5 @@ export class RemoteVideo {
     await this.stopCamera(this.camera); this.camera = undefined; this.readyTrack = undefined; await this.voice.stop(); await this.room.disconnect();
     this.patch({ connection: ConnectionState.Disconnected, feeds: [], microphone: false, result: undefined });
   }
-  dispose() { this.rescan.close(); if (typeof window !== 'undefined') window.removeEventListener('pagehide', this.pagehide); this.stopVisionTimer(); this.vision.clear(); this.phone.dispose(); this.closed = true; this.listeners.clear(); void this.stop(); }
+  dispose() { releasePeerPreviewTransport(this.sendPreview); this.rescan.close(); if (typeof window !== 'undefined') window.removeEventListener('pagehide', this.pagehide); this.stopVisionTimer(); this.vision.clear(); this.phone.dispose(); this.closed = true; this.listeners.clear(); void this.stop(); }
 }

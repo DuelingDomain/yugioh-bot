@@ -18,7 +18,7 @@ Message frame: `u32 length`, `u8 id`, payload. The wrapper parses each message f
 | Query COUNTERS | `card.cpp` `get_infos`: per entry `u32 = type + (count << 16)`, so u16 type then u16 count on the wire | count then type (swapped) | Both pinned and legacy query readers use type first. Real-core tests cover type `0x100e`, count `2`, in single/location queries and public views (including legacy Domain). |
 | ANNOUNCE_ATTRIB (141) | `playerop.cpp:961-964`: u8 player, u8 count, **u32** available | `available` read as u8 | Fixed. `available` is u32. `prompts.ts` passes it to `ocgAttributeParse`, unchanged |
 | `duelGetMessage` | `duel.cpp` message buffer | One thrown parse error (`eof`) lost the whole batch | Fixed. try/catch per message, `console.warn` with the message id, loop continues. Unknown ids already returned null + warn |
-| SHUFFLE_SET_CARD (36) | `libduel.cpp:1423-1430`, `operations.cpp:2970`: u8 location, u8 n, n loc_info (from), n loc_info (to) | Wrong layout | Fixed earlier |
+| SHUFFLE_SET_CARD (36) | `libduel.cpp:1423-1430`, `operations.cpp:2970`: u8 location, u8 n, n loc_info (from), n loc_info (to) | Wrong layout | Fixed earlier (legacy message mode too: issue 467) |
 | SELECT_SUM (23) | `playerop.cpp:796+` | Field order and position | Fixed earlier |
 | OcgCardData | `ocgapi_types.h` (wasm32) | Missing rscale/link_marker offsets | Fixed earlier |
 

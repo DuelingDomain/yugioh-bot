@@ -7,12 +7,14 @@ import { useRouter } from "next/navigation";
 import useSWR from "swr";
 import { io, type Socket } from "socket.io-client";
 import { remoteApi, tabId } from "./api";
-import { preloadRoomCards } from "./catalog";
+import { cardInfo, preloadRoomCards } from "./catalog";
 import { deckIdsOf } from "./model";
 import type { RemoteAction, RemoteActionProposal, RemoteBestOf, RemoteClientEvents, RemoteRoom, RemoteServerEvents } from "@yugidraft/shared/remote";
 
 import {markFieldState,stampedProposal} from '@/lib/remote/field-timing';
+import {peerPreviews,publishPeerPreview,setPeerPreviewCardFacts} from '@/lib/remote/peer-preview';
 import {applyRoomPatch,classifyPatch,createRepairScheduler,createRoomMutationQueue,hasPendingTwinConfirmation,remoteChangeNeedsFetch} from '@/lib/remote/room-mutations';
+setPeerPreviewCardFacts(cardInfo);
 export type RoomController = ReturnType<typeof useRemoteRoom>;
 const PEER_REPAIR_MS = 150;
 
@@ -174,6 +176,11 @@ export function useRemoteRoom(slug: string, options: { watchAsAdmin?: boolean } 
     });
     return()=>cancelAnimationFrame(frame);
   },[room,stampPeer]);
+  useEffect(()=>{peerPreviews.clear();return()=>peerPreviews.clear();},[slug]);
+  useEffect(()=>{peerPreviews.setMySeat(mySeat);},[mySeat]);
+  useEffect(()=>{
+    if(room?.slug===slug)peerPreviews.confirmRoom(room);
+  },[room,slug]);
 
   const operation = useCallback(async (path: string, body: unknown = {}) => {
     setBusy(true); setError("");
@@ -255,7 +262,13 @@ export function useRemoteRoom(slug: string, options: { watchAsAdmin?: boolean } 
     }
   }, [slug, mutate, refreshAfterWrite, stampPeer, awaitingWrites]);
 
-  const {action,transaction}=useMemo(()=>createRoomMutationQueue(()=>tableKey.current===slug&&roomRef.current?.slug===slug?roomRef.current:undefined,postAction,e=>{noteRemoteActionError(e);setError(e.message);void refreshAfterWrite().catch(()=>undefined);},()=>mounted.current&&tableKey.current===slug),[postAction,refreshAfterWrite,slug]);
+  const {action,transaction}=useMemo(()=>createRoomMutationQueue(
+    ()=>tableKey.current===slug&&roomRef.current?.slug===slug?roomRef.current:undefined,
+    postAction,
+    e=>{noteRemoteActionError(e);setError(e.message);void refreshAfterWrite().catch(()=>undefined);},
+    ()=>mounted.current&&tableKey.current===slug&&roomRef.current?.slug===slug,
+    (proposal,key,current)=>{publishPeerPreview(current,proposal,key);},
+  ),[postAction,refreshAfterWrite,slug]);
   const reconnecting = useSyncExternalStore(subscribeReconnecting, isReconnecting, () => false);
 
   const sendData = useCallback((message: Parameters<RemoteClientEvents["remote:data"]>[0]) => { socketRef.current?.emit("remote:data", message); }, []);

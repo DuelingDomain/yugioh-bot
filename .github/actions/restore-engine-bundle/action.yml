@@ -15,14 +15,8 @@ runs:
           packages/duel-server/domain-core/dist
         key: ${{ inputs.key }}
         fail-on-cache-miss: true
-    - name: Setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: "22"
-        cache: npm
-    - name: Install
-      shell: bash
-      run: prlimit --core=0 -- npm ci
+    - name: Restore Node dependencies and Turbo cache
+      uses: ./.github/actions/setup-ci-node
     - name: Build shared
       shell: bash
-      run: prlimit --core=0 -- npm run build --workspace=@yugidraft/shared
+      run: prlimit --core=0 -- npx --no-install turbo run build --cache-dir=.turbo/cache --filter=@yugidraft/shared
