@@ -71,6 +71,9 @@ const byVisibility = (build: (visibility: "mine" | "public") => DuelReplayV2) =>
 async function open(slug = "game-1") {
   render(<DuelReplayView slug={slug} />);
   await screen.findByRole("group", { name: "Replay controls" });
+  // The controls can show before React runs the passive effects of that commit, and the transport keys are a window
+  // listener added there. Under load a key pressed right after findBy was lost; flush the effects first.
+  await act(async () => {});
 }
 
 describe("DuelReplayView transport", () => {
