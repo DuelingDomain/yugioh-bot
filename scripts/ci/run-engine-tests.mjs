@@ -1,5 +1,5 @@
 import { duelTestFiles } from "./duel-test-files.mjs";
-import { PINNED_SHARDS, COMPACT_ENGINE_SHARDS, COMPACT_ENGINE_WORKERS, LOW_ENGINE_WORKERS, LEGACY_SHARDS, SURRENDER_FILES, DIFFERENTIAL_FILES, TABLE_FILE, pinnedPlan, compactEnginePlan } from "./engine-test-plan.mjs";
+import { PINNED_SHARDS, COMPACT_ENGINE_SHARDS, LEGACY_SHARDS, SURRENDER_FILES, DIFFERENTIAL_FILES, TABLE_FILE, pinnedPlan, compactEnginePlan } from "./engine-test-plan.mjs";
 import { listVitestFiles, runVitestShard, saveTimings } from "./test-shards.mjs";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
@@ -43,17 +43,16 @@ if (lane === "pinned") {
   await duel(DIFFERENTIAL_FILES, [], { DIFF_SHARD: shard });
 } else if (lane === "compact") {
   if (requested) throw new Error("Compact engine shards require the full pinned and surrender inventory");
-  const { files, seconds, lowWorkerFiles } = compactEnginePlan(duelTestFiles().engine)[index - 1];
+  const { files, seconds, maxWorkers } = compactEnginePlan(duelTestFiles().engine)[index - 1];
   if (!files.some(task => task.file === TABLE_FILE)) throw new Error("The engine Table suite was not discovered");
   // Table already partitions its row registrations without a collection pass.
-  const assignments = files.map(task => task.file === TABLE_FILE ? { ...task, count: 1 } : task);
+  const assignments = files.map(task => task.file === TABLE_FILE ? { file: TABLE_FILE, index: 0, count: 1 } : task);
+  console.log(`Compact engine shard ${shard}: ${Math.round(seconds)} estimated job seconds, ${maxWorkers} Vitest worker(s)`);
+  process.env.TABLE_SHARD = shard;
   const { runEngineCaseShards } = await import("./run-engine-case-shards.mjs");
   const root = fileURLToPath(new URL("../../packages/duel-server", import.meta.url));
   process.chdir(root);
-  process.env.TABLE_SHARD = shard;
-  console.log(`Compact engine shard ${shard}: ${Math.round(seconds)} estimated worker-seconds including reserved work`);
-  await runEngineCaseShards(root, assignments, { config: join(root, "vitest.ci.config.ts"), maxWorkers: COMPACT_ENGINE_WORKERS, testTimeout: 15000 });
-  await duel(lowWorkerFiles, ["--config=vitest.ci.config.ts", `--maxWorkers=${LOW_ENGINE_WORKERS}`]);
+  await runEngineCaseShards(root, assignments, { config: join(root, "vitest.ci.config.ts"), maxWorkers, testTimeout: 15000 });
 } else {
   await runVitestShard("web", selected);
 }

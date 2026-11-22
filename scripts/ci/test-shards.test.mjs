@@ -44,6 +44,17 @@ test("web matrix covers the data shards and the full or PR-selected shard list",
   assert.ok(fullName(artifact.path).endsWith(`/test-timings/${WEB_TIMING_LANE}-1.json`));
 });
 
+test("the full web plan covers every file and moves the slowest file off shard one", async () => {
+  const { webTestPlan } = await import("./web-test-plan.mjs");
+  const { files: timings } = JSON.parse(readFileSync(new URL("./test-timings/web.json", import.meta.url), "utf8"));
+  const files = [...Object.keys(timings), "tests/new-web.test.ts"];
+  const plan = webTestPlan(files, WEB_FULL_SHARDS, { full: true });
+  assert.equal(plan.length, WEB_FULL_SHARDS);
+  verifyFiles(files, plan.flatMap(shard => shard.files));
+  assert.ok(!plan[0].files.includes("tests/bug-reports-route.test.ts"));
+  assert.ok(plan[0].seconds < plan[1].seconds && plan[0].seconds < plan[2].seconds);
+});
+
 test("Vitest reports completed files, including files with intentionally skipped cases", async t => {
   const scratch = join(root, ".status");
   mkdirSync(scratch, { recursive: true });
