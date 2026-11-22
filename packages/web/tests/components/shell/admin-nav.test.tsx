@@ -5,7 +5,6 @@ import { LinkStub, ready, stubFetch } from "./helpers";
 
 vi.mock("next/navigation", () => ({ usePathname: vi.fn(() => "/settings/card-data") }));
 vi.mock("next/link", () => ({ default: LinkStub }));
-vi.mock("next-auth/react", () => ({ signOut: vi.fn() }));
 
 import { Sidebar } from "../../../src/components/layout/sidebar";
 import { AppShell } from "../../../src/components/layout/app-shell";
