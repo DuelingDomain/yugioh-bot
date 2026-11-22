@@ -11,7 +11,7 @@ name: Test
 # Engine suites and their sharding are described in docs/adr/0003-duel-test-layers.md.
 # Main uses the same paths, diffing from its last successful tested ancestor.
 # Missing diffs, manual and nightly runs select all groups; nightly also runs nduel fuzz.
-# PRs never publish production images; Deploy requires a successful main push Test.
+# Deploy requires a successful main push Test, even when PR prebuilds supply reusable images.
 
 on:
   pull_request:
@@ -1191,7 +1191,7 @@ jobs:
           if-no-files-found: ignore
 
   # These artifacts are unverified until this whole main push Test run succeeds.
-  # Deploy uses this exact run ID and commit; PRs never publish production images.
+  # Deploy uses this exact run ID and commit. Only main publishes these deploy artifacts.
   production-bundle:
     name: Prepare production image bundle
     outputs:
@@ -1258,9 +1258,7 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: ${{ github.sha }}
-      # Fingerprint the engine bundle: the duel image holds its files, so identical files mean an identical image.
-      # The *.SOURCE sidecars only record the deploy commit, so they stay out of the fingerprint (checked: they are the only files that differ between commits).
-      - name: Fingerprint the engine bundle
+      - name: Download verified engine bundle for hashing
         if: matrix.service == 'duel'
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
@@ -1272,18 +1270,12 @@ jobs:
           IMAGE_SERVICE: ${{ matrix.service }}
           IMAGE_SALT_ENV: ${{ matrix.service == 'web' && 'NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY,NEXT_PUBLIC_POSTHOG_KEY,NEXT_PUBLIC_SENTRY_DSN,SENTRY_ORG,SENTRY_PROJECT' || '' }}
           IMAGE_SALT_EXTRA: target:${{ matrix.target }}
+          IMAGE_BUNDLE: ${{ runner.temp }}/release/deploy-bundle.tar.gz
           NEXT_PUBLIC_POSTHOG_KEY: ${{ vars.NEXT_PUBLIC_POSTHOG_KEY }}
           NEXT_PUBLIC_SENTRY_DSN: ${{ vars.NEXT_PUBLIC_SENTRY_DSN }}
           SENTRY_ORG: ${{ vars.SENTRY_ORG }}
           SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
-        run: |
-          if [ "$IMAGE_SERVICE" = duel ]; then
-            mkdir -p "$RUNNER_TEMP/bundle-files"
-            tar -C "$RUNNER_TEMP/bundle-files" -xzf "$RUNNER_TEMP/release/deploy-bundle.tar.gz"
-            IMAGE_SALT_EXTRA="$IMAGE_SALT_EXTRA bundle:$(cd "$RUNNER_TEMP/bundle-files" && find . -type f ! -name '*.SOURCE' -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)"
-            export IMAGE_SALT_EXTRA
-          fi
-          node scripts/ci/image-inputs.mjs
+        run: node scripts/ci/image-inputs.mjs
       # Same inputs as an image built earlier (often on the PR): stamp it with this commit instead of building.
       - name: Reuse an image built from the same inputs
         id: reuse
@@ -1397,6 +1389,99 @@ jobs:
           NEXT_PUBLIC_SENTRY_DSN: ${{ vars.NEXT_PUBLIC_SENTRY_DSN }}
           SENTRY_ORG: ${{ vars.SENTRY_ORG }}
           SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
+
+  # Keep both jobs outside CI result. The x64 job uses the same bundle preparation as main
+  # and only requests an ARM64 runner when the latest main image has different inputs.
+  duel-prebuild-inputs:
+    name: Prepare duel prebuild inputs
+    needs: changes
+    if: >-
+      github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository &&
+      needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.tests_only != 'true'
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      actions: read
+    env:
+      IMAGE: ghcr.io/duelingdomain/yugioh-bot-duel
+      BUNDLE_ARTIFACT: duel-prebuild-bundle-${{ github.sha }}-${{ github.run_attempt }}
+    outputs:
+      hash: ${{ steps.inputs.outputs.hash }}
+      artifact: ${{ steps.upload.outputs.artifact-id != '' && env.BUNDLE_ARTIFACT || '' }}
+    steps:
+      - name: Checkout merge commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Prepare production engine bundle
+        uses: ./.github/actions/prepare-production-bundle
+        with:
+          save-cache: 'false'
+      - name: Compute build-input hash
+        id: inputs
+        env:
+          IMAGE_SERVICE: duel
+          IMAGE_SALT_EXTRA: target:duel-bundled
+          IMAGE_BUNDLE: ${{ runner.temp }}/deploy-bundle.tar.gz
+        run: node scripts/ci/image-inputs.mjs
+      - name: Compare with the latest successful main image
+        id: compare
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUTS_HASH: ${{ steps.inputs.outputs.hash }}
+        shell: bash
+        run: |
+          if main_commit=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/test.yml/runs?branch=main&event=push&status=success&per_page=1" --jq '.workflow_runs[0].head_sha') &&
+             [[ "$main_commit" =~ ^[0-9a-f]{40}$ ]] &&
+             main_image=$(docker buildx imagetools inspect --format '{{json .Image}}' "$IMAGE:$main_commit") &&
+             python3 -c '
+          import json, sys
+          image = json.load(sys.stdin)
+          labels = image.get("config", {}).get("Labels", {})
+          sys.exit(not (image.get("os") == "linux" and image.get("architecture") == "arm64"
+                        and labels.get("org.opencontainers.image.revision") == sys.argv[1]
+                        and labels.get("dev.duelingdomain.inputs") == sys.argv[2]))
+          ' "$main_commit" "$INPUTS_HASH" <<< "$main_image"; then
+            echo "The latest successful main duel image already has these inputs."
+          else
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Upload verified duel prebuild bundle
+        id: upload
+        if: steps.compare.outputs.build == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ${{ env.BUNDLE_ARTIFACT }}
+          path: ${{ runner.temp }}/deploy-bundle.tar.gz
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+  duel-image-prebuild:
+    name: Prebuild ARM64 duel image
+    needs: [duel-prebuild-inputs]
+    if: needs.duel-prebuild-inputs.outputs.artifact != ''
+    runs-on: ubuntu-24.04-arm
+    continue-on-error: true
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+    env:
+      DEPLOY_COMMIT: ${{ github.sha }}
+      IMAGE: ghcr.io/duelingdomain/yugioh-bot-duel
+    steps:
+      - name: Checkout merge commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Build production image
+        uses: ./.github/actions/build-production-image
+        with:
+          service: duel
+          target: duel-bundled
+          bundle-artifact: ${{ needs.duel-prebuild-inputs.outputs.artifact }}
+          inputs-hash: ${{ needs.duel-prebuild-inputs.outputs.hash }}
+          publish-artifacts: 'false'
+          write-caches: 'false'
 
   production-dry-run:
     name: Production composites dry run (bundle, bot and voice assets)

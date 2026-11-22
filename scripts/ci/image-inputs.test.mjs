@@ -1,5 +1,10 @@
 import assert from 'node:assert/strict';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
 import { imageInputsHash, included, isoWeek, SERVICES } from './image-inputs.mjs';
 
 const packages_test_dir = 'packages/shared/test/a.ts';
@@ -45,12 +50,66 @@ test('workflow build inputs (test matrix, voice-asset build, emscripten pin) are
   for (const path of ['.github/workflows/test.yml', '.github/workflows/prepare-voice-assets.yml', 'packages/duel-server/domain-core/pins.json']) {
     assert.equal(included(path, 'web'), true, path);
   }
+  assert.equal(included('.github/actions/prepare-production-bundle/action.yml', 'duel'), true);
+  assert.equal(included('.github/actions/prepare-production-bundle/action.yml', 'web'), false);
 });
 
 test('salt (build settings, week, bundle digest) changes the hash', () => {
   assert.notEqual(imageInputsHash(base, 'web', ['k=1']), imageInputsHash(base, 'web', ['k=2']));
   assert.equal(isoWeek(new Date('2026-11-19T12:00:00Z')), '2026-W47');
 });
+
+test('duel hashing requires the prepared bundle', () => {
+  const result = duelHash();
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /duel.*bundle/i);
+});
+
+test('duel hashes match across checkout provenance and differ for changed engine files', t => {
+  const dir = mkdtempSync(join(tmpdir(), 'duel-image-inputs-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const bundle = join(dir, 'bundle');
+  const tarball = join(dir, 'deploy-bundle.tar.gz');
+  const output = join(dir, 'output');
+  mkdirSync(join(bundle, 'card-scripts'), { recursive: true });
+  const wasm = join(bundle, 'ocgcore.multi.wasm');
+  writeFileSync(wasm, 'wasm');
+  writeFileSync(join(bundle, 'card-scripts', 'domain.lua'), 'script');
+  const originalBuilder = 'c'.repeat(40);
+  const writeSource = (commit, capabilities = 'tag-facing-extra-zones', builtBy = originalBuilder) => {
+    writeFileSync(join(bundle, 'ocgcore.multi.SOURCE'), [
+      `tag=deploy-${commit.slice(0, 12)}`, `builtBy=${builtBy}`, `deployedBy=${commit}`, `capabilities=${capabilities}`, '',
+    ].join('\n'));
+  };
+  const hash = () => {
+    execFileSync('tar', ['-czf', tarball, '-C', bundle, '.'], { stdio: ['ignore', 'ignore', 'pipe'] });
+    writeFileSync(output, '');
+    const result = duelHash(tarball, output);
+    assert.equal(result.status, 0, result.stderr);
+    const inputs = readFileSync(output, 'utf8');
+    assert.match(inputs, /^hash=[0-9a-f]{64}\n$/);
+    return inputs;
+  };
+  writeSource('a'.repeat(40));
+  const pr = hash();
+  writeSource('b'.repeat(40));
+  assert.equal(hash(), pr);
+  writeSource('b'.repeat(40), 'ffa3-facing-extra-zones');
+  assert.notEqual(hash(), pr);
+  writeSource('b'.repeat(40), 'tag-facing-extra-zones', 'd'.repeat(40));
+  assert.notEqual(hash(), pr);
+  writeSource('b'.repeat(40));
+  writeFileSync(wasm, 'different wasm');
+  assert.notEqual(hash(), pr);
+});
+
+function duelHash(bundle = '', output = '') {
+  return spawnSync(process.execPath, [fileURLToPath(new URL('./image-inputs.mjs', import.meta.url))], {
+    env: { ...process.env, IMAGE_SERVICE: 'duel', IMAGE_BUNDLE: bundle, IMAGE_SALT_EXTRA: 'target:duel-bundled', GITHUB_OUTPUT: output },
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+}
 
 test('a tree without a Dockerfile is refused', () => {
   assert.throws(() => imageInputsHash([entry('package.json')], 'web'), /Dockerfile/);
