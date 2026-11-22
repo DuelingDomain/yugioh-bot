@@ -17,6 +17,15 @@ export function isWaitlistRefusal(error: unknown): boolean {
   return errors.some(value => ["sign_up_restricted_waitlist", "not_allowed_access", "sign_up_mode_restricted"].includes(String(record(value).code)));
 }
 
+const OAUTH_CANCEL_CODES = ["oauth_access_denied", "access_denied"];
+/** The person pressed Cancel on the Discord authorize page. Clerk reports it as `oauth_access_denied`; Discord's own code is `access_denied`. */
+export function isOAuthCancel(error: unknown): boolean {
+  const outer = record(error);
+  const cause = record(outer.cause);
+  const errors = Array.isArray(outer.errors) ? outer.errors : Array.isArray(cause.errors) ? cause.errors : [outer];
+  return errors.some(value => OAUTH_CANCEL_CODES.includes(String(record(value).code)));
+}
+
 export function mapClerkError(error: unknown, context: Context): AuthErrorView {
   const outer = record(error);
   // Signal methods may wrap a ClerkAPIResponseError in ClerkError.cause.
