@@ -1,5 +1,5 @@
 # Verified fixed-seed binary hashes from docs/engine/core-pins.md (emsdk 4.0.9; multiplayer LUA_FIXED_SEED=1).
 # Update the corresponding pin when intentionally changing a pinned core's build inputs.
-0fc818d74544c4945983f8f6925b6e1ab10859840b1d050847991e1b12d18033  ocgcore.domain.sync.wasm
+0c63ce3a45158cfa7e2622cb104fca6287996eb0833677605b1e1f404913b32d  ocgcore.domain.sync.wasm
 fd67651cf72d4adcd3745e2a3abf06f91c8593fe896fa8dfcc59f81ee26eed82  ocgcore.multi.sync.wasm
-d499f74fa5c96e2c8f18b8a4063017bbcfc69a09bbfdac8a4953bdfdcceb060a  ocgcore.multi-domain.sync.wasm
+9bb053e03a658ad0ff769253faaa9810f4d497b69f6ca44bc85f3229c61029f4  ocgcore.multi-domain.sync.wasm

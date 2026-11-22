@@ -54,8 +54,10 @@ The 110-patch pinned builds use `LUA_FIXED_SEED=1` with the pinned image above. 
 | Pinned core | SHA-256 |
 | --- | --- |
 | Standard multiplayer | `fd67651cf72d4adcd3745e2a3abf06f91c8593fe896fa8dfcc59f81ee26eed82` |
-| Domain multiplayer | `d499f74fa5c96e2c8f18b8a4063017bbcfc69a09bbfdac8a4953bdfdcceb060a` |
-| Domain 1v1 | `0fc818d74544c4945983f8f6925b6e1ab10859840b1d050847991e1b12d18033` |
+| Domain multiplayer | `9bb053e03a658ad0ff769253faaa9810f4d497b69f6ca44bc85f3229c61029f4` |
+| Domain 1v1 | `0c63ce3a45158cfa7e2622cb104fca6287996eb0833677605b1e1f404913b32d` |
+
+The Domain pins above were rebuilt locally on 2026-11-21 for issue #654 (`src/apply-domain-patch.mjs`: an additional Normal Summon/Set count such as Madolche Salon now also covers a main deck Deck Master in the DMZ; the DMZ counts as the hand for that count only). The numbered patches and the plain multiplayer core are unchanged. The frozen legacy 1v1 Domain core (`legacy-1v1`) is not changed.
 
 The 2026-10-22 mixed-LP follow-up changes only the Lua overlay and documentation: Supremacy Berry and Ancient Sacred Wyvern now use the higher branch for mixed LP and partial ties; all equal stays neutral. Unstable Evolution and Megamorph already implement that fallback. The overlay folder fingerprint is `7b3743963d0ad284cb074d5920ffc33699eaef43a578e09aa29f7c57837dbd1e`; `scripts/native/golden.tsv` records this new input fingerprint and retains its duel rows for CI verification. Both 109-patch multiplayer cores were rebuilt locally with Emscripten 4.0.9 and `LUA_FIXED_SEED=1` and match the pinned hashes above exactly, so `expected-sha256.txt` needs no change. The touched LP scenario suite passes all 172 real-engine cases with `NSEAT_LIVE=1 DUEL_REQUIRE_CORES=1`, including Soul Drain Dragon and Aromaseraphy Sweet Marjoram. No local unit or native suites were run.
 
