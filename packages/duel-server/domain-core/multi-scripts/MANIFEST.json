@@ -9360,6 +9360,20 @@
       "note": "A target can change control before resolution. Destroy it without assuming the extra Tribute effect exists; ignore a missing target."
     },
     {
+      "code": 100464005,
+      "file": "c100464005.lua",
+      "name": "Finger Game",
+      "kind": "fix",
+      "classes": [],
+      "stockPath": "pre-release/c100464005.lua",
+      "stockSha256": "cd0086d2f6ea3744a718329ff2f1fcc463cb8de778a8c1e18cb37c91d2863cf8",
+      "redefined": [
+        "target",
+        "activate"
+      ],
+      "note": "Owner exception to R-COMMON-EACH-PLAYER: the activator picks ONE opponent (R-COMMON-OPP-PICK), and only the activator and that opponent play (2 Decks, numbers 0 to 4). Other duelists are not affected. Tag: one duelist of the other team. Pre-release code: on graduation, re-key overlay + MANIFEST + rule + proof to the official code."
+    },
+    {
       "code": 101403001,
       "file": "c101403001.lua",
       "name": "The Sun God's Poet - Helpoemer",

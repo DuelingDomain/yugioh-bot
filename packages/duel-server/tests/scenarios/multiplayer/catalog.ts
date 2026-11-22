@@ -766,7 +766,6 @@ export const GROUP_ONE: CatalogScenario[] = [
 export const FORBIDDEN_EVIDENCE: Record<number, Evidence[]> = {
   54475145: [ev(54475145, 53, "Duel.RegisterFlagEffect(rp,id"), ev(54475145, 80, "eg:Filter(s.spconfilter,nil,tp)")],
   100461101: [{ file: "pre-release/c100461101.lua", line: 57, token: "local opp=1-tp" }, { file: "pre-release/c100461101.lua", line: 87, token: "Duel.GetControl(g,opp,0,0,nil,opp)" }],
-  100464005: [{ file: "pre-release/c100464005.lua", line: 54, token: "local opp=1-tp" }, { file: "pre-release/c100464005.lua", line: 59, token: "Duel.AnnounceNumberRange(opp,0,4)" }],
   101403005: [{ file: "pre-release/c101403005.lua", line: 32, token: "local opp=1-tp" }, { file: "pre-release/c101403005.lua", line: 63, token: "Duel.GetFieldGroup(tp,0,LOCATION_HAND)" }],
   101403067: [{ file: "pre-release/c101403067.lua", line: 30, token: "Duel.RegisterFlagEffect(rp,id" }, { file: "pre-release/c101403067.lua", line: 128, token: "Duel.GetFlagEffectLabel(tp,id)" }],
   100459021: [{ file: "pre-release/c100459021.lua", line: 51, token: "Duel.SendtoHand(rg,rg:GetFirst():GetPreviousControler()" }],
@@ -913,6 +912,7 @@ export const CARD_RULE_EVIDENCE: Record<number, Evidence[]> = {
   // Count rules.
   90669991: [ev(90669991, 17, "ep==tp"), ev(90669991, 30, "g:Select(1-tp")],
   15693423: [ev(15693423, 28, "GetFieldGroup(tp,0,LOCATION_ONFIELD)"), ev(15693423, 38, "#g-Duel.GetFieldGroupCount(tp,LOCATION_ONFIELD,0)")],
+  100464005: [{ file: "overlay/c100464005.lua", line: 6, token: "s.activate=aux.MPOne(s.activate)" }],
   // Defaults.
   44656491: [ev(44656491, 33, "IsTurnPlayer(tp)"), ev(44656491, 37, "Duel.PayLPCost(tp,100)")],
   72405967: [ev(72405967, 22, "GetMatchingGroup(Card.IsMonster,tp,LOCATION_HAND,LOCATION_HAND")],
@@ -1787,6 +1787,7 @@ export const LIVE_PROOF: Readonly<Record<number, readonly string[]>> = {
     "compare-ffa4-evenly-matched-three-opponents",
     "compare-tag-evenly-matched-joined-field-picked-duelist-banishes",
   ], // Evenly Matched
+  100464005: ["finger-game-ffa3-only-the-chosen-opponent-plays", "finger-game-tag-only-the-chosen-opponent-plays", "finger-game-tag-short-deck-opponent-not-offered"], // Finger Game
   29843091: [
     "w9-ffa3-opponent-pick-and-place-refuse-wrong-answers",
     "w9-tag-opponent-pick-and-place-refuse-wrong-answers",
