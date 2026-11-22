@@ -1237,6 +1237,11 @@
 .cd.back.shimmer{position:relative;overflow:hidden}
 .cd.back.shimmer::after{content:"";position:absolute;inset:0;background:linear-gradient(110deg,transparent 30%,rgb(255 255 255/.22) 48%,transparent 66%);background-size:240% 100%;animation:readsweep 1.6s linear infinite;pointer-events:none}
 .ghosted{opacity:.92}
+/* A peer preview: the player's own change, shown before the server confirms it. A small pulsing dot, no dimming. */
+.syncing{position:relative}
+.syncMark{position:absolute;top:3px;right:3px;width:6px;height:6px;border-radius:50%;background:rgb(255 255 255 / .85);box-shadow:0 0 6px rgb(167 139 255 / .9);animation:syncPulse 1s ease-in-out infinite;pointer-events:none}
+@keyframes syncPulse{50%{opacity:.35}}
+@media (prefers-reduced-motion:reduce){.syncMark{animation:none}}
 .reveal>.cd{animation:revealin 200ms var(--ease) both}
 @keyframes revealin{from{opacity:0}to{opacity:1}}
 .leaving>.cd{box-shadow:0 4px 14px rgb(0 0 0/.5)}

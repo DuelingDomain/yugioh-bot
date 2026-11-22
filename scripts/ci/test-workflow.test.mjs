@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { parse } from "yaml";
+import { engineMatrix, PINNED_SHARDS, SURRENDER_FILES } from "./engine-test-plan.mjs";
 
 const { jobs } = parse(readFileSync(new URL("../../.github/workflows/test.yml", import.meta.url), "utf8"));
 const runGate = (job, env) => {
@@ -28,7 +29,7 @@ const gateJobs = () => Object.fromEntries(jobs['ci-result'].needs.map(name => [n
 const gate = (results, event = 'workflow_dispatch', nightly = event === 'schedule') => runGate('ci-result', { RESULTS: JSON.stringify(results), EVENT: event, NIGHTLY: String(nightly) });
 
 test('CI result accepts intentional skips and rejects failed or cancelled jobs and detection', () => {
-  assert.deepEqual([...jobs['ci-result'].needs].sort(), Object.keys(jobs).filter(name => name !== 'ci-result').sort());
+  assert.deepEqual([...jobs['ci-result'].needs].sort(), Object.keys(jobs).filter(name => !['ci-result', 'image-prebuild'].includes(name)).sort());
   assert.equal(jobs['ci-result'].if, 'always()');
   assert.equal(gate(gateJobs()), 0);
   for (const name of jobs['ci-result'].needs) {
@@ -79,7 +80,10 @@ test('TS engine changes allow skipped core checks; core selection requires both 
   }
   assert.equal(gate(results, 'pull_request'), 0);
   assert.equal(jobs.changes.outputs.core, '${{ steps.reuse.outputs.core || steps.diff.outputs.core }}');
-  assert.equal(jobs['engine-shards'].strategy.matrix.include.some(leg => leg.suite === 'differential'), false);
+  assert.deepEqual(engineMatrix(false), [
+    ...Array.from({ length: PINNED_SHARDS }, (_, i) => ({ suite: 'pinned', shard: i + 1, count: PINNED_SHARDS })),
+    ...SURRENDER_FILES.map((_, i) => ({ suite: 'surrender', shard: i + 1, count: SURRENDER_FILES.length })),
+  ]);
   assert.deepEqual(jobs['engine-differential'].strategy.matrix.shard, [1, 2]);
   assert.equal(jobs['engine-differential'].strategy['fail-fast'], false);
   assert.match(jobs['engine-differential'].steps.at(-1).run, /run-engine-tests\.mjs differential .*matrix\.shard.*\/2/);
