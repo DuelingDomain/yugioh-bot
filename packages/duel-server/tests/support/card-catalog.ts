@@ -20,6 +20,8 @@ const TYPE_TOKEN = 0x4000;
 interface Catalog {
   byName: Map<string, CatalogCard[]>;
   byCode: Map<number, CatalogCard>;
+  /** Alternate-art passcodes (alias set). Findable by passcode only: their name is shared with the main card. */
+  byAliasCode: Map<number, CatalogCard>;
   all: CatalogCard[];
 }
 
@@ -40,13 +42,21 @@ function load(dir: string): Catalog {
       .all() as CatalogCard[];
     const byName = new Map<string, CatalogCard[]>();
     const byCode = new Map<number, CatalogCard>();
+    const byAliasCode = new Map<number, CatalogCard>();
+    const aliasRows = db
+      .prepare(
+        "SELECT d.id AS code, t.name AS name, d.type AS type, d.level AS level, d.atk AS attack, d.def AS defense " +
+          "FROM datas d JOIN texts t USING(id) WHERE d.alias!=0 AND (d.ot&3)!=0 ORDER BY d.id",
+      )
+      .all() as CatalogCard[];
+    for (const row of aliasRows) byAliasCode.set(row.code, row);
     for (const row of rows) {
       byCode.set(row.code, row);
       const list = byName.get(row.name) ?? [];
       list.push(row);
       byName.set(row.name, list);
     }
-    const catalog = { byName, byCode, all: rows };
+    const catalog = { byName, byCode, byAliasCode, all: rows };
     catalogs.set(dir, catalog);
     return catalog;
   } finally {
@@ -68,7 +78,7 @@ export function resolveCard(ref: CardRef, dir: string = engineDataDirectory): nu
 export function describeCard(ref: CardRef, dir: string = engineDataDirectory): CatalogCard {
   const catalog = load(dir);
   if (typeof ref === "number") {
-    const card = catalog.byCode.get(ref);
+    const card = catalog.byCode.get(ref) ?? catalog.byAliasCode.get(ref);
     if (!card) throw new Error(`Unknown card code ${ref} (not a main passcode in cards.cdb)`);
     return card;
   }

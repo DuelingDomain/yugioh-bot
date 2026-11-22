@@ -188,6 +188,47 @@ if Fusion and Fusion.ContactCon then
 	end
 end
 
+-- Four Extra Deck monsters have their own EFFECT_SPSUMMON_PROC whose condition starts with `if c:IsFaceup() then return false end`
+-- (a card in the Extra Deck is face-down). A Deck Master in the DMZ is face-up, so that stock check would refuse its own summon
+-- mechanic, which the rulebook allows from the DMZ. Same idea as the Contact Fusion wrapper above: for these codes only, the
+-- condition runs with THAT card reading as face-down when it is in the DMZ. Materials, costs and extra checks stay the stock ones.
+-- A card in the Extra Deck is never in the DMZ, so a face-up Pendulum copy there is still refused by the stock check.
+local DMZ_OWN_PROC_CODES = {
+	[43143567] = true, -- Fallen Angel of the Golden Land
+	[74631897] = true, -- Artmage Non-Finito
+	[76075139] = true, -- Vaylantz Genesis Grand Duke
+	[6218704] = true, -- Odd-Eyes Arcray Dragon
+}
+if Card.RegisterEffect and Effect.GetCondition and Effect.SetCondition then
+	local stock_register_effect = Card.RegisterEffect
+	function Card.RegisterEffect(c, e, ...)
+		if e and DMZ_OWN_PROC_CODES[c:GetOriginalCode()] and e:GetCode() == EFFECT_SPSUMMON_PROC then
+			local cond = e:GetCondition()
+			if cond then
+				e:SetCondition(function(e2, c2, ...)
+					if not (c2 and _IsLocation(c2, LOCATION_DECKMASTER)) then
+						return cond(e2, c2, ...)
+					end
+					local stock_facedown, stock_faceup = Card.IsFacedown, Card.IsFaceup
+					Card.IsFacedown = function(x, ...)
+						if x == c2 then return true end
+						return stock_facedown(x, ...)
+					end
+					Card.IsFaceup = function(x, ...)
+						if x == c2 then return false end
+						return stock_faceup(x, ...)
+					end
+					local ok, res = pcall(cond, e2, c2, ...)
+					Card.IsFacedown, Card.IsFaceup = stock_facedown, stock_faceup
+					if not ok then error(res, 0) end
+					return res
+				end)
+			end
+		end
+		return stock_register_effect(c, e, ...)
+	end
+end
+
 local function install_pendulum_wrap()
 	if not Pendulum or Pendulum.__domain_hand_wrap then
 		return

@@ -32,6 +32,9 @@ overlay (`mp-utility.lua`, `MANIFEST.json` and the card overrides). Domain loads
 `domain.lua` (and `domain.legacy.lua` for the legacy 1v1 core) wraps `Fusion.ContactCon` once: a Deck Master in the DMZ is face-up,
 so the wrapper makes only that card read as face-down while its own Contact Fusion condition runs. All 68 Contact Fusion cards then
 summon from the DMZ with their own materials and cost; no per-card patch is needed. Standard has no DMZ card, so it is unchanged.
+The same files wrap the `EFFECT_SPSUMMON_PROC` condition of four Extra Deck monsters (Fallen Angel of the Golden Land, Artmage Non-Finito,
+Vaylantz Genesis Grand Duke, Odd-Eyes Arcray Dragon) by code list in `Card.RegisterEffect`: their stock condition starts with `if c:IsFaceup() then return false end`, so only that
+card in the DMZ reads as face-down while it runs. Their own cost stays. A card in the Extra Deck is never in the DMZ, so it is still judged by the stock condition.
 The startup bundle check also requires the pinned Standard/Domain 1v1 cores, `manifest.json` and the
 legacy files/hashes. The installer requires `strings.conf` and verifies the overlay hash. Installing
 only two WASMs into an empty directory is insufficient.

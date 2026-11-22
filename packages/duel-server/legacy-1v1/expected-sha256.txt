@@ -1,2 +1,2 @@
 e7f8703790f1acd08f2748ebbbe4d194340cd1892b88223e4bf63b6e225d8d3b  ocgcore.domain.legacy.wasm
-9c7406a162f2bf1d2e94b5e4787bb80c841496257aef8ac81117161fb6dcceb2  card-scripts/domain.legacy.lua
+31c65d8c2c4c27f5f1b025fa733fa8d3d1acfa846e61764e3f5b433b0650ea57  card-scripts/domain.legacy.lua
