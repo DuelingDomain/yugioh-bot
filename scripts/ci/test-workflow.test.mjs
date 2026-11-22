@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { readFileSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { readFileSync, mkdirSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -127,6 +127,37 @@ test('app groups run only when their area is selected', () => {
   }
   const protocol = jobs['effect-protocol'].steps;
   assert.equal(protocol.some(step => step.run?.includes('npm run typecheck -- --force')), false);
+});
+
+test('the CI helper step runs all suites and fails if any suite fails', t => {
+  const dir = mkdtempSync(join(tmpdir(), 'ci-helper-step-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const bin = join(dir, 'bin');
+  mkdirSync(bin);
+  const calls = join(dir, 'calls');
+  const stub = `#!/bin/sh
+case "$*" in
+  "--test "*) suite=node ;;
+  "-B scripts/ci/parallel_emxx_test.py"*) suite=parallel-emxx ;;
+  "-B -m unittest discover "*test_deploy_safety.py*) suite=deploy-safety ;;
+  *) exit 2 ;;
+esac
+printf '%s\\n' "$suite" >> "$CALLS"
+[ "$FAIL_SUITE" != "$suite" ] || exit 7
+`;
+  for (const tool of ['node', 'python3']) writeFileSync(join(bin, tool), stub, { mode: 0o755 });
+  const step = jobs['ci-scripts'].steps.find(step => step.name === 'Test CI helpers');
+  const suites = ['deploy-safety', 'node', 'parallel-emxx'];
+  for (const failedSuite of ['', ...suites]) {
+    writeFileSync(calls, '');
+    const result = spawnSync('bash', ['-e', '-o', 'pipefail', '-c', step.run], {
+      env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, CALLS: calls, FAIL_SUITE: failedSuite },
+      encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    assert.ifError(result.error);
+    assert.deepEqual(readFileSync(calls, 'utf8').trim().split('\n').sort(), suites, failedSuite);
+    assert.equal(result.status, failedSuite ? 1 : 0, result.stderr || failedSuite);
+  }
 });
 
 test('application engine coverage shards affected tests and cannot select the full matrices', () => {
