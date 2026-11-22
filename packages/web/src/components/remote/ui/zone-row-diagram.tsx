@@ -4,19 +4,20 @@
  */
 export function ZoneRowDiagram({ className }: { className?: string }) {
   const cols = [0, 1, 2, 3, 4];
-  const cell = (row: number, col: number, lit: string | null) => (
-    <rect key={`${row}-${col}`} x={30 + col * 28} y={4 + row * 30} width="24" height="26" rx="3" fill={lit ? "var(--gold, #e8b94f)" : "none"} fillOpacity={lit ? 0.9 : 0} stroke="currentColor" strokeOpacity={lit ? 1 : 0.45} strokeWidth="1.2" />
+  const left = 64, step = 30, size = 24, top = 4, rowStep = 32;
+  const cell = (row: number, col: number, lit: boolean) => (
+    <rect key={`${row}-${col}`} x={left + col * step} y={top + row * rowStep} width={size} height={size + 2} rx="3.5" fill={lit ? "var(--gold, #e8b94f)" : "currentColor"} fillOpacity={lit ? 1 : 0.06} stroke={lit ? "var(--gold-ink, #f6dc9a)" : "currentColor"} strokeOpacity={lit ? 1 : 0.4} strokeWidth="1.2" />
   );
   return (
-    <svg className={className} viewBox="0 0 180 84" role="img" aria-label="Seen from your seat: M1 is the far left card of the Main Monster row, the row nearer the middle of the table. S5 is the far right card of the Spell and Trap row, the row nearest you." width="180" height="84" style={{ display: "block", maxWidth: "100%", height: "auto", color: "var(--ink, #cdbfe8)" }}>
-      {cols.map(c => cell(0, c, c === 0 ? "M1" : null))}
-      {cols.map(c => cell(1, c, c === 4 ? "S5" : null))}
-      <g fontFamily="system-ui, sans-serif" fontSize="9" fill="currentColor">
-        <text x="2" y="21" fontWeight="700">Main</text><text x="2" y="30">Monster</text>
-        <text x="2" y="51" fontWeight="700">Spell &amp;</text><text x="2" y="60">Trap</text>
-        <text x="42" y="21" textAnchor="middle" fill="#1b1030" fontWeight="700">M1</text>
-        <text x="154" y="51" textAnchor="middle" fill="#1b1030" fontWeight="700">S5</text>
-        <text x="100" y="76" textAnchor="middle" fontWeight="700">▼ You sit at this edge</text>
+    <svg className={className} viewBox="0 0 224 84" role="img" aria-label="Seen from your seat: M1 is the far left card of the Main Monster row, the row nearer the middle of the table. S5 is the far right card of the Spell and Trap row, the row nearest you." style={{ display: "block", maxWidth: "100%", height: "auto", color: "var(--ink2, #cdbfe8)" }}>
+      {cols.map(c => cell(0, c, c === 0))}
+      {cols.map(c => cell(1, c, c === 4))}
+      <g fontFamily="var(--font-duel-ui), 'Sofia Sans Semi Condensed', system-ui, sans-serif" fontSize="10" fill="currentColor">
+        <text x="0" y="20" fontWeight="700" fill="var(--ink, #f1ead9)">Main</text><text x="0" y="31">Monster</text>
+        <text x="0" y="52" fontWeight="700" fill="var(--ink, #f1ead9)">Spell &amp;</text><text x="0" y="63">Trap</text>
+        <text x={left + size / 2} y={top + size / 2 + 4} textAnchor="middle" fill="#1b1204" fontWeight="800">M1</text>
+        <text x={left + 4 * step + size / 2} y={top + rowStep + size / 2 + 4} textAnchor="middle" fill="#1b1204" fontWeight="800">S5</text>
+        <text x={left + (4 * step + size) / 2} y="81" textAnchor="middle" fontSize="9.5" fill="var(--ink3, #aaa1ba)">▼ You sit at this edge</text>
       </g>
     </svg>
   );

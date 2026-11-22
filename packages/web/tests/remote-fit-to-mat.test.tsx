@@ -2,7 +2,8 @@
 import React,{StrictMode,useState} from 'react';
 import {afterEach,expect,it,vi} from 'vitest';
 import {cleanup,fireEvent,render,renderHook,act,screen,waitFor} from '@testing-library/react';
-import {createFieldCalibration,type FieldCalibration,type MatFitResult} from '@yugidraft/vision';
+import {createFieldCalibration,fieldMatPoint,FIELD_ROW,type FieldCalibration,type MatFitResult} from '@yugidraft/vision';
+import {startGridCorners} from '../src/lib/remote/zone-grid';
 const worker=vi.hoisted(()=>vi.fn());
 vi.mock('@yugidraft/vision',async importOriginal=>({...await importOriginal<typeof import('@yugidraft/vision')>(),fitToMat:worker}));
 import {useFieldTransform} from '../src/components/remote/field-transform';
@@ -84,4 +85,11 @@ it.each(['bottom','top','left','right'] as const)('passes the actual %s side to 
 });
 it('uses the phone default bottom side when no side was saved',async()=>{
  worker.mockResolvedValue(good);setup();await waitFor(()=>expect(worker).toHaveBeenCalledOnce());expect(worker.mock.calls[0][1].playerSide).toBe('bottom');
+});
+
+it.each(['top','bottom'] as const)('starts a %s-side grid with Spell & Trap on top, Main Monster in the middle and Extra Monster at the bottom',side=>{
+ const orientation={playerSide:side,mirrored:false};
+ const grid=createFieldCalibration(startGridCorners(orientation),orientation);
+ const y=(row:number)=>fieldMatPoint({x:.5,y:(row+.5)*FIELD_ROW},grid).y;
+ expect(y(2)).toBeLessThan(y(1));expect(y(1)).toBeLessThan(y(0));
 });

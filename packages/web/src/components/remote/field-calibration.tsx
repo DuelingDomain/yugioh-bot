@@ -3,7 +3,7 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { createFieldCalibration, createTwoCardCalibration, fieldMatPoint, hasExtraMonsterZones, shiftFieldCalibrationRows, swapFieldCalibrationRows, type DetectedQuad, type FieldCalibration, type FieldFormat, type FieldOrientation, type PlayerSide } from '@yugidraft/vision';
-import { fieldGridCells, isPlacedCalibration } from '@/lib/remote/zone-grid';
+import { fieldGridCells, isPlacedCalibration, startGridCorners } from '@/lib/remote/zone-grid';
 import { duelFontClasses } from '@/components/duel/fonts';
 import { FieldOrientationControls } from './field-orientation';
 import { FitToMatControl } from './fit-to-mat';
@@ -29,14 +29,19 @@ export function FieldCalibrationControl({video,format='normal',defaultSide='bott
     return canvas.toDataURL('image/jpeg',.75);
   });
   useEffect(()=>()=>{if(image.startsWith('blob:'))URL.revokeObjectURL(image);},[image]);
-  const tf=useFieldTransform(initialCalibration?.corners,undefined,video?.videoWidth&&video.videoHeight?video.videoWidth/video.videoHeight:16/9),[error,setError]=useState('');
-  cancel.current=onCancel;
+  /** Until a side is chosen the grid shows the guess for this camera, in the start layout: Spell & Trap row on top, Extra Monster row at the bottom. */
+  const guess=useMemo<FieldOrientation>(()=>({playerSide:defaultSide,mirrored:false}),[defaultSide]);
   const [orientation,setOrientation]=useState<FieldOrientation|undefined>(initialCalibration?.orientation);
+  const orientationRef=useRef(orientation);orientationRef.current=orientation;
+  const tf=useFieldTransform(initialCalibration?.corners??startGridCorners(guess),undefined,video?.videoWidth&&video.videoHeight?video.videoWidth/video.videoHeight:16/9,()=>startGridCorners(orientationRef.current??guess)),[error,setError]=useState('');
+  cancel.current=onCancel;
   const [calibrationCards,setCalibrationCards]=useState<DetectedQuad[]>([]);
   /** After the two-card setup: M1 and S5 are lit so the player can see whether they sit on the cards. `swapAsk`: the fit is reflected, which is what swapped rows look like. */
   const [checking,setChecking]=useState(false),[swapAsk,setSwapAsk]=useState(false);
   const [gridHeight,setGridHeight]=useState(()=>1000*(video?.videoWidth&&video.videoHeight?video.videoHeight/video.videoWidth:9/16)),[busy,setBusy]=useState(false);
-  const preview=useMemo(()=>{try{return createFieldCalibration(tf.corners,orientation);}catch{return undefined;}},[tf.corners,orientation]);
+  /** A saved grid without a side (older saves) is drawn as before; a new one is drawn with the guess. */
+  const drawn=orientation??(initialCalibration?undefined:guess);
+  const preview=useMemo(()=>{try{return createFieldCalibration(tf.corners,drawn);}catch{return undefined;}},[tf.corners,drawn]);
   const matPoint=(x:number,y:number)=>preview?fieldMatPoint({x,y},preview):{x:tf.corners.reduce((sum,p)=>sum+p.x,0)/4,y:tf.corners.reduce((sum,p)=>sum+p.y,0)/4};
   async function quickCalibration(){
     if(!detectCalibrationCards||!video?.videoWidth||!video.videoHeight)return;
@@ -65,6 +70,13 @@ export function FieldCalibrationControl({video,format='normal',defaultSide='bott
     catch{setError('The grid cannot be swapped here: it would leave the picture. Make it smaller with Size first.');}
   }
   const cells=fieldGridCells(format);
+  /** The zone names keep one size on screen, whatever the size of the picture: the picture's box is 1000 units wide, so units per pixel = 1000 / width. */
+  const imageBox=useRef<HTMLDivElement>(null),[label,setLabel]=useState({unit:1,px:11});
+  useEffect(()=>{
+    const el=imageBox.current;if(!el||typeof ResizeObserver==='undefined')return;
+    const read=()=>{const width=Math.max(el.getBoundingClientRect().width,200);setLabel({unit:1000/width,px:width<500?8.5:width<900?10:width<1500?11.5:13});};
+    read();const watcher=new ResizeObserver(read);watcher.observe(el);return()=>watcher.disconnect();
+  },[image]);
   useLayoutEffect(()=>{
     const modal=dialog.current;if(!modal)return;
     const opener=document.activeElement instanceof HTMLElement?document.activeElement:null;
@@ -89,39 +101,76 @@ export function FieldCalibrationControl({video,format='normal',defaultSide='bott
     };
   },[]);
   if(typeof document==='undefined')return null;
-  const locked=busy||!!calibrationCards.length;
+  const locked=busy||!!calibrationCards.length,quick=!!detectCalibrationCards;
+  const settingNumber=quick?3:2;
+  const shown=cells.map(cell=>{
+    const points=[[cell.x,cell.y],[cell.x+cell.w,cell.y],[cell.x+cell.w,cell.y+cell.h],[cell.x,cell.y+cell.h]].map(([x,y])=>matPoint(x,y));
+    return {cell,points,left:Math.min(...points.map(p=>p.x)),top:Math.min(...points.map(p=>p.y))};
+  });
+  const inset=label.px*.55*label.unit;
   return createPortal(<div className={`${duelFontClasses} ${s.theme} ${s.backdrop}`} onClick={event=>event.stopPropagation()} onPointerDown={event=>event.stopPropagation()}>
-    <div ref={dialog} className={`${s.calibration} ${large?s.calibrationLarge:''}`} data-large={large||undefined} role="dialog" aria-label="Calibrate field zones" aria-modal="true" aria-describedby={description} aria-busy={busy} tabIndex={-1}>
-      <h2>Calibrate field zones</h2>
-      <FitToMatControl video={video} auto={!placed} defaultSide={defaultSide} calibration={preview} disabled={locked} onBusy={setBusy} onCapture={frame=>{const request=generation.current;frame.toBlob(blob=>{if(blob&&request===generation.current)setImage(URL.createObjectURL(blob));},'image/jpeg',.75);setGridHeight(1000*frame.height/frame.width);}} onApply={grid=>{tf.rebase(grid.corners);setOrientation(grid.orientation);setCalibrationCards([]);setError('');}}/>
-      {detectCalibrationCards?<div className={g.quick}><strong>Quick setup with two cards</strong><p>From your seat, place a MONSTER upright in M1: in the Main Monster row (the row nearer the middle of the table), at the far left. Place a SPELL/TRAP upright in S5: in the Spell &amp; Trap row (the row nearest you), at the far right. Clear the rest of the mat. Keep both cards flat.</p><ZoneRowDiagram/><button type="button" className={table.btn} disabled={!image||busy} onClick={()=>void quickCalibration()}>{busy?'Finding both cards…':'Use cards in M1 and S5'}</button><p>Then tap the monster outline. The two different rows determine your side and mirroring.</p></div>:null}
-      <div id={description}>
-        <p>Move the field grid over your mat</p>
-        <p>Drag the grid over your mat. Drag a corner or edge to resize it; the opposite side stays put. Turn it to any angle with the round handle, or use the quarter-turn buttons. Arrow keys move it. From your seat: Field at top-left, Extra at bottom-left, and Deck at bottom-right.</p>
-        <p>{hasExtraMonsterZones(format)?'Include the two Extra Monster Zones above your main monster row: EMZ left above M2, EMZ right above M4.':'Genesys uses five Main Monster Zones and no Extra Monster Zones.'}</p>
+    <div ref={dialog} className={`${s.calibration} ${g.dialog} ${large?g.large:''}`} data-large={large||undefined} role="dialog" aria-label="Calibrate field zones" aria-modal="true" aria-describedby={description} aria-busy={busy} tabIndex={-1}>
+      <h2 className={g.title}>Calibrate field zones</h2>
+      <div className={g.body}>
+        <div className={g.panel}>
+          <section className={g.step}>
+            <StepHead number={1} title="Fit automatically"/>
+            <p className={g.line}>Let the app find the printed zones on your mat.</p>
+            <FitToMatControl video={video} auto={!placed} defaultSide={defaultSide} calibration={preview} disabled={locked} onBusy={setBusy} onCapture={frame=>{const request=generation.current;frame.toBlob(blob=>{if(blob&&request===generation.current)setImage(URL.createObjectURL(blob));},'image/jpeg',.75);setGridHeight(1000*frame.height/frame.width);}} onApply={grid=>{tf.rebase(grid.corners);setOrientation(grid.orientation);setCalibrationCards([]);setError('');}}/>
+          </section>
+          {quick?<section className={g.step}>
+            <StepHead number={2} title="Quick setup with two cards"/>
+            <p className={g.line}>Put a MONSTER in M1 and a SPELL/TRAP in S5, then press the button.</p>
+            <ZoneRowDiagram className={g.diagram}/>
+            <button type="button" className={`${table.btn} ${table.go} ${g.wide}`} disabled={!image||busy} onClick={()=>void quickCalibration()}>{busy?'Finding both cards…':'Use cards in M1 and S5'}</button>
+            <details className={g.help}><summary>How it works</summary>
+              <p>From your seat, place a MONSTER upright in M1: in the Main Monster row (the row nearer the middle of the table), at the far left. Place a SPELL/TRAP upright in S5: in the Spell &amp; Trap row (the row nearest you), at the far right. Clear the rest of the mat. Keep both cards flat.</p>
+              <p>Then tap the monster outline. The two different rows determine your side and mirroring.</p>
+            </details>
+          </section>:null}
+          {calibrationCards.length?<p role="status" className={g.callout}>Tap the MONSTER in M1. The other card must be a SPELL/TRAP in S5.</p>:null}
+          {checking&&!calibrationCards.length?<div className={g.check} role="group" aria-label="Check zones" data-testid="calibration-check"><strong>Check zones</strong>
+            <p>M1 and S5 are lit on the picture. They should sit on your two cards. If the whole grid is one row off, shift it.</p>
+            {swapAsk?<div role="alert" data-testid="calibration-swap-ask" className={g.swap}><p>Did you swap the rows? The grid looks reflected, as if the monster is in the Spell &amp; Trap row and the spell or trap is in the Main Monster row.</p><div className={g.actions}><button type="button" className={table.btn} disabled={busy} onClick={swapRows}>Yes, swap the rows</button><button type="button" className={`${table.btn} ${table.q}`} onClick={()=>setSwapAsk(false)}>No, keep it</button></div></div>:null}
+            <div className={g.actions}><button type="button" className={table.btn} disabled={busy||!preview} onClick={()=>shiftRows(-1)}>Shift one row away from you</button><button type="button" className={table.btn} disabled={busy||!preview} onClick={()=>shiftRows(1)}>Shift one row toward you</button><button type="button" className={`${table.btn} ${table.go}`} onClick={()=>{setChecking(false);setSwapAsk(false);}}>Looks right</button></div>
+          </div>:null}
+          <section className={g.step}>
+            <StepHead number={settingNumber} title="Fine-tune"/>
+            <div id={description}>
+              <p className={g.line}>Move the field grid over your mat</p>
+              <details className={g.help}><summary>How it works</summary>
+                <p>Drag the grid over your mat. Drag a corner or edge to resize it; the opposite side stays put. Turn it to any angle with the round handle, or use the quarter-turn buttons. Arrow keys move it. From your seat: Field at top-left, Extra at bottom-left, and Deck at bottom-right.</p>
+                <p>{hasExtraMonsterZones(format)?'Include the two Extra Monster Zones above your main monster row: EMZ left above M2, EMZ right above M4.':'Genesys uses five Main Monster Zones and no Extra Monster Zones.'}</p>
+              </details>
+            </div>
+            <FieldOrientationControls defaultSide={defaultSide} calibration={preview} confirmHint={false} disabled={busy} onChange={grid=>{if(grid.corners.some((corner,i)=>corner.x!==tf.corners[i].x||corner.y!==tf.corners[i].y))tf.rebase(grid.corners);setOrientation(grid.orientation);setCalibrationCards([]);}}/>
+            <p className={g.note} data-set={orientation?'':undefined}>{orientation?'Your side is set. Check that M1 and S5 match your physical mat.':'Choose your side before saving.'}</p>
+            <FieldTransformControls tf={tf} disabled={locked}/>
+          </section>
+          {error?<p role="alert" className={g.error}>{error}</p>:null}
+        </div>
+        <div className={g.stage}>
+          {image?<div ref={imageBox} className={g.image} data-testid="field-calibration-image">
+            <img src={image} alt="Your camera view with an adjustable field grid" draggable={false}/>
+            <svg className={g.grid} viewBox={`0 0 1000 ${gridHeight}`} preserveAspectRatio="none" role="img" aria-label="Field grid viewed from your seat">
+              {shown.map(({cell,points,left,top})=>{const lit=checking&&(cell.zone==='M1'||cell.zone==='S5')?'':undefined;return <g key={cell.zone}><polygon data-zone={cell.zone} data-lit={lit} points={points.map(point=>`${point.x*1000},${point.y*gridHeight}`).join(' ')}/><text data-lit={lit} x={left*1000+inset} y={top*gridHeight+inset*.8} style={{fontSize:label.px*label.unit,strokeWidth:label.px*label.unit*.28}}>{cell.label}</text></g>;})}
+            </svg>
+            <FieldMoveSurface tf={tf} disabled={locked}/>
+            {calibrationCards.map((card,i)=>{const x=card.quad.reduce((sum,p)=>sum+p.x,0)/4,y=card.quad.reduce((sum,p)=>sum+p.y,0)/4;return <button key={i} type="button" className={g.cardChoice} style={{left:`${x*100}%`,top:`${y*100}%`}} onClick={()=>chooseMonster(i)}>This is the monster</button>;})}
+          </div>:<p className={g.empty}>Start your camera before calibrating.</p>}
+        </div>
       </div>
-      <FieldOrientationControls defaultSide={defaultSide} calibration={preview} confirmHint={false} disabled={busy} onChange={grid=>{setOrientation(grid.orientation);setCalibrationCards([]);}}/>
-      <p>{orientation?'Your side is set. Check that M1 and S5 match your physical mat.':'Choose your side before saving.'}</p>
-      {calibrationCards.length?<p role="status">Tap the MONSTER in M1. The other card must be a SPELL/TRAP in S5.</p>:null}
-      {checking&&!calibrationCards.length?<div className={g.check} role="group" aria-label="Check zones" data-testid="calibration-check"><strong>Check zones</strong>
-        <p>M1 and S5 are lit on the picture. They should sit on your two cards. If the whole grid is one row off, shift it.</p>
-        {swapAsk?<p role="alert" data-testid="calibration-swap-ask">Did you swap the rows? The grid looks reflected, as if the monster is in the Spell &amp; Trap row and the spell or trap is in the Main Monster row.<button type="button" className={table.btn} disabled={busy} onClick={swapRows}>Yes, swap the rows</button><button type="button" className={table.btn} onClick={()=>setSwapAsk(false)}>No, keep it</button></p>:null}
-        <div className={g.checkActions}><button type="button" className={table.btn} disabled={busy||!preview} onClick={()=>shiftRows(-1)}>Shift one row away from you</button><button type="button" className={table.btn} disabled={busy||!preview} onClick={()=>shiftRows(1)}>Shift one row toward you</button><button type="button" className={table.btn} onClick={()=>{setChecking(false);setSwapAsk(false);}}>Looks right</button></div>
-      </div>:null}
-      {image?<div className={`${s.calibrationImage} ${large?s.calibrationImageLarge:''} ${g.image}`} data-testid="field-calibration-image">
-        <img src={image} alt="Your camera view with an adjustable field grid" draggable={false}/>
-        <svg className={g.grid} viewBox={`0 0 1000 ${gridHeight}`} preserveAspectRatio="none" role="img" aria-label="Field grid viewed from your seat">
-          {cells.map(cell=>{const center=matPoint(cell.x+cell.w/2,cell.y+cell.h/2),corners=[[cell.x,cell.y],[cell.x+cell.w,cell.y],[cell.x+cell.w,cell.y+cell.h],[cell.x,cell.y+cell.h]].map(([x,y])=>matPoint(x,y));return <g key={cell.zone}><polygon data-zone={cell.zone} data-lit={checking&&(cell.zone==='M1'||cell.zone==='S5')?'':undefined} points={corners.map(point=>`${point.x*1000},${point.y*gridHeight}`).join(' ')}/><text x={center.x*1000} y={center.y*gridHeight}>{cell.label}</text></g>;})}
-        </svg>
-        <FieldMoveSurface tf={tf} disabled={locked}/>
-        {calibrationCards.map((card,i)=>{const x=card.quad.reduce((sum,p)=>sum+p.x,0)/4,y=card.quad.reduce((sum,p)=>sum+p.y,0)/4;return <button key={i} type="button" className={g.cardChoice} style={{left:`${x*100}%`,top:`${y*100}%`}} onClick={()=>chooseMonster(i)}>This is the monster</button>;})}
-      </div>:<p>Start your camera before calibrating.</p>}
-      <FieldTransformControls tf={tf} disabled={locked}/>
-      {error?<p role="alert">{error}</p>:null}
-      <footer className={s.calibrationFooter}><span role="status">Save once for this seat and camera on this device.</span>
-        <button type="button" className={table.btn} disabled={!image||busy||!orientation||!!calibrationCards.length} onClick={()=>{try{onSave(createFieldCalibration(tf.corners,orientation));}catch(e){setError((e as Error).message);}}}>Save calibration</button>
-        <button type="button" className={table.btn} onClick={onCancel}>Cancel calibration</button>
+      <footer className={g.foot}><span role="status" className={g.footNote}>Save once for this seat and camera on this device.</span>
+        <div className={g.footActions}>
+          <button type="button" className={`${table.btn} ${table.go}`} disabled={!image||busy||!orientation||!!calibrationCards.length} onClick={()=>{try{onSave(createFieldCalibration(tf.corners,orientation));}catch(e){setError((e as Error).message);}}}>Save calibration</button>
+          <button type="button" className={`${table.btn} ${table.q}`} onClick={onCancel}>Cancel calibration</button>
+        </div>
       </footer>
     </div>
   </div>,document.body);
+}
+
+/** A numbered step title; the number is decoration, the heading is the label. */
+function StepHead({number,title}:{number:number;title:string}) {
+  return <div className={g.stepHead}><span className={g.num} aria-hidden="true">{number}</span><h3>{title}</h3></div>;
 }

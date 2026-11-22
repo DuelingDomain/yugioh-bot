@@ -29,7 +29,8 @@ const startState=(corners:Point[]|undefined,aspect:number):State=>corners?.lengt
  * a resize or move that does not fit stops at the picture's edge. Drags work from the state `grab()` gave at the start, so they never drift.
  * `aspect` is picture width / height, so a turn is not sheared.
  */
-export function useFieldTransform(initial?:Point[],onCorners?:(corners:Point[])=>void,aspect=16/9) {
+export function useFieldTransform(initial?:Point[],onCorners?:(corners:Point[])=>void,aspect=16/9,home?:()=>Point[]) {
+  const homeRef=useRef(home);homeRef.current=home;
   const aspectRef=useRef(aspect);aspectRef.current=aspect;
   const [state,setState]=useState<State>(()=>startState(initial,aspect));
   const ref=useRef(state);ref.current=state;
@@ -76,7 +77,8 @@ export function useFieldTransform(initial?:Point[],onCorners?:(corners:Point[])=
     },[commit]),
     /** A new quad (for example from the two-card setup); the turn is read from it. */
     rebase:useCallback((next:Point[],limits?:FieldQuadEnvelope)=>{lastPush.current=0;commit({...startState(next,aspectRef.current),...(limits?{limits}:{})},true);},[commit]),
-    reset:useCallback(()=>{lastPush.current=0;commit(fresh(),true);},[commit]),
+    /** Back to the first guess; `home` gives the start layout of the side that is set. */
+    reset:useCallback(()=>{lastPush.current=0;const corners=homeRef.current?.();commit(corners?startState(corners,aspectRef.current):fresh(),true);},[commit]),
     undo:useCallback(()=>{
       const previous=history.current.pop();setDepth(history.current.length);
       if(previous){lastPush.current=0;commit(previous,false);}
@@ -210,7 +212,7 @@ const degrees=(value:number)=>`${value.toFixed(1)}°`;
 /** Move buttons (1%), quarter-turn buttons with the angle, Undo and Reset. Flip lives in the side controls next to it. */
 export function FieldTransformControls({tf,disabled=false}:{tf:FieldTransformState;disabled?:boolean}) {
   return <div className={s.controls} data-testid="field-transform" onPointerDown={event=>event.stopPropagation()} onClick={event=>event.stopPropagation()}>
-    <div className={s.nudges}>
+    <div className={s.toolbar}>
       <div className={s.nudge} role="group" aria-label="Move the grid 1 percent">
         <span>Move</span>
         <button type="button" disabled={disabled} aria-label="Move grid left" data-testid="field-move-left" onClick={()=>tf.move(-MOVE_STEP,0)}>←</button>
@@ -224,11 +226,13 @@ export function FieldTransformControls({tf,disabled=false}:{tf:FieldTransformSta
         <output data-testid="field-turn-value">{degrees(tf.angle)}</output>
         <button type="button" disabled={disabled} aria-label="Turn grid 90 degrees clockwise" data-testid="field-turn-right" onClick={()=>tf.turnBy(90)}>↻</button>
       </div>
+      <div className={s.history}>
+        <button type="button" disabled={disabled||!tf.canUndo} data-testid="field-undo" onClick={tf.undo}>Undo</button>
+        <button type="button" disabled={disabled} data-testid="field-reset" onClick={tf.reset}>Reset</button>
+      </div>
     </div>
-    <div className={s.row}>
-      <button type="button" disabled={disabled||!tf.canUndo} data-testid="field-undo" onClick={tf.undo}>Undo</button>
-      <button type="button" disabled={disabled} data-testid="field-reset" onClick={tf.reset}>Reset</button>
-    </div>
-    <p className={s.hint}>Drag the grid to move it, a corner or edge to resize it, the round handle to turn it. Arrow keys move 1%; [ and ] turn a degree; + and - resize. The zones keep their shape.</p>
+    <details className={s.help}><summary>Shortcuts</summary>
+      <p className={s.hint}>Drag the grid to move it, a corner or edge to resize it, the round handle to turn it. Arrow keys move 1%; [ and ] turn a degree; + and - resize. The zones keep their shape.</p>
+    </details>
   </div>;
 }
