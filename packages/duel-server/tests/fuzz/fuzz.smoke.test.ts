@@ -11,10 +11,18 @@ import { runAndVerify, type VerifiedOutcome } from "./run-one.js";
  *
  * Knobs: FUZZ_RUNS, FUZZ_SEED, FUZZ_MAX_STEPS, FUZZ_MODE=normal|domain|all, FUZZ_MASTER_RULE=1..5|random,
  * FUZZ_REPLAY_RATE, FUZZ_STRICT=1 (known issues fail too), DUEL_DATA_DIR.
+ *
+ * Time budget: a CI runner shared with other workers can take 2-3x longer per duel than an idle one (30 duels took
+ * 51 s alone and 131 s on a busy shard), so the default smoke stops starting new duels after FUZZ_BUDGET_MS (75 s) and
+ * only needs FUZZ_MIN_DUELS (8) finished ones. An explicit FUZZ_RUNS (nightly, `npm run fuzz`) turns the budget off.
  */
 const config = loadFuzzConfig({ runs: 30, maxSteps: 400 });
 const strict = process.env.FUZZ_STRICT === "1";
-const TIMEOUT_MS = Number(process.env.FUZZ_TIMEOUT_MS ?? 120_000);
+const explicitRuns = process.env.FUZZ_RUNS !== undefined && process.env.FUZZ_RUNS !== "";
+const BUDGET_MS = Number(process.env.FUZZ_BUDGET_MS ?? (explicitRuns ? 0 : 75_000));
+const MIN_DUELS = explicitRuns ? 1 : Number(process.env.FUZZ_MIN_DUELS ?? 8);
+// Headroom over the budget for the duel in flight and the final replay check.
+const TIMEOUT_MS = Number(process.env.FUZZ_TIMEOUT_MS ?? (BUDGET_MS > 0 ? BUDGET_MS + 105_000 : 120_000));
 
 describe("duel engine self-play fuzz", () => {
   it(
@@ -28,6 +36,7 @@ describe("duel engine self-play fuzz", () => {
       let failed: VerifiedOutcome | null = null;
 
       const property = fc.asyncProperty(fc.integer({ min: 1, max: 2 ** 31 - 1 }), async (seed) => {
+        if (BUDGET_MS > 0 && performance.now() - t0 > BUDGET_MS) return true;
         const scenario = scenarioFor(seed, config);
         const outcome = await runAndVerify(scenario, config.dataDirectory, config.replayRate);
         stats.duels++;
@@ -63,6 +72,7 @@ describe("duel engine self-play fuzz", () => {
       expect(failed).toBeNull();
       // The run must have done real work, not only hit known issues at step 0.
       expect(stats.steps).toBeGreaterThan(stats.duels);
+      expect(stats.duels).toBeGreaterThanOrEqual(MIN_DUELS);
     },
     TIMEOUT_MS,
   );
