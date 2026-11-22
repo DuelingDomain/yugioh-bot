@@ -98,6 +98,7 @@ The proof cookies are encrypted, bound to `WEB_URL`, and live 10 minutes (the ti
 | Sign-up closed | Clerk waitlist refusal on sign-up, Discord or ticket | `err-signup` |
 | Account unavailable | Clerk user is banned, locked or deactivated | `err-banned` |
 | Banner "Sign-in is having trouble" | Any other Clerk error | `mapClerkError` |
+| Note "Discord sign-in was cancelled." | Cancel on the Discord page (Clerk `oauth_access_denied`, or `error=access_denied`): `/sso-callback` goes straight back to `/sign-in?error=discord_recovery_cancelled`, no error screen. An invite sign-up stays on its create-account form | `src/hooks/use-sign-up-flow.ts`, `isOAuthCancel` in `src/lib/auth-errors.ts` |
 | Discord recovery banners | `?error=discord_recovery_cancelled` (also `_busy`, `_unavailable`, `_expired`, `_support`) | `src/hooks/use-sign-in-flow.ts` |
 | `/access` page | Unknown Discord identity in recovery | `app/api/auth/callback/discord/route.ts` |
 

@@ -5,7 +5,7 @@ import { useSignIn, useSignUp } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
 import { parseHeardFrom } from "@yugidraft/shared/util/heard-from";
 import { afterPaint, initialAuthState, reduceAuth, signUpRequirementsEvent, successHoldMs, type AuthFlowState } from "../lib/auth-flow";
-import { isWaitlistRefusal, mapClerkError } from "../lib/auth-errors";
+import { isOAuthCancel, isWaitlistRefusal, mapClerkError } from "../lib/auth-errors";
 import { hardNavigate } from "../components/auth/navigate";
 import { DEFAULT_RETURN, existingPlayerStartPath, isTournamentBridgeReturn, safeReturnPath, ssoCallbackPath } from "../lib/auth-return";
 import { useRecoveryReload } from "./use-recovery-reload";
@@ -61,6 +61,8 @@ function useAccountFlow(opts: { ticket: string | null; returnTo: string; callbac
   const started = useRef(false);
   const mounted = useRef(true);
   const recovering = useRef(false);
+  const cancelled = useRef(false);
+  const leaving = useRef(false);
   const lockedEmail = useRef<string | null>(null);
   const destination = useRef(state.returnTo);
   const fetching = signUpSignal.fetchStatus === "fetching" || signInSignal?.fetchStatus === "fetching";
@@ -102,6 +104,8 @@ function useAccountFlow(opts: { ticket: string | null; returnTo: string; callbac
   }, [errorKey]);
 
   const fail = (error: unknown, context: Parameters<typeof mapClerkError>[1]) => {
+    // A cancelled Discord trip is not an error; the cancel effect below sends the person back.
+    if (opts.callback && isOAuthCancel(error)) return;
     if (context === "sso" && isWaitlistRefusal(error)) { recover(); return; }
     if (mounted.current) dispatch({ type: "error", view: mapClerkError(error, context) });
   };
@@ -169,8 +173,26 @@ function useAccountFlow(opts: { ticket: string | null; returnTo: string; callbac
     }
     return false;
   };
+  // The person pressed Cancel on Discord. Go back to Sign-in with a neutral note (no spinner, no error). A sign-up attempt that
+  // started from an invite stays on this card, which already shows the create-account form again.
   useEffect(() => {
-    if (started.current || recovering.current || fetching || loading) return;
+    if (!opts.callback || cancelled.current) return;
+    const signIn: Record<string, any> | undefined = latest.current.signInSignal?.signIn;
+    const signUp: Record<string, any> | undefined = latest.current.signUpSignal.signUp;
+    const raw = [...latest.current.signInSignal?.errors?.raw ?? [], ...latest.current.signInSignal?.errors?.global ?? [], ...latest.current.signUpSignal.errors?.raw ?? [], ...latest.current.signUpSignal.errors?.global ?? []];
+    const denied = isOAuthCancel({ code: new URLSearchParams(window.location.search).get("error") }) || isOAuthCancel(signIn?.firstFactorVerification?.error)
+      || isOAuthCancel(signUp?.verifications?.externalAccount?.error) || raw.some(isOAuthCancel);
+    if (!denied) return;
+    cancelled.current = true;
+    if (readResume().kind === "sign-up" && signUp?.emailAddress) return;
+    leaving.current = true;
+    try { sessionStorage.removeItem("dd_auth_resume"); } catch { /* Storage may be disabled. */ }
+    const query = new URLSearchParams({ error: "discord_recovery_cancelled" });
+    if (state.returnTo !== DEFAULT_RETURN) query.set("redirect_url", state.returnTo);
+    hardNavigate(`/sign-in?${query}`);
+  }, [errorKey, loading, fetching]);
+  useEffect(() => {
+    if (started.current || recovering.current || fetching || loading || leaving.current) return;
     started.current = true;
     void run("signup", async () => {
       const signUp = latest.current.signUpSignal.signUp!;

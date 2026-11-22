@@ -137,7 +137,7 @@ describe("SSO callback", () => {
   it.each(["needs_identifier", "needs_first_factor", "needs_second_factor"])("rejects a resumed sign-in at %s without a refusal or transfer", async status => {
     sessionStorage.setItem("dd_auth_resume", JSON.stringify({ kind: "sign-in" }));
     mock.signInSignal.signIn.status = status;
-    mock.signInSignal.signIn.firstFactorVerification = { status: "failed", error: { code: "oauth_access_denied" } };
+    mock.signInSignal.signIn.firstFactorVerification = { status: "failed", error: { code: "oauth_token_exchange_error" } };
     const { result } = await mount();
     expect(result.current.state.step).toBe("err-signup");
     act(() => vi.advanceTimersByTime(RECOVERY_PAINT_FALLBACK_MS));
@@ -165,6 +165,15 @@ describe("SSO callback", () => {
     expect(result.current.state.step).toBe("recovering");
     act(() => vi.advanceTimersByTime(RECOVERY_PAINT_FALLBACK_MS));
     expect(mock.hardNavigate).toHaveBeenCalledWith("/api/auth/existing-player/start?redirect_url=%2Fdashboard");
+  });
+  it("sends a cancelled Discord trip straight back to Sign-in with no error", async () => {
+    sessionStorage.setItem("dd_auth_resume", JSON.stringify({ kind: "sign-in" }));
+    mock.signInSignal.signIn.firstFactorVerification = { status: "failed", error: { code: "oauth_access_denied" } };
+    const { result } = await mount();
+    expect(mock.hardNavigate).toHaveBeenCalledWith("/sign-in?error=discord_recovery_cancelled");
+    expect(result.current.state.banner).toBeNull();
+    expect(result.current.state.step).not.toBe("err-signup");
+    expect(sessionStorage.getItem("dd_auth_resume")).toBeNull();
   });
   it("reloads a recovering callback restored from bfcache and removes the pageshow listener on unmount", async () => {
     const reload = vi.fn();
