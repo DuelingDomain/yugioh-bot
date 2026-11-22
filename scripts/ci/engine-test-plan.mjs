@@ -145,6 +145,8 @@ const COMPACT_FILE_SECONDS = {
   "tests/host-hand-effects-real.test.ts": 165,
   "tests/host.test.ts": 174,
   "tests/replay-fork-launch-real.test.ts": 158,
+  // Stops starting duels after a 75 s budget, plus the duel in flight; 30 duels took 131 s on a busy shard.
+  "tests/fuzz/fuzz.smoke.test.ts": 90,
   "tests/scenarios/multiplayer/jet-dragon.test.ts": 133,
   "tests/scenarios/multiplayer/owner-hands-exodia-host-part2.test.ts": 319,
 };
