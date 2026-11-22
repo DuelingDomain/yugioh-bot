@@ -17,3 +17,4 @@ export const consoleAdapter: ObservabilityAdapter = {
   },
   async flush() {},
 };
+// ci probe
