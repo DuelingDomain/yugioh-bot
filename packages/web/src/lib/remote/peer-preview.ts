@@ -335,7 +335,7 @@ export function createPeerPreviewStore(options: { ttlMs?: number; now?: () => nu
       if (room && next.lastSeq <= room.lastSeq) return;
       const previous = room;
       room = next;
-      const events = next.events.filter(event => event.seq > (previous?.lastSeq ?? 0));
+      const events = (next.events ?? []).filter(event => event.seq > (previous?.lastSeq ?? 0));
       let changed = false;
       for (const { action, at } of events) {
         if ('idempotencyKey' in action && confirmKey(action.idempotencyKey, at)) changed = true;
