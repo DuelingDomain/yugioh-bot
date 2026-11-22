@@ -85,9 +85,9 @@ This is an npm workspaces + Turborepo monorepo with seven packages (see `docs/ar
 
 ### Deployment flow
 
-- Every push to `main` runs the area-selected **Test** deploy gate against the last confirmed deployment. A passing PR proof for the same tree, baseline and changed paths can satisfy the tests. A green push Test starts **Deploy** for that exact SHA.
+- Every push to `main` runs the area-selected **Test** deploy gate against the last confirmed deployment. When every intervening main commit comes from a trusted PR, engine changes run the fixed real-core smoke set alongside the usual non-engine checks and image gate. Other engine pushes run the regular selected suites. Trusted non-engine pushes can reuse a passing PR proof for the same tree, baseline and changed paths. A green push Test starts **Deploy** for that exact SHA.
 - Test builds or reuses ARM64 images in Actions and publishes them to GHCR. The VM pulls the images and starts Compose with `--no-build`.
-- **Full Suite** runs in parallel on main pushes and can finish after Deploy. A failure opens or updates the `ci-full-suite-red` issue with the failing jobs and manual rollback instructions. A later green run closes the issue. The nightly Test schedule keeps full coverage and extended nduel fuzz.
+- **Full Suite** runs in parallel on main pushes. A regression caused by combining closely spaced engine merges can reach production before Full Suite reports, typically within 10–15 minutes of the push. A failure opens or updates the `ci-full-suite-red` issue. If production is affected, dispatch **Deploy** from `main` with a previous healthy SHA and `rollback=true`. A later green Full Suite closes the issue. The nightly Test schedule keeps full coverage and extended nduel fuzz.
 - Automatic deploys wait for live duels (with RPS/dice openings) and active drafts, up to 60 minutes. Manual Deploy from `main` has `ref`, `force` and `rollback`.
 - Staging is removed. It comes back later on a separate server.
 - Details: `docs/architecture/infrastructure.md` (what runs where), `docs/runbooks/deploy.md` (how to run and check a deploy) and `docs/deployment/vm-runbook.md` (full pipeline, rollback, GHCR retention, recovery).

@@ -90,6 +90,45 @@ test('TS engine changes allow skipped core checks; core selection requires both 
   assert.match(jobs['engine-differential'].steps.at(-1).run, /run-engine-tests\.mjs differential .*matrix\.shard.*\/2/);
 });
 
+test('trusted engine pushes require the core bundle, fixed smoke, normal area tests and images', () => {
+  const results = gateJobs();
+  results.changes.outputs = {
+    engine: 'true', core: 'true', core_status: 'success', trusted_engine: 'true', duel_unit: 'true',
+  };
+  const required = ['cores', 'engine-smoke', 'unit-duel', 'production-bundle', 'production-voice-assets', 'production-images'];
+  for (const name of required) {
+    assert.ok(results[name], name);
+    results[name].result = 'success';
+  }
+  assert.equal(gate(results, 'push'), 0);
+  for (const name of required) {
+    results[name].result = 'skipped';
+    assert.notEqual(gate(results, 'push'), 0, name);
+    results[name].result = 'success';
+  }
+  assert.notEqual(gate(results, 'full_suite'), 0);
+  results.changes.outputs.trusted_engine = 'false';
+  assert.notEqual(gate(results, 'push'), 0);
+});
+
+test('engine smoke only runs on trusted pushes and uses existing real-core tests', async () => {
+  const { areas } = await import('./test-areas.mjs');
+  const { duelTestFiles } = await import('./duel-test-files.mjs');
+  const trust = jobs.changes.steps.find(step => step.id === 'trust');
+  assert.match(trust.if, /github\.event_name == 'push'.*!inputs\.full_suite/);
+  for (const name of ['engine-shards', 'engine-legacy-shards', 'engine-differential', 'native']) {
+    assert.match(jobs[name].if, /outputs\.trusted_engine != 'true'/, name);
+  }
+  assert.match(jobs['engine-smoke'].if, /outputs\.trusted_engine == 'true'/);
+  assert.equal(jobs['engine-smoke'].env.DUEL_REQUIRE_CORES, '1');
+  assert.equal(jobs['engine-smoke'].env.NSEAT_LIVE, '1');
+  assert.ok(jobs['engine-smoke'].steps.some(step => step.uses === './.github/actions/restore-engine-bundle'));
+  const files = areas.engine.smokeFiles;
+  const { engine } = duelTestFiles();
+  assert.equal(files.length, 4);
+  assert.ok(files.every(file => engine.includes(file)));
+});
+
 test('the three core builders verify every target and preserve target cache and bundle paths', () => {
   const job = jobs['core-build'];
   const groups = job.strategy.matrix.include;
@@ -167,12 +206,17 @@ test('slow jobs are required only for their selected inputs; main uses real prod
 });
 
 test('app groups run only when their area is selected', () => {
-  const foldedChecks = { bot: 'BOT', ws: 'WS', worker: 'WORKER', e2e: 'E2E', engine: 'RULE_COVERAGE', vision: 'VISION' };
+  const foldedChecks = { bot: 'BOT', ws: 'WS', worker: 'WORKER', e2e: 'E2E', vision: 'VISION' };
   const small = jobs['small-checks'];
   assert.equal(small.needs, 'changes');
-  assert.deepEqual(small.if.split(/\s+\|\|\s+/), [...Object.keys(foldedChecks).map(area => `needs.changes.outputs.${area} == 'true'`), "needs.changes.outputs.typecheck != ''"]);
+  const ruleCoverage = "needs.changes.outputs.engine == 'true' && needs.changes.outputs.trusted_engine != 'true'";
+  assert.deepEqual(small.if.split(/\s+\|\|\s+/).sort(), [
+    ...Object.keys(foldedChecks).map(area => `needs.changes.outputs.${area} == 'true'`),
+    `(${ruleCoverage})`, "needs.changes.outputs.typecheck != ''",
+  ].sort());
   const step = small.steps.find(step => step.run === 'bash scripts/ci/run-small-checks.sh');
   assert.equal(step.if, '${{ !cancelled() }}');
+  assert.equal(step.env.CHECK_RULE_COVERAGE, '${{ ' + ruleCoverage + ' }}');
   for (const [area, check] of Object.entries(foldedChecks)) {
     assert.equal(step.env[`CHECK_${check}`], '${{ needs.changes.outputs.' + area + ' }}');
   }
@@ -443,15 +487,18 @@ test('selected engine jobs retain the Table row partitions and use the shared fi
   assert.equal(jobs['engine-shards'].strategy.matrix.include, '${{ fromJSON(needs.changes.outputs.engine_matrix) }}');
   assert.equal(jobs.changes.outputs.engine_files, '${{ steps.selection.outputs.engine_files }}');
   const selector = jobs.changes.steps.find(step => step.id === 'selection');
-  assert.match(selector.if, /steps\.diff\.outputs\.scan == 'true' && steps\.proof\.outputs\.reused != 'true'/);
+  assert.equal(selector.if, "steps.diff.outputs.scan == 'true'");
   assert.equal(selector.env.BASELINE, '${{ steps.baseline.outputs.base }}');
 });
 
-test('covered PR proofs skip all test jobs but still require production artifacts on main', () => {
+test('identical tree proofs still cover trusted non-engine pushes and require production artifacts', () => {
   const { outputs, steps } = jobs.changes;
   for (const key of [...Object.keys(areaJobs), 'effect_types', 'effects', 'effect_smoke', 'typecheck']) {
     assert.match(outputs[key], /steps\.proof\.outputs\.reused != 'true'/, key);
   }
+  const proof = steps.find(step => step.id === 'proof');
+  assert.match(proof.if, /steps\.trust\.outputs\.trusted == 'true'/);
+  assert.match(proof.if, /\(steps\.selection\.outputs\.engine \|\| steps\.diff\.outputs\.engine\) == 'false'/);
   assert.match(steps.find(step => step.id === 'wrapper').if, /steps\.proof\.outputs\.reused != 'true'/);
   const upload = jobs['ci-result'].steps.find(step => step.name === 'Upload tested tree proof');
   assert.match(upload.with.name, /^pr-tested-tree-/);

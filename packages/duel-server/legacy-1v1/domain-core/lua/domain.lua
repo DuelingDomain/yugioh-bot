@@ -164,6 +164,30 @@ function Card.IsLocation(c, loc)
 	return _IsLocation(c, loc)
 end
 
+-- A Deck Master sits face-up in the DMZ, so the stock Contact Fusion condition (c:IsFacedown()) rejects it.
+-- Rulebook: a Deck Master may use its own summon mechanic from the DMZ. Only this card reads as face-down while
+-- its own condition runs; materials, costs and extra conditions stay the stock ones. Standard has no DMZ card.
+if Fusion and Fusion.ContactCon then
+	local stock_contact_con = Fusion.ContactCon
+	function Fusion.ContactCon(...)
+		local cond = stock_contact_con(...)
+		return function(e, c, ...)
+			if not (c and _IsLocation(c, LOCATION_DECKMASTER)) then
+				return cond(e, c, ...)
+			end
+			local stock_facedown = Card.IsFacedown
+			Card.IsFacedown = function(x, ...)
+				if x == c then return true end
+				return stock_facedown(x, ...)
+			end
+			local ok, res = pcall(cond, e, c, ...)
+			Card.IsFacedown = stock_facedown
+			if not ok then error(res, 0) end
+			return res
+		end
+	end
+end
+
 local function install_pendulum_wrap()
 	if not Pendulum or Pendulum.__domain_hand_wrap then
 		return
