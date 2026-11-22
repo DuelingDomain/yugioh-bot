@@ -1,3 +1,4 @@
+import { memoryDatabaseFixture } from "../../shared/tests/helpers/sqlite-memory-fixture.mjs";
 import Database from "better-sqlite3";
 import { rmSync } from "node:fs";
 import { join } from "node:path";
@@ -18,6 +19,10 @@ const SECRET = "deck-suggestions-signed-integration";
 const BLUE = 89631139, SEARCH = 79816536, LINK = 990003, PENDULUM = 990004;
 const deck = { main: [BLUE, BLUE, BLUE], extra: [], side: [] };
 let directory: string, db: Database.Database, host: DuelHost, playerId: number, userId: number;
+const effectDatabase = memoryDatabaseFixture(db => {
+  migrate(db);
+  importCardEffectArtifact(db);
+});
 
 beforeAll(() => {
   directory = createHostDataFixture([
@@ -33,7 +38,7 @@ beforeAll(() => {
 afterAll(() => rmSync(directory, { recursive: true, force: true }));
 beforeEach(() => {
   vi.stubEnv("EFFECT_SEARCH", "1"); vi.stubEnv("DECK_SUGGESTIONS", "1"); vi.stubEnv("BRIDGES_ENABLED", "0"); vi.stubEnv("DUEL_STANDARD_1V1_ENGINE", "pinned");
-  db = new Database(":memory:"); migrate(db); importCardEffectArtifact(db);
+  db = effectDatabase();
   ({ playerId, userId } = seedIdentity(db));
   const insert = db.prepare(`INSERT INTO card_catalog
     (ygoprodeck_id,name,type,frame_type,effect_text,attribute,level,archetype,image_url,image_url_small,card_sets_json,cached_at)

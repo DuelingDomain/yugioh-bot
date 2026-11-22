@@ -1,9 +1,9 @@
 import { useRecordingObservability } from "../helpers/recording-observability.mjs";
 import { fixtureUserId, fixtureDiscordId, seedFixtureUsers } from "../helpers/lobby-identity.js";
-import Database from "better-sqlite3";
+import type Database from "better-sqlite3";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as draftServices from "../../src/services/drafts.js";
-import { migrate } from "../../src/db/schema.js";
+import { migratedMemoryDatabase } from "../helpers/memory-database.js";
 import { createDraftService } from "../../src/services/drafts.js";
 import { createDraftLobbyService, DraftLobbyServiceError } from "../../src/services/draft-lobby.js";
 import { TEST_BOT_DISCORD_PREFIX } from "../../src/services/draft-decks.js";
@@ -15,9 +15,8 @@ const connections: Database.Database[] = [];
 afterEach(() => { vi.restoreAllMocks(); for (const db of connections.splice(0)) db.close(); });
 
 function setup(config: DraftConfig = {}, identities = ["host", "guest"]) {
-  const db = new Database(":memory:");
+  const db = migratedMemoryDatabase();
   connections.push(db);
-  migrate(db);
   seedFixtureUsers(db, [...identities, "host", "guest", "third", "outsider"]);
   const ids = identities.map((user, index) => Number(db.prepare(
     "insert into players (guild_id, user_id, discord_user_id, display_name) values ('g', ?, ?, ?)",

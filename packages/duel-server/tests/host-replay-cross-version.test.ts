@@ -1,11 +1,11 @@
-import Database from "better-sqlite3";
+import type Database from "better-sqlite3";
 import { signedRequestHeaders } from "@yugidraft/shared/internal-auth";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gzipSync } from "node:zlib";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { migrate } from "@yugidraft/shared/db";
+import { migratedMemoryDatabase } from "./helpers/memory-database.js";
 import { createDuelService } from "@yugidraft/shared/services";
 import { seatCountFor, type DuelEngineView, type EngineIdentity, type ReplaySource } from "@yugidraft/shared/duels";
 import { createDuelHost, type DuelHost } from "../src/host.js";
@@ -32,7 +32,7 @@ function start(extra: Partial<Parameters<typeof createDuelHost>[0]> = {}) {
 }
 beforeEach(async () => {
   vi.stubEnv("OWNER_USER_IDS", "101");
-  db = new Database(":memory:"); migrate(db); dir = mkdtempSync(join(tmpdir(), "replay-cross-version-"));
+  db = migratedMemoryDatabase(); dir = mkdtempSync(join(tmpdir(), "replay-cross-version-"));
   writeFileSync(join(dir, "manifest.json"), JSON.stringify({ bundleVersion: "test-bundle" }));
   currentBundleVersion = "test-bundle";
   vi.spyOn(EngineResourceCache.prototype, "get").mockImplementation(async () => ({ dataDirectory: dir,

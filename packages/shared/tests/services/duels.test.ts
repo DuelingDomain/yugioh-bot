@@ -1,7 +1,7 @@
 import { seedIdentity, seedUser } from "../helpers/identity.js";
-import Database from "better-sqlite3";
+import type Database from "better-sqlite3";
 import { describe, expect, it, vi } from "vitest";
-import { migrate } from "../../src/db/index.js";
+import { migratedMemoryDatabase } from "../helpers/memory-database.js";
 import type { DuelCommand, DuelDeck, DuelEngineView } from "../../src/duels/index.js";
 import { createDuelService, DuelServiceError, DUEL_LIVE_IDLE_AFTER_MS } from "../../src/services/duels.js";
 
@@ -69,8 +69,7 @@ function board(viewer: 0 | 1 | null): DuelEngineView {
 }
 
 function setup() {
-  const db = new Database(":memory:");
-  migrate(db);
+  const db = migratedMemoryDatabase();
   const p1 = insertPlayer(db, "g1", "u1", "Yugi");
   const p2 = insertPlayer(db, "g1", "u2", "Kaiba");
   const p3 = insertPlayer(db, "g1", "u3", "Joey");

@@ -4,9 +4,9 @@ import Database from "better-sqlite3";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { migrate } from "../../src/db/schema.js";
-import { createCardCatalogService } from "../../src/services/card-catalog.js";
+import { migratedMemoryDatabase } from "../helpers/memory-database.js";
 import { canonicalCardCode, type CardIdentityCatalog } from "../../src/duels/pool.js";
 import { createDraftService } from "../../src/services/drafts.js";
 import { createCubeService } from "../../src/services/cubes.js";
@@ -26,10 +26,21 @@ const identity: CardIdentityCatalog = new Map(fixtures.flatMap((card, index) =>
   }] as const),
 ));
 const databases: Database.Database[] = [];
-afterEach(() => { for (const db of databases.splice(0)) db.close(); });
+let createCardCatalogService: typeof import("../../src/services/card-catalog.js").createCardCatalogService;
+beforeEach(async () => {
+  // A fake 429 can back off the shared scheduler. Each case uses its own scheduler and mock transport.
+  vi.resetModules();
+  ({ createCardCatalogService } = await import("../../src/services/card-catalog.js"));
+  vi.useFakeTimers();
+  vi.setTimerTickMode("nextTimerAsync");
+});
+afterEach(() => {
+  vi.useRealTimers();
+  for (const db of databases.splice(0)) db.close();
+});
 
 function setup() {
-  const db = new Database(":memory:"); databases.push(db); migrate(db);
+  const db = migratedMemoryDatabase(); databases.push(db);
   const calls: URL[] = [];
   const catalog = createCardCatalogService(db, {
     identityCatalog: identity,
@@ -394,10 +405,8 @@ describe("artwork fetch limits", () => {
   });
 
   it("shares a four-request limit and spaces starts across catalog services", async () => {
-    vi.resetModules(); await recording.install();
-    const { createCardCatalogService: create } = await import("../../src/services/card-catalog.js");
     const { db } = setup();
-    vi.useFakeTimers();
+    vi.setTimerTickMode("manual");
     const starts: number[] = [];
     let inFlight = 0, maxInFlight = 0;
     const fetch = async (input: string | URL | Request) => {
@@ -410,7 +419,7 @@ describe("artwork fetch limits", () => {
         return { data: [{ ...fixtures[0], id, name: String(id), card_images: [{ ...fixtures[0].card_images[0], id }] }] };
       } };
     };
-    const catalogs = [create(db, { identityCatalog: new Map(), fetch }), create(db, { identityCatalog: new Map(), fetch })];
+    const catalogs = [createCardCatalogService(db, { identityCatalog: new Map(), fetch }), createCardCatalogService(db, { identityCatalog: new Map(), fetch })];
     try {
       const jobs = Array.from({ length: 10 }, (_, i) => catalogs[i % 2].syncCardById(10000000 + i));
       await vi.runAllTimersAsync();
@@ -485,13 +494,11 @@ describe("artwork migration", () => {
 });
 
 it("materializes engine-only arts under the existing API family main", async () => {
-  vi.resetModules(); await recording.install(); // Isolate the rate-limit cooldown exercised by earlier tests.
-  const { createCardCatalogService: create } = await import("../../src/services/card-catalog.js");
   const { db } = setup();
   db.exec(`insert into card_catalog (ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at) values
     (10,'Dragon','Normal Monster','normal','','','[]','now'),(12,'Dragon','Normal Monster','normal','','','[]','now');
     insert into card_artworks (card_id,artwork_id,image_url,image_url_small,is_main) values (12,12,'','',1),(12,10,'','',0);`);
-  const catalog = create(db, { identityCatalog: new Map([
+  const catalog = createCardCatalogService(db, { identityCatalog: new Map([
     [10, { name: "Dragon", type: 17, alias: 0 }], [11, { name: "Dragon", type: 17, alias: 10 }],
     [12, { name: "Dragon", type: 17, alias: 10 }],
   ]), fetch: async () => ({ ok: true, json: async () => ({ data: [{ id: 12, name: "Dragon", type: "Normal Monster", frameType: "normal",

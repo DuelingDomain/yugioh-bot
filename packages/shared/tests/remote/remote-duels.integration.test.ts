@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { createSavedDeckService } from "../../src/services/saved-decks.js";
 import { deleteUserAccount } from "../../src/services/account-deletion.js";
 import { migrate } from "../../src/db/index.js";
+import { migratedMemoryDatabase } from "../helpers/memory-database.js";
 import { seedIdentity, seedUser } from "../helpers/identity.js";
 import { createRemoteDuelService } from "../../src/services/remote-duels.js";
 import { getRemoteGame, resolveAttack, ygoModule, remoteActionSchema, projectRemoteState, projectRemoteSpectator, type GameModule, type SeatCount, type RemoteAction, type RemoteActionProposal } from "../../src/remote/index.js";
@@ -18,7 +19,7 @@ import { mergeHistory } from "../../src/services/history-merge.js";
 const databases: Database.Database[] = [];
 afterEach(() => databases.splice(0).forEach(db => db.close()));
 function setup() {
-  const db = new Database(":memory:"); databases.push(db); db.pragma("foreign_keys = ON"); migrate(db);
+  const db = migratedMemoryDatabase(); databases.push(db);
   const users = ["a", "b", "c", "d"].map(key => seedUser(db, key).userId);
   const service = createRemoteDuelService(db, { dataDirectory: deckData });
   let table = service.create({ guildId: "g", userId: users[0], displayName: "A", gameId: "ygo", seatCount: 3 }, 1000);
@@ -3825,7 +3826,7 @@ async function tournamentResultSession(format: "single_elim" | "round_robin" = "
   const { createTournamentService } = await import("../../src/services/tournaments.js");
   const { createTournamentRemoteService } = await import("../../src/services/tournament-remote.js");
   const { createTournamentRemoteResultService } = await import("../../src/services/tournament-remote-results.js");
-  const db = new Database(":memory:"); databases.push(db); db.pragma("foreign_keys=ON"); migrate(db);
+  const db = migratedMemoryDatabase(); databases.push(db);
   const actors = Array.from({length:4}, (_, i) => seedIdentity(db, {name:`Remote ${i}`}));
   vi.stubEnv("REMOTE_DUELS", "1"); vi.stubEnv("REMOTE_DUELS_USERS", "*");
   const tournaments = createTournamentService(db);

@@ -1,7 +1,7 @@
-import Database from "better-sqlite3";
+import type Database from "better-sqlite3";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { importCardEffectArtifact } from "../src/cards/effects/artifact.js";
-import { migrate } from "../src/db/schema.js";
+import { migratedMemoryDatabase } from "./helpers/memory-database.js";
 import { createDraftService } from "../src/services/drafts.js";
 import { createCardInsightService } from "../src/services/card-insights.js";
 import { createCubeService } from "../src/services/cubes.js";
@@ -18,7 +18,7 @@ afterEach(() => { for (const db of databases.splice(0)) db.close(); vi.restoreAl
 const now = new Date("2030-01-01T00:00:00Z");
 
 function setup(count = 320) {
-  const db = new Database(":memory:"); databases.push(db); migrate(db);
+  const db = migratedMemoryDatabase(); databases.push(db);
   const seats = Array.from({ length: 8 }, (_, index) => seedIdentity(db, { name: `Bot ${index}`, guildId: "g" }));
   const card = db.prepare(`INSERT INTO card_catalog(ygoprodeck_id,name,type,frame_type,archetype,level,effect_text,image_url,image_url_small,card_sets_json,cached_at)
     VALUES(?,?,?,'effect',?,4,'Printed effect','i','i','[]','t')`);

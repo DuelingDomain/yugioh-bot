@@ -1,7 +1,7 @@
-import Database from "better-sqlite3";
+import type Database from "better-sqlite3";
 import { rmSync } from "node:fs";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { migrate } from "@yugidraft/shared/db";
+import { migratedMemoryDatabase } from "./helpers/memory-database.js";
 import { seatCountFor, type DuelClockState, type DuelEngineView, type DuelFormat, type DuelSession, type DuelVisibility } from "@yugidraft/shared/duels";
 import { createDuelSeriesService, createDuelService } from "@yugidraft/shared/services";
 import { createDuelHost } from "../src/host.js";
@@ -24,7 +24,7 @@ afterEach(async () => {
 function table(format: DuelFormat = "1v1", idleMs = 0, clock: DuelClockState | null = null, ranked = false, start = true, visibility: DuelVisibility = "public",
   beforeBoot?: (t: { db: Database.Database; session: DuelSession; players: number[] }) => void) {
   const directory = createHostDataFixture([]);
-  const db = new Database(":memory:"); migrate(db);
+  const db = migratedMemoryDatabase();
   const players = Array.from({ length: seatCountFor(format) }, (_, seat) =>
     seedIdentity(db, { guildId: "g", name: `P${seat}` }).playerId);
   const service = createDuelService(db);

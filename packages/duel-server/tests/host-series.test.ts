@@ -5,7 +5,7 @@ import { rmSync, utimesSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import Database from "better-sqlite3";
-import { migrate } from "@yugidraft/shared/db";
+import { migratedMemoryDatabase } from "./helpers/memory-database.js";
 import type { DuelAnswer, DuelCardInfo, DuelDeck, DuelEngineView, DuelPrompt } from "@yugidraft/shared/duels";
 import {
   createDuelSeriesService,
@@ -118,8 +118,7 @@ function insertPlayer(db: Database.Database, discordUserId: string, displayName:
 
 function setup() {
   vi.stubEnv("DUEL_DATA_DIR", DATA);
-  const db = new Database(":memory:");
-  migrate(db);
+  const db = migratedMemoryDatabase();
   return {
     db,
     duels: createDuelService(db),

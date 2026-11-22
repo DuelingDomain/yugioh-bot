@@ -200,10 +200,11 @@ export function allowedByLock(lock: SummonLock, card: Card): boolean {
 }
 
 export function sharedSmallWorldStats(a: Card, b: Card): number {
-  return ["monsterType", "attribute", "level", "atk", "def"].filter(key => {
-    const field = key as "level" | "atk" | "def" | "monsterType" | "attribute";
-    return a[field] != null && a[field] === b[field];
-  }).length;
+  return Number(a.monsterType != null && a.monsterType === b.monsterType)
+    + Number(a.attribute != null && a.attribute === b.attribute)
+    + Number(a.level != null && a.level === b.level)
+    + Number(a.atk != null && a.atk === b.atk)
+    + Number(a.def != null && a.def === b.def);
 }
 
 /** Unnamed, one-body Link-1 access is ancillary evidence, even with typed material. */

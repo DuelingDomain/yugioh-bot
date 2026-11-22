@@ -2,6 +2,7 @@ import { seedIdentity, seedUser } from "../helpers/identity.js";
 import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
 import { migrate } from "../../src/db/index.js";
+import { migratedMemoryDatabase } from "../helpers/memory-database.js";
 import { MAX_COPIES_PER_PLAYER } from "../../src/services/constants.js";
 import { createCardCatalogService } from "../../src/services/card-catalog.js";
 import { createCubeService } from "../../src/services/cubes.js";
@@ -66,8 +67,7 @@ function heldByPlayer(db: Database.Database, draftId: number, playerId: number):
 }
 
 function boosterDraft(config: Partial<DraftConfig>, cubeCardIds: number[], cardCount = 40) {
-  const db = new Database(":memory:");
-  migrate(db);
+  const db = migratedMemoryDatabase();
   const drafts = createDraftService(db, { seedSource: () => 7, random: () => 0.5 });
   const a = insertPlayer(db, "A");
   const b = insertPlayer(db, "B");

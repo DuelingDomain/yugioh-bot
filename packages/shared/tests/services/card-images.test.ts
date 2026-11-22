@@ -2,8 +2,13 @@ import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import sharp from "sharp";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDraftImageService, validateCardImage } from "../../src/services/card-images.js";
+
+// These tests exercise real image I/O with a fake upstream. Request spacing is
+// tested at the production rate in card-fetch.test.ts.
+beforeEach(() => vi.stubEnv("CARD_IMAGE_FETCH_REQUESTS_PER_SECOND", "1000"));
+afterEach(() => vi.unstubAllEnvs());
 
 describe("card image validation", () => {
   it.each(["jpeg", "png", "webp"] as const)("accepts decoded %s images", async format => {

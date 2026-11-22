@@ -18,9 +18,19 @@ export function bridgeLegal(card: Card, format: BridgeFormat): boolean {
 
 const edgeKeys = new Set<CapabilityKey>(["search", "special_summon", "normal_summon", "set_spell_trap", "place_on_field", "send_to_gy", "discard"]);
 type Edge = { from: number; capability: Capability; targets: Set<number>; named: boolean; weight: number };
+type CostEdge = { edge: Edge; consumer: CardCapability; costs: Capability[] };
 interface Context { name: string; ids: Set<number>; members: Set<number>; cards: Card[]; monsters: Card[]; discardRate: number; discardTriggerRate: number; edges: Edge[]; searchers: Edge[]; extras: { id: number; materials: number[]; weight: number }[] }
 const round = (value: number) => Math.round(value * 100) / 100;
-const wordIn = (word: string, name: string) => new RegExp(`(?:^|[^a-z0-9])${word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:$|[^a-z0-9])`, "i").test(name);
+const wordPatterns = new Map<string, RegExp>();
+function wordIn(word: string, name: string): boolean {
+  let pattern = wordPatterns.get(word);
+  if (!pattern) {
+    pattern = new RegExp(`(?:^|[^a-z0-9])${word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:$|[^a-z0-9])`, "i");
+    wordPatterns.set(word, pattern);
+  }
+  return pattern.test(name);
+}
+const nameKey = (name: string) => name.normalize("NFKC").toLowerCase();
 const availableMaterial = (card: Card): boolean => !/Cannot be Normal Summoned|Must (?:first )?be (?:Special|Ritual) Summoned/i.test(printedText(card))
   && ((card.level ?? 0) <= 4 || sentences(printedText(card)).some(text => /Special Summon this card[^.]*from your hand/i.test(text)));
 const negatedEntry = (capability: Capability): boolean => {
@@ -73,8 +83,9 @@ export class BridgeEngine {
   readonly groups: ReadonlyMap<string, Set<number>>;
   private readonly legal = new Map<BridgeFormat, Map<number, CardCapability>>();
   private readonly contexts = new Map<BridgeFormat, Map<string, Context>>();
-  private readonly edges = new Map<BridgeFormat, Edge[]>();
+  private readonly costEdges = new Map<BridgeFormat, CostEdge[]>();
   private readonly edgesFrom = new Map<BridgeFormat, Map<number, Edge[]>>();
+  private readonly namedExtraCards = new Map<BridgeFormat, Card[]>();
   private readonly mainMonsters = new Map<BridgeFormat, Card[]>();
   private readonly smallWorld = new Map<BridgeFormat, number>();
   private readonly pairCache = new Map<string, BridgeReason[]>();
@@ -82,6 +93,8 @@ export class BridgeEngine {
   private readonly parentOrAliasPairs = new Map<string, boolean>();
   private readonly deckFamilies = new Map<string, Set<string>>();
   private readonly groupReferences = new Map<string, Set<string>>();
+  private readonly cardReferences = new Map<number, string[]>();
+  private readonly namesByKey = new Map<string, string>();
   private readonly discardSetups = new Map<string, number[] | undefined>();
   private readonly specificFilters = new Map<BridgeFormat, WeakMap<Capability, boolean>>();
   private readonly accessExtras = new Map<string, Context["extras"]>();
@@ -95,8 +108,12 @@ export class BridgeEngine {
     this.rows = new Map(data.capabilities.map(row => [row.id, row]));
     this.groups = new Map(Object.entries(data.groups).map(([name, ids]) => [name, new Set(ids)]));
     this.names = [...this.groups.keys()].sort();
+    for (const name of this.names) {
+      const key = nameKey(name);
+      if (!this.namesByKey.has(key)) this.namesByKey.set(key, name);
+    }
     for (const [name, ids] of this.groups) this.groupReferences.set(name, new Set([name, ...(data.group_policies?.[name]?.aliases ?? []),
-      ...[...ids].flatMap(id => this.rows.has(id) ? [this.rows.get(id)!.card.name] : [])].map(value => value.normalize("NFKC").toLowerCase())));
+      ...[...ids].flatMap(id => this.rows.has(id) ? [this.rows.get(id)!.card.name] : [])].map(nameKey)));
   }
 
   private prepare(format: BridgeFormat): void {
@@ -134,9 +151,18 @@ export class BridgeEngine {
       edges.push({ from: id, capability, targets, named, weight: named ? 6 : 2 });
     }
     const edgesFrom = new Map<number, Edge[]>(), searchersByTarget = new Map<number, Edge[]>();
+    const costEdges: CostEdge[] = [];
+    const costKeys = new Set<CapabilityKey>(["tribute", "send_to_gy", "banish", "discard"]);
     for (const edge of edges) {
       if (!edgesFrom.has(edge.from)) edgesFrom.set(edge.from, []);
       edgesFrom.get(edge.from)!.push(edge);
+      if (edge.named && edge.capability.effect !== undefined) {
+        const consumer = this.rows.get(edge.from)!;
+        const costs = consumer.needs.filter(need => need.effect === edge.capability.effect && costKeys.has(need.key));
+        if (costs.length && !isExtraDeckCard(consumer.card) && (consumer.card.kind !== "monster" || availableMaterial(consumer.card))) {
+          costEdges.push({ edge, consumer, costs });
+        }
+      }
       if (edge.capability.key === "search" && !edge.named) for (const id of edge.targets) {
         if (!searchersByTarget.has(id)) searchersByTarget.set(id, []);
         searchersByTarget.get(id)!.push(edge);
@@ -184,16 +210,23 @@ export class BridgeEngine {
       if (!specificMaterial && rarity < 0.6) continue;
       for (const { context, materials } of made) context.extras.push({ id, materials, weight: rarity });
     }
-    this.legal.set(format, legal); this.edges.set(format, edges); this.edgesFrom.set(format, edgesFrom); this.contexts.set(format, contexts);
+    const namedExtraCards = [...edgesFrom].flatMap(([id, cardEdges]) => {
+      const card = legal.get(id)!.card;
+      return isExtraDeckCard(card) && cardEdges.some(edge => edge.named) ? [card] : [];
+    });
+    this.namedExtraCards.set(format, namedExtraCards);
+    this.legal.set(format, legal); this.costEdges.set(format, costEdges); this.edgesFrom.set(format, edgesFrom); this.contexts.set(format, contexts);
     this.data.materials ??= { advanced: {}, genesys: {} };
     this.data.materials[format] = Object.fromEntries([...contexts].map(([name, context]) => [name, context.extras]));
   }
 
-  private resolve(name: string): string | undefined { return this.names.find(value => sameName(value, name.trim())); }
+  private resolve(name: string): string | undefined { return this.namesByKey.get(nameKey(name.trim())); }
 
   private groupOverlap(a: string, b: string): number {
     const x = this.groups.get(a)!, y = this.groups.get(b)!;
-    return [...x].filter(id => y.has(id)).length;
+    let count = 0;
+    for (const id of x) if (y.has(id)) count++;
+    return count;
   }
 
   private sameDeckRelation(a: string, b: string): boolean {
@@ -201,13 +234,26 @@ export class BridgeEngine {
     const cached = this.sameDeckPairs.get(key);
     if (cached !== undefined) return cached;
     const namingRate = (source: string, target: string) => {
-      const onlySource = [...this.groups.get(source)!].filter(id => !this.groups.get(target)!.has(id));
-      return onlySource.filter(id => quotedNames(printedText(this.rows.get(id)!.card))
-        .some(name => this.groupReferences.get(target)!.has(name.normalize("NFKC").toLowerCase()))).length / Math.max(1, onlySource.length);
+      const references = this.groupReferences.get(target)!;
+      const targetIds = this.groups.get(target)!;
+      let total = 0, matches = 0;
+      for (const id of this.groups.get(source)!) {
+        if (targetIds.has(id)) continue;
+        total++;
+        let names = this.cardReferences.get(id);
+        if (!names) {
+          names = quotedNames(printedText(this.rows.get(id)!.card)).map(nameKey);
+          this.cardReferences.set(id, names);
+        }
+        if (names.some(name => references.has(name))) matches++;
+      }
+      return matches / Math.max(1, total);
     };
-    const rates = [namingRate(a, b), namingRate(b, a)];
-    const same = wordIn(a, b) || wordIn(b, a) || this.groupOverlap(a, b) >= 0.3 * Math.min(this.groups.get(a)!.size, this.groups.get(b)!.size)
-      || Math.max(...rates) >= 0.9 || Math.max(...rates) >= 0.33 && Math.min(...rates) >= 0.2;
+    let same = wordIn(a, b) || wordIn(b, a) || this.groupOverlap(a, b) >= 0.3 * Math.min(this.groups.get(a)!.size, this.groups.get(b)!.size);
+    if (!same) {
+      const forward = namingRate(a, b), reverse = namingRate(b, a);
+      same = Math.max(forward, reverse) >= 0.9 || Math.max(forward, reverse) >= 0.33 && Math.min(forward, reverse) >= 0.2;
+    }
     this.sameDeckPairs.set(key, same);
     return same;
   }
@@ -440,14 +486,10 @@ export class BridgeEngine {
           && ++alternatives >= 3) break;
       }
     }
-    if (access) for (const edge of this.edges.get(format)!) {
-      const consumer = rows.get(edge.from)!;
-      if (!edge.named || isExtraDeckCard(consumer.card) || consumer.card.kind === "monster" && !availableMaterial(consumer.card)) continue;
+    if (access) for (const { edge, consumer, costs } of this.costEdges.get(format)!) {
       const to = onlyY.find(card => edge.targets.has(card.id) && this.engineMember(card, y, edge.capability, x));
       if (!to) continue;
-      const cost = consumer.needs.find(need => ["tribute", "send_to_gy", "banish", "discard"].includes(need.key)
-        && need.effect !== undefined && need.effect === edge.capability.effect
-        && x.cards.some(card => costCanUse(need, card)));
+      const cost = costs.find(need => x.cards.some(card => costCanUse(need, card)));
       const using = cost && x.cards.find(card => costCanUse(cost, card));
       if (!cost || !using) continue;
       const cards = [...new Set([using.id, consumer.id, to.id])];
@@ -581,11 +623,11 @@ export class BridgeEngine {
     const key = `${format}:${source.name}`, cached = this.accessExtras.get(key);
     if (cached) return cached;
     const extras = [...source.extras];
-    for (const [id, edges] of this.edgesFrom.get(format)!) {
-      const card = this.rows.get(id)!.card;
-      if (!isExtraDeckCard(card) || extras.some(extra => extra.id === id) || !edges.some(edge => edge.named)) continue;
-      const materials = bridgeMaterials(card, source.monsters.filter(availableMaterial), format);
-      if (materials?.length === 1) extras.push({ id, materials, weight: 0.25 });
+    const available = source.monsters.filter(availableMaterial);
+    for (const card of this.namedExtraCards.get(format)!) {
+      if (extras.some(extra => extra.id === card.id)) continue;
+      const materials = bridgeMaterials(card, available, format);
+      if (materials?.length === 1) extras.push({ id: card.id, materials, weight: 0.25 });
     }
     this.accessExtras.set(key, extras);
     return extras;
