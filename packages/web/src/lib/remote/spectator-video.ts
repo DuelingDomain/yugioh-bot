@@ -4,6 +4,7 @@ import { NO_ANSWER, SPECTATOR_READ_GAP_MS, SPECTATOR_READ_TOPIC, participantSeat
 import { FIELD_TRACKS_TOPIC, FieldTrackCache } from "./field-track-cache";
 import { CAMERA_PUBLISH } from "./video-profile";
 import { PEER_VISION_TOPIC, PeerVisionCache } from "./peer-vision";
+import { PEER_PREVIEW_TOPIC, peerPreviews } from "./peer-preview";
 
 export type SpectatorVideoSnapshot = { connection: ConnectionState; feeds: { seat: number; video: RemoteVideoTrack }[]; error: string; /** Another tab of this person holds the video: only a click takes it back, else the two tabs would remove each other for ever. */ needsClick?: boolean };
 /** A spectator asks for the same top simulcast layer as a seated player (`CAMERA_PUBLISH.receiverLayer`). LiveKit alone falls back to a lower layer when the network cannot carry it. Adaptive stream stays off so a small tile does not pick a lower layer. */
@@ -45,10 +46,12 @@ export class SpectatorVideo {
     });
     this.room.on(RoomEvent.DataReceived, (bytes, participant, _kind, topic, _encryption, identity) => {
       if (topic === SPECTATOR_READ_TOPIC) { this.receiveRead(bytes, participant, identity); return; }
-      if ((topic !== FIELD_TRACKS_TOPIC && topic !== PEER_VISION_TOPIC) || bytes.byteLength > 8192 || !participant) return;
+      if ((topic !== FIELD_TRACKS_TOPIC && topic !== PEER_VISION_TOPIC && topic !== PEER_PREVIEW_TOPIC) || bytes.byteLength > 8192 || !participant) return;
       const seat = this.seatOf(participant);
       if (seat === undefined) return;
       if (topic === PEER_VISION_TOPIC) { this.vision.receive(seat, bytes); return; }
+      // A board preview from the owner of that seat (the seat is the sender's, not the packet's). Display only.
+      if (topic === PEER_PREVIEW_TOPIC) { peerPreviews.receive(bytes, seat); return; }
       try { this.tracks.receive(seat, JSON.parse(new TextDecoder().decode(bytes))); } catch { /* Invalid data is ignored. */ }
     });
   }

@@ -27,15 +27,18 @@ export interface ZonePreview {
   kind: PreviewKind;
   /** Only for a face-up kind: the name the embedder gave (may arrive in a second message with the same seq). */
   cardId?: number; name?: string;
+  /** The idempotency key of the table action this preview shows. The server event with the same key confirms it. */
+  key?: string;
 }
 
 /** The preview to send for a classified zone, or null when nothing may be sent. */
-export function previewForZone(seat: number, seq: number, zone: string, state: ZoneKind, face?: { cardId: number; name: string }): ZonePreview | null {
+export function previewForZone(seat: number, seq: number, zone: string, state: ZoneKind, face?: { cardId: number; name?: string }, key?: string): ZonePreview | null {
   if (!BOARD_ZONE.test(zone)) return null;
   if (state === 'hand' || state === 'unknown') return null;
   const preview: ZonePreview = { v: 1, seat, seq, zone, kind: state };
+  if (key !== undefined && key.length > 0 && key.length <= 100) preview.key = key;
   // Identity only for a card that lies face up. Whatever the caller passes for a hidden card is dropped here, by construction.
-  if (face && (state === 'face-up' || state === 'sideways-up') && Number.isInteger(face.cardId) && face.cardId > 0) { preview.cardId = face.cardId; preview.name = face.name.slice(0, 120); }
+  if (face && (state === 'face-up' || state === 'sideways-up') && Number.isInteger(face.cardId) && face.cardId > 0) { preview.cardId = face.cardId; if (face.name) preview.name = face.name.slice(0, 120); }
   return preview;
 }
 
@@ -50,7 +53,8 @@ export function decodePreview(bytes: Uint8Array, senderSeat: number | undefined)
     if (!['empty', 'face-up', 'face-down', 'sideways-up', 'sideways-down'].includes(value.kind)) return null;
     const hidden = value.kind.endsWith('down') || value.kind === 'empty';
     const out: ZonePreview = { v: 1, seat: value.seat, seq: value.seq, zone: value.zone, kind: value.kind };
-    if (!hidden && Number.isInteger(value.cardId) && value.cardId > 0 && typeof value.name === 'string') { out.cardId = value.cardId; out.name = value.name.slice(0, 120); }
+    if (typeof value.key === 'string' && value.key.length > 0 && value.key.length <= 100) out.key = value.key;
+    if (!hidden && Number.isInteger(value.cardId) && value.cardId > 0 && value.cardId <= 0xffffffff) { out.cardId = value.cardId; if (typeof value.name === 'string') out.name = value.name.slice(0, 120); }
     return out;
   } catch { return null; }
 }
@@ -59,13 +63,15 @@ export function decodePreview(bytes: Uint8Array, senderSeat: number | undefined)
 export function createPreviewBoard(options: { ttlMs?: number } = {}) {
   const ttlMs = options.ttlMs ?? ZONE_PREVIEW_TTL_MS;
   const pending = new Map<string, { preview: ZonePreview; at: number }>();
+  /** Keys the server already confirmed: a preview that arrives after its event is not shown. */
+  const confirmed: string[] = [];
   const key = (seat: number, zone: string) => `${seat}:${zone}`;
   const newest = new Map<string, number>();
   return {
     /** Add a decoded preview. A second message with the same seq (the name) updates the first. Returns false for a stale one. */
     apply(preview: ZonePreview, now: number): boolean {
       const k = key(preview.seat, preview.zone), last = newest.get(k) ?? -1;
-      if (preview.seq < last) return false;
+      if (preview.seq < last || (preview.key !== undefined && confirmed.includes(preview.key))) return false;
       newest.set(k, preview.seq);
       pending.set(k, { preview, at: preview.seq === last ? pending.get(k)?.at ?? now : now });
       return true;
@@ -75,6 +81,14 @@ export function createPreviewBoard(options: { ttlMs?: number } = {}) {
       const k = key(seat, zone), entry = pending.get(k);
       pending.delete(k);
       return entry?.preview.kind === serverKind;
+    },
+    /** The server event with this action key arrived: every preview of that key is replaced. Returns the previews that were waiting. */
+    confirmKey(actionKey: string): ZonePreview[] {
+      const done: ZonePreview[] = [];
+      for (const [k, entry] of pending) if (entry.preview.key === actionKey) { pending.delete(k); done.push(entry.preview); }
+      confirmed.push(actionKey);
+      if (confirmed.length > 64) confirmed.shift();
+      return done;
     },
     /** Drop previews that no server event confirmed in time. The caller fades them out. */
     expire(now: number): ZonePreview[] {
