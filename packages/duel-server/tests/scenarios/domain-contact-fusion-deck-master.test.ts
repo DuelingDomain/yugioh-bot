@@ -2,6 +2,9 @@
 // domain.lua) with its own materials and cost: shuffled into the Deck (Neos, Andabata), banished (ABC-Dragon Buster) or sent to the
 // Graveyard (Chaos Ruler) [Domain Format rulebook v1.4, Summoning from the DMZ: a Deck Master may use its own summon mechanic and the
 // from-the-Extra-Deck clause is ignored]. Polymerization must not bring such a Deck Master out (its own summon condition stays). Runs on the frozen legacy 1v1 core (production default), the pinned 1v1 core and the multi-domain core (FFA3).
+// Four Extra Deck monsters with their own EFFECT_SPSUMMON_PROC (Fallen Angel of the Golden Land, Artmage Non-Finito, Vaylantz Genesis Grand Duke,
+// Odd-Eyes Arcray Dragon; their stock condition starts with `if c:IsFaceup() then return false end`) are summoned from the DMZ the same way
+// (domain.lua wraps the condition of that effect for these codes only). Their own cost stays: without it the DMZ summon is not offered.
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import Database from "better-sqlite3";
@@ -14,7 +17,7 @@ import { describeWithCores, needs } from "../support/cores.js";
 import { liveNseat } from "../support/live-nseat.js";
 import { runScenarios } from "../support/runner.js";
 import { domainNseatWasmBinary, Session } from "../support/session.js";
-import { defineScenario, expectBoard, expectNotOffered, expectOffered, select, specialSummon, type Scenario } from "../support/dsl.js";
+import { defineScenario, expectBoard, expectNotOffered, expectOffered, select, specialSummon, type DuelistSetup, type Scenario } from "../support/dsl.js";
 import { defineScenarioWithFfaFirstDraw } from "./multiplayer/ffa-first-draw.js";
 
 const SOURCE = "Domain Format Complete Rulebook v1.4, Summoning from the DMZ: a Deck Master may use its own summon mechanic";
@@ -53,6 +56,69 @@ function build(kind: Kind, format: "1v1" | "ffa3", define: (scenario: Scenario) 
   }));
 }
 
+interface Own {
+  name: string;
+  /** Card name for the title. */
+  title: string;
+  /** Name, or passcode when the name is shared with an alternate art. */
+  master: string | number;
+  card: number;
+  p0: DuelistSetup;
+  /** What the cost takes, selected after the summon is chosen. */
+  select: string[];
+  /** Board of p0 after the summon. */
+  after: { monsters?: Array<string | number>; grave?: string[] };
+  /** Same board without its own cost: the Deck Master stays in the zone. */
+  without: DuelistSetup;
+}
+
+const OWN: Own[] = [
+  { name: "fallen-angel", title: "Fallen Angel of the Golden Land", master: "Fallen Angel of the Golden Land", card: 43143567,
+    p0: { grave: ["Eldlich the Golden Lord"], monsters: ["Wightlord"] }, select: [], after: { monsters: ["Fallen Angel of the Golden Land"], grave: ["Eldlich the Golden Lord", "Wightlord"] },
+    without: { monsters: ["Wightlord"] } },
+  { name: "non-finito", title: "Artmage Non-Finito", master: "Artmage Non-Finito", card: 74631897,
+    p0: { hand: ["Artmage Movement -Pedigree-"], monsters: ["Artmage Finmel"] }, select: [], after: { monsters: ["Artmage Non-Finito"], grave: ["Artmage Movement -Pedigree-", "Artmage Finmel"] },
+    without: { monsters: ["Artmage Finmel"] } },
+  // The tributed Valiants monster must stand in Main Monster Zone 1 or 3 or an Extra Monster Zone.
+  { name: "vaylantz-grand-duke", title: "Vaylantz Genesis Grand Duke", master: "Vaylantz Genesis Grand Duke", card: 76075139,
+    p0: { monsters: [null, "Vaylantz Mad Marquess"] }, select: [], after: { monsters: ["Vaylantz Genesis Grand Duke"] },
+    without: { monsters: ["Vaylantz Voltage Viscount"] } },
+  { name: "arcray-dragon", title: "Odd-Eyes Arcray Dragon", master: 6218704, card: 6218704,
+    p0: { monsters: ["Supreme King Z-ARC"] }, select: [], after: { monsters: [6218704] },
+    without: { monsters: ["Mystical Elf"] } },
+];
+
+const baseSetup = (format: "1v1" | "ffa3", p0: DuelistSetup): Scenario["setup"] => {
+  const setup: Scenario["setup"] = { mode: "domain", format, skipOpeningDraw: format === "1v1", p0, p1: { deckMaster: "Celtic Guardian" } };
+  if (format === "ffa3") setup.p2 = { deckMaster: "Battle Ox" };
+  return setup;
+};
+
+function buildOwn(kind: Own, format: "1v1" | "ffa3", define: (scenario: Scenario) => Scenario): Scenario[] {
+  const summon = define(defineScenario({
+    id: `domain-${format}-own-proc-${kind.name}-deck-master`,
+    title: `${kind.title} as Deck Master is Special Summoned from its zone by its own procedure`,
+    source: SOURCE,
+    tags: ["domain", "deck-master", "own-summon-procedure", format, `card:${kind.card}`],
+    setup: baseSetup(format, { deckMaster: kind.master, ...kind.p0 }),
+    steps: [
+      expectOffered("specialSummon", { card: kind.master, from: "dmz" }),
+      specialSummon({ card: kind.master, from: "dmz" }),
+      ...(kind.select.length ? [select(...kind.select)] : []),
+      expectBoard({ p0: { ...kind.after, deckMaster: { inZone: false, returns: 0 } } }),
+    ],
+  }));
+  const refused = define(defineScenario({
+    id: `domain-${format}-own-proc-${kind.name}-deck-master-needs-cost`,
+    title: `${kind.title} as Deck Master is not offered for a Special Summon without its own cost`,
+    source: SOURCE,
+    tags: ["domain", "deck-master", "own-summon-procedure", format, `card:${kind.card}`],
+    setup: baseSetup(format, { deckMaster: kind.master, ...kind.without }),
+    steps: [expectNotOffered("specialSummon", { card: kind.master }), expectBoard({ p0: { deckMaster: { inZone: true } } })],
+  }));
+  return [summon, refused];
+}
+
 // A Fusion Spell is not the monster's own procedure: the Deck Master stays in the zone (EFFECT_SPSUMMON_CONDITION is unchanged).
 const polymerization = (format: "1v1" | "ffa3", define: (scenario: Scenario) => Scenario): Scenario => {
   const setup: Scenario["setup"] = {
@@ -75,8 +141,8 @@ const polymerization = (format: "1v1" | "ffa3", define: (scenario: Scenario) => 
   }));
 };
 
-const scenarios1v1 = [...KINDS.map(kind => build(kind, "1v1", scenario => scenario)), polymerization("1v1", scenario => scenario)];
-const scenariosFfa3 = [...KINDS.map(kind => build(kind, "ffa3", defineScenarioWithFfaFirstDraw)), polymerization("ffa3", defineScenarioWithFfaFirstDraw)];
+const scenarios1v1 = [...KINDS.map(kind => build(kind, "1v1", scenario => scenario)), polymerization("1v1", scenario => scenario), ...OWN.flatMap(kind => buildOwn(kind, "1v1", scenario => scenario))];
+const scenariosFfa3 = [...KINDS.map(kind => build(kind, "ffa3", defineScenarioWithFfaFirstDraw)), polymerization("ffa3", defineScenarioWithFfaFirstDraw), ...OWN.flatMap(kind => buildOwn(kind, "ffa3", defineScenarioWithFfaFirstDraw))];
 
 // Scan: every card that registers a Contact Fusion procedure loads as Deck Master in Domain mode without a script error.
 function contactFusionNames(): string[] {

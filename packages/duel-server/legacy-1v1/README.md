@@ -20,7 +20,7 @@ See `docs/deployment/duel-engine-switch.md` for the switch and for how to roll b
 | File | sha256 |
 | --- | --- |
 | `ocgcore.domain.legacy.wasm` | `e7f8703790f1acd08f2748ebbbe4d194340cd1892b88223e4bf63b6e225d8d3b` |
-| `domain.legacy.lua` (equal to main's `domain.lua`) | `9c7406a162f2bf1d2e94b5e4787bb80c841496257aef8ac81117161fb6dcceb2` |
+| `domain.legacy.lua` (equal to main's `domain.lua`) | `31c65d8c2c4c27f5f1b025fa733fa8d3d1acfa846e61764e3f5b433b0650ea57` |
 
 The original production wasm at `78b8caa` had SHA-256 `1ca9f3187fb534579e843264ba6c06a0b281c81f17fb064c6d4cc66f32c84c3d`. The current wasm includes the owner-approved Deck Master corrections; the Lua stays equal to the original production file.
 Owner-approved change of 2026-11-21 (issue #654): an additional Normal Summon/Set count (Madolche Salon, Gem-Knight Seraphinite) also covers a main deck Deck Master in the DMZ (`is_affect_by_effect` and `is_target` in `src/apply-domain-patch.mjs`; the same two patches as the pinned Domain core). This changed the wasm sha above; the Lua is unchanged.
