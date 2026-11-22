@@ -177,7 +177,7 @@ Deploy jobs run in the `production` GitHub Environment and require these GitHub 
    One snapshot counts live duels and lobby duels with RPS/dice openings, active drafts, open/pending-approval rounds in active tournaments,
    and active/between-game series. Committed WAL writes are included. Missing, locked, corrupt or incomplete
    DBs refuse immediately. Automatic runs use `--live-only`: only duels/openings and active drafts block;
-   tournament rounds and series are logged for information. They recheck every 120 seconds for up to 60 minutes,
+   tournament rounds and series are logged for information. They recheck every 15 seconds for up to 60 minutes,
    with one deadline shared by the initial and pre-stop checks. On timeout they fail clearly, leaving live
    games running; retry manually or let the next merge trigger a new deploy. Manual runs keep the full guard and refuse immediately
    unless `force=true` was explicitly set. Automatic runs always use `force=false` and `rollback=false`.

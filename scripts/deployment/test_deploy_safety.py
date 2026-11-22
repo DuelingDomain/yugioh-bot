@@ -76,7 +76,7 @@ class ProductionActivityTests(unittest.TestCase):
 
         result, out, err, slept = self.run_waiting_guard(3600, finish_game)
         self.assertEqual(result, 0, err)
-        slept.assert_called_once_with(120)
+        slept.assert_called_once_with(15)
         self.assertIn("duels=1", out)
         self.assertIn("duels=0", out)
 
@@ -85,7 +85,7 @@ class ProductionActivityTests(unittest.TestCase):
         self.db.commit()
         result, out, err, slept = self.run_waiting_guard(3600)
         self.assertEqual(result, 1)
-        self.assertEqual(slept.call_count, 30)
+        self.assertEqual(slept.call_count, 240)
         self.assertEqual(sum(call.args[0] for call in slept.call_args_list), 3600)
         self.assertIn("still active after waiting 3600 seconds", err)
         self.assertIn("manual Deploy or the next merge", err)
@@ -94,9 +94,9 @@ class ProductionActivityTests(unittest.TestCase):
     def test_wait_uses_remaining_budget_and_manual_force_still_bypasses_only_activity(self):
         self.db.execute("insert into duel_series values ('between_games')")
         self.db.commit()
-        result, _, _, slept = self.run_waiting_guard(121)
+        result, _, _, slept = self.run_waiting_guard(16)
         self.assertEqual(result, 1)
-        self.assertEqual([call.args[0] for call in slept.call_args_list], [120, 1])
+        self.assertEqual([call.args[0] for call in slept.call_args_list], [15, 1])
         result, out, _, slept = self.run_waiting_guard(3600, force="true")
         self.assertEqual(result, 0)
         slept.assert_not_called()
@@ -224,7 +224,7 @@ class ProductionActivityTests(unittest.TestCase):
 
         result, out, err, slept = self.run_waiting_guard(3600, finish_game, live_only=True)
         self.assertEqual(result, 0, err)
-        slept.assert_called_once_with(120)
+        slept.assert_called_once_with(15)
         self.assertIn("duels=1", out)
         self.assertIn("duels=0 drafts=0 (not blocking: tournament_rounds=0 series=1)", out)
 

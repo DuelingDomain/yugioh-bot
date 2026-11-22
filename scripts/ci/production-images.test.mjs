@@ -61,7 +61,7 @@ esac
 
 test('pull validates all five ARM64 images and accepts an older four-image release', t => {
   const f = fixture(t);
-  const result = f.run('pull');
+  const result = f.run('pull', sha, { TEST_PREV_EXISTS: 'false' });
   assert.equal(result.status, 0, result.stderr);
   for (const service of ['duel', 'web', 'worker', 'ws', 'bot']) {
     assert.match(f.commands(), new RegExp(`pull --platform=linux/arm64 ${registry}-${service}@${digest}`));
@@ -76,7 +76,7 @@ test('pull validates all five ARM64 images and accepts an older four-image relea
 
 test('a partial deploy pulls and promotes only the named services and refuses unknown names', t => {
   const f = fixture(t);
-  const env = { DEPLOY_SERVICES: 'web ws' };
+  const env = { DEPLOY_SERVICES: 'web ws', TEST_PREV_EXISTS: 'false' };
   assert.equal(f.run('pull', sha, env).status, 0);
   assert.equal(f.run('promote', sha, env).status, 0);
   assert.match(f.commands(), new RegExp(`pull --platform=linux/arm64 ${registry}-web@${digest}`));
@@ -88,7 +88,7 @@ test('a partial deploy pulls and promotes only the named services and refuses un
 });
 
 test('a failed pull, wrong architecture or wrong revision cannot promote any image', t => {
-  for (const extra of [{ TEST_FAIL_IMAGE: `${registry}-web@${digest}` }, { TEST_ARCH: 'amd64' }, { TEST_REVISION: 'b'.repeat(40) }]) {
+  for (const extra of [{ TEST_PREV_EXISTS: 'false', TEST_FAIL_IMAGE: `${registry}-web@${digest}` }, { TEST_ARCH: 'amd64' }, { TEST_REVISION: 'b'.repeat(40) }]) {
     const f = fixture(t);
     assert.notEqual(f.run('pull', sha, extra).status, 0);
     assert.doesNotMatch(f.commands(), /tag|build|compose/);
@@ -204,6 +204,8 @@ test('low or unreadable disk space refuses before the first pull', t => {
   // Every image is already here (for example after a warm-up): no download, so no disk check.
   const here = fixture(t);
   assert.equal(here.run('pull', sha, { TEST_FREE_KIB: '1' }).status, 0);
+  assert.doesNotMatch(here.commands(), /^(pull|info) /m);
+  assert.match(here.commands(), /^image inspect .*org.opencontainers.image.revision.*@sha256:/m);
 });
 
 test('a retry after failed health checks keeps the old VM-built previous image', t => {

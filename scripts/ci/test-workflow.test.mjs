@@ -205,15 +205,13 @@ test('PR image prebuild is non-blocking, same-repo only and skipped for docs and
 
 test('automatic releases consume bundle and digests from the exact triggering Test run', () => {
   const deploy = parse(readFileSync(new URL('../../.github/workflows/deploy.yml', import.meta.url), 'utf8'));
-  const bundle = deploy.jobs.prepare.steps.find(step => step.name === 'Download tested production bundle');
-  const digests = deploy.jobs.deploy.steps.find(step => step.name === 'Download tested runtime image digests');
-  for (const step of [bundle, digests]) {
-    assert.match(step.if, /github.event_name == 'workflow_run'/);
-    assert.equal(step.with['run-id'], '${{ github.event.workflow_run.id }}');
-    assert.equal(step.with['github-token'], '${{ github.token }}');
-  }
-  assert.equal(bundle.with['artifact-ids'], '${{ steps.tested-artifacts.outputs.bundle_id }}');
-  assert.equal(digests.with['artifact-ids'], '${{ needs.prepare.outputs.image_artifact_ids }}');
+  const artifacts = deploy.jobs.deploy.steps.find(step => step.name === 'Download tested production artifacts');
+  assert.match(artifacts.if, /github.event_name == 'workflow_run'/);
+  assert.equal(artifacts.with['run-id'], '${{ github.event.workflow_run.id }}');
+  assert.equal(artifacts.with['github-token'], '${{ github.token }}');
+  assert.equal(artifacts.with['artifact-ids'], '${{ needs.prepare.outputs.bundle_artifact_id }},${{ needs.prepare.outputs.image_artifact_ids }}');
+  assert.equal(deploy.jobs.prepare.outputs.bundle_artifact_id, '${{ steps.tested-artifacts.outputs.bundle_id }}');
+  assert.ok(!deploy.jobs.prepare.steps.some(step => step.with?.['run-id']));
   const resolve = deploy.jobs.prepare.steps.find(step => step.id === 'tested-artifacts');
   assert.equal(resolve.env.TEST_RUN_ATTEMPT, '${{ github.event.workflow_run.run_attempt }}');
   assert.match(deploy.jobs.build.if, /github.event_name == 'workflow_dispatch'/);

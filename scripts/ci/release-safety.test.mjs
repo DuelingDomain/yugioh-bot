@@ -136,11 +136,17 @@ test('retain tags all healthy manifests with the release SHA after fresh health 
   writeFileSync(join(release, 'confirmed-attempt'), '2');
   writeFileSync(join(release, 'image-digests'), services.map(service => `${service} ${digest}`).join('\n'));
   const calls = [];
+  const manifestReads = new Set();
   const script = workflow('deploy').jobs.retain.steps.find(step => step.with?.script).with.script;
   await new AsyncFunction('context', 'core', 'fetch', 'process', script)(
     { repo: { owner: 'Example' }, actor: 'fixture' }, { info() {} }, async (url, options = {}) => {
       if (url.includes('/token?')) return { ok: true, json: async () => ({ token: 'fixture' }) };
-      if (options.method === 'PUT') calls.push(url);
+      if (options.method === 'PUT') {
+        assert.equal(manifestReads.size, services.length * 2, 'read every manifest before updating tags');
+        calls.push(url);
+      } else {
+        manifestReads.add(url);
+      }
       return { ok: true, headers: new Map([['content-type', 'application/vnd.oci.image.manifest.v1+json']]), text: async () => body };
     }, { env: { RUNNER_TEMP: dir, RUN_ATTEMPT: '2', DEPLOY_COMMIT: sha(42), GHCR_TOKEN: 'fixture' } });
   assert.equal(calls.filter(url => url.endsWith(`/release-${sha(42)}`)).length, 5);

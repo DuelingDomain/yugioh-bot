@@ -116,7 +116,11 @@ case "$operation" in
     [ "$need_download" = 0 ] || check_free_disk
     for service in $services; do
       image=$(image_reference "$service")
-      docker pull --platform=linux/arm64 "$image"
+      if docker image inspect "$image" >/dev/null 2>&1; then
+        echo "Using local digest for $service"
+      else
+        docker pull --platform=linux/arm64 "$image"
+      fi
       verify_image "$image"
     done
     # Keep a SHA bookkeeping tag until this image leaves :latest and :prev.
