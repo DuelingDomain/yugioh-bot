@@ -350,10 +350,12 @@ describe("Jump in on the replay viewer", () => {
     revoked = true;
     fireEvent.click(screen.getByRole("button", { name: "Next move" }));
     fireEvent.click(screen.getByRole("button", { name: /Jump in/ }));
-    await waitFor(() => expect(document.querySelector("[data-replay-owner-tools]")).toBeNull());
-    await screen.findByRole("group", { name: "Replay controls" });
-    expect(screen.queryByText("Private hand")).toBeNull();
-    expect(document.querySelector("[data-replay-owner-tools]")).toBeNull();
+    // The fallback can render its controls before the effect clears the private inspector.
+    await waitFor(() => {
+      expect(screen.getByRole("group", { name: "Replay controls" })).toBeInTheDocument();
+      expect(document.querySelector("[data-replay-owner-tools]")).toBeNull();
+      expect(screen.queryByText("Private hand")).toBeNull();
+    });
   });
 
   it("disables Jump in on a frame without a cursor and starts a fork from one with a cursor", async () => {
