@@ -265,6 +265,7 @@ test("differential job control files select both core checks", () => {
     for (const file of [
       "scripts/ci/run-engine-tests.mjs",
       "scripts/ci/engine-test-plan.mjs",
+      ".github/actions/build-ci-core-target/action.yml",
       "packages/duel-server/vitest.config.ts",
     ]) {
       const result = classify([file], event);

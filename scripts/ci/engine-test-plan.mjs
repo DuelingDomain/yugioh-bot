@@ -120,43 +120,82 @@ export const NEEDS_ENGINE = [
 
 
 export const PINNED_SHARDS = 8;
-export const SHARED_ENGINE_SHARDS = 18;
+export const COMPACT_ENGINE_SHARDS = 10;
+const COMPACT_ENGINE_WORKERS = 4;
+const SMOKE_POOL_FILE = "tests/new-card-smoke-pool.test.ts";
 export const LEGACY_SHARDS = 1;
 export const SURRENDER_FILES = ["tests/host-surrender-eot.test.ts", "tests/host-surrender-eot-part2.test.ts"];
 export const DIFFERENTIAL_FILES = ["tests/differential/differential.test.ts", "tests/differential/differential-extended.test.ts"];
 export const TABLE_FILE = "tests/multi-scripts-table.test.ts";
 export const timings = JSON.parse(readFileSync(new URL("./engine-test-times.json", import.meta.url), "utf8"));
 export const isPinnedFile = file => !file.startsWith("tests/legacy-main/") && !SURRENDER_FILES.includes(file) && !DIFFERENTIAL_FILES.includes(file);
-export const fileSeconds = file => file === TABLE_FILE ? timings.tableTotal / PINNED_SHARDS : timings.files[file] ?? 10; // New files always run; timing data is only a scheduling hint.
+export const fileSeconds = (file, tableShards = PINNED_SHARDS) =>
+  file === TABLE_FILE ? timings.tableTotal / tableShards : timings.files[file] ?? 10;
 
-export function engineMatrix(sharedSourcePr) {
+// Calibrated from the five compact jobs in Actions run 44987546477. Table took
+// ~1,760s in aggregate on four-worker runners. The other files took ~1.4x their
+// recorded time, with a few longer suites needing individual corrections.
+const COMPACT_TABLE_TOTAL = 1760;
+const COMPACT_SETUP_SECONDS = 25;
+const COMPACT_FIRST_SHARD_SECONDS = 50; // Coverage check, card tables, web engine tests and smoke scripts.
+const COMPACT_SMOKE_POOL_SECONDS = 31; // Measured with one Vitest worker.
+const COMPACT_FILE_SECONDS = {
+  "tests/genesys-engine-real.test.ts": 224,
+  "tests/host-first-turn-draw-part2.test.ts": 195,
+  "tests/host-hand-effects-real.test.ts": 165,
+  "tests/host.test.ts": 174,
+  "tests/replay-fork-launch-real.test.ts": 158,
+  "tests/scenarios/multiplayer/jet-dragon.test.ts": 133,
+  "tests/scenarios/multiplayer/owner-hands-exodia-host-part2.test.ts": 319,
+};
+
+export function engineMatrix(compact) {
   const legs = (suite, count) => Array.from({ length: count }, (_, index) => ({ suite, shard: index + 1, count }));
-  return sharedSourcePr ? legs("shared", SHARED_ENGINE_SHARDS)
+  return compact ? legs("compact", COMPACT_ENGINE_SHARDS)
     : [...legs("pinned", PINNED_SHARDS), ...legs("surrender", SURRENDER_FILES.length)];
 }
 
-export function sharedEnginePlan(files) {
-  const regular = files.filter(file => file !== TABLE_FILE && (isPinnedFile(file) || SURRENDER_FILES.includes(file)));
+export function compactEnginePlan(files) {
+  const regular = files.filter(file => file !== TABLE_FILE && file !== SMOKE_POOL_FILE &&
+    (isPinnedFile(file) || SURRENDER_FILES.includes(file)));
   const tasks = new Map();
   const estimates = {};
   for (const file of regular) {
-    const seconds = timings.surrenderFiles?.[file] ?? fileSeconds(file);
+    const seconds = COMPACT_FILE_SECONDS[file] ?? 1.4 * (timings.surrenderFiles?.[file] ?? fileSeconds(file));
     // Long files can monopolize a worker even when aggregate work is balanced.
-    const count = seconds > 110 ? Math.ceil(seconds / 75) : 1;
+    const count = seconds > 150 ? Math.ceil(seconds / 100) : 1;
     for (let index = 0; index < count; index++) {
       const key = `${file}:${index}`;
       tasks.set(key, { file, index, count });
       estimates[key] = seconds / count + 0.7; // Collection and transformation work.
     }
   }
-  const count = SHARED_ENGINE_SHARDS;
+  const count = COMPACT_ENGINE_SHARDS;
   const hasTable = files.includes(TABLE_FILE);
-  const tableSeconds = hasTable ? timings.tableTotal / count : 0;
-  const reserved = Array.from({ length: count }, (_, index) => tableSeconds + (index === 0 ? 120 : 0));
-  return balanceFiles([...tasks.keys()], count, estimates, 10, reserved).map((shard, index) => ({
-    seconds: shard.seconds,
-    files: [...shard.files.map(key => tasks.get(key)), ...(hasTable ? [{ file: TABLE_FILE, index, count }] : [])],
-  }));
+  const tableSeconds = hasTable ? COMPACT_TABLE_TOTAL / count : 0;
+  const extraSeconds = Array(count - 1).fill(0);
+  extraSeconds[0] = COMPACT_FIRST_SHARD_SECONDS;
+  const reserved = extraSeconds.map(seconds => tableSeconds + seconds * COMPACT_ENGINE_WORKERS);
+  const shards = balanceFiles([...tasks.keys()], count - 1, estimates, 10, reserved).map((shard, index) => {
+    const extra = extraSeconds[index];
+    const testSeconds = shard.seconds / COMPACT_ENGINE_WORKERS - extra;
+    return {
+      seconds: COMPACT_SETUP_SECONDS + extra + Math.max(tableSeconds, testSeconds),
+      files: shard.files.map(key => tasks.get(key)),
+      maxWorkers: COMPACT_ENGINE_WORKERS,
+    };
+  });
+
+  // The smoke pool starts its own workers. Give it a dedicated job with one
+  // Vitest worker so it runs serially with that job's Table partition.
+  const hasSmokePool = files.includes(SMOKE_POOL_FILE);
+  shards.push({
+    seconds: COMPACT_SETUP_SECONDS + tableSeconds + (hasSmokePool ? COMPACT_SMOKE_POOL_SECONDS : 0),
+    files: hasSmokePool ? [{ file: SMOKE_POOL_FILE, index: 0, count: 1 }] : [],
+    maxWorkers: 1,
+  });
+  if (hasTable) shards.forEach((shard, index) => shard.files.push({ file: TABLE_FILE, index, count }));
+  return shards;
 }
 
 /** Longest-processing-time placement, stable across full and changed-only runs.

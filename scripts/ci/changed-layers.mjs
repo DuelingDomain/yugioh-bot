@@ -14,7 +14,7 @@ const allLayers = () => ({ ...Object.fromEntries(AREAS.map(area => [area, true])
 // Include their build/test wiring and the data/Lua overlays read by native and golden checks.
 // TS host code alone does not select core checks.
 const coreInput = (file) =>
-  /^(patches\/|scripts\/native\/|scripts\/ci\/(?:build-core\.sh$|parallel-emxx\.py$|bin\/em\+\+$|core-cache-key\.mjs$|assemble-core-bundle\.mjs$|changed-layers\.mjs$|run-engine-(?:tests|case-shards)\.mjs$|test-shards\.mjs$|test-timing-reporter\.mjs$|engine-test-plan\.mjs$)|\.github\/workflows\/test\.yml$|\.github\/actions\/restore-engine-bundle\/|package(-lock)?\.json$|\.nvmrc$)/.test(file) ||
+  /^(patches\/|scripts\/native\/|scripts\/ci\/(?:build-core\.sh$|parallel-emxx\.py$|bin\/em\+\+$|core-cache-key\.mjs$|assemble-core-bundle\.mjs$|changed-layers\.mjs$|run-engine-(?:tests|case-shards)\.mjs$|test-shards\.mjs$|test-timing-reporter\.mjs$|engine-test-plan\.mjs$)|\.github\/workflows\/test\.yml$|\.github\/actions\/(?:restore-engine-bundle|build-ci-core-target)\/|package(-lock)?\.json$|\.nvmrc$)/.test(file) ||
   /^packages\/duel-server\/(?:card-script-patches\/|domain-core\/(?:src\/|lua\/|patches\/|multi-scripts\/|pins\.json$|expected-sha256\.txt$)|legacy-1v1\/(?:domain-core\/|scripts\/build-[^/]*core\.(?:sh|ts)$|expected-sha256\.txt$)|scripts\/(?:native\/|build-[^/]*core\.(?:sh|ts)$|(?:prepare-data|released-card-data|card-script-patches)\.ts$|(?:prepare-multi-core-tree|multi-core-common|check-legacy-pin|run-nduel)\.sh$)|tests\/(?:differential\/|fuzz\/|support\/(?:cores|shard|setup)\.ts$)|vitest\.config\.ts$|package\.json$)/.test(file);
 
 const docTestInputs = new Map([
@@ -24,10 +24,8 @@ const docTestInputs = new Map([
 ]);
 const isDoc = (file) => !docTestInputs.has(file) && (/\.md$/i.test(file) || file.startsWith("docs/"));
 
-export function sharedEnginePullRequest(files, event, layers) {
-  const inputs = files?.filter(file => !isDoc(file));
-  return event === "pull_request" && layers.engine && !layers.core && !!inputs?.length &&
-    inputs.every(file => /^packages\/shared\/src\/.*\.[cm]?[jt]sx?$/.test(file));
+export function compactEnginePullRequest(event, layers) {
+  return event === "pull_request" && layers.engine && !layers.tests_only;
 }
 
 // Start at the engine host/workers and core suites, not HTTP/DB startup or unit tests.
@@ -353,9 +351,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     }
   }
   const outputs = { ...changedLayers(files, event, { serviceBarrelAppOnly }), base: base ?? "", head: head ?? "" };
-  const sharedEngine = sharedEnginePullRequest(files, event, outputs);
-  outputs.engine_shared = sharedEngine;
-  outputs.engine_matrix = JSON.stringify(engineMatrix(sharedEngine));
+  outputs.engine_matrix = JSON.stringify(engineMatrix(compactEnginePullRequest(event, outputs)));
   if (event === "pull_request" && files !== null) {
     const testDiff = JSON.stringify(files);
     // GitHub carries this through a Linux environment variable in the next step.

@@ -5,6 +5,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import ts from "typescript";
 import { extraFullSuites, fullSuiteReason, runtimeDependencies, sourceFile } from "./pr-test-inputs.mjs";
 import { planUnitShards } from "./unit-test-plan.mjs";
+import { WEB_FULL_SHARDS } from "./web-test-plan.mjs";
 
 const workspaceNames = {
   web: "web", shared: "shared", bot: "bot", ws: "ws", worker: "worker", duel_unit: "duel-server",
@@ -256,7 +257,8 @@ async function main() {
       console.log(`${suite}: full suite (${result.reason ?? "no test files reached the changed paths"})`);
     }
   }
-  output.web_shards = JSON.stringify([1, 2, 3, 4, 5].slice(0, output.web_files ? JSON.parse(output.web_files).length : 5));
+  const webShards = Math.min(WEB_FULL_SHARDS, output.web_files ? JSON.parse(output.web_files).length : WEB_FULL_SHARDS);
+  output.web_shards = JSON.stringify(Array.from({ length: webShards }, (_, index) => index + 1));
   // Emit all outputs only after graph construction. An unexpected error in any
   // suite leaves the workflow on the original, full-suite defaults.
   appendFileSync(process.env.GITHUB_OUTPUT, Object.entries(output).map(([key, value]) => `${key}=${value}\n`).join(""));

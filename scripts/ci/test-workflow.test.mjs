@@ -29,7 +29,7 @@ const gateJobs = () => Object.fromEntries(jobs['ci-result'].needs.map(name => [n
 const gate = (results, event = 'workflow_dispatch', nightly = event === 'schedule') => runGate('ci-result', { RESULTS: JSON.stringify(results), EVENT: event, NIGHTLY: String(nightly) });
 
 test('CI result accepts intentional skips and rejects failed or cancelled jobs and detection', () => {
-  assert.deepEqual([...jobs['ci-result'].needs].sort(), Object.keys(jobs).filter(name => !['ci-result', 'image-prebuild', 'duel-prebuild-inputs', 'duel-image-prebuild'].includes(name)).sort());
+  assert.deepEqual([...jobs['ci-result'].needs].sort(), Object.keys(jobs).filter(name => !['ci-result', 'image-prebuild', 'service-image-prebuild', 'duel-prebuild-inputs', 'duel-image-prebuild'].includes(name)).sort());
   assert.equal(jobs['ci-result'].if, 'always()');
   assert.equal(gate(gateJobs()), 0);
   for (const name of jobs['ci-result'].needs) {
@@ -87,6 +87,35 @@ test('TS engine changes allow skipped core checks; core selection requires both 
   assert.deepEqual(jobs['engine-differential'].strategy.matrix.shard, [1, 2]);
   assert.equal(jobs['engine-differential'].strategy['fail-fast'], false);
   assert.match(jobs['engine-differential'].steps.at(-1).run, /run-engine-tests\.mjs differential .*matrix\.shard.*\/2/);
+});
+
+test('the three core builders verify every target and preserve target cache and bundle paths', () => {
+  const job = jobs['core-build'];
+  const groups = job.strategy.matrix.include;
+  assert.equal(groups.length, 3);
+  assert.deepEqual(groups.flatMap(group => Object.values(group)).sort(), [
+    'domain', 'legacy-domain', 'multi', 'multi-domain', 'multi-domain-trap',
+    'multi-ref', 'multi-ref-domain', 'multi-trap', 'standard',
+  ]);
+  const targetAction = './.github/actions/build-ci-core-target';
+  assert.deepEqual(job.steps.filter(step => step.uses === targetAction).map(step => step.with.target),
+    ['first', 'second', 'third'].map(slot => '${{ matrix.' + slot + ' }}'));
+  assert.equal(job.steps.filter(step => step.uses === 'actions/setup-node@v4').length, 1);
+  const { runs } = parse(readFileSync(new URL('../../.github/actions/build-ci-core-target/action.yml', import.meta.url), 'utf8'));
+  for (const action of ['restore', 'save']) {
+    const cache = runs.steps.find(step => step.name.endsWith('compiled core') && step.uses === `actions/cache/${action}@v4`);
+    assert.deepEqual(cache.with, { path: 'ci-core/${{ inputs.target }}', key: '${{ steps.key.outputs.key }}' });
+  }
+  const verify = runs.steps.findIndex(step => step.name === 'Verify compiled core hashes');
+  assert.match(runs.steps[verify].run, /build-core\.sh .* --verify-only/);
+  assert.equal(runs.steps[verify].if, undefined);
+  assert.ok(verify < runs.steps.findIndex(step => step.name === 'Save compiled core'));
+  const upload = job.steps.find(step => step.uses === 'actions/upload-artifact@v4');
+  const download = jobs.cores.steps.find(step => step.name === 'Download all cores');
+  assert.equal(upload.with.path, 'ci-core/');
+  assert.equal(download.with.path, 'ci-core');
+  assert.equal(download.with.pattern, 'core-*');
+  assert.equal(download.with['merge-multiple'], true);
 });
 
 test('pure known data changes require consumer integration tests and skip web build', () => {
@@ -247,22 +276,44 @@ test('PR image prebuild is non-blocking, same-repo only and skipped for docs and
   assert.deepEqual(job.needs, ['changes', 'production-voice-assets']);
   assert.match(job.if, /github\.event\.pull_request\.head\.repo\.full_name == github\.repository/);
   assert.match(job.if, /docs_only != 'true'/);
-  assert.deepEqual(job.strategy.matrix.include.map(entry => entry.service), ['web', 'bot', 'ws', 'worker']);
   const build = job.steps.find(step => step.name === 'Build production image');
+  assert.equal(build.with.service, 'web');
   assert.equal(build.with['publish-artifacts'], 'false');
   // PR builds never touch the shared main caches, and always overwrite their own inputs tag.
   assert.equal(build.with['write-caches'], 'false');
   assert.equal(build.if, undefined);
   assert.equal(job.steps.some(step => step.id === 'existing'), false);
-  for (const name of ['production-images', 'image-prebuild']) {
-    const hashStep = jobs[name].steps.find(step => step.id === 'inputs');
-    assert.equal(hashStep.env.IMAGE_SALT_EXTRA, 'target:${{ matrix.target }}');
-  }
+  assert.equal(job.steps.find(step => step.id === 'inputs').env.IMAGE_SALT_EXTRA, 'target:web');
   assert.doesNotMatch(JSON.stringify(job), /VM_|ssh|deploy-production/);
   // Main reuses the prebuilt image only through the checked reuse action, and every build step is gated on it.
   const main = jobs['production-images'].steps;
+  assert.equal(main.find(step => step.id === 'inputs').env.IMAGE_SALT_EXTRA, 'target:${{ matrix.target }}');
   assert.equal(main.find(step => step.id === 'reuse').uses, './.github/actions/reuse-production-image');
   assert.equal(main.find(step => step.name === 'Build production image').if, "steps.reuse.outputs.reused != 'true'");
+});
+
+test('small PR images share a builder and preserve each main image input hash', () => {
+  const job = jobs['service-image-prebuild'];
+  assert.equal(job.if, jobs['image-prebuild'].if);
+  assert.equal(job['runs-on'], jobs['image-prebuild']['runs-on']);
+  assert.equal(job['continue-on-error'], true);
+  assert.equal(job.steps.filter(step => step.uses?.startsWith('docker/setup-buildx-action@')).length, 1);
+  assert.equal(job.steps.filter(step => step.uses?.startsWith('docker/login-action@')).length, 1);
+  const builds = job.steps.filter(step => step.uses === './.github/actions/build-production-image');
+  assert.deepEqual(builds.map(step => step.with.service), ['ws', 'worker', 'bot']);
+  for (const { with: inputs, env } of builds) {
+    const { service } = inputs;
+    const mainEntry = jobs['production-images'].strategy.matrix.include.find(entry => entry.service === service);
+    assert.equal(inputs.target, mainEntry.target);
+    assert.equal(inputs.builder, '${{ steps.builder.outputs.name }}');
+    assert.equal(inputs['inputs-hash'], '${{ steps.' + service + '.outputs.hash }}');
+    assert.equal(inputs['write-caches'], 'false');
+    assert.equal(inputs['publish-artifacts'], 'false');
+    assert.equal(env.IMAGE, 'ghcr.io/duelingdomain/yugioh-bot-' + service);
+    const hash = job.steps.find(step => step.id === service);
+    assert.equal(hash.run, 'node scripts/ci/image-inputs.mjs');
+    assert.deepEqual(hash.env, { IMAGE_SERVICE: service, IMAGE_SALT_EXTRA: 'target:' + mainEntry.target });
+  }
 });
 
 test('duel prebuild uses the production bundle and hash path outside CI result', () => {

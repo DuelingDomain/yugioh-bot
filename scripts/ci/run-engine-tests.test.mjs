@@ -21,14 +21,15 @@ test("dependent web runs require an explicit selection", () => {
   assert.match(result.stderr, /requires an explicit file selection/);
 });
 
-test("shared PR engine shards retain every full-engine file and stay within the runner budget", async () => {
+test("ten compact PR engine shards plus legacy retain the full file and case inventory", async () => {
   const { duelTestFiles } = await import("./duel-test-files.mjs");
-  const { sharedEnginePlan, SHARED_ENGINE_SHARDS, SURRENDER_FILES, TABLE_FILE, isPinnedFile } = await import("./engine-test-plan.mjs");
+  const { compactEnginePlan, engineMatrix, LEGACY_SHARDS, SURRENDER_FILES, TABLE_FILE, isPinnedFile } =
+    await import("./engine-test-plan.mjs");
   const { verifyFiles } = await import("./test-shards.mjs");
   const { engine } = duelTestFiles();
-  const plan = sharedEnginePlan(engine);
-  assert.equal(plan.length, SHARED_ENGINE_SHARDS);
-  assert.ok(plan.length + 1 < 20, "leave room for the legacy and CI jobs");
+  const plan = compactEnginePlan(engine);
+  assert.equal(plan.length + LEGACY_SHARDS, 11);
+  assert.deepEqual(engineMatrix(true), plan.map((_, index) => ({ suite: "compact", shard: index + 1, count: 10 })));
   const tasks = plan.flatMap(shard => shard.files).filter(task => task.file !== TABLE_FILE);
   verifyFiles(engine.filter(file => file !== TABLE_FILE && (isPinnedFile(file) || SURRENDER_FILES.includes(file))),
     [...new Set(tasks.map(task => task.file))]);
@@ -37,7 +38,15 @@ test("shared PR engine shards retain every full-engine file and stay within the 
     assert.equal(parts.length, parts[0].count, file);
     assert.deepEqual(parts.map(task => task.index).sort((a, b) => a - b), parts.map((_, index) => index), file);
   }
-  assert.ok(plan.every(shard => shard.files.filter(task => task.file === TABLE_FILE).length === 1));
+  const table = plan.flatMap(shard => shard.files.filter(task => task.file === TABLE_FILE));
+  assert.deepEqual(table.map(task => [task.index, task.count]), plan.map((_, index) => [index, plan.length]));
+  const smoke = plan.at(-1);
+  assert.equal(smoke.maxWorkers, 1);
+  assert.deepEqual(smoke.files.filter(task => task.file !== TABLE_FILE), [
+    { file: "tests/new-card-smoke-pool.test.ts", index: 0, count: 1 },
+  ]);
+  assert.ok(plan.slice(0, -1).every(shard => shard.maxWorkers === 4 &&
+    shard.files.every(task => task.file !== "tests/new-card-smoke-pool.test.ts")));
 });
 
 test("engine case partitions execute every collected case once, even when titles repeat", async t => {

@@ -3337,6 +3337,18 @@
       "note": "Reads the Graveyard and the banished zone (field class) of the bound opponent. Tag: the target picks the opposing duelist (MPTarget) and the operation runs bound to that duelist (MPOne), who may Special Summon from the Deck. The triage text that calls it OK-BIND is wrong."
     },
     {
+      "code": 34124316,
+      "file": "c34124316.lua",
+      "name": "Cyber Jar",
+      "kind": "hand",
+      "classes": [],
+      "stockSha256": "76eb3740000275c4b6c70594233a88a2e7562459f82efd7c4d17be209f3bbbc0",
+      "note": "Issue #517, R-COMMON-EACH-PLAYER: both players reveal the top 5 cards, and every living duelist (each Tag member too) does, from the turn player. The stock operation reads only the turn player and 1-p.",
+      "redefined": [
+        "operation"
+      ]
+    },
+    {
       "code": 34137269,
       "file": "c34137269.lua",
       "name": "Hailon, the Timelord",
