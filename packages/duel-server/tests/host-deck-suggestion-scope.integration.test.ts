@@ -1,12 +1,13 @@
 import Database from "better-sqlite3";
-import { existsSync, readFileSync, rmSync, statSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync, unlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { migrate } from "@yugidraft/shared/db";
 import { createDuelHost, type DuelHost } from "../src/host.js";
 import { cardScriptHash } from "../src/card-script-hash.js";
 import { loadCardDatabase } from "../src/cards.js";
 import { createHostDataFixture } from "./helpers/host-data-fixture.js";
+import { migratedMemoryDatabase } from "./helpers/memory-database.js";
 import { seedIdentity } from "./helpers/identity.js";
 import { signedHeaders } from "./helpers/signed-request.js";
 
@@ -51,13 +52,13 @@ interface Scope {
   version: string;
 }
 
-let directory: string;
+let templateDirectory: string, directory: string;
 let db: Database.Database;
 let host: DuelHost;
 let playerId: number;
 
 beforeAll(() => {
-  directory = createHostDataFixture(cards);
+  const directory = templateDirectory = createHostDataFixture(cards);
   const engine = new Database(join(directory, "cards.cdb"));
   try {
     engine.prepare("update datas set race = 2, attribute = 2 where id != ?").run(MASTER);
@@ -86,16 +87,22 @@ beforeAll(() => {
   unlinkSync(join(directory, "card-scripts", "c1014.lua"));
 });
 
-afterAll(() => rmSync(directory, { recursive: true, force: true }));
+afterAll(() => rmSync(templateDirectory, { recursive: true, force: true }));
 beforeEach(() => {
   vi.stubEnv("DUEL_STANDARD_1V1_ENGINE", "pinned");
-  db = new Database(":memory:");
-  migrate(db);
+  // Cases mutate scripts and CDB contents to exercise cache invalidation. Use a
+  // fresh path so the next case starts with its own copy and cache entries.
+  directory = mkdtempSync(join(tmpdir(), "suggestion-scope-"));
+  cpSync(templateDirectory, directory, { recursive: true });
+  db = migratedMemoryDatabase();
   playerId = seedIdentity(db).playerId;
   host = createDuelHost({ db, dataDirectory: directory, secret: SECRET, searchCards: () => [],
     createWorker: vi.fn(() => { throw new Error("Suggestions must never start an engine"); }) });
 });
-afterEach(async () => { await host.close(); db.close(); vi.unstubAllEnvs(); });
+afterEach(async () => {
+  try { await host.close(); }
+  finally { db.close(); vi.unstubAllEnvs(); rmSync(directory, { recursive: true, force: true }); }
+});
 
 async function post(body: Record<string, unknown>) {
   const raw = JSON.stringify({ guildId: "g", playerId, op: "suggestion-scope", ...body });

@@ -1,8 +1,8 @@
 import { useConsoleObservability, useRecordingObservability } from "../helpers/recording-observability.mjs";
 import { seedIdentity, seedUser } from "../helpers/identity.js";
-import Database from "better-sqlite3";
+import type Database from "better-sqlite3";
 import { describe, expect, it, vi } from "vitest";
-import { migrate } from "../../src/db/index.js";
+import { migratedMemoryDatabase } from "../helpers/memory-database.js";
 import type { DuelDeck, DuelEngineView, DuelSession } from "../../src/duels/index.js";
 import { canonicalCardCode } from "../../src/duels/pool.js";
 import { createDuelSeriesService, createSeriesStore, SERIES_SIDE_WINDOW_MS } from "../../src/services/duel-series.js";
@@ -23,8 +23,7 @@ function validDeck(start = 1, side = 2): DuelDeck {
 }
 
 function setup() {
-  const db = new Database(":memory:");
-  migrate(db);
+  const db = migratedMemoryDatabase();
   const p1 = insertPlayer(db, "g1", "u1", "Yugi");
   const p2 = insertPlayer(db, "g1", "u2", "Kaiba");
   const p3 = insertPlayer(db, "g1", "u3", "Joey");

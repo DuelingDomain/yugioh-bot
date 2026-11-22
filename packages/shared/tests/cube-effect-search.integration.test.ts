@@ -12,6 +12,7 @@ import { getCubeSeedIndex, initializeCubeSeedIndex, prepareCubeSeedIndex } from 
 import { createCubeService } from "../src/services/cubes.js";
 import * as insightCatalog from "../src/services/card-insight-catalog.js";
 import { seedUser } from "./helpers/identity.js";
+import { memoryDatabaseFixture, migratedMemoryDatabase } from "./helpers/memory-database.js";
 import { importCardEffectArtifact } from "../src/cards/effects/artifact.js";
 import { CardTags, fillDefaults } from "../src/cards/effects/tags.js";
 import { readInsightProfiles } from "../src/services/card-insight-profiles.js";
@@ -20,32 +21,48 @@ import { scoreForDeck } from "../src/cards/effects/synergy.js";
 let db: Database.Database;
 let cubes: ReturnType<typeof createCubeService>;
 let cubeId: number;
-beforeEach(() => {
-  vi.stubEnv("DUEL_DATA_DIR", "/tmp/cube-effects-no-engine");
-  db = new Database(":memory:");
-  migrate(db);
-  const insert = db.prepare(`INSERT INTO card_catalog(ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at)
+function seedBaseCatalog(database: Database.Database) {
+  const insert = database.prepare(`INSERT INTO card_catalog(ygoprodeck_id,name,type,frame_type,image_url,image_url_small,card_sets_json,cached_at)
     VALUES(?,?,'Effect Monster','effect','image','small','[]',CURRENT_TIMESTAMP)`);
   for (const id of [1, 2, 3, 4]) insert.run(id, id === 4 ? "Card 1" : `Card ${id}`);
-  db.prepare("INSERT INTO card_artworks(card_id,artwork_id,image_url,image_url_small,is_main) VALUES(1,4,'i','i',0)").run();
+  database.prepare("INSERT INTO card_artworks(card_id,artwork_id,image_url,image_url_small,is_main) VALUES(1,4,'i','i',0)").run();
+}
+
+function setupCube(database: Database.Database) {
+  db = database;
   const engine = new Map([[1, { code: 1, name: "Card 1", type: 33 }], [2, { code: 2, name: "Card 2", type: 8193 }]]);
   cubes = createCubeService(db, createCardCatalogService(db, { identityCatalog: engine }), engine);
   cubeId = cubes.createBlank("g", "Effects", seedUser(db, "owner").userId).id;
+}
+
+beforeEach(() => {
+  vi.stubEnv("DUEL_DATA_DIR", "/tmp/cube-effects-no-engine");
+  const fixture = migratedMemoryDatabase();
+  seedBaseCatalog(fixture);
+  setupCube(fixture);
+});
+
+const databaseWithEffectCatalog = memoryDatabaseFixture(database => {
+  migrate(database);
+  seedBaseCatalog(database);
+  const insert = database.prepare(`INSERT INTO card_catalog(ygoprodeck_id,name,type,frame_type,effect_text,attribute,level,archetype,image_url,image_url_small,card_sets_json,cached_at)
+    VALUES(?,?,?,?,?,?,?,?,'image','small','[]',CURRENT_TIMESTAMP)`);
+  insert.run(46986414, "Dark Magician", "Spellcaster / Normal Monster", "normal", "The ultimate wizard.", "DARK", 7, "Dark Magician");
+  insert.run(7084129, "Magician's Rod", "Spellcaster / Effect Monster", "effect", 'Add a card that mentions "Dark Magician".', "DARK", 3, "Dark Magician");
+  insert.run(47222536, "Dark Magical Circle", "Spell Card", "spell", 'Banish a card when "Dark Magician" is summoned.', null, null, "Dark Magician");
+  insert.run(97631303, "Magicians' Souls", "Spellcaster / Effect Monster", "effect", "Send a Level 6 or higher Spellcaster from Deck to GY; Special Summon this card.", "DARK", 1, null);
+  insert.run(97268402, "Effect Veiler", "Spellcaster / Tuner Effect Monster", "effect", "Negate a monster effect.", "LIGHT", 1, null);
+  insert.run(14558127, "Ash Blossom & Joyous Spring", "Zombie / Tuner Effect Monster", "effect", "Negate an effect.", "FIRE", 3, null);
+  insert.run(12580477, "Raigeki", "Spell Card", "spell", "Destroy all monsters your opponent controls.", null, null, null);
+  insert.run(83764719, "Monster Reborn", "Spell Card", "spell", "Special Summon a monster from the GY.", null, null, null);
+  importCardEffectArtifact(database);
 });
 
 describe("phrase cube previews over the pinned artifact", () => {
   const seedCatalog = () => {
-    const insert = db.prepare(`INSERT INTO card_catalog(ygoprodeck_id,name,type,frame_type,effect_text,attribute,level,archetype,image_url,image_url_small,card_sets_json,cached_at)
-      VALUES(?,?,?,?,?,?,?,?,'image','small','[]',CURRENT_TIMESTAMP)`);
-    insert.run(46986414, "Dark Magician", "Spellcaster / Normal Monster", "normal", "The ultimate wizard.", "DARK", 7, "Dark Magician");
-    insert.run(7084129, "Magician's Rod", "Spellcaster / Effect Monster", "effect", 'Add a card that mentions "Dark Magician".', "DARK", 3, "Dark Magician");
-    insert.run(47222536, "Dark Magical Circle", "Spell Card", "spell", 'Banish a card when "Dark Magician" is summoned.', null, null, "Dark Magician");
-    insert.run(97631303, "Magicians' Souls", "Spellcaster / Effect Monster", "effect", "Send a Level 6 or higher Spellcaster from Deck to GY; Special Summon this card.", "DARK", 1, null);
-    insert.run(97268402, "Effect Veiler", "Spellcaster / Tuner Effect Monster", "effect", "Negate a monster effect.", "LIGHT", 1, null);
-    insert.run(14558127, "Ash Blossom & Joyous Spring", "Zombie / Tuner Effect Monster", "effect", "Negate an effect.", "FIRE", 3, null);
-    insert.run(12580477, "Raigeki", "Spell Card", "spell", "Destroy all monsters your opponent controls.", null, null, null);
-    insert.run(83764719, "Monster Reborn", "Spell Card", "spell", "Special Summon a monster from the GY.", null, null, null);
-    importCardEffectArtifact(db);
+    const fixture = databaseWithEffectCatalog();
+    db.close();
+    setupCube(fixture);
   };
 
   it("previews members, mechanical partners and role staples without writing, with bounded target and reasons", () => {

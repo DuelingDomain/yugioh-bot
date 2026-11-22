@@ -27,17 +27,22 @@ export function createHostDataFixture(cards: FixtureCard[]) {
     }
     const db = new Database(join(directory, "cards.cdb"));
     try {
-      db.exec(`CREATE TABLE datas (id INTEGER PRIMARY KEY, ot INTEGER, alias INTEGER, setcode INTEGER,
-        type INTEGER, atk INTEGER, def INTEGER, level INTEGER, race INTEGER, attribute INTEGER);
-        CREATE TABLE texts (id INTEGER PRIMARY KEY, name TEXT, desc TEXT);`);
-      const data = db.prepare("INSERT INTO datas VALUES (?,3,?,0,?,1000,1000,4,1,1)");
-      const text = db.prepare("INSERT INTO texts VALUES (?,?,'')");
-      for (const card of cards) {
-        data.run(card.code, card.alias ?? 0, card.type ?? 17);
-        text.run(card.code, card.name);
-        writeFileSync(join(directory, "card-scripts", `c${card.code}.lua`), "-- fixture card script\n");
-      }
+      // One commit keeps fixture setup from synchronously flushing the journal for every insert.
+      db.transaction(() => {
+        db.exec(`CREATE TABLE datas (id INTEGER PRIMARY KEY, ot INTEGER, alias INTEGER, setcode INTEGER,
+          type INTEGER, atk INTEGER, def INTEGER, level INTEGER, race INTEGER, attribute INTEGER);
+          CREATE TABLE texts (id INTEGER PRIMARY KEY, name TEXT, desc TEXT);`);
+        const data = db.prepare("INSERT INTO datas VALUES (?,3,?,0,?,1000,1000,4,1,1)");
+        const text = db.prepare("INSERT INTO texts VALUES (?,?,'')");
+        for (const card of cards) {
+          data.run(card.code, card.alias ?? 0, card.type ?? 17);
+          text.run(card.code, card.name);
+        }
+      })();
     } finally { db.close(); }
+    for (const card of cards) {
+      writeFileSync(join(directory, "card-scripts", `c${card.code}.lua`), "-- fixture card script\n");
+    }
     return directory;
   } catch (error) {
     rmSync(directory, { recursive: true, force: true });

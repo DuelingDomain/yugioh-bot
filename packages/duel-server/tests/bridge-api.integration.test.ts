@@ -3,9 +3,9 @@ import { bridgeProjectionRows, type BridgeProjectionInput } from "../src/bridge-
 import Database from "better-sqlite3";
 import { APIError } from "@anthropic-ai/sdk";
 import { rmSync } from "node:fs";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
-import { BRIDGE_JUDGE_FRAMINGS, bridgePackage, buildBridgeJudgeEvidence, importBridgeArtifact, importCardEffectArtifact, judgeBridgePair, makeBridgeJudgementRecord, saveBridgeJudgement, type ArchetypeBridge, type BridgeJudgeClient } from "@yugidraft/shared/cards/effects";
+import { BRIDGE_JUDGE_FRAMINGS, bridgePackage, buildBridgeJudgeEvidence, judgeBridgePair, makeBridgeJudgementRecord, saveBridgeJudgement, type ArchetypeBridge, type BridgeJudgeClient } from "@yugidraft/shared/cards/effects";
 import { createBridgeService, createDuelService, createSavedDeckService } from "@yugidraft/shared/services";
 import { BridgeEngineQueries, type EngineQuery } from "../src/bridge-engine-queries.js";
 import { BridgeApi } from "../src/bridge-api.js";
@@ -13,13 +13,14 @@ import { createDuelHost } from "../src/host.js";
 import { createHostDataFixture } from "./helpers/host-data-fixture.js";
 import { seedIdentity } from "./helpers/identity.js";
 import { signedHeaders } from "./helpers/signed-request.js";
+import { effectDatabase } from "./helpers/bridge-worker-database.js";
 
 let db: Database.Database, bridge: ArchetypeBridge;
-beforeAll(() => {
-  db = new Database(":memory:"); migrate(db); importCardEffectArtifact(db); importBridgeArtifact(db);
+beforeEach(() => {
+  db = effectDatabase();
   bridge = createBridgeService(db).bridgeBetween("Odion", "Argostars")!;
 });
-afterAll(() => db.close());
+afterEach(() => db.close());
 
 const bridgeEngineShortlist = async (rows: ArchetypeBridge[], query: EngineQuery) => new BridgeEngineQueries(db).shortlist(rows, query);
 const bridgeEngineProjection = async (rows: BridgeProjectionInput, query: EngineQuery) => new BridgeEngineQueries(db).project(bridgeProjectionRows(db, rows), query, 6);

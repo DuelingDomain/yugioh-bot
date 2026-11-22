@@ -1,7 +1,7 @@
-import Database from "better-sqlite3";
+import type Database from "better-sqlite3";
 import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it } from "vitest";
-import { migrate } from "../../src/db/index.js";
+import { migratedMemoryDatabase } from "../helpers/memory-database.js";
 import { createCardCatalogService } from "../../src/services/card-catalog.js";
 import { createGenesysPointsReader, parseGenesysPointsResponse, parseGenesysPointsSnapshot, publishGenesysPointsSnapshot } from "../../src/services/genesys-points.js";
 import { checkGenesysDeck } from "../../src/duels/genesys.js";
@@ -25,9 +25,8 @@ function completeSnapshot() {
 const databases: Database.Database[] = [];
 afterEach(() => { for (const db of databases.splice(0)) db.close(); });
 function setup() {
-  const db = new Database(":memory:");
+  const db = migratedMemoryDatabase();
   databases.push(db);
-  migrate(db);
   let payload: unknown = completeSnapshot();
   let ok = true;
   const urls: string[] = [];

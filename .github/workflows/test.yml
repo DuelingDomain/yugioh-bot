@@ -556,7 +556,7 @@ jobs:
       - name: Evaluate bridge precision and recall
         run: |
           prlimit --core=0 -- npx tsx scripts/effects/evaluate-bridges.ts --check
-          prlimit --core=0 -- npx vitest run packages/shared/tests/archetype-bridges.integration.test.ts packages/shared/tests/bridge-judge.integration.test.ts packages/duel-server/tests/bridge-workers.integration.test.ts packages/duel-server/tests/bridge-search-jobs.integration.test.ts packages/duel-server/tests/bridge-api.integration.test.ts scripts/effects/tests/bridge-artifacts.integration.test.ts --maxWorkers=1 --testTimeout=15000
+          prlimit --core=0 -- npx vitest run packages/shared/tests/archetype-bridges.integration.test.ts packages/shared/tests/bridge-judge.integration.test.ts packages/duel-server/tests/bridge-workers packages/duel-server/tests/bridge-search-jobs packages/duel-server/tests/bridge-api.integration.test.ts scripts/effects/tests/bridge-artifacts.integration.test.ts --maxWorkers=1 --testTimeout=15000
 
   unit-web-build:
     name: Web production build
@@ -595,11 +595,15 @@ jobs:
           key: ${{ steps.next-cache.outputs.cache-primary-key }}
 
   unit-shared:
-    name: Shared unit tests
+    name: Shared unit tests (${{ matrix.shard }})
     needs: changes
     if: needs.changes.outputs.shared == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.changes.outputs.data_only == 'true' && '["1/1"]' || '["1/2","2/2"]') }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -608,14 +612,14 @@ jobs:
       - name: Build shared
         run: npx turbo run build --cache-dir=.turbo/cache --filter=@yugidraft/shared
       - name: Typecheck shared
-        if: needs.changes.outputs.data_only != 'true'
+        if: needs.changes.outputs.data_only != 'true' && matrix.shard == '1/2'
         run: npm run typecheck --workspace=packages/shared
       - name: Test shared
         if: needs.changes.outputs.data_only != 'true'
-        run: npm test --workspace=packages/shared
+        run: npm test --workspace=packages/shared -- --shard=${{ matrix.shard }}
       - name: Test shared effects and staple data consumers
         if: needs.changes.outputs.data_only == 'true'
-        run: npm test --workspace=packages/shared -- tests/effect-artifact.integration.test.ts tests/effect-search.integration.test.ts tests/cube-effect-search.integration.test.ts
+        run: npm test --workspace=packages/shared -- tests/effect-artifact tests/effect-search.integration.test.ts tests/cube-effect-search.integration.test.ts
 
   unit-bot:
     name: Bot tests and typecheck
@@ -672,11 +676,15 @@ jobs:
         run: npm test --workspace=packages/worker
 
   unit-duel:
-    name: Duel tests and typecheck (no core)
+    name: Duel tests and typecheck (no core) (${{ matrix.shard }})
     needs: changes
     if: needs.changes.outputs.duel_unit == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON((needs.changes.outputs.data_only == 'true' || needs.changes.outputs.tests_only == 'true') && '["1/1"]' || '["1/2","2/2"]') }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -687,7 +695,7 @@ jobs:
       - name: Build shared
         run: npx turbo run build --cache-dir=.turbo/cache --filter=@yugidraft/shared
       - name: Typecheck duel-server
-        if: needs.changes.outputs.data_only != 'true'
+        if: needs.changes.outputs.data_only != 'true' && startsWith(matrix.shard, '1/')
         run: npm run typecheck --workspace=packages/duel-server
       - name: Select changed test files
         id: selection
@@ -701,6 +709,7 @@ jobs:
       - name: Test duel-server (no core)
         env:
           CI_TEST_FILES: ${{ steps.selection.outputs.files }}
+          CI_TEST_SHARD: ${{ matrix.shard }}
           DATA_ONLY: ${{ needs.changes.outputs.data_only }}
         run: |
           node --input-type=module <<'JS'
@@ -712,7 +721,8 @@ jobs:
             : narrow ? selected : ['tests'];
           if (selected?.length === 0) console.warn('Empty CI test selection; falling back to the full suite.');
           const result = spawnSync('npm', ['exec', '--workspace=packages/duel-server', '--', 'vitest', 'run', ...files,
-            '--config=vitest.unit.config.ts', '--testTimeout=15000', ...(narrow ? ['--passWithNoTests'] : [])], { stdio: 'inherit' });
+            '--config=vitest.unit.config.ts', '--testTimeout=15000', '--shard='+process.env.CI_TEST_SHARD,
+            ...(narrow ? ['--passWithNoTests'] : [])], { stdio: 'inherit' });
           if (result.error) throw result.error;
           process.exit(result.status ?? 1);
           JS

@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
-import { migrate } from "../../src/db/schema.js";
+import { migratedFileDatabase } from "../helpers/memory-database.js";
 import { createHostSampler, createServiceReporter, collectVpsHealth, readVpsHealth } from "../../src/health/index.js";
 
 const roots: string[] = [];
@@ -13,7 +13,7 @@ function fixture() {
   const root = mkdtempSync(join(tmpdir(), "vps-health-")); roots.push(root);
   const proc = join(root, "proc"), cgroup = join(root, "cgroup");
   mkdirSync(join(proc, "self"), { recursive: true }); mkdirSync(cgroup);
-  const db = new Database(join(root, "metrics.sqlite")); databases.push(db); migrate(db);
+  const db = migratedFileDatabase(join(root, "metrics.sqlite")); databases.push(db);
   writeFileSync(join(proc, "self/cgroup"), "0::/\n");
   const files = (ram = 50, load = 1, tick = 100) => {
     writeFileSync(join(proc, "meminfo"), `MemTotal: 4000000 kB\nMemAvailable: ${4000000 * (1 - ram / 100)} kB\nSwapTotal: 0 kB\nSwapFree: 0 kB\n`);

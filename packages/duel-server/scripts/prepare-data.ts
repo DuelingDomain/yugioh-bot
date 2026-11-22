@@ -125,7 +125,7 @@ export async function prepareData(
     await writeFile(archive, scripts);
     const scriptStaging = join(temporary, "card-scripts");
     await mkdir(scriptStaging, { recursive: true });
-    execFileSync("tar", ["-xzf", archive, "--strip-components=1", "-C", scriptStaging]);
+    execFileSync("tar", ["-xzf", archive, "--strip-components=1", "-C", scriptStaging], { stdio: ["ignore", "pipe", "pipe"] });
     restrictPrereleaseScripts(scriptStaging, database.scriptCodes);
     for (const drop of database.drops) console.log(`[prerelease] Drop ${drop.code} ${drop.name} (${drop.file}): ${drop.reason}${drop.keptCode ? ` → ${drop.keptCode}` : ""}`);
     for (const card of database.unmatched) console.log(`[prerelease] ${card.code} ${card.name}: unmatched graduation, needs review`);

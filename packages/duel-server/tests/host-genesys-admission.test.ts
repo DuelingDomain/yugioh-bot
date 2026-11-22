@@ -1,15 +1,15 @@
-import Database from "better-sqlite3";
+import type Database from "better-sqlite3";
 import { rmSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { migrate } from "@yugidraft/shared/db";
 import { seatCountFor, type DuelEngineView, type DuelFormat, type DuelMode } from "@yugidraft/shared/duels";
 import { createDuelSeriesService, createDuelService, createTournamentDuelService, createTournamentService, publishGenesysPointsSnapshot } from "@yugidraft/shared/services";
 import { createDuelHost, type DuelHost } from "../src/host.js";
 import type { DuelGameWorker } from "../src/worker-client.js";
 import { seedIdentity, seedUser } from "./helpers/identity.js";
 import { signedHeaders } from "./helpers/signed-request.js";
+import { migratedMemoryDatabase } from "./helpers/memory-database.js";
 import { GENESYS_ART, GENESYS_LINK, GENESYS_MASTER, GENESYS_PENDULUM, genesysDeck, genesysFixture, seedGenesysPoints } from "./helpers/genesys-fixture.js";
 
 const SECRET = "genesys-admission-test";
@@ -35,8 +35,7 @@ function room(mode: DuelMode, format: DuelFormat, pointCap = 100, passcodeRemaps
     writeFileSync(join(fixture.directory, "manifest.json"), JSON.stringify({ bundleVersion: "genesys-test",
       integrity: { cardRemaps: createHash("sha256").update(artifact).digest("hex") } }));
   }
-  const db = new Database(":memory:");
-  migrate(db);
+  const db = migratedMemoryDatabase();
   seedGenesysPoints(db, fixture);
   const players = Array.from({ length: seatCountFor(format) }, (_, seat) => {
     const user = seedUser(db, `genesys-${seat}`);

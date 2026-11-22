@@ -165,7 +165,7 @@ jobs:
         if: steps.effect_result.outputs.changed == 'true'
         run: |
           prlimit --core=0 -- npm run build --workspace=packages/shared
-          prlimit --core=0 -- npx vitest run packages/shared/tests/effect-artifact.integration.test.ts packages/shared/tests/effect-search.integration.test.ts --maxWorkers=1
+          prlimit --core=0 -- npx vitest run packages/shared/tests/effect-artifact packages/shared/tests/effect-search.integration.test.ts --maxWorkers=1
           prlimit --core=0 -- npx vitest run packages/duel-server/tests/effect-search.integration.test.ts --maxWorkers=1 --testTimeout=15000
       - name: Rebuild and evaluate directed bridges after tagging
         if: steps.effect_result.outputs.changed == 'true'

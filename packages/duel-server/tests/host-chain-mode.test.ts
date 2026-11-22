@@ -1,9 +1,8 @@
 import { signedHeaders } from "./helpers/signed-request.js";
 import { seedIdentity, seedUser } from "./helpers/identity.js";
-import Database from "better-sqlite3";
+import type Database from "better-sqlite3";
 import { rmSync } from "node:fs";
-import { afterEach, describe, expect, it } from "vitest";
-import { migrate } from "@yugidraft/shared/db";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { createDuelService } from "@yugidraft/shared/services";
 import { CHAIN_MODE_JOURNAL_LIMIT, defaultChainMode, type DuelChainMode, type DuelEngineView } from "@yugidraft/shared/duels";
 import type { DuelHost } from "../src/host.js";
@@ -11,17 +10,21 @@ import { createTestDuelHost as createDuelHost, finishTestDiceOpening } from "./s
 import { buildPracticeBotDeck } from "../src/practice-bot.js";
 import type { DuelGameWorker } from "../src/worker-client.js";
 import { createHostDataFixture } from "./helpers/host-data-fixture.js";
+import { migratedMemoryDatabase } from "./helpers/memory-database.js";
 
 // The chain response switch through the host: the op, the journal, privacy, the cap and a rebuild from the journal.
 // The worker is a script: seat 1 holds an optional response window; Off passes it to seat 2.
 const SECRET = "chain-mode-test";
 const hosts: DuelHost[] = [];
 const databases: Database.Database[] = [];
-const directories: string[] = [];
+let dataDirectory: string;
+beforeAll(() => {
+  dataDirectory = createHostDataFixture(Array.from({ length: 40 }, (_, i) => ({ code: i + 1, name: `Fixture monster ${i}` })));
+});
+afterAll(() => { if (dataDirectory) rmSync(dataDirectory, { recursive: true, force: true }); });
 afterEach(async () => {
   for (const host of hosts.splice(0)) await host.close();
   for (const db of databases.splice(0)) db.close();
-  for (const dir of directories.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
 class ScriptedWorker implements DuelGameWorker {
@@ -70,21 +73,19 @@ class ScriptedWorker implements DuelGameWorker {
 }
 
 async function table(worker = new ScriptedWorker(), now?: () => number) {
-  const DATA = createHostDataFixture(Array.from({ length: 40 }, (_, i) => ({ code: i + 1, name: `Fixture monster ${i}` })));
-  directories.push(DATA);
-  const db = new Database(":memory:"); databases.push(db); migrate(db);
+  const db = migratedMemoryDatabase(); databases.push(db);
   const players = [0, 1, 2].map((seat) =>
     seedIdentity(db, { guildId: "g", name: `P${seat}`, userId: seedUser(db, `u${seat}`).userId, discordUserId: seedUser(db, `u${seat}`).discordUserId ?? `u${seat}` }).playerId);
   const outsider = seedIdentity(db, { guildId: "g", name: "Out", userId: seedUser(db, "out").userId, discordUserId: seedUser(db, "out").discordUserId ?? "out" }).playerId;
   const duels = createDuelService(db);
   const session = duels.create({ guildId: "g", organizerPlayerId: players[0]!, name: "chain", mode: "normal", format: "ffa3" });
   for (const player of players.slice(1)) duels.takeSeat(session.slug, "g", player);
-  const deck = buildPracticeBotDeck("normal", DATA);
+  const deck = buildPracticeBotDeck("normal", dataDirectory);
   for (const player of players) duels.setDeck(session.slug, "g", player, deck);
   const changes: string[] = [];
   const makeHost = (w: DuelGameWorker) => {
     const host = createDuelHost({
-      db, secret: SECRET, dataDirectory: DATA, searchCards: () => [], pollIntervalMs: 60_000,
+      db, secret: SECRET, dataDirectory, searchCards: () => [], pollIntervalMs: 60_000,
       createWorker: () => w, now, onChange: (slug) => { changes.push(slug); },
     });
     hosts.push(host);

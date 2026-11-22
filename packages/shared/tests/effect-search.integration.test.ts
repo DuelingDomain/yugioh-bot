@@ -1,4 +1,6 @@
 import Database from "better-sqlite3";
+import { once } from "node:events";
+import type { Server } from "node:http";
 import { migrate } from "../src/db/schema.js";
 import { gunzipSync } from "node:zlib";
 import { existsSync, cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -14,6 +16,14 @@ import { matchCard } from "../src/cards/effects/effect-match.js";
 import type { Card } from "../src/cards/effects/card.js";
 import { cardSynergy } from "../src/cards/effects/synergy.js";
 import { formatStaples } from "../src/cards/effects/staples.js";
+
+async function listen(server: Server): Promise<string> {
+  const ready = once(server, 'listening');
+  server.listen(0, '127.0.0.1');
+  await ready;
+  const port = (server.address() as import('node:net').AddressInfo).port;
+  return `http://127.0.0.1:${port}`;
+}
 
 // Real pinned artifact rather than invented effect fixtures.
 const lines = () => gunzipSync(readFileSync(new URL("../data/effects/tags.jsonl.gz", import.meta.url))).toString("utf8").trim().split("\n");
@@ -146,10 +156,9 @@ it('maps a hard phrase once through HTTP, persists across SQLite handles, and sh
     res.setHeader('content-type', 'application/json');
     res.end(JSON.stringify({ id: 'msg_fixture', model: 'claude-haiku-5-5', stop_reason: 'end_turn', usage: { input_tokens: 100, output_tokens: 100 }, content: [{ type: 'text', text: JSON.stringify(query) }] }));
   });
-  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
-  const port = (server.address() as import('node:net').AddressInfo).port;
-  const options = { apiKey: 'fixture-key', store, baseUrl: `http://127.0.0.1:${port}`, allowLoopback: true, now: () => new Date('2026-10-19T12:00:00Z') };
   try {
+    const baseUrl = await listen(server);
+    const options = { apiKey: 'fixture-key', store, baseUrl, allowLoopback: true, now: () => new Date('2026-10-19T12:00:00Z') };
     const results = await Promise.all(Array.from({ length: 3 }, () => fallbackEffectReading(disk, '  Stop pesky combos  ', 'private-user', options)));
     expect(results.filter(Boolean)).toHaveLength(1);
     expect(calls).toBe(1);
@@ -185,10 +194,9 @@ async function readerFixture(reply?: (query: object) => unknown, status = 200, e
     const query = interpret('hand traps that negate')!.query;
     response.end(JSON.stringify({ id: 'msg_test', model: 'claude-haiku-5-5', stop_reason: 'end_turn', usage: { input_tokens: 100, output_tokens: 100 }, content: [{ type: 'text', text: JSON.stringify(reply ? reply(query) : query) }], ...envelope }));
   });
-  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
-  const port = (server.address() as import('node:net').AddressInfo).port;
+  const baseUrl = await listen(server).catch(error => { db.close(); throw error; });
   let instant = new Date('2026-10-19T12:00:00Z');
-  const options = { apiKey: 'fixture-key', store, baseUrl: `http://127.0.0.1:${port}`, allowLoopback: true, now: () => instant, env: {} };
+  const options = { apiKey: 'fixture-key', store, baseUrl, allowLoopback: true, now: () => instant, env: {} };
   return {
     ...ledger, db, store, options, read: (phrase: string, user = 'user', overrides = {}) => fallbackEffectReading(db, phrase, user, { ...options, ...overrides }),
     calls: () => calls, durable: () => durable, advance: (date: string) => { instant = new Date(date); },
@@ -344,10 +352,9 @@ it('reads a ledger over 1 MB via Git blobs and rejects a concurrent non-fast-for
     } else { response.writeHead(404); response.end('{}'); return; }
     response.end(JSON.stringify(result));
   });
-  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
   try {
-    const port = (server.address() as import('node:net').AddressInfo).port;
-    const store = new RuntimeLedgerStore('fixture/repo', 'fixture-token', AbortSignal.timeout(5000), { baseUrl: `http://127.0.0.1:${port}`, allowLoopback: true });
+    const baseUrl = await listen(server);
+    const store = new RuntimeLedgerStore('fixture/repo', 'fixture-token', AbortSignal.timeout(5000), { baseUrl, allowLoopback: true });
     const snapshot = await store.read();
     expect(snapshot.ledger.runtime).toHaveLength(4000);
     const writes = await Promise.allSettled([store.compareAndSwap(snapshot.revision, snapshot.ledger), store.compareAndSwap(snapshot.revision, snapshot.ledger)]);
@@ -699,10 +706,9 @@ it('returns before a slow durable GitHub read without leaving a reserved row', a
     await new Promise(resolve => setTimeout(resolve, 1500));
     response.setHeader('content-type', 'application/json'); response.end(JSON.stringify(result));
   });
-  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
   try {
-    const port = (server.address() as import('node:net').AddressInfo).port;
-    const store = new RuntimeLedgerStore('fixture/repo', 'fixture-token', undefined, { baseUrl: `http://127.0.0.1:${port}`, allowLoopback: true });
+    const baseUrl = await listen(server);
+    const store = new RuntimeLedgerStore('fixture/repo', 'fixture-token', undefined, { baseUrl, allowLoopback: true });
     const started = performance.now();
     expect(await context.read('slow GitHub store', 'user', { store })).toBeNull();
     expect(performance.now() - started).toBeLessThan(3500);

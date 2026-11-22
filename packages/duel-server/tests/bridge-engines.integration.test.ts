@@ -1,6 +1,7 @@
 import { bridgeQueryFixture } from "./helpers/bridge-query-fixture.js";
 import { bridgeProjectionRows, compactBridgeRows, type BridgeProjectionInput } from "../src/bridge-projection-input.js";
 import Database from "better-sqlite3";
+import { memoryDatabaseFixture } from "../../shared/tests/helpers/sqlite-memory-fixture.mjs";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { migrate } from "@yugidraft/shared/db";
 import { BRIDGE_JUDGE_FRAMINGS, BRIDGE_JUDGE_VERSION, buildBridgeJudgeEvidence, importBridgeArtifact, importCardEffectArtifact, makeBridgeJudgementRecord,
@@ -19,7 +20,12 @@ vi.mock("node:fs", async original => {
 });
 
 let db: Database.Database;
-beforeAll(() => { db = new Database(":memory:"); migrate(db); importCardEffectArtifact(db); importBridgeArtifact(db); });
+const bridgeDatabase = memoryDatabaseFixture(db => {
+  migrate(db);
+  importCardEffectArtifact(db);
+  importBridgeArtifact(db);
+});
+beforeAll(() => { db = bridgeDatabase(); });
 afterAll(() => db.close());
 function approve(row: ArchetypeBridge, database = db) {
   const evidence = buildBridgeJudgeEvidence(database, row)!;
@@ -40,7 +46,7 @@ const bridgeEngineProjection = async (rows: BridgeProjectionInput, query: Engine
 
 describe("stored multi-engine bridge API", () => {
   it("keeps actionable packages ahead of owned packages before ranking truncates and deduplicates", () => {
-    const fixture = new Database(":memory:"); migrate(fixture); importCardEffectArtifact(fixture); importBridgeArtifact(fixture);
+    const fixture = bridgeDatabase();
     try {
       const queries = new BridgeEngineQueries(fixture), engines = ["Performapal"];
       const rows = queries.service.engineRows(engines, "advanced");
@@ -68,7 +74,7 @@ describe("stored multi-engine bridge API", () => {
   });
 
   it("marks saved deck bridge rows using Main and Extra while preserving Side-only missing cards", async () => {
-    const fixture = new Database(":memory:"); migrate(fixture); importCardEffectArtifact(fixture); importBridgeArtifact(fixture);
+    const fixture = bridgeDatabase();
     const row = createBridgeService(fixture).bridgeBetween("Odion", "Ashtra")!;
     approve(row, fixture);
     const user = seedIdentity(fixture, { name: "Package ownership" });

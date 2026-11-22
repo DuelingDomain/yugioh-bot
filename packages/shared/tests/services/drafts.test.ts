@@ -1,7 +1,8 @@
 import { seedIdentity, seedUser } from "../helpers/identity.js";
-import Database from "better-sqlite3";
+import type Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
 import { migrate } from "../../src/db/index.js";
+import { migratedMemoryDatabase } from "../helpers/memory-database.js";
 import { seededShuffle } from "../../src/services/deal.js";
 import { createDraftService } from "../../src/services/drafts.js";
 
@@ -17,8 +18,7 @@ function insertPlayer(db: Database.Database, guildId: string, discordUserId: str
 }
 
 function setup(options: { random?: () => number; seedSource?: () => number | string } = {}) {
-  const db = new Database(":memory:");
-  migrate(db);
+  const db = migratedMemoryDatabase();
 
   return {
     db,

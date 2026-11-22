@@ -1,11 +1,11 @@
 import { useRecordingObservability } from "../../shared/tests/helpers/recording-observability.mjs";
-import Database from "better-sqlite3";
+import type Database from "better-sqlite3";
 import { signedRequestHeaders } from "@yugidraft/shared/internal-auth";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { migrate } from "@yugidraft/shared/db";
+import { migratedMemoryDatabase } from "./helpers/memory-database.js";
 import { createDuelService, createReplayForkService } from "@yugidraft/shared/services";
 import { seatCountFor, type DuelEngineView, type DuelFormat, type ReplaySource } from "@yugidraft/shared/duels";
 import { EngineResourceCache } from "../src/engine-resource-cache.js";
@@ -95,7 +95,7 @@ const forkLimitBody = { error: "Replay fork limit reached. Cancel a fork and try
   limit: 4, forksUrl: "/api/admin/duels/forks" };
 beforeEach(() => {
   vi.stubEnv("OWNER_USER_IDS", "101,102"); vi.stubEnv("MULTIPLAYER_TABLES", "1");
-  db = new Database(":memory:"); migrate(db);
+  db = migratedMemoryDatabase();
   dir = mkdtempSync(join(tmpdir(), "host-fork-"));
   writeFileSync(join(dir, "manifest.json"), JSON.stringify({ bundleVersion: "test-bundle" }));
   vi.spyOn(EngineResourceCache.prototype, "get").mockImplementation(async (_directory, options) =>

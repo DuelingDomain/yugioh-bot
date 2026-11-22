@@ -1,6 +1,5 @@
-import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
-import { migrate } from "../../src/db/index.js";
+import { migratedMemoryDatabase } from "../helpers/memory-database.js";
 import { createDraftService, totalBoosterCards, totalThemeRounds, boosterDraftConfigError, themeDraftNumberError } from "../../src/services/drafts.js";
 import { createCubeService } from "../../src/services/cubes.js";
 import { createCardCatalogService } from "../../src/services/card-catalog.js";
@@ -9,8 +8,7 @@ import { seedIdentity, seedUser } from "../helpers/identity.js";
 import type { DraftConfig } from "../../src/types/index.js";
 
 function setup(playerCount: number, mainCount = 600, extraCount = 20) {
-  const db = new Database(":memory:");
-  migrate(db);
+  const db = migratedMemoryDatabase();
   const drafts = createDraftService(db, { seedSource: () => 7 });
   const players = Array.from({ length: playerCount }, (_, i) => {
     const user = seedUser(db, `u${i}`);
