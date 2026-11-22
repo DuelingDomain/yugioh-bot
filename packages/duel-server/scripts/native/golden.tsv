@@ -3,7 +3,7 @@ n	mode	seed	steps	hash
 # data-pins-sha256=0604077b61f02e516332acd71b7b2dd038591c9ad757261c197358ebc9d4948c
 # multi-scripts-sha256=cbb403a79e21ba04a125001b10c2b9b0326fef12a2e15f8a1bc4ad4dbffeeb53
 # patches-sha256=6758cdd1317fcf4a7e9a10e586762bf090110118bb893e75a978daaf07bc7865
-# card-script-patches-sha256=c9ce8dcc8bc2524bec785cb1a1a36ada2e3f94506f01f403298125d04e1d9bb2
+# card-script-patches-sha256=fdb7345ffdddabe36551fba5e5777678e6da6560937cd201f5e9b26a76a8b7aa
 2	ffa	1	345	3a3569baf23775e6
 2	ffa	2	217	aaeed8c934da1fb6
 2	ffa	3	198	21f003019dc1f45c
