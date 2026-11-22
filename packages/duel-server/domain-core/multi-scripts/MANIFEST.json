@@ -9371,7 +9371,7 @@
         "target",
         "activate"
       ],
-      "note": "Owner exception to R-COMMON-EACH-PLAYER: the activator picks ONE opponent (R-COMMON-OPP-PICK), and only the activator and that opponent play (2 Decks, numbers 0 to 4). Other duelists are not affected. Tag: one duelist of the other team."
+      "note": "Owner exception to R-COMMON-EACH-PLAYER: the activator picks ONE opponent (R-COMMON-OPP-PICK), and only the activator and that opponent play (2 Decks, numbers 0 to 4). Other duelists are not affected. Tag: one duelist of the other team. Pre-release code: on graduation, re-key overlay + MANIFEST + rule + proof to the official code."
     },
     {
       "code": 101403001,

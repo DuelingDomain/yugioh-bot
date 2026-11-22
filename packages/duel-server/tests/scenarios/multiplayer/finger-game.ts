@@ -46,4 +46,30 @@ function fingerGame(format: Format): Scenario {
   });
 }
 
-export const FINGER_GAME_SCENARIOS: Scenario[] = [fingerGame("ffa3"), fingerGame("tag")];
+// Tag Deck rule: "your Deck" is the own Deck of one duelist (R-TAG-SHARED-CARDS). p1 has 1 card in the Deck and its partner p3 has 2.
+// p1 cannot place 2 cards, so p1 is not offered. The Deck of p3 is not read in place of the Deck of p1, so p3 stays the only opponent.
+function fingerGameTagShortDeck(): Scenario {
+  const setup: Scenario["setup"] = { format: "tag", skipOpeningDraw: true, deckSize: 2 };
+  const board: BoardExpect = {};
+  for (const s of ["p0", "p1", "p2", "p3"] as DuelistId[]) {
+    setup[s] = { hand: s === "p0" ? [FINGER] : [], deck: s === "p1" ? [DECKS.p1[0]] : [...DECKS[s]], deckSize: s === "p1" ? 1 : 2 };
+    board[s] = { lp: 16000, hand: [], monsters: [], spells: [], banished: [], grave: [], deckCount: s === "p1" ? 1 : 2 };
+  }
+  board.p0 = { ...board.p0, hand: [DECKS.p0[0]], grave: [FINGER], deckCount: 1 };
+  const steps: Step[] = [
+    activate(FINGER, "p0"),
+    // Only p3 can place 2 cards, so there is nothing to pick: the activation binds p3 and goes on to the numbers.
+    auto("p0"),
+    number(4, "p0"), number(0, "p3"),
+    select("Giant Rat"), auto("p3"),
+    expectBoard(board),
+  ];
+  return defineScenario({
+    id: "finger-game-tag-short-deck-opponent-not-offered",
+    title: "TAG: p1 has 1 Deck card and its partner p3 has 2; Finger Game offers only p3 and never reads the Deck of the partner for p1",
+    source: `${SOURCE} [R-COMMON-OPP-PICK]`, rules: ["R-COMMON-OPP-PICK"],
+    tags: ["multiplayer", "opponent-pick", "tag", "card:100464005"], setup, steps,
+  });
+}
+
+export const FINGER_GAME_SCENARIOS: Scenario[] = [fingerGame("ffa3"), fingerGame("tag"), fingerGameTagShortDeck()];

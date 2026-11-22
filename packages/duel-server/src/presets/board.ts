@@ -59,6 +59,8 @@ export interface DuelistSetup {
   banished?: CardRef[];
   /** Main Deck from the top card down. The rest of the Deck is filler (see `deckSize`). */
   deck?: CardRef[];
+  /** Total Main Deck size of this duelist, filler included. Default: the `deckSize` of the board. */
+  deckSize?: number;
   /** Extra Deck cards. */
   extra?: CardRef[];
   /** Domain only: the Deck Master, waiting in its zone. */
@@ -145,7 +147,7 @@ export function compileBoard(board: BoardSpec, dir?: string): CompiledBoard {
 
   const lua: string[] = [];
   const decks: DuelDeck[] = [];
-  const deckSize = board.deckSize ?? 20;
+  const boardDeckSize = board.deckSize ?? 20;
   const filler = code(FILLER_CARD);
 
   for (const id of seatIds) {
@@ -192,6 +194,7 @@ export function compileBoard(board: BoardSpec, dir?: string): CompiledBoard {
     for (const ref of setup.banished ?? []) add(ref, "LOCATION_REMOVED", 0, "POS_FACEUP", false);
 
     const top = (setup.deck ?? []).map(code);
+    const deckSize = setup.deckSize ?? boardDeckSize;
     if (top.length > deckSize) throw new Error(`${id}.deck lists ${top.length} cards but deckSize is ${deckSize}`);
     const main = [...top];
     while (main.length < deckSize) main.push(filler);

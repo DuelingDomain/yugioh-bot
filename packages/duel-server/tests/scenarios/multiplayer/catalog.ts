@@ -1787,7 +1787,7 @@ export const LIVE_PROOF: Readonly<Record<number, readonly string[]>> = {
     "compare-ffa4-evenly-matched-three-opponents",
     "compare-tag-evenly-matched-joined-field-picked-duelist-banishes",
   ], // Evenly Matched
-  100464005: ["finger-game-ffa3-only-the-chosen-opponent-plays", "finger-game-tag-only-the-chosen-opponent-plays"], // Finger Game
+  100464005: ["finger-game-ffa3-only-the-chosen-opponent-plays", "finger-game-tag-only-the-chosen-opponent-plays", "finger-game-tag-short-deck-opponent-not-offered"], // Finger Game
   29843091: [
     "w9-ffa3-opponent-pick-and-place-refuse-wrong-answers",
     "w9-tag-opponent-pick-and-place-refuse-wrong-answers",
