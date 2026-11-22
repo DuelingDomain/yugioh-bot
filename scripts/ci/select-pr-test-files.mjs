@@ -4,6 +4,7 @@ import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import ts from "typescript";
 import { extraFullSuites, fullSuiteReason, runtimeDependencies, sourceFile } from "./pr-test-inputs.mjs";
+import { planUnitShards } from "./unit-test-plan.mjs";
 
 const workspaceNames = {
   web: "web", shared: "shared", bot: "bot", ws: "ws", worker: "worker", duel_unit: "duel-server",
@@ -246,6 +247,10 @@ async function main() {
     // An unexplained empty result won't silently turn a selected suite green.
     if (result.files?.length) {
       output[suite + "_files"] = JSON.stringify(result.files);
+      if (suite === "shared" || suite === "duel_unit") {
+        const plan = planUnitShards(suite, result.files);
+        output[suite + "_shards"] = JSON.stringify(plan.map((_, index) => `${index + 1}/${plan.length}`));
+      }
       console.log(`${suite}: selected ${result.files.length} test files\n${result.files.join("\n")}`);
     } else {
       console.log(`${suite}: full suite (${result.reason ?? "no test files reached the changed paths"})`);

@@ -87,6 +87,9 @@ try {
     unit: "seconds",
     tableTotal: secondsTotal(table),
     surrenderModes,
+    surrenderFiles: Object.fromEntries(SURRENDER_FILES.map(file => [file,
+      secondsTotal(surrender.flatMap(report => [...report.normal, ...report.domain]).filter(row => row.file === file)),
+    ])),
     files: engineFiles,
     legacy: legacyFiles,
   });

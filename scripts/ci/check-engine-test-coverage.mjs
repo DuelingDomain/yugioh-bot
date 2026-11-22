@@ -22,12 +22,8 @@ assert.ok(unit.every(file => !engine.includes(file) && !legacy.includes(file)), 
 
 const { jobs } = parse(readFileSync(new URL(".github/workflows/test.yml", root), "utf8"));
 const matrix = jobs["engine-shards"].strategy.matrix;
-assert.deepEqual(matrix.suite, ["pinned"]);
-assert.deepEqual(matrix.count, [PINNED_SHARDS]);
-assert.deepEqual(matrix.shard, Array.from({ length: PINNED_SHARDS }, (_, i) => i + 1));
-assert.deepEqual(matrix.include, [
-  ...SURRENDER_FILES.map((_, i) => ({ suite: "surrender", shard: i + 1, count: SURRENDER_FILES.length })),
-]);
+assert.equal(matrix.include, "${{ fromJSON(needs.changes.outputs.engine_matrix) }}");
+assert.equal(jobs.changes.outputs.engine_matrix, "${{ steps.diff.outputs.engine_matrix }}");
 assert.deepEqual(jobs["engine-legacy-shards"].strategy.matrix.shard, Array.from({ length: LEGACY_SHARDS }, (_, i) => i + 1));
 assert.deepEqual(jobs["engine-differential"].strategy.matrix.shard, [1, 2]);
 const plan = pinnedPlan(engine);
