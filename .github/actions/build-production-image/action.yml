@@ -28,6 +28,9 @@ inputs:
   write-caches:
     description: Write the shared registry caches (depscache, buildcache, nextcache). PR prebuilds pass false so only main refreshes them
     default: "true"
+  builder:
+    description: Existing Buildx builder with registry login already set up by the caller
+    default: ""
 runs:
   using: composite
   steps:
@@ -64,10 +67,11 @@ runs:
         fi
 
     - name: Set up Docker Buildx
+      if: inputs.builder == ''
       uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
     - name: Log in to GHCR
-      if: inputs.push == 'true'
+      if: inputs.push == 'true' && inputs.builder == ''
       uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
       with:
         registry: ghcr.io
@@ -106,6 +110,7 @@ runs:
       id: runtime-image
       uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
       with:
+        builder: ${{ inputs.builder }}
         context: .
         target: ${{ inputs.target }}
         platforms: ${{ inputs.platform }}

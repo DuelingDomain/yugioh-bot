@@ -1,0 +1,64 @@
+name: Build CI core target
+description: Restore or build one target, then verify its hashes before upload
+inputs:
+  target:
+    description: Core target passed to the pinned build and verification script
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Compute core cache key
+      id: key
+      shell: bash
+      env:
+        TARGET: ${{ inputs.target }}
+      run: node scripts/ci/core-cache-key.mjs "$TARGET"
+    - name: Restore compiled core
+      id: core
+      uses: actions/cache/restore@v4
+      with:
+        path: ci-core/${{ inputs.target }}
+        key: ${{ steps.key.outputs.key }}
+    - name: Restore compiler libraries
+      id: emcache
+      if: steps.core.outputs.cache-hit != 'true'
+      uses: actions/cache/restore@v4
+      with:
+        path: .cache/emscripten
+        key: emcache-v1-${{ inputs.target }}-${{ hashFiles('packages/duel-server/domain-core/pins.json', 'packages/duel-server/legacy-1v1/domain-core/pins.json') }}-${{ steps.key.outputs.key }}
+        # Emscripten validates its system-library flags. A previous patch series can reuse those libraries.
+        restore-keys: |
+          emcache-v1-${{ inputs.target }}-${{ hashFiles('packages/duel-server/domain-core/pins.json', 'packages/duel-server/legacy-1v1/domain-core/pins.json') }}-
+    - name: Build core with all runner CPUs
+      if: steps.core.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        TARGET: ${{ inputs.target }}
+      run: |
+        # Targets share the checkout, npm installation and pinned Docker image layers.
+        if [ ! -d node_modules ]; then
+          npm ci --ignore-scripts
+          npx patch-package --error-on-fail
+        fi
+        prlimit --core=1:1 -- bash scripts/ci/build-core.sh "$TARGET"
+    - name: Verify compiled core hashes
+      shell: bash
+      env:
+        TARGET: ${{ inputs.target }}
+      run: prlimit --core=1:1 -- bash scripts/ci/build-core.sh "$TARGET" --verify-only
+    - name: Save compiled core
+      if: steps.core.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v4
+      with:
+        path: ci-core/${{ inputs.target }}
+        key: ${{ steps.key.outputs.key }}
+    - name: Save compiler libraries
+      if: steps.core.outputs.cache-hit != 'true' && steps.emcache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v4
+      with:
+        path: .cache/emscripten
+        key: ${{ steps.emcache.outputs.cache-primary-key }}
+    - name: Clear compiler libraries before restoring the next target's cache
+      if: steps.core.outputs.cache-hit != 'true'
+      shell: bash
+      run: rm -rf .cache/emscripten

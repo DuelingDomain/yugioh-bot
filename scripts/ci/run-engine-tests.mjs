@@ -1,11 +1,11 @@
 import { duelTestFiles } from "./duel-test-files.mjs";
-import { PINNED_SHARDS, SHARED_ENGINE_SHARDS, LEGACY_SHARDS, SURRENDER_FILES, DIFFERENTIAL_FILES, TABLE_FILE, pinnedPlan, sharedEnginePlan } from "./engine-test-plan.mjs";
+import { PINNED_SHARDS, COMPACT_ENGINE_SHARDS, COMPACT_ENGINE_WORKERS, LOW_ENGINE_WORKERS, LEGACY_SHARDS, SURRENDER_FILES, DIFFERENTIAL_FILES, TABLE_FILE, pinnedPlan, compactEnginePlan } from "./engine-test-plan.mjs";
 import { listVitestFiles, runVitestShard, saveTimings } from "./test-shards.mjs";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 
 const [lane, shard] = process.argv.slice(2);
-const counts = { pinned: PINNED_SHARDS, shared: SHARED_ENGINE_SHARDS, legacy: LEGACY_SHARDS, surrender: SURRENDER_FILES.length, differential: 2, web: 1 };
+const counts = { pinned: PINNED_SHARDS, compact: COMPACT_ENGINE_SHARDS, legacy: LEGACY_SHARDS, surrender: SURRENDER_FILES.length, differential: 2, web: 1 };
 const [index, count] = (shard ?? "").split("/").map(Number);
 if (!Object.hasOwn(counts, lane) || count !== counts[lane] || !Number.isInteger(index) || index < 1 || index > count) {
   throw new Error("Expected a valid engine lane and shard index/count");
@@ -41,9 +41,9 @@ if (lane === "pinned") {
   if (!selected) saveTimings("engine-surrender", index, Object.fromEntries(modes.map((mode, i) => [mode, results[i].value])));
 } else if (lane === "differential") {
   await duel(DIFFERENTIAL_FILES, [], { DIFF_SHARD: shard });
-} else if (lane === "shared") {
-  if (requested) throw new Error("Shared engine shards require the full pinned and surrender inventory");
-  const { files, seconds } = sharedEnginePlan(duelTestFiles().engine)[index - 1];
+} else if (lane === "compact") {
+  if (requested) throw new Error("Compact engine shards require the full pinned and surrender inventory");
+  const { files, seconds, lowWorkerFiles } = compactEnginePlan(duelTestFiles().engine)[index - 1];
   if (!files.some(task => task.file === TABLE_FILE)) throw new Error("The engine Table suite was not discovered");
   // Table already partitions its row registrations without a collection pass.
   const assignments = files.map(task => task.file === TABLE_FILE ? { ...task, count: 1 } : task);
@@ -51,8 +51,9 @@ if (lane === "pinned") {
   const root = fileURLToPath(new URL("../../packages/duel-server", import.meta.url));
   process.chdir(root);
   process.env.TABLE_SHARD = shard;
-  console.log(`Shared engine shard ${shard}: ${Math.round(seconds)} estimated worker-seconds`);
-  await runEngineCaseShards(root, assignments, { config: join(root, "vitest.ci.config.ts"), maxWorkers: 4, testTimeout: 15000 });
+  console.log(`Compact engine shard ${shard}: ${Math.round(seconds)} estimated worker-seconds including reserved work`);
+  await runEngineCaseShards(root, assignments, { config: join(root, "vitest.ci.config.ts"), maxWorkers: COMPACT_ENGINE_WORKERS, testTimeout: 15000 });
+  await duel(lowWorkerFiles, ["--config=vitest.ci.config.ts", `--maxWorkers=${LOW_ENGINE_WORKERS}`]);
 } else {
   await runVitestShard("web", selected);
 }

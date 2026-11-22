@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { balanceFiles, listVitestFiles, runVitestShard, saveTimings } from "./test-shards.mjs";
-import { WEB_FULL_SHARDS, WEB_DATA_SHARDS } from "./web-test-plan.mjs";
+import { WEB_FULL_SHARDS, WEB_DATA_SHARDS, WEB_TIMING_LANE } from "./web-test-plan.mjs";
 
 
 const [shard, ...filters] = process.argv.slice(2);
@@ -23,5 +23,5 @@ const selected = filters.length ? filters : picked ?? files;
 if (!selected.length) throw new Error("Web test discovery returned no files");
 const { files: assigned, seconds } = balanceFiles(selected, count, timing.files, 5)[index - 1];
 console.log(`Web shard ${index}/${count}: ${assigned.length}/${selected.length} files, ${Math.round(seconds)} estimated worker-seconds`);
-const results = await runVitestShard("web", assigned, args);
-if (!filters.length && !picked) saveTimings("web", index, { files: results });
+const results = await runVitestShard("web", assigned, [...args, "--maxWorkers=4"]);
+if (!filters.length && !picked) saveTimings(WEB_TIMING_LANE, index, { files: results });

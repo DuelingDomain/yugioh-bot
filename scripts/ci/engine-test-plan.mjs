@@ -120,26 +120,32 @@ export const NEEDS_ENGINE = [
 
 
 export const PINNED_SHARDS = 8;
-export const SHARED_ENGINE_SHARDS = 18;
+export const COMPACT_ENGINE_SHARDS = 5;
+export const COMPACT_ENGINE_WORKERS = 4;
+export const LOW_ENGINE_WORKERS = 1;
+const LOW_WORKER_FILES = ["tests/new-card-smoke-pool.test.ts"];
 export const LEGACY_SHARDS = 1;
 export const SURRENDER_FILES = ["tests/host-surrender-eot.test.ts", "tests/host-surrender-eot-part2.test.ts"];
 export const DIFFERENTIAL_FILES = ["tests/differential/differential.test.ts", "tests/differential/differential-extended.test.ts"];
 export const TABLE_FILE = "tests/multi-scripts-table.test.ts";
 export const timings = JSON.parse(readFileSync(new URL("./engine-test-times.json", import.meta.url), "utf8"));
 export const isPinnedFile = file => !file.startsWith("tests/legacy-main/") && !SURRENDER_FILES.includes(file) && !DIFFERENTIAL_FILES.includes(file);
-export const fileSeconds = file => file === TABLE_FILE ? timings.tableTotal / PINNED_SHARDS : timings.files[file] ?? 10; // New files always run; timing data is only a scheduling hint.
+export const fileSeconds = (file, tableShards = PINNED_SHARDS) =>
+  file === TABLE_FILE ? timings.tableTotal / tableShards : timings.files[file] ?? 10;
 
-export function engineMatrix(sharedSourcePr) {
+export function engineMatrix(compact) {
   const legs = (suite, count) => Array.from({ length: count }, (_, index) => ({ suite, shard: index + 1, count }));
-  return sharedSourcePr ? legs("shared", SHARED_ENGINE_SHARDS)
+  return compact ? legs("compact", COMPACT_ENGINE_SHARDS)
     : [...legs("pinned", PINNED_SHARDS), ...legs("surrender", SURRENDER_FILES.length)];
 }
 
-export function sharedEnginePlan(files) {
+export function compactEnginePlan(files) {
   const regular = files.filter(file => file !== TABLE_FILE && (isPinnedFile(file) || SURRENDER_FILES.includes(file)));
+  const lowWorkerFiles = regular.filter(file => LOW_WORKER_FILES.includes(file));
   const tasks = new Map();
   const estimates = {};
   for (const file of regular) {
+    if (lowWorkerFiles.includes(file)) continue;
     const seconds = timings.surrenderFiles?.[file] ?? fileSeconds(file);
     // Long files can monopolize a worker even when aggregate work is balanced.
     const count = seconds > 110 ? Math.ceil(seconds / 75) : 1;
@@ -149,13 +155,17 @@ export function sharedEnginePlan(files) {
       estimates[key] = seconds / count + 0.7; // Collection and transformation work.
     }
   }
-  const count = SHARED_ENGINE_SHARDS;
+  const count = COMPACT_ENGINE_SHARDS;
   const hasTable = files.includes(TABLE_FILE);
   const tableSeconds = hasTable ? timings.tableTotal / count : 0;
-  const reserved = Array.from({ length: count }, (_, index) => tableSeconds + (index === 0 ? 120 : 0));
+  const reserved = Array(count).fill(tableSeconds);
+  reserved[0] += 120; // Card tables, web engine tests and smoke scripts.
+  // The smoke pool starts its own workers. Run it alone at the end of the last job.
+  reserved[count - 1] += lowWorkerFiles.reduce((sum, file) => sum + fileSeconds(file), 0) * COMPACT_ENGINE_WORKERS / LOW_ENGINE_WORKERS;
   return balanceFiles([...tasks.keys()], count, estimates, 10, reserved).map((shard, index) => ({
     seconds: shard.seconds,
     files: [...shard.files.map(key => tasks.get(key)), ...(hasTable ? [{ file: TABLE_FILE, index, count }] : [])],
+    lowWorkerFiles: index === count - 1 ? lowWorkerFiles : [],
   }));
 }
 
