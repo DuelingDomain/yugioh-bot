@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { LEGACY_SHARDS, PINNED_SHARDS, SURRENDER_FILES, TABLE_FILE } from "./engine-test-plan.mjs";
 import { verifyFiles } from "./test-shards.mjs";
-import { WEB_FULL_SHARDS } from "./web-test-plan.mjs";
+import { WEB_FULL_SHARDS, WEB_TIMING_LANE } from "./web-test-plan.mjs";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const gh = (...args) => execFileSync("gh", args, { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "inherit"], maxBuffer: 8 * 1024 * 1024 });
@@ -12,30 +12,30 @@ const scratch = join(root, ".status");
 mkdirSync(scratch, { recursive: true });
 const directory = mkdtempSync(join(scratch, "refresh-test-timings-"));
 
-function latestRun(lane, artifactNames) {
-  const marker = artifactNames[0];
+function latestRun(lane, timingSets) {
   const endpoint = "repos/{owner}/{repo}/actions";
-  const candidates = gh("api", "--paginate", `${endpoint}/artifacts?name=${marker}&per_page=100`,
-    "--jq", '.artifacts[] | select(.expired == false and .workflow_run.head_branch == "main") | .workflow_run.id');
-  const ids = [...new Set(candidates.trim().split("\n").filter(Boolean))].sort((a, b) => Number(b) - Number(a));
+  const candidates = timingSets.flatMap(([marker]) => gh("api", "--paginate", `${endpoint}/artifacts?name=${marker}&per_page=100`,
+    "--jq", '.artifacts[] | select(.expired == false and .workflow_run.head_branch == "main") | .workflow_run.id').trim().split("\n"));
+  const ids = [...new Set(candidates.filter(Boolean))].sort((a, b) => Number(b) - Number(a));
   for (const id of ids) {
     const run = JSON.parse(gh("run", "view", id, "--json", "conclusion,event,headBranch,workflowName,url"));
     if (run.conclusion !== "success" || run.event !== "push" || run.headBranch !== "main" || run.workflowName !== "Test") continue;
     const available = gh("api", "--paginate", `${endpoint}/runs/${id}/artifacts?per_page=100`,
       "--jq", '.artifacts[] | select(.expired == false) | .name').trim().split("\n");
-    if (artifactNames.every(name => available.includes(name))) return { id, url: run.url };
+    const artifactNames = timingSets.find(names => names.every(name => available.includes(name)));
+    if (artifactNames) return { id, url: run.url, artifactNames };
   }
   throw new Error(`No successful main push has a complete unexpired ${lane} timing set`);
 }
 
-function download(lane, names) {
-  const artifactNames = names.map(name => `test-timings-${name}`);
-  const { id, url } = latestRun(lane, artifactNames);
+function download(lane, ...timingSets) {
+  const prefix = "test-timings-";
+  const { id, url, artifactNames } = latestRun(lane, timingSets.map(names => names.map(name => prefix + name)));
   const destination = join(directory, lane);
   gh("run", "download", String(id), "--dir", destination, ...artifactNames.flatMap(name => ["--name", name]));
   return {
     source: url,
-    reports: names.map(name => JSON.parse(readFileSync(join(destination, `test-timings-${name}`, `${name}.json`), "utf8"))),
+    reports: artifactNames.map(name => JSON.parse(readFileSync(join(destination, name, `${name.slice(prefix.length)}.json`), "utf8"))),
   };
 }
 
@@ -55,7 +55,8 @@ const secondsTotal = rows => Math.round(rows.reduce((total, row) => total + row.
 const write = (name, data) => writeFileSync(new URL(name, import.meta.url), JSON.stringify(data, null, 2) + "\n");
 
 try {
-  const web = download("web", names("web", WEB_FULL_SHARDS));
+  // Older runs used an unversioned prefix and recorded five shards.
+  const web = download("web", names(WEB_TIMING_LANE, WEB_FULL_SHARDS), names("web", 5));
   const engine = download("engine", [
     ...names("engine-pinned", PINNED_SHARDS),
     ...names("engine-legacy", LEGACY_SHARDS),

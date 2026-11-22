@@ -5,7 +5,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
 import { balanceFiles, runVitestShard, verifyFiles } from "./test-shards.mjs";
-import { WEB_DATA_SHARDS, WEB_FULL_SHARDS } from "./web-test-plan.mjs";
+import { WEB_DATA_SHARDS, WEB_FULL_SHARDS, WEB_TIMING_LANE } from "./web-test-plan.mjs";
 
 test("places the longest files first and uses a default for new files", () => {
   assert.deepEqual(balanceFiles(["short", "long", "medium", "new"], 2, {
@@ -29,6 +29,7 @@ test("rejects omitted, duplicated and unexpected report files", () => {
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 test("web matrix covers the data shards and the full or PR-selected shard list", () => {
+  assert.equal(WEB_FULL_SHARDS, 3);
   const { jobs } = parse(readFileSync(join(root, ".github/workflows/test.yml"), "utf8"));
   const { shard } = jobs["unit-web"].strategy.matrix;
   const indices = size => Array.from({ length: size }, (_, index) => index + 1);
@@ -37,6 +38,21 @@ test("web matrix covers the data shards and the full or PR-selected shard list",
   assert.match(shard, /needs\.changes\.outputs\.web_shards/);
   assert.deepEqual(values(jobs.changes.outputs.web_shards), [indices(WEB_FULL_SHARDS)]);
   assert.match(jobs["unit-web"].name, /strategy\.job-total/);
+  const artifact = jobs["unit-web"].steps.find(step => step.name === "Upload web file timings").with;
+  const fullName = value => value.replace("${{ strategy.job-total }}", WEB_FULL_SHARDS).replace("${{ matrix.shard }}", 1);
+  assert.equal(fullName(artifact.name), `test-timings-${WEB_TIMING_LANE}-1`);
+  assert.ok(fullName(artifact.path).endsWith(`/test-timings/${WEB_TIMING_LANE}-1.json`));
+});
+
+test("the full web plan covers every file and moves the slowest file off shard one", async () => {
+  const { webTestPlan } = await import("./web-test-plan.mjs");
+  const { files: timings } = JSON.parse(readFileSync(new URL("./test-timings/web.json", import.meta.url), "utf8"));
+  const files = [...Object.keys(timings), "tests/new-web.test.ts"];
+  const plan = webTestPlan(files, WEB_FULL_SHARDS, { full: true });
+  assert.equal(plan.length, WEB_FULL_SHARDS);
+  verifyFiles(files, plan.flatMap(shard => shard.files));
+  assert.ok(!plan[0].files.includes("tests/bug-reports-route.test.ts"));
+  assert.ok(plan[0].seconds < plan[1].seconds && plan[0].seconds < plan[2].seconds);
 });
 
 test("Vitest reports completed files, including files with intentionally skipped cases", async t => {

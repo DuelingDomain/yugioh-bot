@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { changedLayers, engineSources, sharedEnginePullRequest } from "./changed-layers.mjs";
+import { changedLayers, compactEnginePullRequest, engineSources } from "./changed-layers.mjs";
 import { selectApplicationTests } from "./select-engine-tests.mjs";
 import { SURRENDER_FILES, TABLE_FILE } from "./engine-test-plan.mjs";
 
@@ -68,7 +68,7 @@ test("engine-imported application inputs keep the minimum gates without a discov
     ["tests/host.test.ts", "tests/host-series.test.ts", "tests/draft-deck-legality.test.ts"]);
 });
 
-test("observability reaches the slow engine suites and gets the shared PR schedule", () => {
+test("full engine PRs use compact shards while focused selections and full non-PR runs keep their lanes", () => {
   const changes = ["packages/shared/src/observability/console-adapter.ts"];
   const { sources, exports } = engineSources();
   const { files } = selectApplicationTests(sources, changes, exports);
@@ -76,8 +76,11 @@ test("observability reaches the slow engine suites and gets the shared PR schedu
     assert.ok(files.includes(file), file);
   }
   const layers = changedLayers(changes, "pull_request");
-  assert.equal(sharedEnginePullRequest(changes, "pull_request", layers), true);
-  assert.equal(sharedEnginePullRequest(changes, "push", layers), false);
-  assert.equal(sharedEnginePullRequest(changes, "schedule", layers), false);
-  assert.equal(sharedEnginePullRequest([...changes, "package-lock.json"], "pull_request", layers), false);
+  assert.equal(compactEnginePullRequest("pull_request", layers), true);
+  assert.equal(compactEnginePullRequest("pull_request", changedLayers([".github/workflows/test.yml"], "pull_request")), true);
+  assert.equal(compactEnginePullRequest("pull_request", { ...layers, tests_only: true }), false);
+  assert.equal(compactEnginePullRequest("pull_request", { ...layers, engine: false }), false);
+  for (const event of ["push", "schedule", "workflow_dispatch"]) {
+    assert.equal(compactEnginePullRequest(event, layers), false);
+  }
 });
