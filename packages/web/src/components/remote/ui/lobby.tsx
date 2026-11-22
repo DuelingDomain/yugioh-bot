@@ -173,21 +173,23 @@ export function RemoteLobbyRoom({ ctl, room, voiceRecognition = false, tournamen
                 Start table<Swords size={17} strokeWidth={1.6} aria-hidden />
               </SheetButton> : null}
             </div>
-            {canClose
-              ? confirmClose
-                ? <div className={r.closeConfirm} role="alertdialog" aria-labelledby="close-table-title" data-testid="close-confirm">
-                  <p id="close-table-title" className={r.closeTitle}>Close this table?</p>
-                  <p className={ui.hint}>{guests > 0 ? `${guests === 1 ? "The player" : "The players"} seated here will be sent back to the tables list.` : "The table is removed from the tables list."} You can open a new one right after.</p>
-                  <div className={r.closeRow}>
-                    <SheetButton kind="danger" size="sm" disabled={busy} data-testid="close-confirm-yes" onClick={() => void operation("leave")}>Close table</SheetButton>
-                    <SheetButton kind="quiet" size="sm" disabled={busy} onClick={() => setConfirmClose(false)}>Keep table</SheetButton>
-                  </div>
-                </div>
-                : <SheetButton kind="danger" size="sm" disabled={busy} data-testid="close-table" onClick={() => setConfirmClose(true)}>Close table</SheetButton>
-              : <SheetButton kind="quiet" disabled={busy} data-testid="leave-table" onClick={() => void operation("leave")}>Leave table</SheetButton>}
             {blocked ? <p className={r.startHint}>Fix the deck problems, or choose No deck, to get ready.</p>
               : !host ? <p className={r.startHint}>Waiting for the host to start the table.</p>
               : !canStart ? <p className={r.startHint}>{room.seats.length < room.seatCount ? "Start unlocks when every seat is filled and ready." : "Start unlocks when every seat is ready."}</p> : null}
+            <div className={r.leaveZone}>
+              {canClose
+                ? confirmClose
+                  ? <div className={r.closeConfirm} role="alertdialog" aria-labelledby="close-table-title" data-testid="close-confirm">
+                    <p id="close-table-title" className={r.closeTitle}>Close this table?</p>
+                    <p className={ui.hint}>{guests > 0 ? `${guests === 1 ? "The player" : "The players"} seated here will be sent back to the tables list.` : "The table is removed from the tables list."} You can open a new one right after.</p>
+                    <div className={r.closeRow}>
+                      <SheetButton kind="danger" size="lg" block disabled={busy} data-testid="close-confirm-yes" onClick={() => void operation("leave")}>Close table</SheetButton>
+                      <SheetButton kind="secondary" size="lg" block disabled={busy} onClick={() => setConfirmClose(false)}>Keep table</SheetButton>
+                    </div>
+                  </div>
+                  : <SheetButton kind="danger" size="lg" block disabled={busy} data-testid="close-table" onClick={() => setConfirmClose(true)}>Close table</SheetButton>
+                : <SheetButton kind="quiet" size="lg" block disabled={busy} data-testid="leave-table" onClick={() => void operation("leave")}>Leave table</SheetButton>}
+            </div>
           </div>
           <form className={cx(room_.panel, r.rulesPanel)} aria-label="Rules" onSubmit={e => { e.preventDefault();
             void operation("format", { format, bestOf: Number(bestOf), showCardsSetFromDeck, rules: { banlist, startingLP: lp, ...(format.includes("genesys") ? { genesys: { pointCap: points } } : {}) } }).then(()=>setPublicityDraft(null)); }}>
