@@ -134,10 +134,12 @@ describe("patched ocgcore-wasm parsers, legacy message mode", () => {
     expect(parsers.message(readerOf(parsers, data))).toEqual({ type: 35, player: 0, deck_size: 3, returned_to_extra: [0, 2] });
   });
 
-  it("reads MOVE with one location byte and a from/to pair per card", () => {
-    const place = [...le(4, 111), ...le(1, 0), ...le(1, 2), ...le(4, 0), ...le(4, 0)]; // code, controller, location, sequence, position
-    const data = [...le(1, 36), ...le(1, 4), ...le(4, 1), ...place, ...place];
-    expect((parsers.message(readerOf(parsers, data)) as { cards?: unknown[] }).cards).toHaveLength(1);
+  it("reads SHUFFLE_SET_CARD with a u8 count, then every old place, then every new place (Toy Box Sets two cards)", () => {
+    const place = (sequence: number) => [...le(1, 0), ...le(1, 8), ...le(4, sequence), ...le(4, 10)]; // controller, location, sequence, position
+    const data = [...le(1, 36), ...le(1, 8), ...le(1, 2), ...place(2), ...place(3), ...place(0), ...place(0)];
+    const message = parsers.message(readerOf(parsers, data)) as { location: number; cards: { from: { sequence: number } }[] };
+    expect(message.location).toBe(8);
+    expect(message.cards.map((card) => card.from.sequence)).toEqual([2, 3]);
   });
 });
 
