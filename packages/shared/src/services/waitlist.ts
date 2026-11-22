@@ -12,7 +12,7 @@ export interface WaitlistMeta {
   heardFrom?: unknown;
   /** Optional free text; kept only with a valid heardFrom. */
   heardFromDetail?: unknown;
-  /** The person came through the Discord sign-in path (kept, also for an email that is already on the list). */
+  /** The person came through the Discord sign-in path (the latest join wins, also for an email that is already on the list). */
   viaDiscord?: boolean;
 }
 
@@ -53,7 +53,9 @@ export function createWaitlistService(db: Database.Database) {
           heard?.detail ?? null,
         );
         if (result.changes !== 0) recordProductEvent(db, "waitlist_joined", null);
-        if (meta.viaDiscord) db.prepare("update waitlist_signups set via_discord = 1 where email = ?").run(normalizedEmail);
+        // The latest join method wins (a Discord join, then a form join after the account was deleted, is a form join).
+        db.prepare("update waitlist_signups set via_discord = ? where email in (?,?)")
+          .run(meta.viaDiscord ? 1 : 0, normalizedEmail, email.trim().toLowerCase());
         return result;
       }).immediate();
       if (result.changes !== 0) {
