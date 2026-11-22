@@ -766,17 +766,41 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Restore Node dependencies and Turbo cache
-        uses: ./.github/actions/setup-ci-node
-      - name: Build shared
-        run: npx turbo run build --cache-dir=.turbo/cache --filter=@yugidraft/shared
-      - name: Deployment script tests
-        run: npx vitest run scripts/deployment/deploy.test.ts
-      - name: Test CI helpers
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            packages/shared/package.json
+      - name: Install CI helper dependencies
         run: |
-          node --test scripts/ci/*.test.mjs
-          python3 -B scripts/ci/parallel_emxx_test.py
-          python3 -B -m unittest discover -s scripts/deployment -p test_deploy_safety.py
+          # Shared supplies Vitest, TypeScript, and Vite's YAML peer.
+          # The root postinstall patches the engine workspace. Build only the
+          # native dependencies of shared.
+          npm ci --workspace=packages/shared --ignore-scripts
+          npm rebuild better-sqlite3 sharp
+      - name: Build shared
+        run: npm run build --workspace=packages/shared
+      - name: Deployment script tests
+        run: node_modules/.bin/vitest run scripts/deployment/deploy.test.ts
+      - name: Test CI helpers
+        shell: bash
+        run: |
+          pids=()
+          node --test --test-concurrency="$(nproc)" --test-reporter=spec scripts/ci/*.test.mjs &
+          pids+=("$!")
+          python3 -B scripts/ci/parallel_emxx_test.py -v &
+          pids+=("$!")
+          python3 -B -m unittest discover -s scripts/deployment -p test_deploy_safety.py -v &
+          pids+=("$!")
+
+          status=0
+          for pid in "${pids[@]}"; do
+            wait "$pid" || status=1
+          done
+          exit "$status"
       - name: Validate workflow syntax
         env:
           GH_TOKEN: ${{ github.token }}

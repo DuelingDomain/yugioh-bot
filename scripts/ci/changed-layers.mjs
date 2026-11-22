@@ -58,13 +58,14 @@ const isTest = file => /\.(test|spec)\.[cm]?[jt]sx?$/.test(file) && !file.starts
  * Keep lifecycle/recording gates as a minimum for engine-imported inputs.
  */
 export function selectApplicationTests(sources, changed, exports) {
+  const graph = engineDependencyGraph(sources, exports);
   // Unit-only Remote consumers do not make an application input engine-relevant.
-  const engineInputs = engineSharedFiles(sources, exports);
+  const engineInputs = reachableEngineFiles(sources, graph);
   const inputs = changed.filter(input => engineInputs.has(input));
   if (!inputs.length) return { files: [], webFiles: [] };
   const affected = Object.entries(sources).filter(([file, source]) => {
     if (!(file.startsWith(prefix) && isTest(file)) && !webEngineTest(file, source)) return false;
-    const dependencies = engineSharedFiles(sources, exports, [file]);
+    const dependencies = reachableEngineFiles(sources, graph, [file]);
     return inputs.some(input => dependencies.has(input));
   }).map(([file]) => file).sort();
   return {
@@ -87,6 +88,10 @@ export function applicationSelectionNeedsFullEngine(files, duelSuiteCount) {
  * Namespace/dynamic imports and unknown exports conservatively retain the whole barrel.
  */
 export function engineSharedFiles(sources, exports, roots) {
+  return reachableEngineFiles(sources, engineDependencyGraph(sources, exports), roots);
+}
+
+function engineDependencyGraph(sources, exports) {
   const resolve = (file, reference) => {
     let path;
     if (reference.startsWith("@yugidraft/shared/")) {
@@ -113,20 +118,31 @@ export function engineSharedFiles(sources, exports, roots) {
     return [...source.matchAll(/\bexport\s+(?:type\s+)?\*\s+from\s+["']([^"']+)["']/g)]
       .some(([, reference]) => resolve(file, reference).some(target => ownsExport(target, name, checking)));
   };
-  const references = new Map(Object.entries(sources).map(([file, source]) => [file, moduleReferences(source)]));
-  const dependencies = new Map([...references].map(([file, refs]) => [file, refs.flatMap(([, reference]) => resolve(file, reference))]));
-  const needsCores = new Set(["packages/duel-server/tests/support/cores.ts"]);
-  let added;
-  do {
-    added = false;
-    for (const [file, deps] of dependencies) {
-      if (!needsCores.has(file) && deps.some(dep => needsCores.has(dep))) {
-        needsCores.add(file);
-        added = true;
-      }
+  // Resolve literal references and their import syntax once for all test roots.
+  const references = new Map(Object.entries(sources).map(([file, source]) => {
+    const edges = [];
+    for (const match of moduleReferences(source)) {
+      const targets = resolve(file, match[1]);
+      if (!targets.length) continue;
+      const before = source.slice(0, match.index);
+      const named = before.match(/\b(?:import|export)\s+(?:type\s+)?\{([^}]+)\}\s+from\s*$/)?.[1];
+      const star = /\bexport\s+(?:type\s+)?\*\s+from\s*$/.test(before);
+      const importedNames = named?.split(",").map(item => item.trim().replace(/^type\s+/, "").split(/\s+as\s+/)[0]).filter(Boolean);
+      edges.push({ targets, exported: named === undefined ? undefined : exportedNames(named), star, importedNames });
     }
-  } while (added);
+    return [file, edges];
+  }));
+  const exportOwners = new Map();
+  const hasExport = (file, name) => {
+    const key = `${file}\0${name}`;
+    // Cache only complete lookups. Recursive lookups can be restricted by a cycle.
+    if (!exportOwners.has(key)) exportOwners.set(key, ownsExport(file, name));
+    return exportOwners.get(key);
+  };
+  return { references, hasExport };
+}
 
+function reachableEngineFiles(sources, { references, hasExport }, roots) {
   const seen = new Set();
   const expanded = new Set();
   const visit = (file, names) => {
@@ -135,20 +151,14 @@ export function engineSharedFiles(sources, exports, roots) {
     if (expanded.has(key)) return;
     expanded.add(key);
     seen.add(file);
-    const source = sources[file] ?? "";
-    const knownNames = names && applicationBarrel(file) ? names.filter(name => ownsExport(file, name)) : undefined;
-    for (const match of references.get(file) ?? []) {
-      const targets = resolve(file, match[1]);
-      const before = source.slice(0, match.index);
-      const named = before.match(/\b(?:import|export)\s+(?:type\s+)?\{([^}]+)\}\s+from\s*$/);
-      const star = /\bexport\s+(?:type\s+)?\*\s+from\s*$/.test(before);
-      if (knownNames && knownNames.length === names.length && (named || star)) {
-        const relevant = named ? knownNames.some(name => exportedNames(named[1]).includes(name))
-          : knownNames.some(name => targets.some(target => ownsExport(target, name)));
+    const knownNames = names && applicationBarrel(file) ? names.filter(name => hasExport(file, name)) : undefined;
+    for (const { targets, exported, star, importedNames } of references.get(file) ?? []) {
+      if (knownNames && knownNames.length === names.length && (exported || star)) {
+        const relevant = exported ? knownNames.some(name => exported.includes(name))
+          : knownNames.some(name => targets.some(target => hasExport(target, name)));
         // A deleted export target has unknown ownership and must keep coverage.
         if (!relevant && targets.some(target => sources[target] !== undefined)) continue;
       }
-      const importedNames = named?.[1].split(",").map(item => item.trim().replace(/^type\s+/, "").split(/\s+as\s+/)[0]).filter(Boolean);
       for (const candidate of targets) visit(candidate, importedNames);
     }
   };
@@ -156,6 +166,17 @@ export function engineSharedFiles(sources, exports, roots) {
     for (const file of roots) visit(file);
     return seen;
   }
+  const needsCores = new Set(["packages/duel-server/tests/support/cores.ts"]);
+  let added;
+  do {
+    added = false;
+    for (const [file, edges] of references) {
+      if (!needsCores.has(file) && edges.some(({ targets }) => targets.some(target => needsCores.has(target)))) {
+        needsCores.add(file);
+        added = true;
+      }
+    }
+  } while (added);
   for (const file of engineRuntimeRoots) visit(file);
   visit("packages/duel-server/tests/support/setup.ts");
   visit("packages/duel-server/scripts/rule-coverage.ts");
