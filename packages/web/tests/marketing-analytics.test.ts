@@ -1,9 +1,11 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
+// jsdom ships no type declarations in this workspace.
+// @ts-expect-error TS7016
 import { JSDOM } from "jsdom";
 import { afterEach, beforeEach, expect, it } from "vitest";
 
-let browser: JSDOM["window"] & { posthog?: typeof import("posthog-js").default };
+let browser: Window & typeof globalThis & { posthog?: typeof import("posthog-js").default; close(): void };
 const snippetPath = resolve(__dirname, "../../../site/public/analytics.js");
 
 beforeEach(() => {
