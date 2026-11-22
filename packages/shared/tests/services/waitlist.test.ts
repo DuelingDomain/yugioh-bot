@@ -39,6 +39,14 @@ describe("waitlist", () => {
     expect(db.prepare("select source from waitlist_signups").get()).toEqual({ source: "hero" });
   });
 
+  it("lets the latest join method win: a Discord join, then a form join, is not a Discord join", () => {
+    const service = createWaitlistService(db);
+    service.join("player@example.com", { source: "app-not-invited", viaDiscord: true });
+    expect(service.joinedViaDiscord("player@example.com")).toBe(true);
+    expect(service.join("Player@Example.com", { source: "hero" })).toEqual({ status: "exists" });
+    expect(service.joinedViaDiscord("player@example.com")).toBe(false);
+  });
+
   it("deduplicates case and surrounding whitespace across service instances without replacing metadata", () => {
     createWaitlistService(db).join("player@example.com", { source: "hero" });
     expect(createWaitlistService(db).join(" Player@EXAMPLE.com ", { source: "footer" })).toEqual({ status: "exists" });
