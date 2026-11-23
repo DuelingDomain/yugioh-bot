@@ -12,7 +12,7 @@ export const presets: Preset[] = [
     format: "ffa4",
     humanSeat: 0,
     needs: "multi-core",
-    rules: ["R-FFA-ELIMINATION"],
+    rules: [],
     board: {
       format: "ffa4",
       deckSize: 30,
@@ -59,7 +59,7 @@ export const presets: Preset[] = [
     format: "tag",
     humanSeat: 0,
     needs: "multi-core",
-    rules: ["R-TAG-LP"],
+    rules: [],
     board: {
       format: "tag",
       deckSize: 30,
@@ -105,7 +105,7 @@ export const presets: Preset[] = [
     title: "Domain Format duel",
     format: "1v1",
     humanSeat: 0,
-    rules: ["R-COMMON-EMZ"],
+    rules: [],
     board: {
       mode: "domain",
       deckSize: 40,
