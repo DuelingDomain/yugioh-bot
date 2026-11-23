@@ -1,13 +1,14 @@
 // Preloaded into the web and worker (NODE_OPTIONS=--import). It answers the
 // external card calls used by the isolated stack:
 //  - worker card-set metadata -> offline Metal Raiders fixture
-//  - card images from images.ygoprodeck.com -> a 1x1 JPEG
+//  - card images from images.ygoprodeck.com -> a 1x1 JPEG (E2E_REAL_CARD_ART=1 keeps the real download, for site screenshots)
 // Everything else goes to the real fetch. Production code is not changed.
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 const realFetch = globalThis.fetch;
 const manualMode = process.env.E2E_MANUAL === "1";
+const realCardArt = process.env.E2E_REAL_CARD_ART === "1";
 const prereleaseMode = process.env.E2E_PRERELEASE_CATALOG === "1";
 const sourceDir = process.env.E2E_CARD_IMAGE_SOURCE_DIR;
 // Admin console runs: Clerk waitlist, Sentry and PostHog answers (see admin-stubs.mjs).
@@ -37,7 +38,7 @@ globalThis.fetch = async function e2eFetch(input, init) {
   if (new URL(url).origin === "https://db.ygoprodeck.com" && new URL(url).pathname === "/api/v7/cardsets.php") {
     return Response.json([{set_name:"Metal Raiders",set_code:"MRD",num_of_cards:144,tcg_date:"2002-06-26"}]);
   }
-  if (url.startsWith("https://images.ygoprodeck.com/")) {
+  if (url.startsWith("https://images.ygoprodeck.com/") && !realCardArt) {
     if (prereleaseMode) return new Response("Not found", { status: 404 });
     if (manualMode) {
       // The web writes downloads into its own .stack cache. This shared cache is only read.

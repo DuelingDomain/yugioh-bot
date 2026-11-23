@@ -20,8 +20,8 @@ PAGES = [
         'answer': 'Dueling Domain lets you play 4-player @GAME@ online in your browser: four duelists at one table, each with their own Life Points, and the last duelist standing wins.',
         'video': True,
         'shot': ('/assets/shot-4-player-table.webp', 1600, 900,
-                 'A four-player free-for-all table in Dueling Domain. Each duelist has a field, with the local player at the bottom and one opponent on each other side.',
-                 'A 4-player table in the closed alpha, with test players and placeholder card art.'),
+                 'A four-player free-for-all duel in Dueling Domain, in the Main Phase. Yugi M. at the bottom has monsters, a Set card, backrow and a Field Spell. Kaiba Fan, Mai V. and Rex R. each hold their own field and Life Points, from 3,400 to 8,000.',
+                 'A 4-player table in the closed alpha. The players and boards are sample data.'),
         'figure': ('A card table for several players, drawn with original card backs.',
                    'Launch trailer poster. The trailer is 73 seconds long and opens on YouTube.'),
         'body': '''
@@ -63,8 +63,8 @@ PAGES = [
         'h1': '@GAME@ Tag duel online',
         'answer': 'Dueling Domain runs 2v2 @GAME@ Tag duels online in your browser: two teams of two, with one shared pool of Life Points for each team.',
         'shot': ('/assets/shot-tag-table.webp', 1600, 900,
-                 'A 2v2 Tag table in Dueling Domain. Two teams of two sit across from each other, with a team plate and one shared Life Points total for each team.',
-                 'A 2v2 Tag table in the closed alpha, with test players and placeholder card art.'),
+                 'A 2v2 Tag duel in Dueling Domain, in the Main Phase. Yugi M. and Mai V. face Kaiba Fan and Rex R. Each team has one shared Life Points total and a field with monsters, Set cards and a Graveyard.',
+                 'A 2v2 Tag table in the closed alpha. The players and boards are sample data.'),
         'figure': ('A card table for several players, drawn with original card backs.',
                    'Poster art for the launch trailer.'),
         'body': '''
@@ -105,8 +105,8 @@ PAGES = [
         'h1': '@GAME@ cube draft online',
         'answer': 'You can run a @GAME@ cube or booster draft in Dueling Domain: friends pick cards from packs on a timer, build a deck from their picks and duel in the same browser tab.',
         'shot': ('/assets/shot-draft-pick.webp', 1600, 900,
-                 'The draft pick screen in Dueling Domain. A pack of five cards lies on the table, with the list of cards already picked on the right and a pick clock at the top.',
-                 'The draft pick screen in the closed alpha, with a test player and placeholder card art.'),
+                 'The draft pick screen in Dueling Domain. A pack of five cards lies on the table (Stardust Dragon, Change of Heart, Heavy Storm, Infinite Impermanence and Celtic Guardian). The card list, the picks so far and a pick clock are on the right.',
+                 'The draft pick screen in the closed alpha. The players and the pack are sample data.'),
         'figure': ('A card table for several players, drawn with original card backs.',
                    'Poster art for the launch trailer.'),
         'body': '''
@@ -149,8 +149,8 @@ PAGES = [
         'h1': 'Domain Format online',
         'answer': 'Domain Format is a community @GAME@ format where each duelist keeps a Deck Master in a zone of its own, and Dueling Domain runs those rules for you in the browser.',
         'shot': ('/assets/shot-domain-format.webp', 1600, 900,
-                 'A Domain Format duel in Dueling Domain. A pop-over shows the Deck Master Celtic Guardian waiting in the Deck Master Zone beside the field.',
-                 'A Domain Format duel in the closed alpha, with test players and placeholder card art.'),
+                 'A Domain Format duel in Dueling Domain, in the Main Phase. The Deck Master Celtic Guardian waits in its zone, ready to use, beside a field with monsters, a Set card, backrow and a Graveyard. Life Points are 5,600 and 3,800.',
+                 'A Domain Format duel in the closed alpha. The players and boards are sample data.'),
         'figure': ('A card table for several players, drawn with original card backs.',
                    'Poster art for the launch trailer.'),
         'body': '''
@@ -193,8 +193,8 @@ PAGES = [
         'h1': 'Genesys format online',
         'answer': 'Genesys is a @GAME@ format where each card has a point value and your deck must stay under a point cap, and the Dueling Domain deck builder counts the points for you.',
         'shot': ('/assets/shot-genesys-deck.webp', 1600, 900,
-                 'The Dueling Domain deck builder in Genesys mode. A points meter at the top shows 98 of 100 points used, and each card in the Main Deck shows its point value.',
-                 'The deck builder in Genesys mode, with placeholder card art.'),
+                 'The Dueling Domain deck builder in Genesys mode. A points meter shows 98 of 100 points used. A 40-card Main Deck of monsters, spells and traps is on the left, and each card with a cost shows its point value.',
+                 'The deck builder in Genesys mode, with a sample deck.'),
         'figure': ('A card table for several players, drawn with original card backs.',
                    'Poster art for the launch trailer.'),
         'body': '''
@@ -268,6 +268,7 @@ PAGES = [
 <li>Describes itself as a free simulator.</li>
 <li>Says it runs through a launcher on Windows, macOS, Linux, Android and iOS.</li>
 <li>Says every card is unlocked, ranked play is open and tournaments cost nothing.</li>
+<li>Has automatic rules: it says the engine tracks life points, chains, timing windows and priority. It also has a manual mode.</li>
 </ul>
 <p>Source: <a href="https://omega.duelistsunite.org/" rel="noopener">omega.duelistsunite.org</a>, the official YGO Omega site, checked @DATE@.</p>
 <h2>Master Duel</h2>

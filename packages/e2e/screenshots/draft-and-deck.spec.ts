@@ -4,7 +4,7 @@ import { createDraftService, createPlayerService } from "@yugidraft/shared/servi
 import { dbPath, guildId } from "../stack/env.mjs";
 import { cardCode } from "../helpers/cards";
 import { cards, seedCatalog } from "./catalog";
-import { shotDir } from "./shot";
+import { cleanNames, hideDebug, shotDir } from "./shot";
 
 // Marketing screenshots of the draft pick screen and the Genesys deck builder. Seeded test player, a practice bot and public card data only.
 const byName = (name: string) => cards.find((card) => card.name === name)!;
@@ -17,6 +17,7 @@ async function dismissUpdates(page: import("@playwright/test").Page) {
 }
 
 test("draft pick screen", async ({ player }) => {
+  await cleanNames();
   const { page } = await player("p1");
   await page.setViewportSize({ width: 1920, height: 1080 });
   const db = openDatabase(dbPath);
@@ -24,9 +25,9 @@ test("draft pick screen", async ({ player }) => {
     seedCatalog(db);
     const players = createPlayerService(db);
     const drafts = createDraftService(db, { seedSource: () => 183 });
-    const human = players.findOrCreate(guildId, 101, "E2E Alice");
-    const user = db.prepare("INSERT INTO users(username,display_name) VALUES('shot_bot','Practice Bot')").run();
-    const bot = players.findOrCreate(guildId, Number(user.lastInsertRowid), "Practice Bot");
+    const human = players.findOrCreate(guildId, 101, "Yugi M.");
+    const user = db.prepare("INSERT INTO users(username,display_name) VALUES('shot_bot','Mai V.')").run();
+    const bot = players.findOrCreate(guildId, Number(user.lastInsertRowid), "Mai V.");
     db.prepare("UPDATE players SET discord_user_id=? WHERE id=?").run(`bot_draft_${bot.id}`, bot.id);
     const draft = drafts.create(guildId, null, "Friday cube draft", {
       cubeCardIds: cards.map((card) => card.id), packSize: 8, packsPerPlayer: 2, cardsPerPlayer: 16, pickSeconds: 3600,
@@ -42,11 +43,13 @@ test("draft pick screen", async ({ player }) => {
     await dismissUpdates(page);
     await page.locator(".dr .tcard:not([aria-hidden='true'])").nth(2).hover();
     await page.waitForTimeout(1500);
+    await hideDebug(page);
     await page.screenshot({ path: shotDir("draft.png") });
   } finally { db.close(); }
 });
 
 test("Genesys deck builder with points", async ({ player }) => {
+  await cleanNames();
   const { page } = await player("p1");
   await page.setViewportSize({ width: 1920, height: 1080 });
   const db = openDatabase(dbPath);
@@ -63,5 +66,6 @@ test("Genesys deck builder with points", async ({ player }) => {
   await dismissUpdates(page);
   await page.mouse.move(5, 5);
   await page.waitForTimeout(2000);
+  await hideDebug(page);
   await page.screenshot({ path: shotDir("genesys-deck.png") });
 });

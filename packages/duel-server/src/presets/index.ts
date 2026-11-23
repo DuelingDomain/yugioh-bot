@@ -18,6 +18,7 @@ import { preset as jinzo } from "./jinzo-stops-trap.js";
 import { preset as mindCrush } from "./mind-crush-ffa4-pick.js";
 import { preset as negationVeiler } from "./negation-veiler-ffa4.js";
 import { preset as negationVeiler1v1 } from "./negation-veiler-1v1.js";
+import { presets as marketingBoards } from "./marketing-boards.js";
 import { preset as mindCrush3 } from "./ffa3-mind-crush-pick.js";
 import { presets as raigekiDarkHole } from "./raigeki-dark-hole.js";
 import { preset as solemn } from "./solemn-judgment-summon.js";
@@ -50,6 +51,7 @@ export const PRESETS: readonly Preset[] = [
   turnPlayerLast,
   thirdResponse,
   ffa3AttackDefender,
+  ...marketingBoards,
 ];
 
 export function getPreset(id: string): Preset | undefined {

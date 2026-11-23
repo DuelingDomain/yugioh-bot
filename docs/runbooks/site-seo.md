@@ -33,7 +33,7 @@ python3 site/src/indexnow.py --all           # ping every sitemap URL
 
 ## Refresh the page screenshots
 
-The guide pages use real game screenshots (`site/public/assets/shot-*.webp`). Retake them after a visible UI change with `scripts/site-screenshots.sh`. It runs only on a local isolated e2e stack with the offline test sign-in and seeded test players, and it refuses `NODE_ENV=production`. Details: [packages/e2e/screenshots/README.md](../../packages/e2e/screenshots/README.md). Check every shot for real names, emails and avatars before you commit it.
+The guide pages use real game screenshots (`site/public/assets/shot-*.webp`). Retake them after a visible UI change with `scripts/site-screenshots.sh`. It runs only on a local isolated e2e stack with the offline test sign-in and seeded test players, and it refuses `NODE_ENV=production`. Details: [packages/e2e/screenshots/README.md](../../packages/e2e/screenshots/README.md). The boards come from dev-only `marketing-*` scenario presets (gated by `DUEL_SCENARIOS=1`) and the art is real card art from the normal image route (`E2E_REAL_CARD_ART=1`). One run writes all 5 WebP files (1600x900, 80 KB or less). Check every shot for real names, emails, avatars and debug labels before you commit it.
 
 ## Failure modes
 

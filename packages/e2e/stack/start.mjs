@@ -132,6 +132,8 @@ const base = {
   DATABASE_PATH: dbPath,
   DUEL_DATA_DIR: runtimeDuelDataDir,
   E2E_PRERELEASE_CATALOG: process.env.E2E_PRERELEASE_CATALOG ?? "0",
+  // 1 = card images come from images.ygoprodeck.com (marketing screenshots only). Default: 1x1 stub.
+  E2E_REAL_CARD_ART: process.env.E2E_REAL_CARD_ART ?? "0",
   DOTENV_CONFIG_PATH: resolve(stackDir, "none.env"),
   DOTENV_CONFIG_QUIET: "true",
   OWNER_USER_IDS: ownerUserIds,

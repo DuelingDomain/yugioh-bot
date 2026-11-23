@@ -80,6 +80,7 @@ describe("preset registry", () => {
       "solemn-judgment-summon",
       "jinzo-stops-trap",
       "negation-veiler-1v1",
+      "marketing-domain",
     ]);
     expect(PRESETS.filter((preset) => preset.needs === "multi-core").map((preset) => preset.id).sort()).toEqual([
       "ffa3-attack-defender",
@@ -113,6 +114,8 @@ describe("preset registry", () => {
       "ffa4-chain-order-heavy-storm",
       "ffa4-rules-across-extra-zones",
       "ffa4-surrender-in-chain",
+      "marketing-ffa4",
+      "marketing-tag",
       "mind-crush-ffa4-pick",
       "negation-veiler-ffa4",
       "raigeki-dark-hole-ffa4",
