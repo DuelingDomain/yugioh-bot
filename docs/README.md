@@ -163,6 +163,7 @@ One page per automated job. [runbooks/README.md](runbooks/README.md) has the sta
 | [runbooks/discord-bot.md](runbooks/discord-bot.md) | Discord bot timers |
 | [runbooks/vm-backup.md](runbooks/vm-backup.md) | VM database backup |
 | [runbooks/vm-upkeep.md](runbooks/vm-upkeep.md) | VM upkeep |
+| [runbooks/site-seo.md](runbooks/site-seo.md) | Site checks and IndexNow ping |
 
 ## testing
 

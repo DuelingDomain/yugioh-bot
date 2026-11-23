@@ -6,7 +6,7 @@ Static HTML, CSS and JavaScript for the closed-alpha waitlist; no build step.
 
 - `public/`: served pages (`index.html`, `privacy.html`, `terms.html`, `404.html`), `style.css`, `app.js`, icons, sitemap, robots, manifest and `llms.txt`.
 - `public/assets/`: card backs and trailer poster; `public/fonts/`: self-hosted WOFF2 files and licenses.
-- `src/`: icon/poster/OG sources, asset builders, font installer and verification scripts.
+- `src/`: icon/poster/OG sources, asset builders, font installer, `sync-chrome.py` (shared header and footer), `indexnow.py` and verification scripts.
 
 ## Local preview
 
@@ -30,9 +30,16 @@ node site/src/build-poster.mjs
 Fonts are self-hosted. `python3 site/src/self-host-fonts.py` refreshes the five Latin WOFF2 faces, licenses, page preloads, OG source, privacy disclosure and Caddy CSP; it needs outbound HTTPS.
 Use new font filenames when replacing installed files because `/fonts/` caches for one year. Motion follows `prefers-reduced-motion`.
 
+Every page except the home page shares one header and every page shares one footer. They live between `<!-- chrome:header -->` and `<!-- chrome:footer -->` markers. Change the links in `src/sync-chrome.py` (`NAV_LINKS`, `FOOT_LINKS`), then run `python3 site/src/sync-chrome.py`; `verify-static.py` fails when a page differs.
+
+Each public page needs a title of 60 characters or fewer, a description of 155 or fewer, a canonical link, Open Graph and Twitter tags, valid JSON-LD (an FAQPage must repeat the visible FAQ word for word), the disclaimer, and an entry in both `sitemap.xml` and `llms.txt`. Public files never link the code host or name a person. The Organization `sameAs` list is the Discord invite only.
+
+`public/<key>.txt` is the IndexNow key file; see [site-seo.md](../docs/runbooks/site-seo.md).
+
 ## Verify
 
 ```bash
+python3 site/src/sync-chrome.py --check
 python3 site/src/verify-static.py
 python3 scripts/deployment/verify-domain-routing.py
 MARKETING_URL=https://marketing.localhost CHROMIUM=/path/to/chromium SHOTS_DIR=/tmp/dd-site-shots node site/src/verify-browser.mjs
