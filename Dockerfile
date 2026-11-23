@@ -231,7 +231,7 @@ COPY --from=voice-assets /stage/app /app
 # Production builds override this context with the verified release files.
 # An empty directory lets local Docker builds use the volume assets.
 FROM node:22-bookworm-slim AS vision-index-input
-RUN mkdir /vision-index && touch -d @0 /vision-index
+RUN mkdir -p /app/vision-index && find /app -exec touch -h -d @0 {} +
 
 # Production stage for the Next.js web dashboard.
 # Standalone output is traced from the worktree root (next.config outputFileTracingRoot).
@@ -249,8 +249,8 @@ COPY --from=vision-hybrid /stage/app /app
 COPY --from=voice-assets /stage/app /app
 RUN mkdir -p /app/data /app/packages/web/.next/cache && \
     chown node:node /app/data && chown -R node:node /app/packages/web/.next/cache
-# Keep weekly index updates in their own runtime layer.
-COPY --from=vision-index-input /vision-index /app/vision-index
+# Copy the staged /app directory too so its mtime stays deterministic.
+COPY --from=vision-index-input /app /app
 VOLUME ["/app/data"]
 USER node
 EXPOSE 3000

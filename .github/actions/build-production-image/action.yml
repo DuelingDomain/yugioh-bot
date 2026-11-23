@@ -103,7 +103,12 @@ runs:
         # A manual Deploy may use this action against an older Dockerfile.
         if grep -Eq '^FROM .* AS vision-index-input$' Dockerfile; then
           context=$(mktemp -d "$RUNNER_TEMP/vision-index-context.XXXXXX")
-          node scripts/vision/index-release.mjs download packages/vision/index-manifest.json "$context/vision-index"
+          index_dir="$context/vision-index"
+          if grep -Fxq 'COPY --from=vision-index-input /app /app' Dockerfile; then
+            index_dir="$context/app/vision-index"
+          fi
+          node scripts/vision/index-release.mjs download packages/vision/index-manifest.json "$index_dir"
+          find "$context" -exec touch -h -d @0 {} +
           echo "context=vision-index-input=$context" >> "$GITHUB_OUTPUT"
         fi
 

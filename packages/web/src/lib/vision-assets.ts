@@ -2,13 +2,14 @@ import { createHash } from "node:crypto";
 import { constants, type Stats } from "node:fs";
 import { open, realpath, type FileHandle } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
+import { pinnedVisionIndexDirectory, visionCodeDirectory, visionDataDirectory } from "@yugidraft/shared/vision-assets";
 
 /**
  * Where the web image keeps the recognition worker and the ONNX Runtime files (see the vision-code stage in the
  * Dockerfile). Current models stay in VISION_DATA_DIR. A pinned Current index ships beside this directory.
  * Pinned voice and Hybrid data ship with the image under asr/, kws/ and hybrid/.
  */
-export const VISION_CODE_DIR_DEFAULT = "/app/vision-code";
+export { VISION_CODE_DIR_DEFAULT } from "@yugidraft/shared/vision-assets";
 const indexFiles = new Set(["yugioh-index.bin", "yugioh-index.meta.json", "yugioh-index.build.json", "related-cards.json"]);
 
 /** Image assets are versioned with the web bundle. */
@@ -27,10 +28,6 @@ function inside(root: string, candidate: string): boolean {
   const path = relative(root, candidate);
   return path !== "" && path !== ".." && !path.startsWith(`..${sep}`) && !isAbsolute(path);
 }
-
-/** Next runs with packages/web as cwd; an explicit directory may be absolute or relative to it. */
-function dataDir() { return resolve(process.cwd(), process.env.VISION_DATA_DIR || "../../data/vision"); }
-function codeDir() { return resolve(process.cwd(), process.env.VISION_CODE_DIR || VISION_CODE_DIR_DEFAULT); }
 
 /** Opens one regular file that really lives inside `directory`, or returns undefined. Never throws. */
 async function openInside(directory: string, path: string[]): Promise<{ file: FileHandle; stat: Stats } | undefined> {
@@ -65,19 +62,17 @@ async function openInside(directory: string, path: string[]): Promise<{ file: Fi
  */
 export async function openVisionAsset(path: string[]): Promise<VisionAsset | undefined> {
   if (path.length === 1 && indexFiles.has(path[0])) {
-    const directory = resolve(codeDir(), "../vision-index");
-    const marker = await openInside(directory, ["index-manifest.json"]);
-    if (marker) {
-      await marker.file.close();
+    const directory = pinnedVisionIndexDirectory();
+    if (directory) {
       const found = await openInside(directory, path);
       return found && { ...found, code: true };
     }
   }
   if (isVisionCodeAsset(path)) {
-    const found = await openInside(codeDir(), path);
+    const found = await openInside(visionCodeDirectory(), path);
     if (found) return { ...found, code: true };
   }
-  const found = await openInside(dataDir(), path);
+  const found = await openInside(visionDataDirectory(), path);
   return found && { ...found, code: false };
 }
 

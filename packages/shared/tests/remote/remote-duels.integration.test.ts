@@ -491,6 +491,34 @@ it('resolves the real Mark search clause including Spell/Traps that mention the 
   } finally {catalog.close();}
 });
 
+it('uses the related-card prior from the same index generation as the browser', () => {
+  const root = mkdtempSync(join(tmpdir(), 'remote-vision-index-'));
+  const volume = join(root, 'volume');
+  const image = join(root, 'vision-index');
+  const marker = join(image, 'index-manifest.json');
+  mkdirSync(volume);
+  mkdirSync(image);
+  const writePrior = (directory: string, cardId: number) => writeFileSync(join(directory, 'related-cards.json'),
+    JSON.stringify({ links: { 97522863: [[cardId, 'related']] } }));
+  writePrior(volume, 29762407);
+  writePrior(image, 69299029);
+  vi.stubEnv('VISION_CODE_DIR', join(root, 'vision-code'));
+  vi.stubEnv('VISION_DATA_DIR', volume);
+  try {
+    const s = deckSession('normal');
+    const linked = () => s.service.searchCandidates(s.room.slug, 'g', s.users[0], 0, 97522863)
+      .filter(candidate => candidate.reason === 'related card and search effect').map(candidate => candidate.cardId);
+    expect(linked()).toEqual([29762407]);
+    writeFileSync(marker, '{}');
+    expect(linked()).toEqual([69299029]);
+    rmSync(marker);
+    expect(linked()).toEqual([29762407]);
+  } finally {
+    vi.unstubAllEnvs();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 it('resolves unregistered Deck searches and publishes a held add with the table privacy rule', async () => {
   const {searchCandidates,remoteHandReadDecision}=await import('../../src/remote/index.js');
   for(const showCardsSetFromDeck of [true,false]) {

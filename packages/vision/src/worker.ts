@@ -84,6 +84,7 @@ function keepAICrop(source:DeferredAICrop):string {
   return token;
 }
 async function checkedJson(url: string): Promise<IndexMeta> {
+  // Detect the first pin even when the volume metadata is still fresh in the HTTP cache.
   const response = await fetch(url, { cache: 'no-cache' });
   if (!response.ok) throw new Error(`Cannot load ${url}: HTTP ${response.status}. Build the index first.`);
   return response.json();
@@ -92,7 +93,7 @@ async function initialize(profile: GameProfile, backend: 'auto' | 'wasm', runtim
   try {
     const meta = await checkedJson(profile.metaUrl);
     validateIndexProfile(meta, profile);
-    const response = await fetch(profile.indexUrl, { cache: 'no-cache' });
+    const response = await fetch(profile.indexUrl, { cache: meta.indexSha256 ? 'no-cache' : 'default' });
     if (!response.ok) throw new Error(`Cannot load index: HTTP ${response.status}`);
     const bytes = await response.arrayBuffer();
     if (meta.indexSha256 && await hexSha256(bytes) !== meta.indexSha256) throw new Error('Index and metadata are from different generations');

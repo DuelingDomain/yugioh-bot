@@ -30,7 +30,7 @@ jobs:
       changed: ${{ steps.gate.outputs.changed }}
     steps:
       - name: Checkout main without credentials
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: main
           persist-credentials: false
@@ -41,7 +41,7 @@ jobs:
           printf 'VISION_DATA_DIR=%s/vision\nDUEL_DATA_DIR=%s/vision-engine-data\nCANDIDATE_DIR=%s/vision-index-candidate\n' \
             "$RUNNER_TEMP" "$RUNNER_TEMP" "$RUNNER_TEMP" >> "$GITHUB_ENV"
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '22'
           cache: npm
@@ -51,18 +51,21 @@ jobs:
         run: prlimit --core=0 -- npm ci
       - name: Restore resumable JPEG and vector cache
         id: cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ${{ env.VISION_DATA_DIR }}/cache
           key: vision-index-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/vision/build-index.ts', 'scripts/vision/catalog.ts', 'packages/vision/src/models.ts', 'packages/vision/src/games/yugioh.ts', 'packages/vision/src/profile.ts', 'packages/vision/src/embed.ts', 'packages/vision/src/pixels.ts', 'package-lock.json') }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
             vision-index-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/vision/build-index.ts', 'scripts/vision/catalog.ts', 'packages/vision/src/models.ts', 'packages/vision/src/games/yugioh.ts', 'packages/vision/src/profile.ts', 'packages/vision/src/embed.ts', 'packages/vision/src/pixels.ts', 'package-lock.json') }}-
       - name: Build the full index against pinned models
+        # Leave time for the cache upload before the prepare job times out.
+        timeout-minutes: 150
         run: |
           prlimit --core=0 -- node --import tsx scripts/vision/prepare.ts
           prlimit --core=0 -- node --import tsx scripts/vision/build-index.ts --weekly --selection full --threads 2
       - name: Save refreshed JPEG and vector cache
-        uses: actions/cache/save@v4
+        if: always() && steps.cache.outputs.cache-primary-key != ''
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ${{ env.VISION_DATA_DIR }}/cache
           key: ${{ steps.cache.outputs.cache-primary-key }}
@@ -96,7 +99,7 @@ jobs:
           node scripts/vision/index-release.mjs verify "$CANDIDATE_DIR/index-manifest.json" "$CANDIDATE_DIR"
       - name: Export candidate for publication
         if: steps.gate.outputs.changed == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: ${{ env.RELEASE_TAG }}
           path: ${{ env.CANDIDATE_DIR }}/
@@ -116,7 +119,7 @@ jobs:
       GH_REPO: ${{ github.repository }}
     steps:
       - name: Checkout prepared base without credentials
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: ${{ needs.prepare.outputs.base_sha }}
           persist-credentials: false
@@ -145,13 +148,13 @@ jobs:
           echo 'publish=true' >> "$GITHUB_OUTPUT"
       - name: Download the checked candidate
         if: steps.check.outputs.publish == 'true'
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: ${{ env.RELEASE_TAG }}
           path: ${{ runner.temp }}/vision-index-candidate
       - name: Setup Node.js for publication
         if: steps.check.outputs.publish == 'true'
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '22'
       - name: Publish immutable index release
