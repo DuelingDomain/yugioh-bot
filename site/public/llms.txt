@@ -21,7 +21,7 @@ Unofficial fan project. Not affiliated with or endorsed by Konami. Contact: supp
 - [Cube draft](https://duelingdomain.com/yugioh-cube-draft): Run a cube or booster draft with a pick clock, then build a deck and duel.
 - [Domain Format](https://duelingdomain.com/domain-format): Domain Format rules, Deck Masters and the deck rules the game checks.
 - [Genesys](https://duelingdomain.com/genesys): Genesys points decks, the point cap and the weekly TCG points list.
-- [Compare](https://duelingdomain.com/compare): How Dueling Domain compares with EDOPro, Dueling Nexus and Master Duel, with dated facts.
+- [Compare](https://duelingdomain.com/compare): How Dueling Domain compares with EDOPro, Dueling Nexus, YGO Omega and Master Duel, with dated facts.
 - [About](https://duelingdomain.com/about): What Dueling Domain is, how alpha access works and how to contact us.
 - [Updates](https://duelingdomain.com/updates): Public patch notes for each release, newest first.
 
