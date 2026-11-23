@@ -310,6 +310,7 @@
     "tests/scenarios/multiplayer/player-all-lp-pairs.test.ts": 2.54,
     "tests/scenarios/multiplayer/player-all-operation-info.test.ts": 2.714,
     "tests/scenarios/multiplayer/player-all-overlay-lp.test.ts": 2.17,
+    "tests/scenarios/multiplayer/possessed-destiny.test.ts": 1.2,
     "tests/scenarios/multiplayer/power-patron-shade-tag-hand-timing.test.ts": 5.983,
     "tests/scenarios/multiplayer/procedures.test.ts": 4.109,
     "tests/scenarios/multiplayer/queued-bound-opponent-review.test.ts": 5.071,

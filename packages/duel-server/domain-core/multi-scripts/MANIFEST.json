@@ -4405,6 +4405,18 @@
       "note": "R-FFA-LP-COMPARE, owner 2026-10-21: apply LP conditions against every living opponent in FFA. Keep stock numerical amounts and actions; Tag unchanged."
     },
     {
+      "code": 45508030,
+      "file": "c45508030.lua",
+      "name": "Possessed Destiny",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "spfilter"
+      ],
+      "stockSha256": "d4d68b08a6b81862fc0909b0ce07e70a6da21ee903676320fb16d309e008457c",
+      "note": "Issue #686: the stock filter calls Card.IsCanBeSpecialSummoned with the Duel.SpecialSummon argument list, so the position mask becomes the toplayer. The multi-duelist core rejects it and the Spell was never offered. Same condition with the correct arguments."
+    },
+    {
       "code": 45742626,
       "file": "c45742626.lua",
       "name": "Pilgrim Reaper",
