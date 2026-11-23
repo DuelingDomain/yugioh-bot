@@ -41,9 +41,14 @@ try {
         card: { ...outline, covered: Boolean(outline.covered || isCovered(outline, outlines)) }, maxFrames: 1,
       });
       loaded.assertNoFallback();
-      const stage = result.reader?.stage;
-      if (reader === 'hybrid' && stage !== 'first' && (stage !== 'second' || result.reader?.model === 'current')) {
-        throw new Error('Hybrid did not use the released first or second stage');
+      const route = result.reader;
+      const stage = route?.stage;
+      if (reader === 'hybrid') {
+        // Installed whole-card references intentionally select Current in the released Hybrid reader.
+        const expectedRoute = loaded.fullArtIndex.used
+          ? route?.stage === 'second' && route.model === 'current' && route.reason === 'whole-card references'
+          : route?.stage === 'first' || (route?.stage === 'second' && route.model !== 'current');
+        if (!expectedRoute) throw new Error('Hybrid did not use the expected released recognition path');
       }
       const faceDown = Boolean(result.quality.faceDown);
       const cardId = faceDown ? undefined : result.candidates[0]?.cardId;
@@ -58,7 +63,7 @@ try {
   const metrics = summarize(frames);
   const report = {
     schema: 'vision-realset-score/1', reader, setVersion: manifest.version, manifestSha256: sha256(bytes),
-    modelIds: loaded.modelIds, assetSha256: loaded.assets,
+    modelIds: loaded.modelIds, assetSha256: loaded.assets, fullArtIndex: loaded.fullArtIndex,
     runtime: { provider: 'onnxruntime-node cpu', version: loaded.runtime, threads, node: process.version, cpu: cpus()[0]?.model },
     protocol: { matchIou: MATCH_IOU, catalogOnly: true, defaultThresholds: true, singleFrame: true },
     clips: manifest.clips.length, metrics, frames,
