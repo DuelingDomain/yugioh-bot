@@ -69,7 +69,8 @@ describe("preset registry", () => {
     expect(new Set(PRESETS.map((preset) => preset.id)).size).toBe(PRESETS.length);
     for (const preset of PRESETS) {
       expect(preset.checklist.length, preset.id).toBeGreaterThan(2);
-      expect(preset.rules.length, preset.id).toBeGreaterThan(0);
+      // The marketing boards are screenshot scenes, not rule scenarios, so they claim no rule ids.
+      if (!preset.id.startsWith("marketing-")) expect(preset.rules.length, preset.id).toBeGreaterThan(0);
       expect(preset.rules.every((rule) => /^R-[A-Z]+(-[A-Z]+)+$/.test(rule)), preset.id).toBe(true);
       expect(Object.keys(preset.bots).map(Number).sort(), preset.id).toEqual(
         Array.from({ length: seatCountFor(preset.format) - 1 }, (_, index) => index + 1),
