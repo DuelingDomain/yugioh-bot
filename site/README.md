@@ -47,4 +47,8 @@ python3 scripts/deployment/verify-domain-routing.py
 MARKETING_URL=https://marketing.localhost CHROMIUM=/path/to/chromium SHOTS_DIR=/tmp/dd-site-shots node site/src/verify-browser.mjs
 ```
 Static checks use Python's standard library and cover heading order, canonical URLs, social image dimensions, JSON-LD and `llms.txt` links. Routing checks need a running Docker daemon and a cached `caddy:2.11.2-alpine` image. Browser checks need Playwright, Chromium and local Caddy; they run headless, mock waitlist POSTs and write screenshots to `SHOTS_DIR`.
+### Screenshots
+
+Page screenshots (`public/assets/shot-*.webp`) are real captures from an isolated local stack with seeded test players. Run `scripts/site-screenshots.sh` (local only; it refuses `NODE_ENV=production` and never touches the :3000 services). Steps and the spec list are in [packages/e2e/screenshots/README.md](../packages/e2e/screenshots/README.md). A page uses a screenshot through its `shot` entry in `src/pages.py`.
+
 See [domains.md](../docs/deployment/domains.md) for live hosts, production checks and waitlist operations.

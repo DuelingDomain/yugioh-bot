@@ -124,11 +124,19 @@ def video_node():
 
 
 def figure(page):
-    alt, caption = page['figure']
-    img = f'<img src="{POSTER[0]}" alt="{escape(alt)}" width="{POSTER[1]}" height="{POSTER[2]}" loading="lazy" decoding="async">'
-    if page.get('video'):
-        img = f'<a href="https://www.youtube.com/watch?v={YOUTUBE_ID}" rel="noopener">{img}</a>'
-    return f'<figure class="info-fig">{img}<figcaption>{escape(caption)}</figcaption></figure>'
+    """The page screenshot when it has one, and the trailer poster when it links the trailer or has no screenshot."""
+    html = ''
+    if page.get('shot'):
+        src, width, height, alt, caption = page['shot']
+        html += (f'<figure class="info-fig"><img src="{src}" alt="{escape(alt)}" width="{width}" height="{height}" '
+                 f'loading="lazy" decoding="async"><figcaption>{escape(caption)}</figcaption></figure>')
+    if page.get('video') or not page.get('shot'):
+        alt, caption = page['figure']
+        img = f'<img src="{POSTER[0]}" alt="{escape(alt)}" width="{POSTER[1]}" height="{POSTER[2]}" loading="lazy" decoding="async">'
+        if page.get('video'):
+            img = f'<a href="https://www.youtube.com/watch?v={YOUTUBE_ID}" rel="noopener">{img}</a>'
+        html += f'<figure class="info-fig">{img}<figcaption>{escape(caption)}</figcaption></figure>'
+    return html
 
 
 def faq_html(items):

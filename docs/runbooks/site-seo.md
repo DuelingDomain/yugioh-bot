@@ -31,6 +31,10 @@ python3 site/src/indexnow.py --all --dry-run # print the ping body, send nothing
 python3 site/src/indexnow.py --all           # ping every sitemap URL
 ```
 
+## Refresh the page screenshots
+
+The guide pages use real game screenshots (`site/public/assets/shot-*.webp`). Retake them after a visible UI change with `scripts/site-screenshots.sh`. It runs only on a local isolated e2e stack with the offline test sign-in and seeded test players, and it refuses `NODE_ENV=production`. Details: [packages/e2e/screenshots/README.md](../../packages/e2e/screenshots/README.md). Check every shot for real names, emails and avatars before you commit it.
+
 ## Failure modes
 
 - **Site checks red:** the assertion names the page and the rule. For a header or footer difference run `python3 site/src/sync-chrome.py`, then commit.
