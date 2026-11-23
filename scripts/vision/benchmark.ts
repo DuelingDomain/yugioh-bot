@@ -94,7 +94,7 @@ async function render(image: Buffer, condition: string, index: number): Promise<
 async function main() {
   const {values} = parseArgs({options: {
     isolation: {type:'string',default:'on'}, backend: {type:'string',default:'wasm'},
-    label: {type:'string'}, 'compare-worker':{type:'string'}, quick: {type:'boolean',default:false},
+    label: {type:'string'}, 'compare-worker':{type:'string'}, 'first-card':{type:'string'}, quick: {type:'boolean',default:false},
   }});
   if (!['on','off'].includes(values.isolation!) || !['wasm','auto'].includes(values.backend!)) throw new Error('Use --isolation on|off --backend wasm|auto');
   const isolated = values.isolation === 'on', backend = values.backend as 'wasm' | 'auto';
@@ -109,6 +109,13 @@ async function main() {
   catch {
     const entries = [...new Map(meta.entries.filter(e => e.passcode > 0).map(e => [e.cardId, e])).values()];
     for (let i = entries.length - 1; i > 0; i--) { const j = Math.floor(random() * (i+1)); [entries[i], entries[j]] = [entries[j], entries[i]]; }
+    if (values['first-card']) {
+      // The lab smoke uses photo 00 as its positive fixture across catalog revisions.
+      const first = entries.findIndex(e => e.cardId === values['first-card']);
+      if (first < 0) throw new Error(`Missing fixed first card: ${values['first-card']}`);
+      entries.unshift(...entries.splice(first, 1));
+      rng = seed;
+    }
     photos = [];
     for (const entry of entries) {
       const index = photos.length;
@@ -119,13 +126,17 @@ async function main() {
         photos.push({ file, cardId: entry.cardId, name: entry.name, condition, clickPoint: { x: .5, y: .5 } });
         // >=255ms between image requests, on top of processing time.
         await new Promise(done => setTimeout(done, 255));
-      } catch (error) { console.warn(String(error)); }
+      } catch (error) {
+        if (entry.cardId === values['first-card']) throw error;
+        console.warn(String(error));
+      }
       if (photos.length === 30) break;
     }
     if (photos.length !== 30) throw new Error('Could not prepare 30 photos');
     await writeFile(manifestPath, JSON.stringify(photos, null, 2));
   }
   if (photos.some(p => !meta.entries.some(e => e.cardId === p.cardId))) throw new Error('Photos do not match this catalog; delete benchmark/photos.json to regenerate');
+  if (values['first-card'] && photos[0].cardId !== values['first-card']) throw new Error('Photos do not start with the requested card');
   // A real varying-quality ring, using Duel Lens's seeded camera degradation plus defocus.
   const base = await sharp(path.join(directory, photos[0].file)).ensureAlpha().raw().toBuffer({resolveWithObject:true});
   const degraded = await createDegrader(yugioh).degrade({data:base.data,width:base.info.width,height:base.info.height}, 'mild', seed);

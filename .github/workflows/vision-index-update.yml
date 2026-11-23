@@ -1,0 +1,195 @@
+name: Vision index update
+
+on:
+  schedule:
+    - cron: "23 7 * * 1"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Validate a fresh candidate without publishing a release or PR
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vision-index-update
+  cancel-in-progress: false
+
+env:
+  RELEASE_TAG: vision-index-${{ github.run_id }}-${{ github.run_attempt }}
+
+jobs:
+  prepare:
+    if: github.repository == 'DuelingDomain/yugioh-bot' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    outputs:
+      base_sha: ${{ steps.base.outputs.sha }}
+      changed: ${{ steps.gate.outputs.changed }}
+    steps:
+      - name: Checkout main without credentials
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Set temporary paths and record candidate base
+        id: base
+        run: |
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          printf 'VISION_DATA_DIR=%s/vision\nDUEL_DATA_DIR=%s/vision-engine-data\nCANDIDATE_DIR=%s/vision-index-candidate\n' \
+            "$RUNNER_TEMP" "$RUNNER_TEMP" "$RUNNER_TEMP" >> "$GITHUB_ENV"
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install CPU dependencies
+        env:
+          ONNXRUNTIME_NODE_INSTALL: skip
+        run: prlimit --core=0 -- npm ci
+      - name: Restore resumable JPEG and vector cache
+        id: cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.VISION_DATA_DIR }}/cache
+          key: vision-index-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/vision/build-index.ts', 'scripts/vision/catalog.ts', 'packages/vision/src/models.ts', 'packages/vision/src/games/yugioh.ts', 'packages/vision/src/profile.ts', 'packages/vision/src/embed.ts', 'packages/vision/src/pixels.ts', 'package-lock.json') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            vision-index-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/vision/build-index.ts', 'scripts/vision/catalog.ts', 'packages/vision/src/models.ts', 'packages/vision/src/games/yugioh.ts', 'packages/vision/src/profile.ts', 'packages/vision/src/embed.ts', 'packages/vision/src/pixels.ts', 'package-lock.json') }}-
+      - name: Build the full index against pinned models
+        run: |
+          prlimit --core=0 -- node --import tsx scripts/vision/prepare.ts
+          prlimit --core=0 -- node --import tsx scripts/vision/build-index.ts --weekly --selection full --threads 2
+      - name: Save refreshed JPEG and vector cache
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ env.VISION_DATA_DIR }}/cache
+          key: ${{ steps.cache.outputs.cache-primary-key }}
+      - name: Rebuild related cards from pinned engine data
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          prlimit --core=0 -- npm run build --workspace=packages/shared
+          prlimit --core=0 -- npm run duel:prepare
+          prlimit --core=0 -- node --import tsx scripts/vision/build-related.ts
+      - name: Check coverage, model and catalog changes
+        id: gate
+        run: |
+          mkdir -p "$CANDIDATE_DIR"
+          prlimit --core=0 -- node --import tsx scripts/vision/weekly-index.ts \
+            "$VISION_DATA_DIR" "$CANDIDATE_DIR/index-manifest.json" "$RELEASE_TAG"
+      - name: Vision unit regressions
+        run: prlimit --core=0 -- npm test --workspace=packages/vision
+      - name: Install Chromium for the candidate regressions
+        if: steps.gate.outputs.changed == 'true'
+        run: npx playwright install --with-deps chromium
+      - name: Run candidate index through the browser WASM worker
+        if: steps.gate.outputs.changed == 'true'
+        run: |
+          prlimit --core=0 -- node --import tsx scripts/vision/benchmark.ts --label weekly --first-card 46986414
+          prlimit --core=0 -- node --import tsx scripts/vision/check-realset.ts
+      - name: Stage the reviewed files
+        if: steps.gate.outputs.changed == 'true'
+        run: |
+          cp "$VISION_DATA_DIR"/yugioh-index.{bin,meta.json,build.json} "$VISION_DATA_DIR/related-cards.json" "$CANDIDATE_DIR/"
+          node scripts/vision/index-release.mjs verify "$CANDIDATE_DIR/index-manifest.json" "$CANDIDATE_DIR"
+      - name: Export candidate for publication
+        if: steps.gate.outputs.changed == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.RELEASE_TAG }}
+          path: ${{ env.CANDIDATE_DIR }}/
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: prepare
+    if: needs.prepare.outputs.changed == 'true' && !inputs.dry_run
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: read
+    env:
+      BASE_SHA: ${{ needs.prepare.outputs.base_sha }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Checkout prepared base without credentials
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.base_sha }}
+          persist-credentials: false
+      - name: Check for an open update and a current base pin
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HAS_PR_TOKEN: ${{ secrets.VISION_INDEX_PR_TOKEN != '' }}
+        run: |
+          open=$(gh api --paginate 'repos/{owner}/{repo}/pulls?base=main&state=open&per_page=100' \
+            --jq '.[] | select(.head.repo.full_name == .base.repo.full_name and (.head.ref | startswith("automation/vision-index-"))) | .html_url')
+          if [ -n "$open" ]; then
+            echo "Waiting for the open vision index PR: $open" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          path=packages/vision/index-manifest.json
+          current=$(gh api "repos/{owner}/{repo}/contents/$path?ref=main" --jq .sha)
+          if [ "$current" != "$(git hash-object "$path")" ]; then
+            echo 'Main already has a different pin. The next run will build from it.' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if [ "$HAS_PR_TOKEN" != true ]; then
+            echo '::error::Set VISION_INDEX_PR_TOKEN with Contents and Pull requests write permissions.'
+            exit 1
+          fi
+          echo 'publish=true' >> "$GITHUB_OUTPUT"
+      - name: Download the checked candidate
+        if: steps.check.outputs.publish == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.RELEASE_TAG }}
+          path: ${{ runner.temp }}/vision-index-candidate
+      - name: Setup Node.js for publication
+        if: steps.check.outputs.publish == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Publish immutable index release
+        if: steps.check.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_DIR: ${{ runner.temp }}/vision-index-candidate
+        run: |
+          manifest="$CANDIDATE_DIR/index-manifest.json"
+          node scripts/vision/index-release.mjs verify "$manifest" "$CANDIDATE_DIR"
+          test "$(jq -r '.release' "$manifest")" = "$RELEASE_TAG"
+          cards=$(jq -r '.cards' "$manifest")
+          gh release create "$RELEASE_TAG" "$CANDIDATE_DIR"/yugioh-index.{bin,meta.json,build.json} \
+            "$CANDIDATE_DIR/related-cards.json" --target "$BASE_SHA" --draft --prerelease --latest=false \
+            --title "Vision index ($cards cards)" --notes "Current reader index built and verified by Actions run $GITHUB_RUN_ID."
+          gh release edit "$RELEASE_TAG" --draft=false --prerelease --latest=false
+          if [ "$(gh api "repos/{owner}/{repo}/releases/tags/$RELEASE_TAG" --jq .immutable)" != true ]; then
+            echo '::error::Enable immutable releases in repository settings before publishing a vision index pin.'
+            exit 1
+          fi
+          node scripts/vision/index-release.mjs download "$manifest" "$RUNNER_TEMP/published-vision-index"
+      - name: Open manifest-only PR
+        if: steps.check.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.VISION_INDEX_PR_TOKEN }}
+          CANDIDATE_DIR: ${{ runner.temp }}/vision-index-candidate
+        run: |
+          branch="automation/$RELEASE_TAG"
+          path=packages/vision/index-manifest.json
+          git switch -c "$branch"
+          cp "$CANDIDATE_DIR/index-manifest.json" "$path"
+          git add -- "$path"
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+            commit -m 'chore(vision): update the Current card index'
+          gh auth setup-git
+          git push origin "HEAD:refs/heads/$branch"
+          cards=$(jq -r '.cards' "$path")
+          printf 'Updates the pinned Current reader index to **%s cards**. The fixed models and recognition thresholds are unchanged.\n\n[Verified release](%s/%s/releases/tag/%s) · [Build and regression checks](%s/%s/actions/runs/%s)\n' \
+            "$cards" "$GITHUB_SERVER_URL" "$GH_REPO" "$RELEASE_TAG" "$GITHUB_SERVER_URL" "$GH_REPO" "$GITHUB_RUN_ID" > "$RUNNER_TEMP/vision-index-pr.md"
+          gh pr create --base main --head "$branch" --title 'chore(vision): update the Current card index' \
+            --body-file "$RUNNER_TEMP/vision-index-pr.md" | tee -a "$GITHUB_STEP_SUMMARY"

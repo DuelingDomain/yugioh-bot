@@ -183,8 +183,8 @@ RUN mkdir /web-effects && cp -a packages/shared/data/effects/. /web-effects/ \
 
 # Remote Duels card recognition runs in a browser Web Worker. Its code (worker.js)
 # and the ONNX Runtime WASM files it loads are version-locked to each other and to
-# the web bundle, so they ship in this image. Current's models and indexes stay
-# in the volume. prepare.ts --code-only is offline: esbuild + file copies.
+# the web bundle, so they ship in this image. Current's models stay in the
+# volume. prepare.ts --code-only is offline: esbuild + file copies.
 # The files are staged as /stage/app/vision-code with every mtime fixed at the epoch,
 # and the web stage copies /stage/app over /app. That gives the layer the same digest
 # on every build while the runtime is unchanged, so deploys do not pull ~41 MB of
@@ -228,6 +228,11 @@ RUN --mount=type=bind,source=.,target=/context \
 FROM scratch AS voice-assets-check
 COPY --from=voice-assets /stage/app /app
 
+# Production builds override this context with the verified release files.
+# An empty directory lets local Docker builds use the volume assets.
+FROM node:22-bookworm-slim AS vision-index-input
+RUN mkdir /vision-index && touch -d @0 /vision-index
+
 # Production stage for the Next.js web dashboard.
 # Standalone output is traced from the worktree root (next.config outputFileTracingRoot).
 FROM node:22-bookworm-slim AS web
@@ -244,6 +249,8 @@ COPY --from=vision-hybrid /stage/app /app
 COPY --from=voice-assets /stage/app /app
 RUN mkdir -p /app/data /app/packages/web/.next/cache && \
     chown node:node /app/data && chown -R node:node /app/packages/web/.next/cache
+# Keep weekly index updates in their own runtime layer.
+COPY --from=vision-index-input /vision-index /app/vision-index
 VOLUME ["/app/data"]
 USER node
 EXPOSE 3000

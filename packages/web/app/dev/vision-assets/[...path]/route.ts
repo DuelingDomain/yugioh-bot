@@ -50,8 +50,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ path
     asset = await openVisionAsset(path);
     if (!asset) return new Response(null, { status: 404 });
     const { file, stat, code } = asset;
-    // Code ships with the image: a content hash and a revalidation on every load put a new image in front of browsers
-    // without a ?v= bump. Data files keep the longer cache; the manual copy preserves their mtimes.
+    // Image assets use content hashes so clients revalidate against the deployed generation on every load.
+    // Volume assets keep their size/mtime ETags and longer cache lifetime.
     const etag = code ? await contentEtag(asset) : statEtag(stat);
     const headers = new Headers({
       "Content-Type": mime,

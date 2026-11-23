@@ -94,7 +94,7 @@ export function prewarmRecognizer(): Promise<void> {
 function loadMeta() {
   const selected=cardReader(),epoch=recognizerEpoch;
   meta ??= import("@yugidraft/vision").then(async ({ yugioh }) => {
-    const response = await fetch(yugioh.metaUrl, { cache: "force-cache" });
+    const response = await fetch(yugioh.metaUrl, { cache: "no-cache" });
     if (!response.ok) return null;
     const found = await response.json() as Meta;
     if(selected==="hybrid" && epoch===recognizerEpoch) {
@@ -106,7 +106,7 @@ function loadMeta() {
     }
     // Optional generated knowledge is loaded once, outside the per-read path.
     try {
-      const response = await fetch('/dev/vision-assets/related-cards.json', { cache: 'force-cache', signal: AbortSignal.timeout(3000) });
+      const response = await fetch('/dev/vision-assets/related-cards.json', { cache: 'no-cache', signal: AbortSignal.timeout(3000) });
       if (response.ok) {
         const data = await response.json() as RelatedCards;
         if (data.version === 1 && data.names && data.links && data.groups && data.cardGroups && data.aliases) found.related = data;

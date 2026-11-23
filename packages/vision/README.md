@@ -63,14 +63,15 @@ and remain outside `public/` to retain the request-time gate. No service on
 port 3000 is needed. `prepare.ts --bundle-only` bundles code/runtime without
 downloading models; rerun it after worker changes.
 
-### Deploying: code in the web image, data in the volume
+### Deploying: code and the weekly index in the web image
 
 The recognition asset route is `/dev/vision-assets/`.
 
 | Kind | Files | Where in production | Changes with |
 | --- | --- | --- | --- |
 | Code | `worker.js`, `ort/` (ONNX Runtime WASM, version-locked to the bundle in `worker.js`), `NOTICE` | The `web` image, `/app/vision-code`, root-owned | Every deploy of a `packages/vision` change |
-| Data | `models/`, `yugioh-index.*`, `related-cards.json`, `yugioh-thresholds.json`, `yugioh-full-art.*` | The data volume, `data/vision` | A model or index change, copied by hand (`docs/deployment/vm-runbook.md`, Remote Duels step 5) |
+| Current index | `yugioh-index.{bin,meta.json,build.json}`, `related-cards.json` | The `web` image, `/app/vision-index` | A weekly index PR merges |
+| Volume data | `models/`, `yugioh-thresholds.json`, `yugioh-full-art.*`, fallback Current index | The data volume, `data/vision` | Model provisioning or fallback recovery |
 | Hybrid | `hybrid/` models, bank, index, catalog and notices | The `web` image, `/app/vision-code/hybrid` | When the pinned Hybrid inputs change |
 
 The Dockerfile `vision-code` stage runs `npx tsx scripts/vision/prepare.ts --code-only`. That mode needs no network,
@@ -78,13 +79,32 @@ no models and no Python: it only bundles `worker.js` with esbuild and copies the
 It sets every mtime to the epoch, so an unchanged runtime keeps its layer digest between images and the
 ~41 MB of WASM is not pulled again on each deploy.
 
-The route serves `worker.js`, `ort/*`, `NOTICE` and the pinned voice and Hybrid assets from `VISION_CODE_DIR` (default `/app/vision-code` when that
-directory exists) and falls back to `VISION_DATA_DIR` when the image has no such file, which is the local
-development case. Every other path reads only from `VISION_DATA_DIR`. Code files carry
-`Cache-Control: private, no-cache` and a strong ETag from the file contents, so browsers revalidate on each load
-and get a 304 until the image changes. No `?v=` bump is needed. Data files keep `max-age=3600` with a size and
-mtime ETag. Hybrid requests require both Remote Duels and Hybrid access and use `private, no-store`.
-An image rollback rolls the worker and the WASM back with the web bundle.
+The route reads code, voice and Hybrid assets from `VISION_CODE_DIR` (default `/app/vision-code`). It reads the
+four Current files from the sibling `vision-index` directory when its verified manifest is present. Local development and
+images predating the first pin use `VISION_DATA_DIR` for the Current files. Image index and code responses send
+`Cache-Control: private, no-cache` with a content ETag. The worker also checks that the binary matches the checksum in
+its metadata. Volume files use `max-age=3600` with a size and mtime ETag. Hybrid requests require both Remote Duels and
+Hybrid access and use `private, no-store`. A webcam calibration applies only to its matching index generation.
+
+**Vision index update** runs on Mondays at 07:23 UTC and on manual dispatch. Its first full CPU build warms the
+Actions cache. Later builds refresh the YGOPRODeck catalog and reuse JPEGs and vectors keyed to the pinned model,
+preprocessing and artwork URLs. New image IDs or changed URLs get new embeddings. Card-back placeholders are
+rechecked each week so the index can pick up their real artwork when it appears. For existing real artwork the cache
+assumes upstream changes the image ID or URL when replacing the image. `related-cards.json` comes from the pinned
+duel-engine data. Timestamps, download statistics, source catalog ordering and card price changes alone do not create a PR.
+
+The workflow rejects incompatible model metadata or binaries, a drop of more than ten physical card identities, or
+more than ten artwork failures. It uses the merged manifest as the coverage baseline, with the documented 14,487-card
+index as its initial baseline and a floor thereafter. Vision unit tests, the browser WASM benchmark and the real-set lab
+smoke gate the first and later changed candidates. A manual `dry_run` exercises these checks without publication.
+
+Enable immutable releases in GitHub and set `VISION_INDEX_PR_TOKEN` to a repository-scoped token with **Contents** and
+**Pull requests** write access. Publication uses the workflow token for the release and the separate token to run normal
+CI on the manifest PR. After review and merge, the production web build verifies each pinned SHA-256 and embeds the
+four files as a separate layer. The VM promotes the complete web image and retains the previous healthy image in GHCR.
+Rolling back selects the matching index with the worker and web bundle. Keep the volume copy for pre-pin rollback and
+fallback recovery. Feedback that depends on an exact generation is scoped to that generation. See
+[VM runbook, Remote Duels step 5](../../docs/deployment/vm-runbook.md#remote-duels-limited-test).
 
 ## API
 

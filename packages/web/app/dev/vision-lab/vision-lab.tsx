@@ -29,7 +29,7 @@ const STAGES = ["sharpness", "detect", "warp", "embed", "search", "total", "pixe
 function thumbnail(cardId: string, entry?: CardEntry): string | undefined {
   if (cardId === yugioh.cardBack.cardId) return yugioh.cardBack.imageUrl;
   if (entry?.thumbnailUrl) return entry.thumbnailUrl;
-  if (entry?.imageId && entry.imageId !== entry.passcode && entry.imageUrl) return entry.imageUrl;
+  if (entry?.imageId && entry.imageId !== entry.passcode) return `/api/cards/${entry.imageId}/image?size=small`;
   if (entry?.passcode) return `/api/cards/${entry.passcode}/image?size=small`;
   return entry?.imageUrl;
 }

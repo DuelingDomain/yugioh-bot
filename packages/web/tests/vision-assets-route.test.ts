@@ -14,6 +14,7 @@ vi.mock("@/lib/web-access", () => ({ requireWebAccess: state.access }));
 let root: string;
 let codeDir: string;
 let dataDir: string;
+let indexDir: string;
 
 async function put(directory: string, path: string, content: string) {
   const file = join(directory, path);
@@ -33,6 +34,7 @@ beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "vision-assets-"));
   codeDir = join(root, "code");
   dataDir = join(root, "data");
+  indexDir = join(root, "vision-index");
   await mkdir(codeDir);
   await mkdir(dataDir);
   vi.stubEnv("DUEL_FX_LAB", "1");
@@ -186,6 +188,23 @@ describe("code files from the web image", () => {
 });
 
 describe("data files stay in the data volume", () => {
+  it("serves one generation of the pinned index and revalidates it by content", async () => {
+    const files = ["yugioh-index.bin", "yugioh-index.meta.json", "yugioh-index.build.json", "related-cards.json"];
+    for (const file of files) await put(dataDir, file, "volume");
+    for (const file of files) expect(await (await get([file])).text()).toBe("volume");
+    for (const file of files) await put(indexDir, file, "pinned");
+    await put(indexDir, "index-manifest.json", "{}");
+    for (const file of files) {
+      const response = await get([file]);
+      expect(await response.text()).toBe("pinned");
+      expect(response.headers.get("cache-control")).toBe("private, no-cache");
+      expect(response.headers.get("etag")).toMatch(/^"[0-9a-f]{32}"$/);
+    }
+    await rm(join(indexDir, "yugioh-index.bin"));
+    expect((await get(["yugioh-index.bin"])).status).toBe(404);
+    expect((await get(["index-manifest.json"])).status).toBe(404);
+  });
+
   it("never reads models, indexes or other data from the code directory", async () => {
     await put(codeDir, "models/card-detector.onnx", "planted model");
     await put(codeDir, "yugioh-index.bin", "planted index");

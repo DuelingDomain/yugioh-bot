@@ -5,10 +5,11 @@ import { isAbsolute, relative, resolve, sep } from "node:path";
 
 /**
  * Where the web image keeps the recognition worker and the ONNX Runtime files (see the vision-code stage in the
- * Dockerfile). Current models and indexes stay in VISION_DATA_DIR.
+ * Dockerfile). Current models stay in VISION_DATA_DIR. A pinned Current index ships beside this directory.
  * Pinned voice and Hybrid data ship with the image under asr/, kws/ and hybrid/.
  */
 export const VISION_CODE_DIR_DEFAULT = "/app/vision-code";
+const indexFiles = new Set(["yugioh-index.bin", "yugioh-index.meta.json", "yugioh-index.build.json", "related-cards.json"]);
 
 /** Image assets are versioned with the web bundle. */
 export function isVisionCodeAsset(path: string[]): boolean {
@@ -63,6 +64,15 @@ async function openInside(directory: string, path: string[]): Promise<{ file: Fi
  * The pinned voice and Hybrid data also prefer the image.
  */
 export async function openVisionAsset(path: string[]): Promise<VisionAsset | undefined> {
+  if (path.length === 1 && indexFiles.has(path[0])) {
+    const directory = resolve(codeDir(), "../vision-index");
+    const marker = await openInside(directory, ["index-manifest.json"]);
+    if (marker) {
+      await marker.file.close();
+      const found = await openInside(directory, path);
+      return found && { ...found, code: true };
+    }
+  }
   if (isVisionCodeAsset(path)) {
     const found = await openInside(codeDir(), path);
     if (found) return { ...found, code: true };
