@@ -1,0 +1,38 @@
+{
+  "note": "Public copy of published release notes. Add a release here when it is published in the app, then run build-pages.py. Only releases with a source in the repository are listed.",
+  "releases": [
+    {
+      "version": "0.2.2",
+      "title": "Dueling Domain v0.2.2",
+      "publishedAt": "2026-11-04",
+      "highlights": [
+        "Synergy search sorts results into “Archetype cards” and “Works with”.",
+        "The Suggest tab gives better picks.",
+        "New FAQ page and a large trailer window.",
+        "Start a game with a friend using Create game and send the invite.",
+        "Banished cards return correctly."
+      ],
+      "sections": [
+        {"kind": "new", "items": [
+          "Synergy search groups. Search results now come in two groups: “Archetype cards” (cards of the archetype you searched) and “Works with” (cards from other archetypes that fit it).",
+          "FAQ page. Answers to the questions players ask most, in one place.",
+          "Large trailer window. The trailer now opens in a large window, so you can see the field clearly."
+        ]},
+        {"kind": "improvements", "items": [
+          "Better Suggest picks. The Suggest tab in the deck builder now gives cards that fit your deck better.",
+          "Challenge button removed. To start a duel with a friend, use Create game and send the invite."
+        ]},
+        {"kind": "cards", "items": [
+          "Weekly card data update. New cards and script fixes from this week are in the engine."
+        ]},
+        {"kind": "fixes", "items": [
+          "Banished cards. A banished card that returns to the field now comes back correctly."
+        ]},
+        {"kind": "howto", "items": [
+          "Synergy search: Open a deck in Decks. Type an archetype name in search. Look at “Archetype cards” first, then “Works with”.",
+          "Start a game with a friend: Go to Duels and select Create game. Choose the format and send the invite link."
+        ]}
+      ]
+    }
+  ]
+}

@@ -34,5 +34,7 @@ jobs:
           persist-credentials: false
       - name: Check shared header and footer
         run: python3 site/src/sync-chrome.py --check
+      - name: Check generated guide pages are up to date
+        run: python3 site/src/build-pages.py --check
       - name: Verify pages, metadata, schema, sitemap and llms.txt
         run: python3 site/src/verify-static.py

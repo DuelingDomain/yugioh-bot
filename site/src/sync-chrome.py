@@ -18,9 +18,10 @@ import sys
 PUBLIC = Path(__file__).resolve().parents[1] / 'public'
 
 # Main navigation links as (href, label). They appear in the header of every page except home.
-NAV_LINKS = []
+NAV_LINKS = [('/4-player-yugioh', '4-player'), ('/yugioh-cube-draft', 'Drafts'), ('/compare', 'Compare'), ('/updates', 'Updates')]
 # Extra footer links, shown after Privacy and Terms.
-FOOT_LINKS = []
+FOOT_LINKS = [('/4-player-yugioh', '4-player'), ('/yugioh-tag-duel-online', 'Tag duels'), ('/yugioh-cube-draft', 'Cube draft'), ('/domain-format', 'Domain Format'),
+              ('/genesys', 'Genesys'), ('/compare', 'Compare'), ('/updates', 'Updates'), ('/about', 'About')]
 
 LOCKUP = '<svg class="lockup" aria-hidden="true" focusable="false"><use href="#dd-lockup"/></svg>'
 

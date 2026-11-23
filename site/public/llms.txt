@@ -14,6 +14,17 @@ Unofficial fan project. Not affiliated with or endorsed by Konami. Contact: supp
 - [FAQ](https://duelingdomain.com/#faq): Price, browser play, 3- and 4-player and Tag duels, rules engine, Domain Format, Genesys, cube drafts and the unofficial status.
 - [App sign-in](https://app.duelingdomain.com): Sign in to the invitation-only app. Private app content is not a public source.
 
+## Guides
+
+- [4-player duels](https://duelingdomain.com/4-player-yugioh): Play 3- and 4-player free-for-all duels, each duelist with their own Life Points.
+- [Tag duels](https://duelingdomain.com/yugioh-tag-duel-online): 2v2 Tag duels with one shared pool of Life Points per team.
+- [Cube draft](https://duelingdomain.com/yugioh-cube-draft): Run a cube or booster draft with a pick clock, then build a deck and duel.
+- [Domain Format](https://duelingdomain.com/domain-format): Domain Format rules, Deck Masters and the deck rules the game checks.
+- [Genesys](https://duelingdomain.com/genesys): Genesys points decks, the point cap and the weekly TCG points list.
+- [Compare](https://duelingdomain.com/compare): How Dueling Domain compares with EDOPro, Dueling Nexus and Master Duel, with dated facts.
+- [About](https://duelingdomain.com/about): What Dueling Domain is, how alpha access works and how to contact us.
+- [Updates](https://duelingdomain.com/updates): Public patch notes for each release, newest first.
+
 ## Community
 
 - [Discord](https://discord.gg/sUSmbRbBUm): Join the Dueling Domain community server.

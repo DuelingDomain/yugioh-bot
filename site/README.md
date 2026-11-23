@@ -4,9 +4,11 @@ Static HTML, CSS and JavaScript for the closed-alpha waitlist; no build step.
 
 ## Contents
 
-- `public/`: served pages (`index.html`, `privacy.html`, `terms.html`, `404.html`), `style.css`, `app.js`, icons, sitemap, robots, manifest and `llms.txt`.
+- `public/`: served pages (`index.html`, `privacy.html`, `terms.html`, `404.html`, and the generated guide pages listed below), `style.css`, `app.js`, icons, sitemap, robots, manifest and `llms.txt`.
 - `public/assets/`: card backs and trailer poster; `public/fonts/`: self-hosted WOFF2 files and licenses.
 - `src/`: icon/poster/OG sources, asset builders, font installer, `sync-chrome.py` (shared header and footer), `indexnow.py` and verification scripts.
+
+The guide pages (`4-player-yugioh`, `yugioh-tag-duel-online`, `yugioh-cube-draft`, `domain-format`, `genesys`, `compare`, `about`, `updates`) are generated. Edit their copy in `src/pages.py` and the patch notes in `src/updates.json`, then run `python3 site/src/build-pages.py`; do not edit those `public/*.html` files by hand. `verify-static.py` fails when they are out of date. Each guide page opens with one short answer sentence, runs 400 to 800 words (patch notes are shorter), has 3 to 5 FAQ items that match its FAQPage JSON-LD, links to at least two other pages and offers the waitlist. Facts about other products must come from their own pages and carry a date. Add a new page to `src/pages.py`, `public/sitemap.xml` and `public/llms.txt`, and to the header or footer lists in `src/sync-chrome.py`.
 
 ## Local preview
 
