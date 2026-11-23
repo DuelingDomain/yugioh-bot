@@ -1,5 +1,5 @@
 {
-  "note": "Public copy of published release notes. Add a release here when it is published in the app, then run build-pages.py. Only releases with a source in the repository are listed.",
+  "note": "Public copy of release notes published on the in-app Updates board (admin console, releases table). Add a release here when it is published in the app, copying its title, highlights and sections exactly, then run build-pages.py. v0.2.0 and v0.2.1 were posted only in Discord and have no stored copy.",
   "releases": [
     {
       "version": "0.2.2",
@@ -13,25 +13,101 @@
         "Banished cards return correctly."
       ],
       "sections": [
-        {"kind": "new", "items": [
-          "Synergy search groups. Search results now come in two groups: “Archetype cards” (cards of the archetype you searched) and “Works with” (cards from other archetypes that fit it).",
-          "FAQ page. Answers to the questions players ask most, in one place.",
-          "Large trailer window. The trailer now opens in a large window, so you can see the field clearly."
-        ]},
-        {"kind": "improvements", "items": [
-          "Better Suggest picks. The Suggest tab in the deck builder now gives cards that fit your deck better.",
-          "Challenge button removed. To start a duel with a friend, use Create game and send the invite."
-        ]},
-        {"kind": "cards", "items": [
-          "Weekly card data update. New cards and script fixes from this week are in the engine."
-        ]},
-        {"kind": "fixes", "items": [
-          "Banished cards. A banished card that returns to the field now comes back correctly."
-        ]},
-        {"kind": "howto", "items": [
-          "Synergy search: Open a deck in Decks. Type an archetype name in search. Look at “Archetype cards” first, then “Works with”.",
-          "Start a game with a friend: Go to Duels and select Create game. Choose the format and send the invite link."
-        ]}
+        {
+          "kind": "new",
+          "items": [
+            "Synergy search groups. Search results now come in two groups: “Archetype cards” (cards of the archetype you searched) and “Works with” (cards from other archetypes that fit it).",
+            "FAQ page. Answers to the questions players ask most, in one place.",
+            "Large trailer window. The trailer now opens in a large window, so you can see the field clearly."
+          ]
+        },
+        {
+          "kind": "improvements",
+          "items": [
+            "Better Suggest picks. The Suggest tab in the deck builder now gives cards that fit your deck better.",
+            "Challenge button removed. To start a duel with a friend, use Create game and send the invite."
+          ]
+        },
+        {
+          "kind": "cards",
+          "items": [
+            "Weekly card data update. New cards and script fixes from this week are in the engine."
+          ]
+        },
+        {
+          "kind": "fixes",
+          "items": [
+            "Banished cards. A banished card that returns to the field now comes back correctly."
+          ]
+        },
+        {
+          "kind": "howto",
+          "items": [
+            "Synergy search: Open a deck in Decks. Type an archetype name in search. Look at “Archetype cards” first, then “Works with”.",
+            "Start a game with a friend: Go to Duels and select Create game. Choose the format and send the invite link."
+          ]
+        }
+      ]
+    },
+    {
+      "version": "0.2.3",
+      "title": "Dueling Domain v0.2.3",
+      "publishedAt": "2026-11-23",
+      "highlights": [
+        "Play speed: set your own animation speed from 50% to 200% in any simulated duel.",
+        "\"You win\" cards now work in 3-way, 4-way and Tag. The owner of the card wins. Everyone else loses.",
+        "A new Updates board, and replays that play like live watching.",
+        "Fixes for Toy Box, Cyber Jar, Madolche Salon, Arcana Force EX and Mist Valley Apex Avian."
+      ],
+      "sections": [
+        {
+          "kind": "new",
+          "items": [
+            "Play speed. In any simulated duel, open Options and set Animation speed from 50% to 200%. 100% is normal. It is your own setting: it changes only the animations on your screen, so you can play faster or slower. It is kept for your next duels.",
+            "Updates board. A chip next to Report bug shows the latest version. A red dot means you have not read it yet. You can read older notes there too.",
+            "Better replays. Replays now play like live watching. The board keeps one size, and each move waits for its animation. A speed control goes from slow to fast. A battle log lists every move. Select a row to jump to it. The speed control also works in Tag and Free-for-all replays. In a finished duel, its players can show all cards."
+          ]
+        },
+        {
+          "kind": "improvements",
+          "items": [
+            "Prompts on phones. You can drag the prompt card away from your monsters. It is smaller on small screens. The Materials window can be hidden.",
+            "Duel setup on phones. Rules, Clock & life points and Deck rules fold away on small screens. Each one shows its current values in one line. Select Show options to open them.",
+            "Easier to read. Small labels in decks, the draft room, duels and cards are now bigger.",
+            "Faster card pictures. Cubes and drafts with many cards now show their card pictures much faster. Dark or half-drawn tiles are gone."
+          ]
+        },
+        {
+          "kind": "cards",
+          "items": [
+            "Weekly card data updates. Two updates added new cards and script fixes to the engine.",
+            "\"You win\" cards in multiplayer. These cards now work in 3-way, 4-way and Tag: Exodius, Gimmick Puppet of Leo, Disaster Leo, Destiny Board, Vennominaga, Holactie, Numerounius Numerounia, Exodia the Legendary Defender, Ghostrick Angel of Mischief, Flying Elephant, F.A. Winners, Summer Schoolwork Successful!, Jackpot 7, Musical Sumo Dice Games and Phantasm Spiral Assault. When the win happens, the owner of the card wins. In Tag, the owner's team wins. Everyone else loses at the same time."
+          ]
+        },
+        {
+          "kind": "fixes",
+          "items": [
+            "Mist Valley Apex Avian. Its negate is offered again. It never appeared before.",
+            "Toy Box. A card that Sets two or more cards at once, like Toy Box, no longer freezes the duel after you pick the zones. This was in 1v1.",
+            "Possessed Destiny. In 3-way, 4-way and Tag, the Spell can now be activated. Before, it was never offered.",
+            "Cyber Jar. In 3-way, 4-way and Tag, every living player now reveals their own top 5 cards. The extra \"Choose an opponent\" question is gone.",
+            "Madolche Salon and Gem-Knight Seraphinite. A Deck Master in the Deck Master Zone can now use the extra Normal Summon or Set. This works in every Domain mode.",
+            "Contact Fusion Deck Masters. Contact Fusion monsters, like the Neos Fusions, Gladiator Beasts, ABC-Dragon Buster and Arcana Force EX - The Chaos Ruler, and Fallen Angel of the Golden Land, Artmage Non-Finito, Vaylantz Genesis Grand Duke and Odd-Eyes Arcray Dragon can now be summoned from the Deck Master Zone. Each one uses its own materials and cost. This works in every Domain mode.",
+            "Answering a prompt. A rare error when you answered a prompt is fixed. Starting the next game of a series is also safer.",
+            "Replays open again. For a short time, replays showed \"The server returned an invalid response\".",
+            "Account page. The account page now fits narrow screens. It does not scroll sideways."
+          ]
+        },
+        {
+          "kind": "howto",
+          "items": [
+            "Play speed: In a duel, open Options. Under Presentation, move the Animation speed slider. Select Reset to go back to 100%.",
+            "Updates board: Look next to Report bug. Select the version chip. Read the notes. Select an older version to read it.",
+            "Replays: Open a finished duel from your match history. Select Replay. Press Play or use the arrow keys. Use the speed control to go faster or slower. Open the Log tab and select a row to jump to that move.",
+            "Move a prompt on a phone: Hold the handle at the top of the prompt. Drag it away from your cards.",
+            "Duel setup on a phone: Open the new duel page. Select Show options. Change the rules."
+          ]
+        }
       ]
     }
   ]

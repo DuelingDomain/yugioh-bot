@@ -357,8 +357,8 @@ def main():
         assert 'page-info' in body['attrs'].get('class', '').split(), slug
         main_el = page.find('main')[0]
         words = len(re.sub(r'\s+', ' ', main_el['text']).split())
-        low = 150 if slug == 'updates' else 400
-        assert low <= words <= 800, (slug, 'word count', words)
+        low, high = (150, 3000) if slug == 'updates' else (400, 800)
+        assert low <= words <= high, (slug, 'word count', words)
         answer = [e for e in page.find('p') if 'answer' in e['attrs'].get('class', '').split() and main_el in e['ancestors']]
         assert len(answer) == 1 and 40 <= len(answer[0]['text']) <= 300, (slug, 'one short answer sentence')
         first_p = next(e for e in page.elements if e['tag'] == 'p' and main_el in e['ancestors'] and 'eyebrow' not in e['attrs'].get('class', '').split())

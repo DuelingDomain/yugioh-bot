@@ -215,7 +215,7 @@ PAGES = [
         'slug': 'compare',
         'nav': 'Compare',
         'title': '@GAME@ Simulators Compared | Dueling Domain',
-        'description': 'How Dueling Domain compares with EDOPro, Dueling Nexus and Master Duel. Facts come from each project\'s own page and carry a date.',
+        'description': 'How Dueling Domain compares with EDOPro, Dueling Nexus, YGO Omega and Master Duel. Facts come from each project\'s own page and carry a date.',
         'eyebrow': 'Comparison',
         'h1': '@GAME@ simulators compared',
         'answer': 'Dueling Domain is a free browser simulator in closed alpha that focuses on 3- and 4-player duels, Tag, drafts, Domain Format and Genesys; this page lists other ways to play, using only facts from their own pages.',
@@ -248,6 +248,13 @@ PAGES = [
 <li>Says chains, timing and priority resolve themselves.</li>
 </ul>
 <p>Source: <a href="https://duelingnexus.com/" rel="noopener">duelingnexus.com</a>, checked @DATE@.</p>
+<h2>YGO Omega</h2>
+<ul>
+<li>Describes itself as a free simulator.</li>
+<li>Says it runs through a launcher on Windows, macOS, Linux, Android and iOS.</li>
+<li>Says every card is unlocked, ranked play is open and tournaments cost nothing.</li>
+</ul>
+<p>Source: <a href="https://omega.duelistsunite.org/" rel="noopener">omega.duelistsunite.org</a>, the official YGO Omega site, checked @DATE@.</p>
 <h2>Master Duel</h2>
 <ul>
 <li>The official video game. Its product page says it is free to play with in-game purchases.</li>
@@ -255,7 +262,7 @@ PAGES = [
 </ul>
 <p>Source: the official Master Duel product page, checked @DATE@.</p>
 <h2>Which one should you pick?</h2>
-<p>If you want an official game on a console or phone, Master Duel is built for that. If you want a program for Windows, Mac or Linux, EDOPro is one. If you want a browser game, both Dueling Nexus and Dueling Domain run in the browser. Dueling Domain is the one to try when you want free-for-all and Tag tables, drafts, Domain Format or Genesys in the same place, and you can wait for an invite.</p>
+<p>If you want an official game on a console or phone, Master Duel is built for that. If you want a program for Windows, Mac or Linux, EDOPro and YGO Omega are two. If you want a browser game, both Dueling Nexus and Dueling Domain run in the browser. Dueling Domain is the one to try when you want free-for-all and Tag tables, drafts, Domain Format or Genesys in the same place, and you can wait for an invite.</p>
 <p>Dueling Domain is an unofficial fan project. It is not affiliated with any product on this page.</p>
 ''',
         'faq': [
