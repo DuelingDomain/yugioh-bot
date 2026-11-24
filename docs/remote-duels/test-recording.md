@@ -119,6 +119,47 @@ Consent: only harvest recordings of people who agreed (the allowlisted test user
 - Event card ids are numbers and index ids are strings; they are compared by id and by name. The sidecar has no decklist.
 - Only the `current` reader was run for real in the checks of this change; the other kinds have a spec, a bank decoder and tests with fake readers, but no real model files were available.
 
+## Fixed real-footage test set
+
+Keep each version in `data/vision/realset/vN/`. Put the source videos and sidecars in `clips/` and the full-frame PNGs in `frames/`. Extract only the frames to review. For example, save the first decoded frame at or after 13 seconds with:
+
+```sh
+ffmpeg -v error -ss 13 -i clips/a.webm -map 0:v:0 -frames:v 1 frames/a-013000.png
+```
+
+Write `annotations.json` in that version directory. The [manifest schema](../../scripts/vision/realset-schema.ts) defines the fields. This is a valid example for one negative frame:
+
+```json
+{
+  "version": "v1",
+  "clips": [{"id": "a", "file": "clips/a.webm", "source": "Consented table camera"}],
+  "frames": [{"clip": "a", "atMs": 13000, "file": "frames/a-013000.png", "cards": [], "ignore": []}]
+}
+```
+
+- Label the visible physical cards with clockwise, normalized corners and their physical position and face. Use passcode strings and canonical names for verified face-up cards. Use a null ID for face-down cards and uncertain cards.
+- Use `harvest-labels.ts --holdout` and room events to find candidate labels. Review the full frame and confirm the identity independently before scoring it. Use `player-confirmed`, `board-agreed`, or `hand-labeled` to record the source of the label. Preserve unresolved cards as `uncertain`. An automatic read that agrees with a later replay of the same reader is insufficient evidence by itself.
+- Audit all visible areas for the phantom metric. Add clockwise, normalized quads to `ignore` for any area outside that audit, such as a monitor or deck stacks. Include empty mats, hands, occlusions, and difficult card orientations. Keep the clips, frames, annotations and scores out of Git, training and threshold tuning.
+
+```sh
+node --import tsx scripts/vision/build-realset.ts data/vision/realset/v1
+mkdir -p data/vision/realset/v1/scores
+node --import tsx scripts/vision/score-realset.ts \
+  --manifest data/vision/realset/v1/manifest.json --reader current \
+  --out data/vision/realset/v1/scores/current
+node --import tsx scripts/vision/score-realset.ts \
+  --manifest data/vision/realset/v1/manifest.json --reader hybrid \
+  --out data/vision/realset/v1/scores/hybrid
+```
+
+The builder writes a `HOLDOUT` marker and a manifest with frame and clip SHA-256 hashes. Make a new version directory when the labels or frames change. The scorer checks the frame hashes and processes frames in manifest order. It writes JSON and Markdown to the specified prefix. Set `VISION_DATA_DIR` or `--data` to use prepared assets in another directory.
+
+The scorer matches detector outlines to verified labels one-to-one at a polygon intersection over union of at least 0.5. Top-1 counts a matching card ID or normalized name at any confidence tier among all verified face-up cards. Sure-wrong counts incorrect top-1 names returned at the sure tier. Not-sure counts every verified face-up card without a sure name, including missed outlines. Face-down accuracy counts verified backs matched to a face-down prediction. An unmatched outline counts as a phantom unless its center is in an ignored region or its overlap with an uncertain label reaches 0.5. Duplicate outlines of verified cards count as phantoms. The JSON also counts sure names on card backs and sure-named phantoms.
+
+Both readers run the production detector and recognize each eligible outline from one recorded frame using full catalog search and the code's shipped default thresholds. The test runs independently of the field watcher, session hints, learned references, and a threshold override file. With a usable `yugioh-full-art.meta.json` and `yugioh-full-art.bin` pair, Current searches whole-card references alongside the art-box index, and Hybrid routes recognition through its Current compatibility path. If either file is missing, Current uses its art-box index and Hybrid runs the DuelSight and Light cascade. A Hybrid runtime fallback fails the score.
+
+Frame latency covers local CPU detection and per-outline recognition, including the first inference. Startup, search preparation, PNG decoding, and browser and watcher latency are outside the measured interval. Keep the same manifest, assets, computer, and thread count for comparisons. The JSON records the manifest hash, recognition model IDs for the selected path, asset hashes, runtime, and `fullArtIndex.used`. The `fullArtIndex.sha256` value is the binary's SHA-256 when used and `null` otherwise. The metadata hash is in `assetSha256` when the scorer reads it.
+
 ## Prod
 
 Set `REMOTE_RECORD_USERS=2,3` in the VM `.env` and recreate `web`. To stop, empty it and recreate `web`; files stay until deleted by hand or by the cap. The files can show the player's hands, room and screen glare: copy them off the VM only for the people who agreed.
