@@ -6,16 +6,30 @@ export const OK_HOLD_MS = 1500;
 /** A card placed in the last ten seconds is the one "E" means when nothing is under the pointer. */
 export const RECENT_PLACE_MS = 10_000;
 /** Two activations further apart than this are not one chain. Thinking has no limit; only the chain display forgets. */
-export const CHAIN_GAP_MS = 120_000;
+export const CHAIN_GAP_MS = 30_000;
+/** Moves this soon after an activation are its costs and effects; later ones are new play and close the chain display. */
+const ACTIVATION_COST_MS = 3000;
+/** The room sends the newest 50 events. Thinking whose start has left that window is off, so a reloaded screen and a live one agree. */
+export const EVENT_WINDOW = 50;
 
 const FIELD = new Set(["monster", "extra-monster", "spell-trap", "field", "pendulum"]);
 export const onField = (card: Pick<TwinCard, "zone">) => FIELD.has(card.zone);
 
-/** Seats that are thinking now, with the server time they started. Thinking ends at OK, an activation, a response, a cancel or a leave. */
-export function thinkingSeats(events: readonly RemoteEvent[]): Map<number, number> {
+/** Events that move the game on: Thinking and an open chain end here for everyone. A new game and the end of the table are in it. */
+const MOVES_ON = new Set<string>(["phase.set", "phase.advance", "turn.end", "table.started", "match.first", "table.ended"]);
+
+/**
+ * Seats that are thinking now, with the server time they started. Thinking ends at OK, an activation, a response, a cancel, a leave,
+ * or when the game moves on (phase, turn, new game, table end). `live` is false when the game is over or between games: nobody thinks then.
+ */
+export function thinkingSeats(events: readonly RemoteEvent[], live = true): Map<number, number> {
   const seats = new Map<number, number>();
+  if (!live) return seats;
+  const floor = (events.at(-1)?.seq ?? 0) - EVENT_WINDOW;
   for (const event of events) {
+    if (event.seq <= floor) continue;
     const action = event.action; const seat = event.actorSeat;
+    if (MOVES_ON.has(action.type)) { seats.clear(); continue; }
     if (seat === null) continue;
     if (action.type === "chain.thinking") { if (action.on) { if (!seats.has(seat)) seats.set(seat, event.at); } else seats.delete(seat); }
     else if (action.type === "chain.ok" || action.type === "chain.respond" || action.type === "effect.activated" || action.type === "player.concede" || action.type === "player.leave") seats.delete(seat);
@@ -35,11 +49,11 @@ export function activeOk(events: readonly RemoteEvent[], now: number): OkHold | 
 export type ChainLink = { n: number; of?: RemoteEvent };
 
 /** Actions that move the game on: a chain does not reach across them. */
-const CLOSERS = new Set(["phase.set", "phase.advance", "turn.end", "attack.declare", "attack.resolve", "lp.change", "undo", "player.concede", "player.leave"]);
+const CLOSERS = new Set([...MOVES_ON, "attack.declare", "attack.resolve", "lp.change", "undo", "player.concede", "player.leave"]);
 
 /**
  * Display only, no rules engine. An activation by another seat while the last activation is still open is the next link of its chain.
- * A chain stays open until every other living seat said OK, the game moved on (phase, turn, attack, LP, undo) or the gap is long.
+ * A chain stays open until every other living seat said OK, the game moved on (phase, turn, attack, LP, undo, new play) or 30 s pass.
  * `alive` are the seats still in the game.
  */
 export function chainOf(events: readonly RemoteEvent[], alive: readonly number[]): { links: Map<string, ChainLink>; open: RemoteEvent[] } {
@@ -58,6 +72,11 @@ export function chainOf(events: readonly RemoteEvent[], alive: readonly number[]
       const starter = open[open.length - 1].actorSeat;
       if (alive.every(other => other === starter || oked.has(other))) open = [];
     } else if (CLOSERS.has(action.type)) open = [];
+    else if ((action.type === "twin.place" || action.type === "twin.move") && action.source !== "auto" && open.length) {
+      // A placement or move by the player who activated last, a few seconds later, is new play, not a cost of that activation.
+      const last = open[open.length - 1];
+      if (seat === last.actorSeat && event.at - last.at > ACTIVATION_COST_MS) open = [];
+    }
   }
   return { links, open };
 }

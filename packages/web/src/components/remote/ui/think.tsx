@@ -5,7 +5,7 @@ import type { RemoteEvent } from "@yugidraft/shared/remote";
 import { serverNow } from "./api";
 import { cardName, type TwinCard } from "./model";
 import type { CardInfo } from "./catalog";
-import { activeOk, thinkingSeats, type OkHold } from "./think-model";
+import { activeOk, type OkHold } from "./think-model";
 import s from "./think.module.css";
 
 /** The "OK" that shows now (null when none), re-read when it runs out. */
@@ -41,12 +41,12 @@ function ThinkIcon() {
 /** The state in a player's own status area: "Thinking… 12s". */
 export function ThinkingChip({ since, seat }: { since: number; seat: number }) {
   const seconds = useElapsed(since);
-  return <span className={s.chip} role="status" data-testid={`thinking-chip-${seat}`}><ThinkIcon />Thinking… <b>{clock(seconds)}</b></span>;
+  return <span className={s.chip} role="status" data-testid={`thinking-chip-${seat}`}><ThinkIcon />Thinking… <b aria-hidden="true">{clock(seconds)}</b></span>;
 }
 
 /** One banner per thinking player, on every screen. It never takes clicks and never ends by itself. */
-export function ThinkingBanner({ events, name, lowered }: { events: readonly RemoteEvent[]; name: (seat: number) => string; lowered: boolean }) {
-  const seats = [...thinkingSeats(events)];
+export function ThinkingBanner({ thinking, name, lowered }: { thinking: ReadonlyMap<number, number>; name: (seat: number) => string; lowered: boolean }) {
+  const seats = [...thinking];
   if (!seats.length) return null;
   return <div className={`${s.stack} ${lowered ? s.low : ""}`} data-testid="thinking-banner">
     {seats.map(([seat, since]) => <ThinkingLine key={seat} seat={seat} since={since} who={name(seat)} />)}
@@ -55,7 +55,7 @@ export function ThinkingBanner({ events, name, lowered }: { events: readonly Rem
 function ThinkingLine({ seat, since, who }: { seat: number; since: number; who: string }) {
   const seconds = useElapsed(since);
   return <div className={s.line} role="status" data-testid={`thinking-banner-${seat}`}>
-    <ThinkIcon /><small>{who}</small><b>Thinking…</b><time>{clock(seconds)}</time>
+    <ThinkIcon /><small>{who}</small><b>Thinking…</b><time aria-hidden="true">{clock(seconds)}</time>
   </div>;
 }
 

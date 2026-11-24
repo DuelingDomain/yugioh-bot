@@ -40,7 +40,7 @@ import s from "./remote-ui.module.css";
 import v from "./spectator-table.module.css";
 import { RespondBanner, useRespondHold } from "./respond-banner";
 import { OkBanner, ThinkingBanner, useOkHold } from "./think";
-import { aliveSeats, chainOf } from "./think-model";
+import { aliveSeats, chainOf, thinkingSeats } from "./think-model";
 
 const NO_ACTIONS: CardActions = { readOnly: true, canAdd: false, adding: false, onAdd: () => undefined, canAttack: false, attackHint: "", onAttack: () => undefined };
 const fmtTime = (at: number) => new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -171,6 +171,7 @@ function SpectatorTable({ room }: { room: RemoteRoom }) {
   const lp = (seat: number) => state.seats[seat]?.resources.lp ?? 0;
   const respondHold = useRespondHold(room.events);
   const okHold = useOkHold(room.events);
+  const thinking = useMemo(() => thinkingSeats(room.events, room.status === "active" && !state.ended && match.phase === "duel"), [room.events, room.status, state.ended, match.phase]);
   const chainLinks = chainOf(room.events, aliveSeats(state)).links;
   const [subject, setSubject] = useState<Subject | null>(null);
   const [popAt, setPopAt] = useState<PopAt>({ anchor: null, feed: null });
@@ -281,7 +282,7 @@ function SpectatorTable({ room }: { room: RemoteRoom }) {
 
   return <FeedCardsProvider seats={state.seats} info={info}><div className={`${duelFontClasses} ${s.app} ${v.app}`} data-mode={seatCount === 2 ? "1v1" : String(seatCount)} data-wc={webcamOnly ? "1" : undefined} data-testid="spectator-table" data-status={room.status}>
     <RespondBanner hold={respondHold} name={name} />
-    <ThinkingBanner events={room.events} name={name} lowered={!!respondHold} />
+    <ThinkingBanner thinking={thinking} name={name} lowered={!!respondHold} />
     <OkBanner hold={okHold} name={name} />
     <div className={s.shell} inert={covered ? true : undefined}>
       <header className={s.top}>

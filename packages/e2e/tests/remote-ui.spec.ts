@@ -2726,6 +2726,11 @@ test.describe("remote duels Thinking, OK and E", () => {
     await expect(other.getByTestId("ok-banner")).toBeVisible(); await shot(other, "ok-1366");
     await expect(other.getByTestId("thinking-banner")).toHaveCount(0); await expect(page.getByTestId("thinking-chip-0")).toHaveCount(0);
     await page.keyboard.press("e");
+    // The empty field says so, opens no row and sends no activation: the room events stay without effect.activated.
+    await expect(page.getByText("No face-up card to activate")).toBeVisible();
+    await page.waitForTimeout(800);
     await expect(page.getByTestId("activate-row")).toHaveCount(0);
+    const events = await (await page.request.get(`/api/remote/${slug}`)).text();
+    expect(events).not.toContain("effect.activated");
   });
 });
