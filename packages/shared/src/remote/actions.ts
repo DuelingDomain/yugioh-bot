@@ -135,6 +135,10 @@ export const remoteActionSchema = z.discriminatedUnion("type", [
   z.strictObject({ ...meta, type: z.literal("log.note"), text: z.string().trim().min(1).max(500) }),
   /** A player chains or responds ("response", "I chain"). Public room signal only: it changes nothing on the board. */
   z.strictObject({ ...meta, type: z.literal("chain.respond") }),
+  /** "Thinking": this player is deciding whether to respond. `on: false` cancels it. It stays until OK, an activation, a response or a cancel. Public signal only; there is no time limit. */
+  z.strictObject({ ...meta, type: z.literal("chain.thinking"), on: z.boolean() }),
+  /** "OK, no response". Clears this player's Thinking and shows a short OK on every screen. Public signal only. */
+  z.strictObject({ ...meta, type: z.literal("chain.ok") }),
   z.strictObject({ ...meta, type: z.literal("undo"), targetActionId: id }),
   z.strictObject({ ...meta, type: z.literal("player.concede") }),
   /** Quit the match. 1v1: the opponent wins the match. FFA: only this seat leaves for good. It cannot be undone. */

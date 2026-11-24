@@ -599,10 +599,10 @@ export function createRemoteDuelService(db: Database.Database, options: {
         remoteAssert(Number.isSafeInteger(input.baseSeq) && input.baseSeq >= 0, "Invalid base sequence");
         // Admin watch notifications and player notes leave the board unchanged.
         // Quitting and conceding are final choices: another action in flight must not turn them into a refused click.
-        // A response is a public signal like a note: it neither waits for the board to settle nor makes other writes stale.
-        if (command.type !== "side.timeout" && command.type !== "player.leave" && command.type !== "player.concede" && command.type !== "chain.respond") {
+        // A response, Thinking and OK are public signals like a note: they neither waits for the board to settle nor makes other writes stale.
+        if (command.type !== "side.timeout" && command.type !== "player.leave" && command.type !== "player.concede" && command.type !== "chain.respond" && command.type !== "chain.thinking" && command.type !== "chain.ok") {
           remoteAssert(input.baseSeq === row.last_seq || (input.baseSeq < row.last_seq && !db.prepare(
-            "select 1 from remote_events where table_id=? and seq>? and json_extract(action_json,'$.type') not in ('admin.watching','log.note','chain.respond') limit 1",
+            "select 1 from remote_events where table_id=? and seq>? and json_extract(action_json,'$.type') not in ('admin.watching','log.note','chain.respond','chain.thinking','chain.ok') limit 1",
           ).get(row.id, input.baseSeq)), "Stale sequence; fetch state and retry", 409, "STALE_SEQUENCE");
         }
         // An idle table the sweep has not closed yet closes here, so the player sees the ended table at once instead of a refused move.

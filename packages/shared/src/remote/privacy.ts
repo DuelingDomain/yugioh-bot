@@ -89,7 +89,7 @@ function projectEvent(event:RemoteEvent,seats:ReadonlySet<number>):RemoteEvent {
  */
 const SPECTATOR_EVENTS:ReadonlySet<string>=new Set(["table.created","table.configured","table.started","table.ended","idle.warning","admin.watching","seat.joined","seat.left","seat.ready","seat.deck",
   "phase.set","phase.advance","turn.end","lp.change","detection.mode","attack.declare","attack.resolve","player.concede","player.leave","match.declare","match.confirm","match.continue","match.first","side.ready","side.unready","side.timeout",
-  "hand.draw","hand.count","twin.place","twin.move","twin.flip","twin.remove","twin.attach","twin.detach","twin.equip","twin.control","monsters.tribute","pile.lift","pile.order","effect.activated","card.identified","cards.identified","chain.respond"]);
+  "hand.draw","hand.count","twin.place","twin.move","twin.flip","twin.remove","twin.attach","twin.detach","twin.equip","twin.control","monsters.tribute","pile.lift","pile.order","effect.activated","card.identified","cards.identified","chain.respond","chain.thinking","chain.ok"]);
 const PUBLIC_ZONE = (card: TwinCard) => card.faceUp !== false && !["hand", "deck", "extra"].includes(card.zone) ||
   !!card.knownFaceDown && !!card.publicIdentity && remoteFieldZone(card.zone);
 /** Twin refs can hold the card id ("c0-<id>-..."). A ref that is not of a card public now becomes a name with no meaning for one snapshot. */
