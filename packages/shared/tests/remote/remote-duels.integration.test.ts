@@ -1332,6 +1332,17 @@ describe("solo remote tables", () => {
     expect(send(s.users[0], 0, "respond-other", t + 4001, responded.lastSeq + 1).events.at(-1)?.actorSeat).toBe(0);
     expect(send(s.users[1], 1, "respond-3", t + 8002, s.service.get(slug, "g", s.users[1], t + 8002).lastSeq).events.at(-1)?.action.type).toBe("chain.respond");
   });
+  it("lets a player undo their OK and shows the undo to spectators", () => {
+    const s = deckSession("normal", false);
+    s.select(s.save().id);
+    s.service.join(s.room.slug, "g", s.users[1], "Opponent", 1, 2001);
+    s.service.ready(s.room.slug, "g", s.users[1], true, 2002);
+    s.start();
+    s.act({ type: "chain.ok", idempotencyKey: "own-ok" });
+    s.act({ type: "undo", targetActionId: "own-ok" });
+    const watched = s.service.spectatorSnapshot(s.room.slug, "g");
+    expect(watched.events.at(-1)?.action).toMatchObject({ type: "undo", targetActionId: "own-ok" });
+  });
   it("an admin who starts or stops watching never makes a player's move stale, and the stop line follows the grace", () => {
     const s = deckSession("normal", false);
     vi.stubEnv("OWNER_USER_IDS", String(s.users[3]));

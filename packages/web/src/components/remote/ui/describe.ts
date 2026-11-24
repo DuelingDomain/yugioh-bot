@@ -55,7 +55,7 @@ export function describeEvent(event: RemoteEvent, name: (seat: number) => string
     case "log.note": return { kind: "CD", text: a.text, undoable: false };
     case "chain.respond": return { kind: "PH", text: `${who} responded`, undoable: false };
     case "chain.thinking": return { kind: "PH", text: a.on ? `${who} is thinking` : `${who} stopped thinking`, undoable: false };
-    case "chain.ok": return { kind: "PH", text: `${who}: OK, no response`, undoable: false };
+    case "chain.ok": return { kind: "PH", text: `${who}: OK, no response`, undoable: true };
     case "player.concede": return { kind: "PH", text: `${who} conceded`, undoable: false };
     case "player.leave": return { kind: "PH", text: `${who} left the match`, undoable: false };
     case "undo": return { kind: "PH", text: `${who} undid the last action`, undoable: false };

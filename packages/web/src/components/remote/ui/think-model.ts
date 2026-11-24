@@ -18,6 +18,14 @@ export const onField = (card: Pick<TwinCard, "zone">) => FIELD.has(card.zone);
 /** Events that move the game on: Thinking and an open chain end here for everyone. A new game and the end of the table are in it. */
 const MOVES_ON = new Set<string>(["phase.set", "phase.advance", "turn.end", "table.started", "match.first", "table.ended"]);
 
+function withoutUndoneEvents(events: readonly RemoteEvent[]): RemoteEvent[] {
+  const undone = new Set<string>();
+  for (const { action } of events) {
+    if (action.type === "undo") undone.add(action.targetActionId);
+  }
+  return events.filter(event => event.action.type !== "undo" && !undone.has(event.id));
+}
+
 /**
  * Seats that are thinking now, with the server time they started. Thinking ends at OK, an activation, a response, a cancel, a leave,
  * or when the game moves on (phase, turn, new game, table end). `live` is false when the game is over or between games: nobody thinks then.
@@ -26,7 +34,7 @@ export function thinkingSeats(events: readonly RemoteEvent[], live = true): Map<
   const seats = new Map<number, number>();
   if (!live) return seats;
   const floor = (events.at(-1)?.seq ?? 0) - EVENT_WINDOW;
-  for (const event of events) {
+  for (const event of withoutUndoneEvents(events)) {
     if (event.seq <= floor) continue;
     const action = event.action; const seat = event.actorSeat;
     if (MOVES_ON.has(action.type)) { seats.clear(); continue; }
@@ -40,7 +48,7 @@ export function thinkingSeats(events: readonly RemoteEvent[], live = true): Map<
 export type OkHold = { eventId: string; seat: number; until: number };
 /** The newest OK that still shows. `now` is on the server clock, like `event.at`. */
 export function activeOk(events: readonly RemoteEvent[], now: number): OkHold | null {
-  const event = events.findLast(item => item.action.type === "chain.ok");
+  const event = withoutUndoneEvents(events).findLast(item => item.action.type === "chain.ok");
   if (!event || event.actorSeat === null) return null;
   const until = event.at + OK_HOLD_MS;
   return until > now ? { eventId: event.id, seat: event.actorSeat, until } : null;
@@ -49,17 +57,17 @@ export function activeOk(events: readonly RemoteEvent[], now: number): OkHold | 
 export type ChainLink = { n: number; of?: RemoteEvent };
 
 /** Actions that move the game on: a chain does not reach across them. */
-const CLOSERS = new Set([...MOVES_ON, "attack.declare", "attack.resolve", "lp.change", "undo", "player.concede", "player.leave"]);
+const CLOSERS = new Set([...MOVES_ON, "attack.declare", "attack.resolve", "lp.change", "player.concede", "player.leave"]);
 
 /**
  * Display only, no rules engine. An activation by another seat while the last activation is still open is the next link of its chain.
- * A chain stays open until every other living seat said OK, the game moved on (phase, turn, attack, LP, undo, new play) or 30 s pass.
+ * A chain stays open until every other living seat said OK, the game moved on (phase, turn, attack, LP, new play) or 30 s pass.
  * `alive` are the seats still in the game.
  */
 export function chainOf(events: readonly RemoteEvent[], alive: readonly number[]): { links: Map<string, ChainLink>; open: RemoteEvent[] } {
   const links = new Map<string, ChainLink>();
   let open: RemoteEvent[] = []; let oked = new Set<number>();
-  for (const event of events) {
+  for (const event of withoutUndoneEvents(events)) {
     const action = event.action; const seat = event.actorSeat;
     if (action.type === "effect.activated" && seat !== null) {
       const last = open[open.length - 1];
@@ -85,8 +93,9 @@ export const aliveSeats = (state: RemoteState): number[] => state.seats.filter(s
 
 /** The card a player means with a plain E press, step (b): their newest placement in the last ten seconds that is still on the field and not yet activated. */
 export function recentlyPlaced(events: readonly RemoteEvent[], state: RemoteState, seat: number, now: number): TwinCard | undefined {
-  for (let i = events.length - 1; i >= 0; i -= 1) {
-    const event = events[i]; const action = event.action;
+  const remaining = withoutUndoneEvents(events);
+  for (let i = remaining.length - 1; i >= 0; i -= 1) {
+    const event = remaining[i]; const action = event.action;
     if (now - event.at > RECENT_PLACE_MS) return undefined;
     if (event.actorSeat !== seat) continue;
     if (action.type === "effect.activated") return undefined;

@@ -631,7 +631,10 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
       }
       break;
     }
-    case "log.note": case "chain.respond": case "chain.thinking": case "chain.ok": return next;
+    case "chain.ok":
+      rememberRemoteAction(state, next, action);
+      return next;
+    case "log.note": case "chain.respond": case "chain.thinking": return next;
   }
   if (!tokenAction) {
     applyRemoteEffectTracking(next, state, deckAction, context);
