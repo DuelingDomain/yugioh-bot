@@ -1052,3 +1052,27 @@ jobs:
             node_modules/.bin/sentry-cli releases finalize "$SENTRY_RELEASE"
             node_modules/.bin/sentry-cli releases deploys "$SENTRY_RELEASE" new -e production
           done
+
+  # Best effort: tell IndexNow search engines about changed marketing pages after a healthy deploy.
+  # The script only warns on failure and the job cannot fail the release.
+  indexnow:
+    name: Ping IndexNow for changed site pages
+    needs: [prepare, deploy]
+    if: ${{ !cancelled() && needs.deploy.result == 'success' && needs.prepare.outputs.rollback != 'true' }}
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout deployed commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ needs.prepare.outputs.commit }}
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Ping IndexNow
+        env:
+          DEPLOY_COMMIT: ${{ needs.prepare.outputs.commit }}
+        run: |
+          python3 site/src/indexnow.py --base "$DEPLOY_COMMIT^1" --head "$DEPLOY_COMMIT" || echo "WARNING: IndexNow ping skipped" >&2

@@ -7,6 +7,7 @@ This is structural sanity checking, not a browser or full HTML validator.
 from collections import Counter
 from datetime import date
 from html.parser import HTMLParser
+import importlib.util
 import json
 from pathlib import Path
 import re
@@ -19,6 +20,8 @@ PUBLIC = Path(__file__).resolve().parents[1] / 'public'
 # invite dies after 30 days and would leave dead links, JSON-LD sameAs and llms.txt entries.
 # The HTML repeats this URL exactly; change it here and in index.html and llms.txt together.
 DISCORD_INVITE = 'https://discord.gg/sUSmbRbBUm'
+# Public text must never name the owner or link the code host. Parts are joined so this file stays clean.
+BANNED_PUBLIC = ('git' + 'hub.com', 'git' + 'hub.io', 'sul' + 'man', 'im' + 'ran')
 VOID = set('area base br col embed hr img input link meta param source track wbr'.split())
 
 
@@ -69,8 +72,47 @@ def resolve(path):
     raise AssertionError('Unresolved internal URL: ' + path)
 
 
+def load_chrome():
+    spec = importlib.util.spec_from_file_location('sync_chrome', Path(__file__).with_name('sync-chrome.py'))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def jsonld(page):
+    return [json.loads(e['text']) for e in page.find('script') if e['attrs'].get('type') == 'application/ld+json']
+
+
+def visible_faq(page):
+    items = [e for e in page.elements if e['tag'] == 'div' and 'faq-item' in e['attrs'].get('class', '').split()]
+    return [([e for e in page.elements if e['tag'] == 'h3' and item in e['ancestors']][0]['text'].strip(),
+             [e for e in page.elements if e['tag'] == 'p' and item in e['ancestors']][0]['text'].strip())
+            for item in items]
+
+
+def check_schema(name, page, canonical):
+    # Every JSON-LD block must parse. FAQ and breadcrumb nodes must match what the page shows.
+    for block in jsonld(page):
+        assert block.get('@context') == 'https://schema.org', (name, 'JSON-LD @context')
+        for node in block.get('@graph', [block]):
+            assert 'review' not in node and 'aggregateRating' not in node, (name, 'invented reviews or ratings')
+            if node['@type'] == 'FAQPage':
+                schema_faq = [(q['name'], q['acceptedAnswer']['text']) for q in node['mainEntity']]
+                assert schema_faq and schema_faq == visible_faq(page), (name, 'FAQ JSON-LD must match the visible FAQ')
+            if node['@type'] == 'BreadcrumbList':
+                items = node['itemListElement']
+                assert [i['position'] for i in items] == list(range(1, len(items) + 1)), (name, 'breadcrumb positions')
+                assert items[0]['item'] == 'https://duelingdomain.com/' and items[-1]['item'] == canonical, (name, 'breadcrumb ends')
+            if node['@type'] in ('Article', 'BlogPosting'):
+                assert re.fullmatch(r'\d{4}-\d{2}-\d{2}', node['datePublished']), (name, 'datePublished')
+
+
 def main():
+    chrome = load_chrome()
     pages = {file.name: Page(file) for file in PUBLIC.glob('*.html')}
+    for file in PUBLIC.glob('*.html'):
+        text = file.read_text()
+        assert chrome.apply(text, chrome.wanted(file), False) == text, (file.name, 'run site/src/sync-chrome.py')
     titles, descriptions, canonicals = [], [], []
     disclaimer = None
     google = False
@@ -95,7 +137,7 @@ def main():
                 assert 0 < len(value) <= 155, (name, 'description length', len(value))
                 descriptions.append(value)
             if tag == 'link':
-                expected = {'index.html': '/', 'privacy.html': '/privacy', 'terms.html': '/terms', '404.html': '/404.html'}[name]
+                expected = {'index.html': '/', '404.html': '/404.html'}.get(name, '/' + Path(name).stem)
                 assert value == 'https://duelingdomain.com' + expected, (name, 'canonical', value)
                 canonicals.append(value)
         assert page.find('link', rel='manifest', href='/site.webmanifest'), name
@@ -107,13 +149,16 @@ def main():
         footer_links = [(e['attrs'].get('href'), e['text']) for e in page.find('a')
                         if foot in e['ancestors'] and e['attrs'].get('href') in ('/privacy', '/terms')]
         assert footer_links == [('/privacy', 'Privacy'), ('/terms', 'Terms')], (name, 'footer links', footer_links)
+        guide_links = [(e['attrs'].get('href'), e['text']) for e in page.find('a')
+                       if foot in e['ancestors'] and (e['attrs'].get('href') or '') in dict(chrome.FOOT_LINKS)]
+        assert guide_links == chrome.FOOT_LINKS, (name, 'footer guide links', guide_links)
         support_links = page.find('a', href='mailto:support@duelingdomain.com')
         assert any(foot in e['ancestors'] for e in support_links), (name, 'footer support contact')
         assert legal['text'] == 'Unofficial fan project. Not affiliated with or endorsed by Konami.', name
         sponsor = 'ko' + 'nami'
         assert page.file.read_text().lower().count(sponsor) == 1, name
         assert sponsor in legal['text'].lower(), name
-        if name == 'index.html':
+        if name != '404.html':
             for attr in ('og:type', 'og:site_name', 'og:title', 'og:description', 'og:url',
                          'og:image', 'og:image:width', 'og:image:height', 'og:image:alt'):
                 assert len(page.find('meta', property=attr)) == 1, (name, attr)
@@ -125,8 +170,8 @@ def main():
             assert page.find('meta', name='twitter:title', content=title), name
             assert page.find('meta', property='og:url', content=canonical), name
             assert page.find('meta', name='twitter:card', content='summary_large_image'), name
-        if name != '404.html':
-            assert page.find('meta', name='twitter:card', content='summary_large_image'), name
+            assert page.find('meta', property='og:type', content='website'), name
+            check_schema(name, page, canonical)
             image = page.find('meta', property='og:image')[0]['attrs']['content']
             assert image.startswith('https://duelingdomain.com/'), (name, 'absolute social image URL')
             assert page.find('meta', name='twitter:image', content=image), name
@@ -162,33 +207,25 @@ def main():
             assert not any(key.startswith('on') for key in attrs), (name, 'inline handler')
         for script in page.find('script'):
             if script['attrs'].get('type') == 'application/ld+json':
-                graph = json.loads(script['text'])['@graph']
-                assert {node['@type'] for node in graph} == {'WebSite', 'Organization', 'WebApplication', 'FAQPage'}
-                for node in graph:
-                    assert 'review' not in node and 'aggregateRating' not in node
-                    if 'logo' in node: resolve(urlsplit(node['logo']).path)
+                for block in jsonld(page):
+                    for node in block.get('@graph', [block]):
+                        if 'logo' in node: resolve(urlsplit(node['logo']).path)
+                if name == 'index.html':
+                    graph = jsonld(page)[0]['@graph']
+                    assert {node['@type'] for node in graph} == {'WebSite', 'Organization', 'WebApplication', 'FAQPage'}
             else:
                 assert script['attrs'].get('src') and 'defer' in script['attrs'], (name, 'blocking or inline script')
         google |= 'fonts.googleapis.com' in page.file.read_text()
         print(f'PASS {name}: structure, unique IDs, one h1, metadata, links, image dimensions, footer')
     assert len(set(titles)) == len(pages) and len(set(descriptions)) == len(pages) and len(set(canonicals)) == len(pages)
     assert pages['404.html'].find('meta', name='robots', content='noindex')
-    for name in ('privacy.html', 'terms.html'):
-        page = pages[name]
+    for name, page in pages.items():
+        if name in ('index.html', '404.html'): continue
         assert ('privacy' + '@') not in page.file.read_text().lower(), (name, 'retired contact address')
         assert page.find('a', href='mailto:support@duelingdomain.com'), (name, 'missing support contact link')
-        title = Path(name).stem.title() + ' | Dueling Domain'
-        assert page.find('title')[0]['text'] == title, name
-        for attr in ('og:type', 'og:site_name', 'og:title', 'og:description', 'og:url',
-                     'og:image', 'og:image:width', 'og:image:height', 'og:image:alt'):
-            assert len(page.find('meta', property=attr)) == 1, (name, attr)
-        for attr in ('twitter:card', 'twitter:title', 'twitter:description', 'twitter:image', 'twitter:image:alt'):
-            assert len(page.find('meta', name=attr)) == 1, (name, attr)
-        assert page.find('meta', property='og:title', content=title), name
-        assert page.find('meta', name='twitter:title', content=title), name
-        canonical = page.find('link', rel='canonical')[0]['attrs']['href']
-        assert page.find('meta', property='og:url', content=canonical), name
-        assert all(script['attrs'].get('src') and not script['text'].strip()
+        if name in ('privacy.html', 'terms.html'):
+            assert page.find('title')[0]['text'] == Path(name).stem.title() + ' | Dueling Domain', name
+        assert all(script['attrs'].get('type') == 'application/ld+json' or (script['attrs'].get('src') and not script['text'].strip())
                    for script in page.find('script')), (name, 'inline script')
         assert not page.find('style') and not any('style' in e['attrs'] for e in page.elements), (name, 'inline style')
     index = pages['index.html']
@@ -236,9 +273,11 @@ def main():
         assert re.fullmatch(r'\d{4}-\d{2}-\d{2}', url.find('{*}lastmod').text)
         assert date.fromisoformat(url.find('{*}lastmod').text) <= date.today(), (loc, 'future lastmod')
     sitemap_urls = [url.find('{*}loc').text for url in sitemap.getroot()]
-    assert len(sitemap_urls) == len(set(sitemap_urls)) == 3
+    assert len(sitemap_urls) == len(set(sitemap_urls)), 'duplicate sitemap URLs'
     assert set(sitemap_urls) == set(canonicals) - {'https://duelingdomain.com/404.html'}
     assert 'Sitemap: https://duelingdomain.com/sitemap.xml' in (PUBLIC/'robots.txt').read_text()
+    keys = [file for file in PUBLIC.glob('*.txt') if re.fullmatch(r'[0-9a-f]{32}', file.stem)]
+    assert len(keys) == 1 and keys[0].read_text() == keys[0].stem, 'IndexNow needs one key file containing its own name'
     manifest = json.loads((PUBLIC/'site.webmanifest').read_text())
     assert manifest['theme_color'] == manifest['background_color'] == '#0A0E1A'
     for icon in manifest['icons']: resolve(icon['src'])
@@ -253,6 +292,7 @@ def main():
     assert re.search(r'^## ', llms, re.M), 'llms.txt needs link sections'
     assert {'https://duelingdomain.com/', 'https://app.duelingdomain.com',
             'https://duelingdomain.com/privacy', 'https://duelingdomain.com/terms'} <= set(links), 'llms.txt required links'
+    assert set(sitemap_urls) <= set(links), ('every sitemap URL needs an llms.txt entry', set(sitemap_urls) - set(links))
     for link in links:
         if link in ('https://app.duelingdomain.com', DISCORD_INVITE):
             continue  # The public sign-in entry point and community invite; private app URLs stay excluded.
@@ -300,7 +340,14 @@ def main():
         attrs = link['attrs']
         assert attrs.get('target') == '_blank' and attrs.get('rel') == 'noopener noreferrer', attrs
         assert 'aria-label' not in attrs and link['text'].strip() == 'Join our Discord (opens in a new tab)', link['text']
-    assert any(DISCORD_INVITE in node.get('sameAs', []) for node in graph if node['@type'] == 'Organization')
+    # Owner rule: the Discord invite is the only sameAs profile until other channels are approved.
+    assert organization['sameAs'] == [DISCORD_INVITE], 'Organization sameAs must be the Discord invite only'
+    # Owner rules: never show or link the code host or a person's name in anything the site serves.
+    for file in PUBLIC.rglob('*'):
+        if file.suffix in ('.html', '.txt', '.xml', '.js', '.css', '.svg', '.webmanifest') and file.parent.name != 'fonts':
+            text = file.read_text().lower()  # Font license files are third-party text.
+            for banned in BANNED_PUBLIC:
+                assert banned.lower() not in text, (file.name, 'banned public text', banned)
     if google:
         assert 'browser contacts Google' in pages['privacy.html'].file.read_text()
         print('FALLBACK: Google Fonts retained after sandbox DNS failure. Run self-host-fonts.py before launch.')
