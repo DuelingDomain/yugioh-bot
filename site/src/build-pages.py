@@ -16,7 +16,8 @@ SRC = Path(__file__).resolve().parent
 PUBLIC = SRC.parent / 'public'
 SITE = 'https://duelingdomain.com'
 YOUTUBE_ID = '9CahDbFr0jA'
-POSTER = ('/assets/arena-poster.webp', 1440, 900)
+# A frame of the real trailer (its YouTube thumbnail), self-hosted so the page makes no third-party request.
+TRAILER_THUMB = ('/assets/trailer-thumb.webp', 1280, 720)
 MONTHS = 'January February March April May June July August September October November December'.split()
 KINDS = {'new': 'New', 'improvements': 'Improvements', 'cards': 'Card data', 'fixes': 'Fixes', 'howto': 'How to use'}
 
@@ -118,13 +119,13 @@ def breadcrumb(page):
 def video_node():
     return {'@type': 'VideoObject', 'name': 'Dueling Domain Closed Alpha Trailer',
             'description': 'The launch trailer for the Dueling Domain closed alpha, a free fan-made @GAME@ simulator for the browser.',
-            'thumbnailUrl': SITE + POSTER[0], 'uploadDate': '2026-10-14', 'duration': 'PT1M13S',
+            'thumbnailUrl': SITE + TRAILER_THUMB[0], 'uploadDate': '2026-10-14', 'duration': 'PT1M13S',
             'embedUrl': f'https://www.youtube-nocookie.com/embed/{YOUTUBE_ID}',
             'publisher': {'@type': 'Organization', 'name': 'Dueling Domain', 'url': SITE + '/'}}
 
 
 def figure(page):
-    """The page screenshot when it has one, and the trailer poster when it links the trailer or has no screenshot."""
+    """The page screenshot when it has one, then the real trailer frame when the page links the trailer."""
     html = ''
     if page.get('shot'):
         src, width, height, alt, caption = page['shot']
@@ -133,12 +134,13 @@ def figure(page):
         html += (f'<figure class="info-fig"><img src="{src}" srcset="{small} 960w, {src} {width}w" '
                  f'sizes="(max-width: 860px) calc(100vw - 32px), 780px" alt="{escape(alt)}" width="{width}" height="{height}" '
                  f'loading="lazy" decoding="async"><figcaption>{escape(caption)}</figcaption></figure>')
-    if page.get('video') or not page.get('shot'):
-        alt, caption = page['figure']
-        img = f'<img src="{POSTER[0]}" alt="{escape(alt)}" width="{POSTER[1]}" height="{POSTER[2]}" loading="lazy" decoding="async">'
-        if page.get('video'):
-            img = f'<a href="https://www.youtube.com/watch?v={YOUTUBE_ID}" rel="noopener">{img}</a>'
-        html += f'<figure class="info-fig">{img}<figcaption>{escape(caption)}</figcaption></figure>'
+    if page.get('video'):
+        src, width, height = TRAILER_THUMB
+        small = src.replace('.webp', '-960.webp')
+        img = (f'<img src="{src}" srcset="{small} 960w, {src} {width}w" sizes="(max-width: 860px) calc(100vw - 32px), 780px" '
+               f'alt="Title frame of the Dueling Domain closed alpha trailer." width="{width}" height="{height}" loading="lazy" decoding="async">')
+        html += (f'<figure class="info-fig"><a href="https://www.youtube.com/watch?v={YOUTUBE_ID}" rel="noopener">{img}</a>'
+                 f'<figcaption>Watch the closed alpha trailer on YouTube (73 seconds).</figcaption></figure>')
     return html
 
 
@@ -184,7 +186,7 @@ def build_updates():
         'description': 'Public patch notes for Dueling Domain, newest first. See what is new, improved and fixed in each release of the @GAME@ simulator.',
     }
     answer = f"Dueling Domain publishes patch notes for each release, and the latest listed here is v{latest['version']}, published on {human_date(latest['publishedAt'])}."
-    blocks, schemas = [], [breadcrumb(page)]
+    blocks, schemas = [], [breadcrumb(page), video_node()]
     for rel in releases:
         anchor = 'v' + rel['version'].replace('.', '-')
         sections = ''.join(
@@ -209,7 +211,7 @@ def build_updates():
 <p class="answer">{escape(answer, quote=False)}</p>
 <p>These notes match the Updates board inside the app. We add each version here when we publish it. The game is a free, fan-made @GAME@ simulator in closed alpha. To see what it does, read about <a href="/yugioh-cube-draft">cube drafts</a>, <a href="/4-player-yugioh">4-player duels</a> or <a href="/genesys">Genesys</a>.</p>
 {cta('Join the waitlist')}
-{figure({'figure': ('A card table for several players, drawn with original card backs.', 'Poster art for the launch trailer.')})}
+{figure({'video': True})}
 {chr(10).join(blocks)}
 <h2>Get an invite</h2>
 <p>Dueling Domain is free. The closed alpha is invitation-only, and joining the waitlist does not guarantee access.</p>
