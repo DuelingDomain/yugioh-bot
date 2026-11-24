@@ -12,7 +12,8 @@ import { SceneRefiner } from './scene-refiner';
 import { detectScene, lastShadowPasses } from './detect-scene';
 import { detectFieldCellOutlines } from './field-set-zoom';
 import { indexVersion, type LearningSnapshot } from './learning';
-import { calibratedThresholds } from './threshold-config';
+import { calibratedThresholds, type ThresholdConfig } from './threshold-config';
+import { hexSha256 } from './model-cache';
 import { LearningCache } from './learning-cache';
 import { filterPhysicalIndex } from './physical-index';
 import { decodeIndex } from './index-format';
@@ -83,7 +84,8 @@ function keepAICrop(source:DeferredAICrop):string {
   return token;
 }
 async function checkedJson(url: string): Promise<IndexMeta> {
-  const response = await fetch(url);
+  // Detect the first pin even when the volume metadata is still fresh in the HTTP cache.
+  const response = await fetch(url, { cache: 'no-cache' });
   if (!response.ok) throw new Error(`Cannot load ${url}: HTTP ${response.status}. Build the index first.`);
   return response.json();
 }
@@ -91,16 +93,23 @@ async function initialize(profile: GameProfile, backend: 'auto' | 'wasm', runtim
   try {
     const meta = await checkedJson(profile.metaUrl);
     validateIndexProfile(meta, profile);
-    const response = await fetch(profile.indexUrl);
+    const response = await fetch(profile.indexUrl, { cache: meta.indexSha256 ? 'no-cache' : 'default' });
     if (!response.ok) throw new Error(`Cannot load index: HTTP ${response.status}`);
-    const decoded=decodeIndex(await response.arrayBuffer(),meta);
+    const bytes = await response.arrayBuffer();
+    if (meta.indexSha256 && await hexSha256(bytes) !== meta.indexSha256) throw new Error('Index and metadata are from different generations');
+    const decoded=decodeIndex(bytes,meta);
     const index=profile.id==='yugioh'?filterPhysicalIndex(decoded):decoded;
     if(profile.thresholdsUrl) {
       // Eager initialization can hit a cold asset route. A 1.5s timeout repeatedly discarded
       // prewarm attempts before a read; preserve calibration validation while allowing startup.
       const response=await fetch(profile.thresholdsUrl,{cache:'no-store',signal:AbortSignal.timeout(10_000)});
-      if(response.ok)profile={...profile,embedding:{...profile.embedding,thresholds:calibratedThresholds(await response.json(),profile,index)}};
-      else if(response.status!==404)throw new Error('Cannot load webcam thresholds');
+      if(response.ok) {
+        const calibration: ThresholdConfig = await response.json();
+        // A deployed index can advance independently of the optional, index-specific volume calibration.
+        if (!meta.indexSha256 || calibration?.indexVersion === indexVersion(index.meta)) {
+          profile = {...profile, embedding: {...profile.embedding, thresholds: calibratedThresholds(calibration, profile, index)}};
+        }
+      } else if(response.status!==404)throw new Error('Cannot load webcam thresholds');
     }
     // Sequential session creation avoids simultaneous WASM runtime initialization.
     const role=configuration!.role;

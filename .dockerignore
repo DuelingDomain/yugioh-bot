@@ -7,6 +7,8 @@ data/
 data/*
 !data/voice-assets/
 !data/voice-assets/**
+# The production web build reads the pin outside the application context.
+packages/vision/index-manifest.json
 !packages/shared/data/
 !packages/shared/data/effects/
 !packages/shared/data/effects/**

@@ -15,6 +15,7 @@ import { createInsightCatalog } from "./card-insight-catalog.js";
 import { deriveRemoteEffectPlans, remoteEffectMatches, REMOTE_SEARCH_SOURCE_ZONES, type RemoteEffectSource } from "../remote/effect-filters.js";
 import type { TwinCard } from "../remote/actions.js";
 import { remoteActivationLimit, remoteAssert } from "../remote/actions.js";
+import { pinnedVisionIndexDirectory, visionDataDirectory } from '../vision-assets.js';
 
 // Cache catalog inputs, not results: current state and each seat's deck still filter every request.
 const searchKnowledgeCache=new WeakMap<Database.Database,Map<string,{until:number;knowledge:RemoteSearchKnowledge}>>();
@@ -37,7 +38,7 @@ export function createRemoteDeckRules(db: Database.Database, directory = deckEng
     search(state: RemoteState, seat: number, recentCardId: number) {
       const pool=state.deckChecks.registrations[seat]?.deck.main;
       const pileCodes=state.seats[seat]?.twin.filter(c=>['graveyard','banished'].includes(c.zone)||c.inspectionFrom).flatMap(c=>c.cardId??c.passcode??[])??[];
-      const visionDirectory=process.env.VISION_DATA_DIR??resolve(directory,'../vision');
+      const visionDirectory = pinnedVisionIndexDirectory() ?? visionDataDirectory(resolve(directory, '../vision'));
       const key=JSON.stringify([directory,visionDirectory,recentCardId,pool,pileCodes]);
       let cache=searchKnowledgeCache.get(db);
       if(!cache){cache=new Map();searchKnowledgeCache.set(db,cache);}

@@ -9,7 +9,21 @@ import {replayTier} from '../../packages/vision/src/decision';
 import type {RealsetExport} from '../../packages/vision/src/calibration';
 const root=resolve('.'),data=resolve(process.env.VISION_DATA_DIR??'data/vision'),out=join(data,'realset-smoke');
 await mkdir(out,{recursive:true});
-await build({stdin:{contents:`import React from 'react';import {createRoot} from 'react-dom/client';import {VisionLab} from './app/dev/vision-lab/vision-lab';createRoot(document.getElementById('app')).render(React.createElement(VisionLab));`,resolveDir:join(root,'packages/web'),loader:'tsx'},outfile:join(out,'lab.js'),bundle:true,format:'esm',platform:'browser',target:'es2022',jsx:'automatic',tsconfig:join(root,'packages/web/tsconfig.json'),loader:{'.css':'local-css'},external:['/duel/*'],plugins:[{name:'unrelated-sheet-button',setup(b){b.onResolve({filter:/^@\/components\/sheet$/},()=>({path:'sheet',namespace:'smoke-sheet'}));b.onLoad({filter:/.*/,namespace:'smoke-sheet'},()=>({contents:"import {createElement} from 'react';export const SvButton=({children,variant,...props})=>createElement('button',props,children);",resolveDir:root}));}}],define:{'process.env.NODE_ENV':'"production"'},logLevel:'silent'});
+const shims: Record<string, string> = {
+  '@/components/sheet': "import {createElement} from 'react';export const SvButton=({children,variant,...props})=>createElement('button',props,children);",
+  '@/components/duel/fonts': "export const duelFontClasses = '';",
+};
+await build({
+  stdin: {
+    contents: "import React from 'react';import {createRoot} from 'react-dom/client';import {VisionLab} from './app/dev/vision-lab/vision-lab';createRoot(document.getElementById('app')).render(React.createElement(VisionLab));",
+    resolveDir: join(root, 'packages/web'), loader: 'tsx',
+  },
+  outfile:join(out,'lab.js'),bundle:true,format:'esm',platform:'browser',target:'es2022',jsx:'automatic',tsconfig:join(root,'packages/web/tsconfig.json'),loader:{'.css':'local-css'},external:['/duel/*'],
+  plugins:[{name:'next-build-shims',setup(b){
+    b.onResolve({filter:/^@\/components\/(sheet|duel\/fonts)$/},({path})=>({path,namespace:'smoke-shim'}));
+    b.onLoad({filter:/.*/,namespace:'smoke-shim'},({path})=>({contents:shims[path],resolveDir:root}));
+  }}],define:{'process.env.NODE_ENV':'production'},logLevel:'silent',
+});
 const photos=JSON.parse(await readFile(join(data,'benchmark/photos.json'),'utf8'));
 let aiRequests=0,feedbackUploads=0,learningRequests=0,aiWidth=0,aiHeight=0,aiBytes=0,aiChoices=0;
 const mime:Record<string,string>={'.js':'text/javascript','.mjs':'text/javascript','.css':'text/css','.json':'application/json','.wasm':'application/wasm','.jpg':'image/jpeg'};
@@ -47,7 +61,8 @@ try {
     const stream=canvas.captureStream(10);const timer=setInterval(()=>ctx.drawImage(image,0,0,1920,1080),100);const track=stream.getVideoTracks()[0],stop=track.stop.bind(track);track.stop=()=>{clearInterval(timer);stop();};return stream;
   }}});});
   await page.goto(`http://127.0.0.1:${port}/dev/vision-lab`);
-  await page.getByLabel('Compute').selectOption('wasm');
+  await page.getByRole('combobox',{name:'Compute'}).click();
+  await page.getByRole('option',{name:'WASM · CPU benchmark'}).click();
   await page.getByRole('checkbox',{name:'Real webcam test set capture mode'}).check();
   await page.getByLabel('Capture conditions').fill('synthetic smoke fixture, no physical webcam');
   await page.getByLabel('Upload a card photo').setInputFiles(join(data,'benchmark',photos[0].file));

@@ -213,6 +213,11 @@
       "source": "./src/deck-legality/index.ts",
       "default": "./dist/deck-legality/index.js"
     },
+    "./vision-assets": {
+      "types": "./dist/vision-assets.d.ts",
+      "source": "./src/vision-assets.ts",
+      "default": "./dist/vision-assets.js"
+    },
     "./deck-legality/banlists/index": {
       "types": "./dist/deck-legality/banlists/index.d.ts",
       "source": "./src/deck-legality/banlists/index.ts",

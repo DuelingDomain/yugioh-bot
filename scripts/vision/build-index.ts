@@ -14,7 +14,7 @@
  */
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
-import { mkdir, readFile, rename, writeFile, link, copyFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, writeFile, link, copyFile, rm } from 'node:fs/promises';
 import { availableParallelism } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
@@ -24,6 +24,7 @@ import sharp from 'sharp';
 import { embedImages, type SessionLike, type TensorCtor } from '../../packages/vision/src/embed';
 import { decodeIndex } from '../../packages/vision/src/index-format';
 import { dropPlaceholders } from '../../packages/vision/src/placeholder-art';
+import { isPhysicalEntry } from '../../packages/vision/src/physical-index';
 import { buildIndexArtefacts } from '../../packages/vision/src/index-builder';
 import { yugioh } from '../../packages/vision/src/games/yugioh';
 import { layoutKey, validateIndexProfile } from '../../packages/vision/src/profile';
@@ -144,13 +145,17 @@ async function main() {
     selection: { type: 'string', default: 'auto' }, limit: { type: 'string' },
     output: { type: 'string', default: defaultData }, cache: { type: 'string', default: join(defaultData, 'cache') },
     'image-cache': { type: 'string' }, catalog: { type: 'string' }, 'refresh-catalog': { type: 'boolean', default: false },
+    weekly: { type: 'boolean', default: false },
     threads: { type: 'string', default: '4' }, help: { type: 'boolean', default: false },
   } });
   if (values.help) {
-    console.log('Usage: npx tsx scripts/vision/build-index.ts [--selection auto|subset|full] [--limit ARTWORKS] [--threads 4] [--image-cache PATH] [--catalog cardinfo.json] [--refresh-catalog] [--cache PATH] [--output data/vision]');
+    console.log('Usage: npx tsx scripts/vision/build-index.ts [--selection auto|subset|full] [--limit ARTWORKS] [--threads 4] [--image-cache PATH] [--catalog cardinfo.json] [--refresh-catalog] [--cache PATH] [--output data/vision] [--weekly]');
     return;
   }
   if (!['auto', 'subset', 'full'].includes(values.selection!)) throw new Error('selection must be auto, subset or full');
+  if (values.weekly && (values.selection !== 'full' || values.limit || values.catalog || values['image-cache'])) {
+    throw new Error('--weekly requires a full upstream catalog and image source');
+  }
   const limit = values.limit ? Number(values.limit) : Infinity;
   const threads = Number(values.threads);
   if ((!Number.isSafeInteger(limit) && limit !== Infinity) || limit < 1) throw new Error('limit must be a positive integer');
@@ -160,13 +165,14 @@ async function main() {
   const modelPath = join(defaultData, 'models/dinov2-small-duel.q8.onnx');
   const modelHash = sha(await readFile(modelPath));
   if (modelHash !== yugioh.embedding.sha256) throw new Error('Embedding model SHA256 does not match the game profile');
-  const identity = sha(JSON.stringify({ layout: layoutKey(yugioh), modelHash, cache: CACHE_VERSION })).slice(0, 24);
+  const identity = sha(JSON.stringify({ layout: layoutKey(yugioh), modelHash, cache: CACHE_VERSION,
+    ...(values.weekly ? { source: 'weekly-v1' } : {}) })).slice(0, 24);
   const derived = join(cache, identity), imageDir = join(derived, 'artwork'), vectorDir = join(derived, 'vectors');
   await mkdir(imageDir, { recursive: true }); await mkdir(vectorDir, { recursive: true });
-  await mkdir(join(output, 'thumbnails'), { recursive: true });
-  const localImages = values['image-cache'] ? resolve(values['image-cache'])
+  if (!values.weekly) await mkdir(join(output, 'thumbnails'), { recursive: true });
+  const localImages = values.weekly ? undefined : values['image-cache'] ? resolve(values['image-cache'])
     : [join(root, 'data/card-images'), resolve(root, '../../data/card-images')].find(existsSync);
-  const catalog = await catalogAt(join(cache, 'catalog.json'), values.catalog, values['refresh-catalog']);
+  const catalog = await catalogAt(join(cache, 'catalog.json'), values.catalog, values.weekly || values['refresh-catalog']);
   const full = artworks(catalog.cards);
   const reusableImages = full.filter(art => existsSync(join(imageDir, `${art.entry.imageId}.jpg`)) ||
     (localImages && existsSync(join(localImages, `${art.entry.imageId}.jpg`)))).length;
@@ -176,7 +182,7 @@ async function main() {
   const selection = values.selection === 'auto' ? auto : values.selection!;
   const selected = subset(catalog.cards, root);
   const chosen = selection === 'full' ? catalog.cards : selected.cards;
-  const work = artworks(chosen).slice(0, limit);
+  const work = artworks(chosen).slice(0, limit).filter(art => !values.weekly || isPhysicalEntry(art.entry));
   const chosenIds = new Set(chosen.map(c => c.id));
   const reserve = selection === 'subset' && !Number.isFinite(limit) ? artworks(catalog.cards
     .filter(c => !chosenIds.has(c.id) && c.date <= new Date().toISOString().slice(0, 10))
@@ -196,6 +202,15 @@ async function main() {
     const art = work[i], imageId = art.entry.imageId!;
     const vectorPath = join(vectorDir, `${imageId}.f32`), imagePath = join(imageDir, `${imageId}.jpg`);
     try {
+      if (values.weekly) {
+        const sourceFile = join(imageDir, `${imageId}.source`);
+        const source = JSON.stringify([art.cropped, art.full]);
+        if (!existsSync(sourceFile) || source !== await readFile(sourceFile, 'utf8')) {
+          await rm(vectorPath, { force: true });
+          await rm(imagePath, { force: true });
+          await atomic(sourceFile, source);
+        }
+      }
       let vector: Float32Array;
       if (existsSync(vectorPath)) {
         const bytes = await readFile(vectorPath);
@@ -241,13 +256,16 @@ async function main() {
         vector.forEach((value, n) => bytes.writeFloatLE(value, n * 4));
         await atomic(vectorPath, bytes);
       }
-      // Hardlink the existing artwork cache for a database-free, self-hosted lab thumbnail.
-      const thumbnail = join(output, 'thumbnails', `${imageId}.jpg`);
-      if (!existsSync(thumbnail)) {
-        try { await link(imagePath, thumbnail); }
-        catch (error) { if ((error as NodeJS.ErrnoException).code === 'EXDEV') await copyFile(imagePath, thumbnail); else throw error; }
+      if (!values.weekly) {
+        // Hardlink the cached artwork for the lab. Published indexes omit these local thumbnail URLs.
+        const thumbnail = join(output, 'thumbnails', `${imageId}.jpg`);
+        if (!existsSync(thumbnail)) {
+          try { await link(imagePath, thumbnail); }
+          catch (error) { if ((error as NodeJS.ErrnoException).code === 'EXDEV') await copyFile(imagePath, thumbnail); else throw error; }
+        }
+        art.entry.thumbnailUrl = `/dev/vision-assets/thumbnails/${imageId}.jpg`;
       }
-      entries.push({ ...art.entry, thumbnailUrl: `/dev/vision-assets/thumbnails/${imageId}.jpg` }); vectors.push(vector); indexedIds.add(art.entry.cardId);
+      entries.push(art.entry); vectors.push(vector); indexedIds.add(art.entry.cardId);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       failures.push({ imageId, name: art.entry.name, error: message });
@@ -272,6 +290,13 @@ async function main() {
   const kept = dropPlaceholders(entries, vectors, yugioh.cardBack.cardId);
   entries = kept.entries; vectors = kept.vectors;
   if (kept.dropped.length) console.warn(`Excluded ${kept.dropped.length} card-back placeholders: ${kept.dropped.map(e => e.name).join(', ')}`);
+  if (values.weekly) {
+    // Revisit placeholders next week, including when the CDN fills the same image URL.
+    for (const { imageId } of kept.dropped) {
+      await rm(join(vectorDir, `${imageId}.f32`), { force: true });
+      await rm(join(imageDir, `${imageId}.jpg`), { force: true });
+    }
+  }
   await session.release();
   if (!entries.length) throw new Error('No artwork vectors were built');
   const artefacts = buildIndexArtefacts(entries, vectors, { version: 1, gameId: yugioh.id, layoutKey: layoutKey(yugioh), modelId: yugioh.embedding.id,
@@ -281,12 +306,15 @@ async function main() {
   validateIndexProfile(meta, yugioh); decodeIndex(binary, meta);
   await atomic(join(output, 'yugioh-index.bin'), new Uint8Array(binary));
   await atomic(join(output, 'yugioh-index.meta.json'), `${JSON.stringify(meta)}\n`);
+  const keptImages = new Set(entries.map(entry => entry.imageId));
+  const artworkSourcesSha256 = sha(JSON.stringify(work.filter(art => keptImages.has(art.entry.imageId))
+    .map(art => JSON.stringify([art.entry.imageId, art.cropped, art.full])).sort()));
   const report = { generatedAt: meta.generatedAt, source: catalog.source, sourceSha256: catalog.sha256, catalogFetchedAt: catalog.fetchedAt,
     catalogCards: catalog.cards.length, catalogArtworks: full.length, selection, selectionDescription, stapleVersion: selected.stapleVersion,
     limit: Number.isFinite(limit) ? limit : null, selectedCards: chosen.length, attemptedArtworks: work.length,
     indexedCards: new Set(entries.filter(entry => entry.cardId !== yugioh.cardBack.cardId).map(entry => entry.cardId)).size,
     indexedArtworks: entries.length - 1, indexVectors: entries.length, cardBackVectors: 1,
-    missingArtworks: work.filter(art => !entries.some(entry => entry.imageId === art.entry.imageId)).map(art => art.entry),
+    missingArtworks: work.filter(art => !keptImages.has(art.entry.imageId)).map(art => art.entry), artworkSourcesSha256,
     modelId: meta.modelId, modelSha256: modelHash, layoutKey: meta.layoutKey, cacheIdentity: identity,
     droppedPlaceholders: kept.dropped, requestCount, downloaded, localImagesUsed: localCount, resumedVectors: resumed, inferenceCount: inferred,
     meanInferenceMs: inferred ? inferenceMs / inferred : null, elapsedSeconds: (Date.now() - started) / 1000,
@@ -296,7 +324,9 @@ async function main() {
     notes: ['No upstream vectors/index used.', 'Images downloaded serially with >=255ms between request starts; Retry-After honored.', 'Only derived 224px JPEG artwork is retained; local card-images cache is read-only.', 'Unavailable artworks are recorded; subset mode fills missing cards from the next recent releases.', 'Int8 vectors use round(127 * normalized_embedding); search must normalize the stored vector.', 'Re-running resumes vectors; remove a specific artwork .f32 to retry its embedding.'] };
   await atomic(join(output, 'yugioh-index.build.json'), `${JSON.stringify(report, null, 2)}\n`);
   console.log(JSON.stringify(report, null, 2));
-  // Full coverage includes alternate arts: a missing alternate must also fail the build.
+  // The weekly release gate checks coverage against the published manifest.
+  if (values.weekly) return;
+  // Full coverage includes alternate arts: a missing alternate must also fail the local build.
   if (failures.length || (selection === 'full' && kept.dropped.length)) process.exitCode = 1;
   if (indexedIds.size < Math.min(chosen.length, Number.isFinite(limit) ? 1 : chosen.length)) process.exitCode = 1;
 }

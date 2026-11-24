@@ -89,6 +89,29 @@ runs:
           echo "context=nextcache=docker-image://$IMAGE@$digest" >> "$GITHUB_OUTPUT"
         fi
 
+    - name: Set up Node.js for web asset verification
+      if: inputs.service == 'web'
+      uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+
+    - name: Verify pinned vision index and prepare web image context
+      if: inputs.service == 'web'
+      id: vision-index
+      shell: bash
+      run: |
+        # A manual Deploy may use this action against an older Dockerfile.
+        if grep -Eq '^FROM .* AS vision-index-input$' Dockerfile; then
+          context=$(mktemp -d "$RUNNER_TEMP/vision-index-context.XXXXXX")
+          index_dir="$context/vision-index"
+          if grep -Fxq 'COPY --from=vision-index-input /app /app' Dockerfile; then
+            index_dir="$context/app/vision-index"
+          fi
+          node scripts/vision/index-release.mjs download packages/vision/index-manifest.json "$index_dir"
+          find "$context" -exec touch -h -d @0 {} +
+          echo "context=vision-index-input=$context" >> "$GITHUB_OUTPUT"
+        fi
+
     # Web exports only final layers (mode=min), so apt and npm ci would rerun on every release.
     # The deps stage deletes source maps, so its layers are safe to cache in full. The builder keeps them
     # locally for the build below. A cache problem only costs time, never the release.
@@ -133,6 +156,7 @@ runs:
         build-contexts: |
           engine=${{ runner.temp }}/engine
           ${{ steps.next-cache.outputs.context }}
+          ${{ steps.vision-index.outputs.context }}
         labels: |
           org.opencontainers.image.source=https://github.com/DuelingDomain/yugioh-bot
           org.opencontainers.image.revision=${{ env.DEPLOY_COMMIT }}

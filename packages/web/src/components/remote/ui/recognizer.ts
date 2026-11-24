@@ -26,7 +26,7 @@ export type ReadResult = {
 /** The card box the detector found, as fractions of the frame. Passing it makes the reader crop that exact card. */
 export type ReadCard = { quad: { x: number; y: number }[]; kind: "face-up" | "face-down"; confidence: number; partial: boolean; covered?: boolean };
 
-type Meta = { entries: { cardId: string; passcode: number; imageId?: number; name: string }[]; related?: RelatedCards };
+type Meta = { entries: { cardId: string; passcode: number; imageId?: number; name: string }[]; indexSha256?: string; related?: RelatedCards };
 type DetectedQuad = ReadCard & { refined: boolean };
 type WireResult = { candidates: { cardId: number; name: string; score: number }[]; tier: "sure" | "not sure" | "low match"; faceDown: boolean; covered: boolean };
 type RawResult = { reader?:import("@yugidraft/vision").ReaderDiagnostics; quality?: { sharpness?: number; fallback?: boolean; partial?: boolean; covered?: boolean; selectedFrameIndices?: number[] }; candidates: { cardId: string; score: number }[]; tier?: "sure" | "not sure" | "low match"; cropJpeg?: string; feedback?: object; timingsMs?: Record<string, number>; backend?: EngineBackend };
@@ -94,7 +94,8 @@ export function prewarmRecognizer(): Promise<void> {
 function loadMeta() {
   const selected=cardReader(),epoch=recognizerEpoch;
   meta ??= import("@yugidraft/vision").then(async ({ yugioh }) => {
-    const response = await fetch(yugioh.metaUrl, { cache: "force-cache" });
+    // Revalidate the metadata so a fresh volume cache entry cannot hide the first pin.
+    const response = await fetch(yugioh.metaUrl, { cache: "no-cache" });
     if (!response.ok) return null;
     const found = await response.json() as Meta;
     if(selected==="hybrid" && epoch===recognizerEpoch) {
@@ -106,7 +107,11 @@ function loadMeta() {
     }
     // Optional generated knowledge is loaded once, outside the per-read path.
     try {
-      const response = await fetch('/dev/vision-assets/related-cards.json', { cache: 'force-cache', signal: AbortSignal.timeout(3000) });
+      const relatedUrl = '/dev/vision-assets/related-cards.json';
+      // Keep the force-cached volume prior separate so it can still be used after a rollback.
+      const response = await fetch(found.indexSha256 ? `${relatedUrl}?source=image` : relatedUrl, {
+        cache: found.indexSha256 ? 'no-cache' : 'force-cache', signal: AbortSignal.timeout(3000),
+      });
       if (response.ok) {
         const data = await response.json() as RelatedCards;
         if (data.version === 1 && data.names && data.links && data.groups && data.cardGroups && data.aliases) found.related = data;

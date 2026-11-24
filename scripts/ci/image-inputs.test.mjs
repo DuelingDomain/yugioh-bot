@@ -21,6 +21,16 @@ test('a web-only source change leaves the other service hashes alone', () => {
   for (const service of ['bot', 'ws', 'worker', 'duel']) assert.equal(imageInputsHash(changed, service), imageInputsHash(base, service));
 });
 
+test('a new vision index pin invalidates only the web image', () => {
+  const path = 'packages/vision/index-manifest.json';
+  const before = withEntry(path, 'a'.repeat(40));
+  const after = withEntry(path, 'b'.repeat(40));
+  assert.notEqual(imageInputsHash(after, 'web'), imageInputsHash(before, 'web'));
+  for (const service of ['bot', 'ws', 'worker', 'duel']) {
+    assert.equal(imageInputsHash(after, service), imageInputsHash(before, service));
+  }
+});
+
 test('shared code, lockfile, Dockerfile and any package manifest change every service', () => {
   for (const path of ['packages/shared/src/a.ts', 'package-lock.json', 'Dockerfile', 'packages/web/package.json']) {
     const changed = withEntry(path, 'c'.repeat(40));

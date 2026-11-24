@@ -2,7 +2,7 @@
 import type { GameProfile, ModelVariant } from './types';
 /** Models are 25 MB or more; the browser keeps one verified copy per url and hash, so a later visit reads from disk, not the network. */
 const MODEL_CACHE = 'vision-models-v1';
-const hexSha256 = async (bytes: ArrayBuffer) => [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))].map(x => x.toString(16).padStart(2, '0')).join('');
+export const hexSha256 = async (bytes: ArrayBuffer) => [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))].map(x => x.toString(16).padStart(2, '0')).join('');
 const openModelCache = async () => { try { return typeof caches === 'undefined' ? undefined : await caches.open(MODEL_CACHE); } catch { return undefined; } };
 /** The model's bytes, from the cache or the network. Both routes check the pinned SHA-256; a cached copy that fails it is dropped and fetched again. */
 export async function fetchModelChecked(input: RequestInfo | URL, expected: string, init?: RequestInit): Promise<Response> {
