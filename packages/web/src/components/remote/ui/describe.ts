@@ -2,18 +2,23 @@ import type { RemoteAction, RemoteEvent, RemoteSystemAction } from "@yugidraft/s
 import { PHASE_LONG, sg } from "./model";
 import { landingLabel } from "./placement";
 import { MERGED } from "./twins";
+import type { ChainLink } from "./think-model";
 
 export type LogKind = "LP" | "PH" | "CD" | "AT" | "VX";
 export type Described = { kind: LogKind; text: string; undoable: boolean };
 
 /** One plain line per foundation event. `name` turns a seat number into a player name. */
-export function describeEvent(event: RemoteEvent, name: (seat: number) => string, card: (id: number | undefined) => string | undefined, refName: (seat: number, ref: string) => string | undefined = () => undefined): Described | null {
+export function describeEvent(event: RemoteEvent, name: (seat: number) => string, card: (id: number | undefined) => string | undefined, refName: (seat: number, ref: string) => string | undefined = () => undefined, link?: ChainLink): Described | null {
   const a = event.action as RemoteAction | RemoteSystemAction;
   const who = event.actorSeat === null ? "Table" : name(event.actorSeat);
   /** An owner edits a proxy on another player's field: say who did it. */
   const by = (edit: { seat: number; actorSeat: number }) => edit.actorSeat !== edit.seat ? ` (by ${who})` : "";
   switch (a.type) {
-    case "effect.activated": return {kind:"CD",text:`${who} activated ${a.source.name ?? card(a.source.cardId) ?? "a card effect"}${a.fromHand ? " from hand" : ""}`,undoable:true};
+    case "effect.activated": {
+      const sourceName = (action: RemoteAction | RemoteSystemAction) => action.type === "effect.activated" ? action.source.name ?? card(action.source.cardId) ?? "a card effect" : "a card effect";
+      const base = `${who} activated ${sourceName(a)}${a.fromHand ? " from hand" : ""}`;
+      return {kind:"CD",text:link?.of && link.n > 1 ? `Chain ${link.n}: ${base} in response to ${sourceName(link.of.action)}` : base,undoable:true};
+    }
     case "effect.choose": return {kind:"CD",text:event.messages?.join("; ") ?? "Updated a private card choice",undoable:true};
     case "effect.announce": return {kind:"CD",text:`${who} announced a searched card`,undoable:true};
     case "effect.note.dismiss": return {kind:"CD",text:"Effect note dismissed",undoable:true};
@@ -49,6 +54,8 @@ export function describeEvent(event: RemoteEvent, name: (seat: number) => string
     case "twin.merge": return { kind: "CD", text: a.reason.startsWith(MERGED) ? `${a.reason} on ${name(a.seat)}'s field` : "Duplicate cards merged", undoable: true };
     case "log.note": return { kind: "CD", text: a.text, undoable: false };
     case "chain.respond": return { kind: "PH", text: `${who} responded`, undoable: false };
+    case "chain.thinking": return { kind: "PH", text: a.on ? `${who} is thinking` : `${who} stopped thinking`, undoable: false };
+    case "chain.ok": return { kind: "PH", text: `${who}: OK, no response`, undoable: false };
     case "player.concede": return { kind: "PH", text: `${who} conceded`, undoable: false };
     case "player.leave": return { kind: "PH", text: `${who} left the match`, undoable: false };
     case "undo": return { kind: "PH", text: `${who} undid the last action`, undoable: false };

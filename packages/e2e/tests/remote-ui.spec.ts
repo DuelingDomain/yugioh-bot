@@ -2707,3 +2707,25 @@ test.describe("remote duels screen, Auto-detect off", () => {
     } finally { await Promise.allSettled([alice.close(), bob.close()]); }
   });
 });
+
+test.describe("remote duels Thinking, OK and E", () => {
+  test.beforeEach(async ({ context }) => { await authenticatePlayer(context.request, { userId: 101 }, process.env.E2E_AUTH_SECRET!, (process.env.E2E_REMOTE_UI_URL ?? "http://localhost:3310")); });
+  test("T shows Thinking with a counter on every screen, Space says OK and clears it, E with no card opens nothing", async ({ page, context }) => {
+    const slug = await soloTable(context.request, 2);
+    // A second screen of the same room stands for the opponent's screen.
+    const other = await context.newPage();
+    await Promise.all([page.goto(`/duels/remote/${slug}`), other.goto(`/duels/remote/${slug}`)]);
+    await expect(page.getByTestId("think-button")).toBeVisible(); await expect(other.getByTestId("think-button")).toBeVisible();
+    await page.locator("body").click({ position: { x: 5, y: 5 } });
+    await page.keyboard.press("t");
+    await expect(other.getByTestId("thinking-banner-0")).toContainText(/Thinking/);
+    await expect(page.getByTestId("thinking-chip-0")).toBeVisible();
+    await expect(other.getByTestId("thinking-banner-0").locator("time")).toHaveText(/[1-9]s/, { timeout: 5000 });
+    await shot(other, "think-1920"); await other.setViewportSize({ width: 1366, height: 768 }); await other.waitForTimeout(300); await shot(other, "think-1366");
+    await page.keyboard.press("Space");
+    await expect(other.getByTestId("ok-banner")).toBeVisible(); await shot(other, "ok-1366");
+    await expect(other.getByTestId("thinking-banner")).toHaveCount(0); await expect(page.getByTestId("thinking-chip-0")).toHaveCount(0);
+    await page.keyboard.press("e");
+    await expect(page.getByTestId("activate-row")).toHaveCount(0);
+  });
+});

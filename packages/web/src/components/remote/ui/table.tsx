@@ -11,6 +11,8 @@ import { Rail, LpStrip, TopBar, AdminWatchStrip, type Player } from "./chrome";
 import { CardPopover, InspectorBody, type CardActions, type CardEdit, type CardSource, type Subject } from "./card-view";
 import { RespondBanner, useRespondHold } from "./respond-banner";
 import { heldByResponse, mayRespond, respondCoolingDown } from "./respond";
+import { ActivateRow, OkBanner, ThinkingBanner, useOkHold } from "./think";
+import { activatable, aliveSeats, chainOf, onField, recentlyPlaced, thinkingSeats } from "./think-model";
 import { MicSection, UndoSection, VoxSection, type Proposal } from "./dock";
 import { describeEvent, undoLabel, type LogKind } from "./describe";
 import { ownUndoEntries, phaseBackAction, shortUndoLabel } from "./undo-ui";
@@ -206,6 +208,10 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
   const [banner, setBanner] = useState<{ id: number; small: string; big: string } | null>(null);
   // A response ("I chain") shows to everyone and holds spoken phase changes for a few seconds.
   const respondHold = useRespondHold(room.events);
+  // Thinking, OK and chain links come from the room events, so every screen shows the same.
+  const okHold = useOkHold(room.events);
+  const thinking = useMemo(() => thinkingSeats(room.events), [room.events]);
+  const chain = useMemo(() => chainOf(room.events, aliveSeats(state)), [room.events, state]);
   const [peek, setPeek] = useState<PeekState>(null); const peekTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const showPeek = useCallback((kind: LogKind, text: ReactNode) => {
     if (R.current.layer === "log") return;
@@ -268,11 +274,11 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
   const firstSeq = useRef(room.lastSeq);
   const entries = useMemo<LogEntry[]>(() => {
     const described = [...room.events].sort((a, b) => b.seq - a.seq).flatMap(event => {
-      const line = describeEvent(event, name, nameOfCard, refNameOf); return line ? [{ id: event.id, time: fmtTime(event.at), kind: line.kind, text: line.text, fresh: event.seq > firstSeq.current, at: event.at }] : [];
+      const line = describeEvent(event, name, nameOfCard, refNameOf, chain.links.get(event.id)); return line ? [{ id: event.id, time: fmtTime(event.at), kind: line.kind, text: line.text, fresh: event.seq > firstSeq.current, at: event.at }] : [];
     });
     return [...described, ...voiceLog.map(entry => ({ ...entry, at: Number(entry.id.split(":")[1]) }))].sort((a, b) => b.at - a.at).map(({ at: _at, ...entry }) => entry);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [room.events, voiceLog, name, info]);
+  }, [room.events, voiceLog, name, info, chain]);
   const [unread, setUnread] = useState(false); const lastSeq = useRef(room.lastSeq);
   useEffect(() => { if (room.lastSeq !== lastSeq.current) { lastSeq.current = room.lastSeq; if (layers.layer !== "log") setUnread(true); } }, [room.lastSeq, layers.layer]);
   useEffect(() => { if (layers.layer === "log") setUnread(false); }, [layers.layer]);
@@ -1102,6 +1108,45 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     if (respondCoolingDown(now.events, me, serverNow())) return;
     void act({ type: "chain.respond", actorSeat: me });
   }, [act]);
+  /** The T key and the Thinking button: "I am deciding". Pressed again it cancels. No time limit. */
+  const thinkNow = useCallback(() => {
+    const { room: now, state: current } = R.current; const me = now.solo ? current.turnSeat : now.mySeat;
+    if (now.status !== "active" || now.spectator || !mayRespond(current, me)) return;
+    void act({ type: "chain.thinking", actorSeat: me, on: !thinkingSeats(now.events).has(me) });
+  }, [act]);
+  /** The Space key and the OK button: "OK, no response". It clears this player's Thinking. */
+  const okNow = useCallback(() => {
+    const { room: now, state: current } = R.current; const me = now.solo ? current.turnSeat : now.mySeat;
+    if (now.status !== "active" || now.spectator || !mayRespond(current, me)) return;
+    void act({ type: "chain.ok", actorSeat: me });
+  }, [act]);
+  /** The E key: activate the card I mean. Under the pointer or focused first, then my newest placement of the last 10 s, else a numbered row. */
+  const [activateRow, setActivateRow] = useState<{ seat: number; cards: TwinCard[] } | null>(null);
+  const sendActivation = useCallback((seat: number, card: TwinCard) => {
+    const cardId = cardCode(card); if (!cardId) return;
+    setActivateRow(null);
+    void act({ type: "effect.activated", actorSeat: seat, source: { cardId, cardRef: card.ref } });
+  }, [act]);
+  const activateNow = useCallback(() => {
+    const { room: now, state: current } = R.current;
+    if (now.status !== "active" || now.spectator || current.ended) return;
+    const own = (seat: number) => now.solo || seat === now.mySeat;
+    const fromElement = (el: Element | null | undefined) => {
+      const zone = el?.closest<HTMLElement>("[data-zone][data-ref]"); const seat = Number(zone?.dataset.seat);
+      if (!zone || !Number.isInteger(seat) || !own(seat)) return undefined;
+      const card = current.seats[seat]?.twin.find(item => item.ref === zone.dataset.ref);
+      return card && onField(card) && cardCode(card) ? { seat, card } : undefined;
+    };
+    let hovered: Element | undefined; try { hovered = [...document.querySelectorAll(":hover")].pop(); } catch { /* no :hover support */ }
+    const direct = fromElement(hovered) ?? fromElement(document.activeElement);
+    if (direct) { sendActivation(direct.seat, direct.card); return; }
+    const me = now.solo ? current.turnSeat : now.mySeat; if (me < 0) return;
+    const placed = recentlyPlaced(now.events, current, me, serverNow());
+    if (placed) { sendActivation(me, placed); return; }
+    const cards = activatable(current, me);
+    if (!cards.length) { toast("No face-up card to activate. Point at a card and press E."); return; }
+    setActivateRow({ seat: me, cards });
+  }, [sendActivation, toast]);
   const pendingVoice = useRef<{ id: string; method: VoiceFinal["method"]; context: VoiceContext } | null>(null);
   // Card names feed only the speech-model + names method; the other methods keep their own phrase lists.
   const voiceContext = (method?: VoiceMethod) => {
@@ -1199,7 +1244,10 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     return () => clearTimeout(timer);
   }, [lastOwnRespond]);
   const respond = respondShown && !respondCooling ? respondNow : null;
-  const latest = useRef({ chip, cancelChip, doUndo, picking, ptt, toggleView, respond }); latest.current = { chip, cancelChip, doUndo, picking, ptt, toggleView, respond };
+  // Thinking, OK and E need a live duel like Respond; E also works before a card is placed.
+  const think = respondShown ? thinkNow : null; const ok = respondShown ? okNow : null;
+  const activate = live && (solo || mySeat >= 0) && !room.spectator ? activateNow : null;
+  const latest = useRef({ chip, cancelChip, doUndo, picking, ptt, toggleView, respond, think, ok, activate, activateRow }); latest.current = { chip, cancelChip, doUndo, picking, ptt, toggleView, respond, think, ok, activate, activateRow };
   useEffect(() => {
     function down(event: KeyboardEvent) {
       const L = latest.current;
@@ -1209,6 +1257,20 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
       if (R.current.layer) return;
       // R responds ("I chain"). A frozen camera feed keeps R for its own read and says so by handling the key first.
       if ((event.key === "r" || event.key === "R") && !event.repeat && !event.shiftKey && !event.defaultPrevented && L.respond) { event.preventDefault(); L.respond(); return; }
+      // T thinks, Space says OK, E activates. A modal dialog, a focused control or a held key keeps its own behavior.
+      const modal = !!document.querySelector('[role="alertdialog"],[role="dialog"][aria-modal="true"]');
+      if (L.activateRow) {
+        const row = L.activateRow;
+        if (event.key === "Escape") { event.preventDefault(); setActivateRow(null); return; }
+        const picked = /^[1-9]$/.test(event.key) ? row.cards[Number(event.key) - 1] : undefined;
+        if (picked && !modal) { event.preventDefault(); sendActivation(row.seat, picked); return; }
+      }
+      if (!event.repeat && !event.shiftKey && !event.defaultPrevented && !modal) {
+        if ((event.key === "t" || event.key === "T") && L.think) { event.preventDefault(); L.think(); return; }
+        if ((event.key === "e" || event.key === "E") && L.activate) { event.preventDefault(); L.activate(); return; }
+        const control = (event.target as HTMLElement | null)?.closest?.('button,a,input,textarea,select,summary,[role="button"],[role="tab"],[contenteditable="true"]');
+        if (event.key === " " && L.ok && !control) { event.preventDefault(); L.ok(); return; }
+      }
       // S scans the field like the button beside the board. A confirm prompt or a modal dialog keeps the key (open popups set the layer above).
       if ((event.key === "s" || event.key === "S") && !event.repeat && !event.shiftKey && !event.defaultPrevented && !document.querySelector('[role="alertdialog"],[role="dialog"][aria-modal="true"]')) { if (runFieldScan()) event.preventDefault(); return; }
       // W switches between Both and Webcam only (the focused element keeps Enter and Space).
@@ -1604,6 +1666,8 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
         {mySeat >= 0 ? <RecentDepartures room={room} seat={mySeat} onAction={action => void act(action)} /> : null}
         <Banner banner={banner} />
         <RespondBanner hold={respondHold} name={name} />
+        <ThinkingBanner events={room.events} name={name} lowered={!!respondHold} />
+        <OkBanner hold={okHold} name={name} />
         <svg className={s.arrow} aria-hidden="true">{arrow ? <><defs><marker id="ah" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0 0 10 5 0 10z" fill="#f6dc9a" /></marker></defs>
           <path d={arrow.d} fill="none" stroke="rgba(232,185,79,.35)" strokeWidth="9" strokeLinecap="round" />
           <path className={s.flow} d={arrow.d} fill="none" stroke="#f6dc9a" strokeWidth="3" strokeLinecap="round" markerEnd="url(#ah)" /></> : null}</svg>
@@ -1625,7 +1689,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
             tokenSlots={tokens.placing && !state.seats[seat]?.eliminated ? tokens.openSlots(seat) : control.giveSlots(seat)} onActivate={(key, card) => { if (tokens.placeAt(seat, key, card) || control.giveAt(seat, key, card)) return; if (picking && card && seat !== picking.seat && (card.zone === "monster" || card.zone === "extra-monster")) void declare(seat, card.ref); else if (!picking && (solo || seat === mySeat) && !isPile(key)) openZonePicker(seat,key); else if (!picking && !card && /^m[1-5]$/.test(key)) openZonePicker(seat,key,undefined,true,false,true); else if (card) openSubject(card); }}
             onAttack={(_key, card) => startAttack(seat, card)} onInspect={card => openSubject(card)} onPile={(zone, opener) => openPile(seat, zone, opener)} onDeck={(solo || seat === mySeat) && surrenderable(seat) ? el => { setDeckAt({ seat, rect: el.getBoundingClientRect() }); layers.toggle("deck", el); } : undefined} live={live} drag={fieldDrag(seat)} onPlate={() => { if (plate) void declare(seat); }}
             onLp={delta => void changeLp(seat, delta)} canLp={live} deckWarning={deckFlag(room, seat)?.message} onDeckFlag={el => { setFlagSeat(seat); layers.toggle("flag", el); }}
-            hand={handOf(seat)}
+            hand={handOf(seat)} thinkingSince={thinking.get(seat)}
             cameraControl={seat === mySeat ? scan => <div className={s.camtools}><CameraControl room={room} /><div className={s.toolrow}>{scan}{tokens.trigger(seat)}{control.giveTrigger(seat)}</div></div> : () => <div className={s.toolrow}>{tokens.trigger(seat)}</div>}
             undo={seat === mySeat ? { label: undoShort, enabled: canUndo, reason: newestUndo?.reason, onUndo: () => void doUndo() } : undefined} turnIn={turnIn && seat === turnShown}
             emptyFeedAction={seat === mySeat && !hub.cameraOn ? <button type="button" className={`${s.btn} ${s.sm} ${s.go}`} disabled={hub.starting} onClick={event => { event.stopPropagation(); void (hub.manual(seat) ? hub.useWebcam() : hub.enableCamera()); }} data-testid="camera-on-feed">{hub.starting ? "Starting…" : "Turn camera on"}</button> : undefined}
@@ -1636,7 +1700,11 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
         onPhase={setPhase} onPhaseBack={phaseBack} onPass={passTurn} turnIn={turnIn} backTo={previousYgoPhase(state)} />
       <footer ref={dockRef} className={`${s.dock} ${micSection ? "" : s.nomic}`} aria-label={micSection ? "Voice and undo" : "Commands and undo"}>
         {live && mySeat >= 0 ? <button type="button" className={`${s.btn} ${s.sm} ${s.q} ${s.myfield}`} onClick={() => { setWebcamOnly(false); document.querySelector(`[data-testid="field-${mySeat}"]`)?.scrollIntoView?.({ block: 'center' }); }}>My field</button> : null}
-        {respondShown ? <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} onClick={respondNow} disabled={respondCooling} title="Respond: chain on top of the last action" data-testid="respond-button">Respond <kbd>R</kbd></button> : null}
+        {respondShown ? <div className={s.signals}>
+          <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} onClick={respondNow} disabled={respondCooling} title="Respond: chain on top of the last action" data-testid="respond-button">Respond <kbd>R</kbd></button>
+          <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} aria-pressed={thinking.has(respondSeat)} onClick={event => { thinkNow(); event.currentTarget.blur(); }} title="Thinking: tell the table you are deciding. Press again to cancel. No time limit." data-testid="think-button">{thinking.has(respondSeat) ? "Thinking…" : "Think"} <kbd>T</kbd></button>
+          <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} onClick={event => { okNow(); event.currentTarget.blur(); }} title="OK: no response" data-testid="ok-button">OK <kbd>Space</kbd></button>
+        </div> : null}
         {micSection ? <MicSection recognition={voiceRecognition} chat={solo || !REMOTE_TABLE_TALK ? "none" : hub.cameraOn ? "on" : hub.starting ? "connecting" : "off"} state={micState} level={voice.level} speaking={voice.speaking} muted={muted} ptt={ptt} held={held} service={voice.service} error={voice.micError}
           onMute={() => setMuted(v => !v)} onPtt={() => { setPtt(v => !v); setHeld(false); }} offTurn={!myTurn} /> : null}
         <VoxSection recognition={voiceRecognition} transcript={shownTranscript} proposal={chip} samples={voiceRecognition ? [...voiceCommands] : []} onConfirm={() => { chip?.run(); setProposal(null); }} onCancel={cancelChip}
@@ -1722,6 +1790,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     {/* A drawer or pile covers the stack, so a toast leaves it and stays readable. */}
     <Toasts items={toastItems} dock={layers.layer && layers.layer !== "card" && layers.layer !== "tray" ? null : seatDocks[mySeat] ?? null} top={layers.layer === "pile"} />
     <HandActivation events={room.events} name={name} />
-    <RemoteFx state={state} webcamOnly={webcamOnly} seq={room.lastSeq} last={room.events.find(event => event.seq === room.lastSeq)?.action} />
+    {activateRow ? <ActivateRow cards={activateRow.cards} info={info} onPick={card => sendActivation(activateRow.seat, card)} onClose={() => setActivateRow(null)} /> : null}
+    <RemoteFx state={state} webcamOnly={webcamOnly} seq={room.lastSeq} last={room.events.find(event => event.seq === room.lastSeq)?.action} chainNo={chain.links.get(room.events.find(event => event.seq === room.lastSeq)?.id ?? "")?.n} />
   </div></FeedCardsProvider>;
 }

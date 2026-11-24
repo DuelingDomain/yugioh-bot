@@ -62,7 +62,7 @@ function tintOfCard(cardId: number | undefined, fallback: string): string {
  * new event arrived since the last render: not on first load, not after a reconnect that brings many events, and not for an
  * Undo (the server marks it as an `undo` event, so every seat sees the same).
  */
-export function RemoteFx({ state, webcamOnly, seq, last }: { state: RemoteState; webcamOnly: boolean; seq: number; last?: RemoteEvent["action"] }) {
+export function RemoteFx({ state, webcamOnly, seq, last, chainNo }: { state: RemoteState; webcamOnly: boolean; seq: number; last?: RemoteEvent["action"]; chainNo?: number }) {
   const lastType = last?.type;
   const layer = useRef<HTMLDivElement>(null);
   const prev = useRef<Snap | null>(null);
@@ -118,6 +118,12 @@ export function RemoteFx({ state, webcamOnly, seq, last }: { state: RemoteState;
       glow(to, tint, 1.4); ring(to, tint, reduced ? 0 : 300);
     };
 
+    /** A small "Chain 2" tag over a card that was activated in response. Display only. */
+    const chainBadge = (box: Box, n: number) => {
+      const tag = mount({ left: `${box.x + box.w / 2}px`, top: `${box.y}px`, padding: "3px 8px", borderRadius: "999px", border: "1px solid rgb(155 126 255 / .85)", background: "rgb(11 7 22 / .94)", boxShadow: "0 0 14px rgb(155 126 255 / .6)", font: "700 12px/1 var(--font-duel-display), Oxanium, sans-serif", letterSpacing: ".1em", textTransform: "uppercase", color: "#f6dc9a", whiteSpace: "nowrap" });
+      tag.textContent = `Chain ${n}`;
+      play(tag, [{ opacity: 0, transform: "translate(-50%, 2px)" }, { opacity: 1, transform: "translate(-50%, -60%)", offset: .15 }, { opacity: 1, transform: "translate(-50%, -60%)", offset: .85 }, { opacity: 0, transform: "translate(-50%, -60%)" }], 2200);
+    };
     const lpFlash = (seat: number, delta: number) => {
       const el = document.querySelector(`[data-lp-seat="${seat}"]`); const box = boxOf(el); if (!box) return;
       const tint = delta < 0 ? LOSS : GOLD;
@@ -172,7 +178,7 @@ export function RemoteFx({ state, webcamOnly, seq, last }: { state: RemoteState;
           const source = last.source;
           const ref = source.cardRef ?? state.seats[last.actorSeat]?.twin.find(card => ON_FIELD.has(card.zone) && source.cardId !== undefined && (card.cardId ?? card.passcode) === source.cardId)?.ref;
           const box = ref ? boxOf(cardEl(ref)) ?? rects.current.get(ref) : null;
-          if (box) { used += 1; activated = true; glow(box, "155 126 255", 1.3); ring(box, "155 126 255"); }
+          if (box) { used += 1; activated = true; glow(box, "155 126 255", 1.3); ring(box, "155 126 255"); if (chainNo && chainNo > 1) chainBadge(box, chainNo); }
         }
         for (const id of activated ? [] : next.contexts) {
           if (used >= MAX_PER_STATE || before.contexts.has(id)) continue;
@@ -188,7 +194,7 @@ export function RemoteFx({ state, webcamOnly, seq, last }: { state: RemoteState;
     document.querySelectorAll<HTMLElement>("[data-zone] [data-ref], [data-zone][data-ref]").forEach(el => {
       const ref = el.getAttribute("data-ref"); const box = boxOf(el); if (ref && box) rects.current.set(ref, box);
     });
-  }, [state, webcamOnly, seq, last]);
+  }, [state, webcamOnly, seq, last, chainNo]);
 
   return <div ref={layer} className={s.fxl} aria-hidden="true" data-testid="remote-fx" />;
 }

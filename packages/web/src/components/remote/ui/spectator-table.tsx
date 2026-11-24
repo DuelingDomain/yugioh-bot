@@ -39,6 +39,8 @@ import type { RoomController } from "./use-remote-room";
 import s from "./remote-ui.module.css";
 import v from "./spectator-table.module.css";
 import { RespondBanner, useRespondHold } from "./respond-banner";
+import { OkBanner, ThinkingBanner, useOkHold } from "./think";
+import { aliveSeats, chainOf } from "./think-model";
 
 const NO_ACTIONS: CardActions = { readOnly: true, canAdd: false, adding: false, onAdd: () => undefined, canAttack: false, attackHint: "", onAttack: () => undefined };
 const fmtTime = (at: number) => new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -168,6 +170,8 @@ function SpectatorTable({ room }: { room: RemoteRoom }) {
   const name = (seat: number) => room.seats.find(item => item.seat === seat)?.displayName ?? `Seat ${seat + 1}`;
   const lp = (seat: number) => state.seats[seat]?.resources.lp ?? 0;
   const respondHold = useRespondHold(room.events);
+  const okHold = useOkHold(room.events);
+  const chainLinks = chainOf(room.events, aliveSeats(state)).links;
   const [subject, setSubject] = useState<Subject | null>(null);
   const [popAt, setPopAt] = useState<PopAt>({ anchor: null, feed: null });
   const publicIds = state.seats.flatMap(item => [...item.twin.map(card => cardCode(card) ?? card.token?.artId), ...(item.knownHand ?? []).map(card => card.cardId)]);
@@ -265,7 +269,7 @@ function SpectatorTable({ room }: { room: RemoteRoom }) {
   const nameOfCard = (id: number | undefined) => info(id)?.name;
   const refNameOf = (seat: number, ref: string) => { const card = state.seats[seat]?.twin.find(item => item.ref === ref); return card?.faceUp ? card.name ?? info(cardCode(card))?.name : undefined; };
   const entries: LogEntry[] = [...room.events].sort((a, b) => b.seq - a.seq).flatMap(event => {
-    const line = describeEvent(event, name, nameOfCard, refNameOf);
+    const line = describeEvent(event, name, nameOfCard, refNameOf, chainLinks.get(event.id));
     return line ? [{ id: event.id, time: fmtTime(event.at), kind: line.kind, text: line.text, fresh: false }] : [];
   });
   const nextSeat = (() => { if (turnSeat < 0) return -1; for (let i = 1; i <= seatCount; i++) { const seat = (turnSeat + i) % seatCount; if (!state.seats[seat]?.eliminated) return seat; } return turnSeat; })();
@@ -277,6 +281,8 @@ function SpectatorTable({ room }: { room: RemoteRoom }) {
 
   return <FeedCardsProvider seats={state.seats} info={info}><div className={`${duelFontClasses} ${s.app} ${v.app}`} data-mode={seatCount === 2 ? "1v1" : String(seatCount)} data-wc={webcamOnly ? "1" : undefined} data-testid="spectator-table" data-status={room.status}>
     <RespondBanner hold={respondHold} name={name} />
+    <ThinkingBanner events={room.events} name={name} lowered={!!respondHold} />
+    <OkBanner hold={okHold} name={name} />
     <div className={s.shell} inert={covered ? true : undefined}>
       <header className={s.top}>
         <a className={s.logo} href="/duels" aria-label="Stop watching and return to the Duels page" onClick={() => void stopWatching(room.slug)}><span className={s.gem} /><b>Dueling Domain</b></a>
