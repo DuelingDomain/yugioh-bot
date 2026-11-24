@@ -31,7 +31,7 @@ add_activation(2,EFFECT_TYPE_QUICK_O,EVENT_FREE_CHAIN)
 itWithCores("Shatranga limits each FFA opponent to five monster activations per turn", [
   needs.installedMulti(), needs.cards(), needs.scripts(),
 ], async () => {
-  const deck = { main: Array<number>(20).fill(BATTLE_OX), extra: [] };
+  const deck = { main: Array<number>(20).fill(BATTLE_OX), extra: [], side: [] };
   const game = await createEngineGame({
     format: "ffa3", mode: "normal", masterRule: 5, dataDirectory: engineDataDirectory,
     decks: [deck, deck, deck], seed: ["1", "2", "3", "4"], firstTurnDraw: false,
