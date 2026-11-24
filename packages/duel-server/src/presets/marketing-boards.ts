@@ -7,6 +7,10 @@ import type { Preset } from "./types.js";
 // passes the turns up to MARKETING_TARGET_TURN with the normal prompts; the cards drawn on the way come from the
 // top of each `deck`. Each seat lists its state at the target turn, minus the draws still to come, so the counts in
 // the shot are: Deck = deckSize - draws, hand = listed hand + draws.
+// The counts must follow the draw math: cards out of the Deck = 5 (opening hand) + draws taken, and cards out = hand + field
+// (Set cards and Field Spell included) + Graveyard + banished. So for every seat: listed hand + field + Graveyard = 5 and
+// deckSize = Main size - 5. No board uses a draw or search effect. Every Level 5+ monster has its tribute in the Graveyard,
+// and each seat has at most one Normal Summon or Set per turn it had.
 // Every card is legal on the pinned TCG list (no forbidden card; at most one Limited card per deck).
 // The rules and counts behind every board are in packages/e2e/screenshots/README.md (board ledgers).
 
@@ -27,37 +31,39 @@ export const presets: Preset[] = [
     rules: [],
     board: {
       format: "ffa4",
-      deckSize: 40,
-      // Standard, Master Rule 5. Only the turn-1 duelist skips the first draw (R-FFA-FIRST-DRAW), so every seat draws twice by turn 9.
+      deckSize: 35,
+      // Standard, Master Rule 5. Only the turn-1 duelist skips the first draw (R-FFA-FIRST-DRAW), so every seat has drawn twice by turn 9
+      // (seat 0 on turns 5 and 9, seat 1 on 2 and 6, seat 2 on 3 and 7, seat 3 on 4 and 8): 7 cards out of each 40-card Deck, 33 left.
+      // Seat 0: turn 1 Normal Summon Celtic Guardian and Set Mirror Force; turn 5 Set Hane-Hane, activate Sogen, use Book of Moon.
       p0: {
         lp: 6500,
         hand: [],
         deck: ["Witch of the Black Forest", "Mystical Space Typhoon"], // drawn on turns 5 and 9
-        deckSize: 32,
-        monsters: ["Celtic Guardian", "Dark Magician", set("Hane-Hane")],
+        monsters: ["Celtic Guardian", set("Hane-Hane")],
         spells: [set("Mirror Force")],
         field: "Sogen",
-        grave: ["Offerings to the Doomed", "Monster Reborn", "Giant Rat"],
-      },
-      p1: {
-        lp: 4800,
-        hand: ["Kuriboh", "Sangan", "Mystical Elf"],
-        deckSize: 32,
-        monsters: ["Feral Imp", "Witch of the Black Forest"],
-        spells: [set("Call of the Haunted"), set("Trap Hole")],
         grave: ["Book of Moon"],
       },
+      // Seat 1: turn 2 Normal Summon Feral Imp, Set Trap Hole; turn 6 Normal Summon Witch of the Black Forest, Set Call of the Haunted, use Dian Keto.
+      p1: {
+        lp: 4800,
+        hand: [],
+        monsters: ["Feral Imp", "Witch of the Black Forest"],
+        spells: [set("Call of the Haunted"), set("Trap Hole")],
+        grave: ["Dian Keto the Cure Master"],
+      },
+      // Seat 2: turn 3 Normal Summon Giant Soldier of Stone (in defense since turn 7), Set Magic Cylinder; turn 7 Set Mystic Tomato and Solemn Judgment, use Book of Moon.
       p2: {
         lp: 8000,
-        hand: ["Hane-Hane"],
-        deckSize: 35,
+        hand: [],
         monsters: [def("Giant Soldier of Stone"), set("Mystic Tomato")],
         spells: [set("Magic Cylinder"), set("Solemn Judgment")],
+        grave: ["Book of Moon"],
       },
+      // Seat 3: turn 4 Normal Summon Axe Raider, Set Mirror Force; turn 8 Tribute Summon Summoned Skull (tribute Axe Raider), Set Trap Hole. Sangan is still in hand.
       p3: {
         lp: 5200,
         hand: ["Sangan"],
-        deckSize: 35,
         monsters: ["Summoned Skull"],
         spells: [set("Mirror Force"), set("Trap Hole")],
         grave: ["Axe Raider"],
@@ -79,44 +85,45 @@ export const presets: Preset[] = [
     rules: [],
     board: {
       format: "tag",
-      deckSize: 40,
+      deckSize: 35,
       // Seats 0 and 2 are team 1 (1A, 1B) and seats 1 and 3 are team 2 (2A, 2B). Each team shares one LP total (R-TAG-LP),
       // so both partners get the same value. Each team has at most one Field Spell (R-TAG-FIELD).
+      // Turn order 1A, 2A, 1B, 2B (R-TAG-ORDER). 1A draws on turns 5 and 9, 2A on 2 and 6, 1B on 3 and 7, 2B on 4 and 8: 7 cards out, 33 left.
+      // 1A: turn 1 Normal Summon Battle Ox, Set Dust Tornado; turn 5 Set Man-Eater Bug, activate Sogen, use Book of Moon.
       p0: {
         lp: 12300,
-        hand: ["Gaia The Fierce Knight"],
+        hand: [],
         deck: ["Monster Reborn", "Kuriboh"], // drawn on turns 5 and 9
-        deckSize: 33,
         monsters: ["Battle Ox", set("Man-Eater Bug")],
         spells: [set("Dust Tornado")],
         field: "Sogen",
-        grave: ["Book of Moon", "Mystical Space Typhoon"],
+        grave: ["Book of Moon"],
       },
+      // 2A: turn 2 Normal Summon Feral Imp, Set Trap Hole; turn 6 Tribute Summon Curse of Dragon (tribute Feral Imp), Set Magic Cylinder. Mirror Force was used.
       p1: {
         lp: 9500,
         hand: [],
-        deckSize: 35,
         monsters: ["Curse of Dragon"],
         spells: [set("Trap Hole"), set("Magic Cylinder")],
         grave: ["Feral Imp", "Mirror Force"],
       },
+      // 1B: turn 3 Normal Summon Axe Raider, Set Mirror Force; turn 7 Tribute Summon Summoned Skull (tribute Axe Raider). Sangan and Mystic Tomato are in hand.
       p2: {
         lp: 12300,
         hand: ["Sangan", "Mystic Tomato"],
         deck: ["Hane-Hane", "Giant Rat"], // drawn on turns 3 and 7
-        deckSize: 35,
         monsters: ["Summoned Skull"],
         spells: [set("Mirror Force")],
         grave: ["Axe Raider"],
       },
+      // 2B: turn 4 Normal Summon Giant Soldier of Stone, Set Mirror Force; turn 8 Set Mystic Tomato, activate Yami, use Dian Keto.
       p3: {
         lp: 9500,
-        hand: ["Kuriboh", "Feral Imp"],
-        deckSize: 33,
+        hand: [],
         monsters: [def("Giant Soldier of Stone"), set("Mystic Tomato")],
         spells: [set("Mirror Force")],
         field: "Yami",
-        grave: ["Offerings to the Doomed"],
+        grave: ["Dian Keto the Cure Master"],
       },
     },
     bots: { 1: [], 2: [], 3: [] },
@@ -135,26 +142,27 @@ export const presets: Preset[] = [
     board: {
       mode: "domain",
       // Domain: 60 Main Deck cards, singleton, Deck Master apart from the decks. In 1v1 Domain the turn-1 duelist skips the first draw
-      // (R-FFA-FIRST-DRAW), so seat 0 draws on turns 3, 5 and 7 and seat 1 on turns 2, 4 and 6.
-      deckSize: 60,
+      // (R-FFA-FIRST-DRAW), so seat 0 draws on turns 3, 5 and 7 and seat 1 on turns 2, 4 and 6: 5 + 3 = 8 cards out, 52 left.
+      deckSize: 55,
+      // Seat 0: turn 1 Normal Summon Apprentice Magician, Set Mirror Force; turn 3 Tribute Summon Dark Magician Girl (tribute Apprentice Magician);
+      // turn 5 Normal Summon Dark Elf, activate Yami.
       p0: {
         lp: 6000,
-        hand: ["Apprentice Magician"],
+        hand: [],
         deck: ["Mystical Space Typhoon", "Monster Reborn", "Mystic Tomato"], // drawn on turns 3, 5 and 7
-        deckSize: 52,
         monsters: ["Dark Elf", "Dark Magician Girl"],
-        spells: [set("Mirror Force"), set("Dust Tornado")],
+        spells: [set("Mirror Force")],
         field: "Yami",
-        grave: ["Witch of the Black Forest", "Book of Moon"],
+        grave: ["Apprentice Magician"],
         deckMaster: "Dark Magician",
       },
+      // Seat 1: turn 2 Normal Summon Kuriboh; turn 4 Tribute Summon Summoned Skull (tribute Kuriboh), Set Trap Hole; turn 6 Normal Summon Feral Imp, Set Dust Tornado.
       p1: {
         lp: 4400,
-        hand: ["Kuriboh"],
-        deckSize: 54,
+        hand: [],
         monsters: ["Feral Imp", "Summoned Skull"],
         spells: [set("Trap Hole"), set("Dust Tornado")],
-        grave: ["Sangan"],
+        grave: ["Kuriboh"],
         deckMaster: "Red-Eyes Black Dragon",
       },
     },
