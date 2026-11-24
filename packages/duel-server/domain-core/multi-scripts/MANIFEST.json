@@ -4127,6 +4127,18 @@
       "note": "A global battle flag reaches every living duelist, with one key per Tag team. Each face-up copy sends five cards from the real turn duelist's own Deck, including when its controller is off-turn or is that duelist's Tag partner."
     },
     {
+      "code": 42410161,
+      "file": "c42410161.lua",
+      "name": "Angelechy Shatranga",
+      "kind": "fix",
+      "classes": [],
+      "redefined": [
+        "initial_effect"
+      ],
+      "stockSha256": "0ea2aa1db8a0d8784a5b57bd26d94dca36847e8bc98f0249ae9dc4a6a2a09097",
+      "note": "Keep the five monster activations per turn separate for each FFA opponent. Tag keeps the shared opposing team count."
+    },
+    {
       "code": 42517468,
       "file": "c42517468.lua",
       "name": "Ojama Pink",
