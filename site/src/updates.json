@@ -1,5 +1,5 @@
 {
-  "note": "Public copy of release notes published on the in-app Updates board (admin console, releases table). Add a release here when it is published in the app, copying its title, highlights and sections exactly, then run build-pages.py. v0.2.0 and v0.2.1 were posted only in Discord and have no stored copy.",
+  "note": "Public copy of release notes published on the in-app Updates board (admin console, releases table). Add a release here when it is published in the app, copying its title, highlights and sections exactly, then run build-pages.py.",
   "releases": [
     {
       "version": "0.2.2",
@@ -65,7 +65,8 @@
           "items": [
             "Play speed. In any simulated duel, open Options and set Animation speed from 50% to 200%. 100% is normal. It is your own setting: it changes only the animations on your screen, so you can play faster or slower. It is kept for your next duels.",
             "Updates board. A chip next to Report bug shows the latest version. A red dot means you have not read it yet. You can read older notes there too.",
-            "Better replays. Replays now play like live watching. The board keeps one size, and each move waits for its animation. A speed control goes from slow to fast. A battle log lists every move. Select a row to jump to it. The speed control also works in Tag and Free-for-all replays. In a finished duel, its players can show all cards."
+            "Better replays. Replays now play like live watching. The board keeps one size, and each move waits for its animation. A speed control goes from slow to fast. A battle log lists every move. Select a row to jump to it. The speed control also works in Tag and Free-for-all replays. In a finished duel, its players can show all cards.",
+            "Coming next. This is a small update with improvements and fixes. A much bigger update is coming soon. We have worked on it for the last month, and it is for everyone who likes to play with their shiny cardboard. ✨"
           ]
         },
         {

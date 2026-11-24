@@ -25,9 +25,12 @@ The PNG files land in `packages/e2e/.stack-<slot>/screenshots/` (or `SHOT_DIR`).
 - Real card art: the script sets `E2E_REAL_CARD_ART=1`. The stack then fetches art from images.ygoprodeck.com through the normal image route
   into its own `.stack-<slot>/card-images` folder. Without the flag the stack serves a stub image (grey cards). The art is in the screenshots only, never as site assets of its own.
 - The engine data folder is a scratch copy: copy a prepared data dir and run `DUEL_DATA_DIR=<copy> npm run duel:prepare` on it. Never point it at the live data folder.
+  Its `ocgcore.multi.SOURCE` must list `capabilities=...ffa4-facing-extra-zones...` (a deploy or local-main multi core does). Without it the engine does not report the shared Extra Monster Zones, the table refuses the 4-way grid and draws the old plaza layout; the script stops in that case.
 
 Look at every WebP before you commit it (real names only, no emails, ids or debug labels). Then add or change the file through its `shot` entry in `site/src/pages.py`.
 ## Board ledgers
+
+Layout: the 4-player shot is the 4-way 2x2 grid (me bottom left, my facing seat top left, the other pair on the right, camera on the full table) and the Tag shot has the shared middle Extra Monster Zones. Both need a multi core that reports `capabilities` (see the engine data folder note above); an old local core gives the plaza layout and per-player Extra Monster Zones instead.
 
 The boards are set up with the board DSL (`packages/duel-server/src/presets/board.ts`) and then played forward with real turns
 (`playToTurn` in `boards.spec.ts` passes the other seats' turns through `POST /api/duels/<slug>/actions`), so the turn counter, the draws and the phase are real engine state.

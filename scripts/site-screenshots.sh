@@ -28,6 +28,15 @@ MSG
   exit 1
 fi
 
+# The 4-way grid layout (and the shared Extra Monster Zones of Tag) only draws when the multi core's SOURCE file lists its
+# facing-zone capabilities (packages/duel-server/src/core-capabilities.ts). A core without them makes the table fall back to
+# the older plaza layout, which players do not see on the live site. Refuse such a data folder.
+if ! grep -q 'capabilities=.*ffa4-facing-extra-zones' "${E2E_DUEL_DATA_DIR}/ocgcore.multi.SOURCE" 2>/dev/null; then
+  echo "ocgcore.multi.SOURCE in E2E_DUEL_DATA_DIR has no ffa4-facing-extra-zones capability; the 4-player shot would show the old plaza layout." >&2
+  echo "Use a data folder with a multi core from a deploy or local-main build (its SOURCE lists capabilities=...)." >&2
+  exit 1
+fi
+
 # Linux Node 22 is required (better-sqlite3). A Windows npm on PATH fails with a lockfile error.
 if ! node -e 'process.exit(Number(process.versions.node.split(".")[0]) === 22 ? 0 : 1)'; then
   echo "Use Node 22 (for example: export PATH=\$HOME/.nvm/versions/node/v22.*/bin:\$PATH)." >&2
