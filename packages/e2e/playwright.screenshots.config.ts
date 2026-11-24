@@ -27,7 +27,8 @@ export default defineConfig({
       name: "chromium",
       testMatch: /screenshots\/.*\.spec\.ts/,
       dependencies: ["setup"],
-      use: { ...devices["Desktop Chrome"], viewport: { width: 1600, height: 900 } },
+      // 1920x1080 at 2x: the shots are taken at 3840x2160 and scaled down to 1920x1080 for crisp text and art.
+      use: { ...devices["Desktop Chrome"], viewport: { width: 1920, height: 1080 }, deviceScaleFactor: 2 },
     },
   ],
   webServer: {

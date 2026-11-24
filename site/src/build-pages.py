@@ -128,7 +128,10 @@ def figure(page):
     html = ''
     if page.get('shot'):
         src, width, height, alt, caption = page['shot']
-        html += (f'<figure class="info-fig"><img src="{src}" alt="{escape(alt)}" width="{width}" height="{height}" '
+        # Every screenshot ships twice: NAME.webp (full width) and NAME-960.webp (960 wide) so phones load the small file.
+        small = src.replace('.webp', '-960.webp')
+        html += (f'<figure class="info-fig"><img src="{src}" srcset="{small} 960w, {src} {width}w" '
+                 f'sizes="(max-width: 860px) calc(100vw - 32px), 780px" alt="{escape(alt)}" width="{width}" height="{height}" '
                  f'loading="lazy" decoding="async"><figcaption>{escape(caption)}</figcaption></figure>')
     if page.get('video') or not page.get('shot'):
         alt, caption = page['figure']

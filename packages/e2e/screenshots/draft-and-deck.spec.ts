@@ -22,7 +22,7 @@ test("draft pick screen", async ({ player }) => {
   await page.setViewportSize({ width: 1920, height: 1080 });
   const db = openDatabase(dbPath);
   try {
-    seedCatalog(db);
+    await seedCatalog(db);
     const players = createPlayerService(db);
     const drafts = createDraftService(db, { seedSource: () => 183 });
     const human = players.findOrCreate(guildId, 101, "Yugi M.");
@@ -53,7 +53,7 @@ test("Genesys deck builder with points", async ({ player }) => {
   const { page } = await player("p1");
   await page.setViewportSize({ width: 1920, height: 1080 });
   const db = openDatabase(dbPath);
-  try { seedCatalog(db); } finally { db.close(); }
+  try { await seedCatalog(db); } finally { db.close(); }
   // 98 of 100 points: the staples below plus plain cards at 0 points.
   const picks = ["Ash Blossom & Joyous Spring", "Called by the Grave", "Pot of Greed", "Infinite Impermanence", "Nibiru, the Primal Being", "Solemn Judgment", "Effect Veiler", "Dark Hole", "Raigeki", "Monster Reborn", "Book of Moon"];
   const plain = ["Dark Magician", "Blue-Eyes White Dragon", "Red-Eyes Black Dragon", "Summoned Skull", "Celtic Guardian", "Kuriboh", "Sangan", "Man-Eater Bug", "Mirror Force", "Mystical Space Typhoon", "Torrential Tribute", "Swords of Revealing Light", "Fiber Jar", "Mother Grizzly", "Gene-Warped Warwolf", "Trap Hole", "Magic Cylinder"];
@@ -67,5 +67,7 @@ test("Genesys deck builder with points", async ({ player }) => {
   await page.mouse.move(5, 5);
   await page.waitForTimeout(2000);
   await hideDebug(page);
-  await page.screenshot({ path: shotDir("genesys-deck.png") });
+  // The shot shows the points meter and the deck only. The left panel says "Deck size is correct for Standard." in every
+  // Genesys deck (editor.tsx, sizeFlag), and the search results show "? pts" unless the worker published the live list.
+  await page.screenshot({ path: shotDir("genesys-deck.png"), clip: { x: 384, y: 0, width: 1120, height: 900 } });
 });

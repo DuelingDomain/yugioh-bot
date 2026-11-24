@@ -52,7 +52,7 @@ export const test = base.extend<Fixtures>({
     watch.start();
     await use(async (key) => {
       const dir = testInfo.outputPath(`video-${key}-${videos.length + 1}`);
-      const context = await browser.newContext({ storageState: authFile(key), ...(video.record ? { recordVideo: { dir } } : {}) });
+      const context = await browser.newContext({ storageState: authFile(key), ...(process.env.E2E_SCREENSHOT_DSF ? { deviceScaleFactor: Number(process.env.E2E_SCREENSHOT_DSF) } : {}), ...(video.record ? { recordVideo: { dir } } : {}) });
       if (video.record) videos.push({ key, dir });
       opened.push(context);
       recorders.push(new PlayerEvidence(key, context, startedAt));

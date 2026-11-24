@@ -1,6 +1,7 @@
 import type { Page } from "@playwright/test";
 import { expect, test } from "../helpers/fixtures";
 import { enterDuelRoom } from "../helpers/duel";
+import { readTable } from "../helpers/table";
 import { cleanNames, SHOT_NAMES, shotDir } from "./shot";
 
 // Marketing screenshots of mid-game boards. Each board is a "marketing-*" scenario preset of the duel host
@@ -37,6 +38,8 @@ async function cleanScreen(page: Page) {
         if (/^[A-Z]{2}\d$/.test(text.trim())) { node.nodeValue = ""; continue; }
         if (/^\s*·\s*\d-player/.test(text)) { node.nodeValue = text.replace(/^\s*·\s*/, ""); continue; }
         if (/^\s*·\s*$/.test(text) && node.parentElement?.closest("header")) { node.nodeValue = ""; continue; }
+        // The preset turns off the shuffle and the opening hand so that a board can be set up, and that counts as custom settings.
+        if (/Custom Domain/.test(text)) { node.nodeValue = text.replace("Custom Domain", "Domain"); continue; }
         if (!/practice/i.test(text)) continue;
         node.nodeValue = text.replace(/practice(?: bot)?(?: \(seat (\d)\))?/gi, (all, shown?: string) => {
           const seat = shown ? Number(shown) - 1 : seatOf(node) ?? 1;
@@ -63,6 +66,39 @@ async function startPreset(page: Page, presetId: string): Promise<string> {
   return slug;
 }
 
+type Room = { engine: { turn: number; turnSeat: number; phase: string; prompt: { id: string; seat: number; kind: string; cancelable?: boolean; min?: number; options: Array<{ id: string }> } | null; revision: number } | null };
+
+/**
+ * A scripted board starts on turn 1. Play the turns up to `targetTurn` with the normal prompts (seat 0 passes every phase, the bots
+ * pass), so the shot shows a real turn counter and the draws that really happened. Stops in the Main Phase 1 of seat 0.
+ */
+async function playToTurn(page: Page, slug: string, targetTurn: number) {
+  const end = Date.now() + 240_000;
+  let lastSent = "";
+  while (Date.now() < end) {
+    const room = (await readTable(page, slug)) as unknown as Room;
+    const engine = room.engine;
+    const prompt = engine?.prompt;
+    if (engine && prompt && prompt.seat === 0) {
+      if (engine.turn >= targetTurn && engine.turnSeat === 0 && /main/i.test(engine.phase)) return;
+      if (engine.turn > targetTurn) throw new Error(`Passed turn ${targetTurn}: now turn ${engine.turn}`);
+      if (lastSent !== prompt.id) {
+        lastSent = prompt.id;
+        const ids = prompt.options.map((option) => option.id);
+        const pass = ["to_ep", "to_m2", "to_bp"].find((id) => ids.includes(id));
+        const answer = ids.includes("no") && ids.includes("yes") ? { choice: "no" }
+          : pass ? { choice: pass }
+          : prompt.cancelable && (prompt.min ?? 1) === 0 ? { cancel: true }
+          : { choice: ids[0] };
+        const sent = await page.request.post(`/api/duels/${slug}/actions`, { data: { revision: engine.revision, promptId: prompt.id, answer } });
+        expect(sent.ok(), await sent.text()).toBe(true);
+      }
+    }
+    await page.waitForTimeout(250);
+  }
+  throw new Error(`Turn ${targetTurn} was not reached in time`);
+}
+
 /** Close the card drawer and any toast, and move the pointer off the cards, so the shot shows the board. */
 async function tidy(page: Page) {
   await page.waitForTimeout(3000);
@@ -78,11 +114,12 @@ async function tidy(page: Page) {
   await page.waitForTimeout(3500);
 }
 
-async function boardShot(page: Page, presetId: string, file: string) {
+async function boardShot(page: Page, presetId: string, file: string, targetTurn: number) {
   await cleanNames();
   await cleanScreen(page);
   await page.setViewportSize({ width: 1920, height: 1080 });
   const slug = await startPreset(page, presetId);
+  await playToTurn(page, slug, targetTurn);
   await page.goto(`/duels/${slug}?window=1`);
   await enterDuelRoom(page);
   await tidy(page);
@@ -92,15 +129,15 @@ async function boardShot(page: Page, presetId: string, file: string) {
 
 test("4-player free-for-all board", async ({ player }) => {
   const { page } = await player("p1");
-  await boardShot(page, "marketing-ffa4", "ffa4.png");
+  await boardShot(page, "marketing-ffa4", "ffa4.png", 9);
 });
 
 test("2v2 Tag board", async ({ player }) => {
   const { page } = await player("p1");
-  await boardShot(page, "marketing-tag", "tag.png");
+  await boardShot(page, "marketing-tag", "tag.png", 9);
 });
 
 test("Domain Format board with the Deck Master zone", async ({ player }) => {
   const { page } = await player("p1");
-  await boardShot(page, "marketing-domain", "domain-board.png");
+  await boardShot(page, "marketing-domain", "domain-board.png", 7);
 });
