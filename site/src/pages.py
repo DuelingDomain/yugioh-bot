@@ -22,8 +22,6 @@ PAGES = [
         'shot': ('/assets/shot-4-player-table.webp', 1920, 1080,
                  'A four-player free-for-all duel in Dueling Domain, on turn 9 in the Main Phase. The four fields sit in a two-by-two grid, so each duelist faces the duelist across from them. Yugi M. at the bottom left has Life Points 6,500, one monster, a Set monster, a Set card and a Field Spell, and faces Kaiba Fan (4,800) at the top left. Mai V. (8,000) and Rex R. (5,200) sit on the right. Each one has their own Graveyard.',
                  'A 4-player table in the closed alpha. The players and boards are sample data.'),
-        'figure': ('A card table for several players, drawn with original card backs.',
-                   'Launch trailer poster. The trailer is 73 seconds long and opens on YouTube.'),
         'body': '''
 <h2>How a 4-player table works</h2>
 <p>A free-for-all table seats four duelists. Everyone starts with 8,000 Life Points by default, and nobody shares them. You win when every other duelist is out. Three-player tables work the same way with one seat fewer.</p>
@@ -65,8 +63,6 @@ PAGES = [
         'shot': ('/assets/shot-tag-table.webp', 1920, 1080,
                  'A 2v2 Tag duel in Dueling Domain, on turn 9 in the Main Phase. Yugi M. and Mai V. (team 1, 12,300 shared Life Points) face Kaiba Fan and Rex R. (team 2, 9,500). Each duelist has their own field, the facing duelists share the middle Extra Monster Zones, and Yugi M. sees the hand of Mai V. in a panel that says only the team sees it.',
                  'A 2v2 Tag table in the closed alpha. The players and boards are sample data.'),
-        'figure': ('A card table for several players, drawn with original card backs.',
-                   'Poster art for the launch trailer.'),
         'body': '''
 <h2>The Tag rules we use</h2>
 <p>A Tag table seats four duelists in two teams. The rules are written down, and the engine applies them for you.</p>
@@ -107,8 +103,6 @@ PAGES = [
         'shot': ('/assets/shot-draft-pick.webp', 1920, 1080,
                  'The draft pick screen in Dueling Domain. A pack of five cards lies on the table (Stardust Dragon, Change of Heart, Heavy Storm, Infinite Impermanence and Celtic Guardian). The card list, the picks so far and a pick clock are on the right.',
                  'The draft pick screen in the closed alpha. The players and the pack are sample data.'),
-        'figure': ('A card table for several players, drawn with original card backs.',
-                   'Poster art for the launch trailer.'),
         'body': '''
 <h2>How a draft runs</h2>
 <p>The host creates a draft and sends an invite link. Two or more players can join. When the host starts, a short countdown runs and the first packs open. Each player picks a card, passes the pack on and picks again from the next pack. A pick clock keeps the draft moving.</p>
@@ -151,8 +145,6 @@ PAGES = [
         'shot': ('/assets/shot-domain-format.webp', 1920, 1080,
                  'A Domain Format duel in Dueling Domain, on turn 7 in the Main Phase. The Deck Master Dark Magician waits in its zone, ready to use, beside a field with two monsters, one Set card, a Field Spell and a Graveyard. The other duelist has a Deck Master too. Life Points are 6,000 and 4,400.',
                  'A Domain Format duel in the closed alpha. The players and boards are sample data.'),
-        'figure': ('A card table for several players, drawn with original card backs.',
-                   'Poster art for the launch trailer.'),
         'body': '''
 <h2>What changes in Domain Format</h2>
 <p>Domain Format adds one idea to the normal game: the Deck Master. It is a monster that starts outside your decks, in its own zone. You can summon it, and you can return it to its zone later.</p>
@@ -195,8 +187,6 @@ PAGES = [
         'shot': ('/assets/shot-genesys-deck.webp', 1120, 900,
                  'The Dueling Domain deck builder in Genesys mode. A points meter shows 98 of 100 points used. A 40-card Main Deck of monsters, spells and traps, one Extra Deck card and an empty Side Deck are below it. Each card with a cost shows its point value.',
                  'The deck builder in Genesys mode, with a sample deck.'),
-        'figure': ('A card table for several players, drawn with original card backs.',
-                   'Poster art for the launch trailer.'),
         'body': '''
 <h2>How Genesys works</h2>
 <p>In Genesys, points replace the ban list. Most cards are worth zero points. A smaller set of strong cards carry points, and your deck can hold only so many points in total. You choose which strong cards fit under the cap.</p>
@@ -234,8 +224,7 @@ PAGES = [
         'eyebrow': 'Comparison',
         'h1': '@GAME@ simulators compared',
         'answer': 'Dueling Domain is a free browser simulator in closed alpha that focuses on 3- and 4-player duels, Tag, drafts, Domain Format and Genesys; this page lists other ways to play, using only facts from their own pages.',
-        'figure': ('A card table for several players, drawn with original card backs.',
-                   'Poster art for the launch trailer.'),
+        'video': True,
         'body': '''
 <h2>How we wrote this page</h2>
 <p>We checked each product on @DATE@. We list only what its own page states. If a page does not say something, we do not guess. This page does not say that another product lacks a feature unless that product says so. Things change, so check each site for the latest.</p>
@@ -301,8 +290,6 @@ PAGES = [
         'h1': 'About Dueling Domain',
         'answer': 'Dueling Domain is a free, fan-made @GAME@ simulator that runs in your browser, built by the Dueling Domain team for friends who want automated duels and drafts together.',
         'video': True,
-        'figure': ('A card table for several players, drawn with original card backs.',
-                   'Launch trailer poster. The trailer is 73 seconds long and opens on YouTube.'),
         'body': '''
 <h2>What you can play today</h2>
 <p>Dueling Domain puts the whole evening in one tab. You can run a <a href="/yugioh-cube-draft">cube draft</a>, build a deck from your picks and duel with friends. Duels cover a classic 1v1, <a href="/yugioh-tag-duel-online">2v2 Tag</a> and <a href="/4-player-yugioh">3- and 4-player free-for-all</a>. You can add <a href="/domain-format">Domain Format</a> or <a href="/genesys">Genesys</a> points at any table size.</p>
