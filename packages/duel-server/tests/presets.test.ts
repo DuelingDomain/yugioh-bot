@@ -69,7 +69,8 @@ describe("preset registry", () => {
     expect(new Set(PRESETS.map((preset) => preset.id)).size).toBe(PRESETS.length);
     for (const preset of PRESETS) {
       expect(preset.checklist.length, preset.id).toBeGreaterThan(2);
-      expect(preset.rules.length, preset.id).toBeGreaterThan(0);
+      // The marketing boards are screenshot scenes, not rule scenarios, so they claim no rule ids.
+      if (!preset.id.startsWith("marketing-")) expect(preset.rules.length, preset.id).toBeGreaterThan(0);
       expect(preset.rules.every((rule) => /^R-[A-Z]+(-[A-Z]+)+$/.test(rule)), preset.id).toBe(true);
       expect(Object.keys(preset.bots).map(Number).sort(), preset.id).toEqual(
         Array.from({ length: seatCountFor(preset.format) - 1 }, (_, index) => index + 1),
@@ -80,6 +81,7 @@ describe("preset registry", () => {
       "solemn-judgment-summon",
       "jinzo-stops-trap",
       "negation-veiler-1v1",
+      "marketing-domain",
     ]);
     expect(PRESETS.filter((preset) => preset.needs === "multi-core").map((preset) => preset.id).sort()).toEqual([
       "ffa3-attack-defender",
@@ -113,6 +115,8 @@ describe("preset registry", () => {
       "ffa4-chain-order-heavy-storm",
       "ffa4-rules-across-extra-zones",
       "ffa4-surrender-in-chain",
+      "marketing-ffa4",
+      "marketing-tag",
       "mind-crush-ffa4-pick",
       "negation-veiler-ffa4",
       "raigeki-dark-hole-ffa4",

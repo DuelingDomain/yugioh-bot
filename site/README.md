@@ -4,9 +4,11 @@ Static HTML, CSS and JavaScript for the closed-alpha waitlist; no build step.
 
 ## Contents
 
-- `public/`: served pages (`index.html`, `privacy.html`, `terms.html`, `404.html`), `style.css`, `app.js`, icons, sitemap, robots, manifest and `llms.txt`.
+- `public/`: served pages (`index.html`, `privacy.html`, `terms.html`, `404.html`, and the generated guide pages listed below), `style.css`, `app.js`, icons, sitemap, robots, manifest and `llms.txt`.
 - `public/assets/`: card backs and trailer poster; `public/fonts/`: self-hosted WOFF2 files and licenses.
 - `src/`: icon/poster/OG sources, asset builders, font installer, `sync-chrome.py` (shared header and footer), `indexnow.py` and verification scripts.
+
+The guide pages (`4-player-yugioh`, `yugioh-tag-duel-online`, `yugioh-cube-draft`, `domain-format`, `genesys`, `compare`, `about`, `updates`) are generated. Edit their copy in `src/pages.py` and the patch notes in `src/updates.json`, then run `python3 site/src/build-pages.py`; do not edit those `public/*.html` files by hand. `verify-static.py` fails when they are out of date. Each guide page opens with one short answer sentence, runs 400 to 800 words (patch notes are shorter), has 3 to 5 FAQ items that match its FAQPage JSON-LD, links to at least two other pages and offers the waitlist. Facts about other products must come from their own pages and carry a date. Add a new page to `src/pages.py`, `public/sitemap.xml` and `public/llms.txt`, and to the header or footer lists in `src/sync-chrome.py`.
 
 ## Local preview
 
@@ -45,4 +47,8 @@ python3 scripts/deployment/verify-domain-routing.py
 MARKETING_URL=https://marketing.localhost CHROMIUM=/path/to/chromium SHOTS_DIR=/tmp/dd-site-shots node site/src/verify-browser.mjs
 ```
 Static checks use Python's standard library and cover heading order, canonical URLs, social image dimensions, JSON-LD and `llms.txt` links. Routing checks need a running Docker daemon and a cached `caddy:2.11.2-alpine` image. Browser checks need Playwright, Chromium and local Caddy; they run headless, mock waitlist POSTs and write screenshots to `SHOTS_DIR`.
+### Screenshots
+
+Page screenshots (`public/assets/shot-*.webp`) are real captures (mid-game boards, real card art) from an isolated local stack with seeded test players and dev-only scenario presets. Run `scripts/site-screenshots.sh` (local only; it refuses `NODE_ENV=production` and never touches the :3000 services). Steps and the spec list are in [packages/e2e/screenshots/README.md](../packages/e2e/screenshots/README.md). The captures are made at device scale factor 2 and written as a full WebP plus a `-960.webp` file; the page offers both through `srcset`. A page uses a screenshot through its `shot` entry in `src/pages.py`.
+
 See [domains.md](../docs/deployment/domains.md) for live hosts, production checks and waitlist operations.

@@ -113,6 +113,22 @@ try {
     await nojs.page.screenshot({ path: path.join(output, `${width}-index-no-js.png`), fullPage: true });
     await nojs.ctx.close();
   }
+  // Guide pages: no horizontal scroll at laptop, 1080p, 1440p and phone widths; nav, FAQ and image all render.
+  const guides = ['4-player-yugioh', 'yugioh-tag-duel-online', 'yugioh-cube-draft', 'domain-format', 'genesys', 'compare', 'updates', 'about'];
+  for (const width of [320, 390, 768, 1024, 1366, 1920, 2560]) {
+    const { ctx, page } = await setup(width);
+    for (const guide of guides) {
+      await visit(page, `/${guide}`);
+      await layout(page);
+      assert.equal(await page.locator('main h1').count(), 1, guide);
+      assert(await page.locator('main a[href="/#join"]').count() >= 1, guide);
+      const poster = await page.locator('main img').first().evaluate(img => img.complete ? img.naturalWidth : -1);
+      assert(poster !== 0, `${guide}: image failed to load`);
+      assert.equal(await page.locator('.nav-links').isVisible(), width > 900, `${guide}: header links at ${width}`);
+      if (guide === 'about' || guide === 'compare') await page.screenshot({ path: path.join(output, `${width}-guide-${guide}.png`), fullPage: true });
+    }
+    await ctx.close();
+  }
   // The normal-motion path exercises inline SVG references, JS styles and the pack rip.
   for (const width of [390, 1440]) {
     const { ctx, page } = await setup(width, true, 'no-preference');

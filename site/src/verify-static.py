@@ -72,11 +72,15 @@ def resolve(path):
     raise AssertionError('Unresolved internal URL: ' + path)
 
 
-def load_chrome():
-    spec = importlib.util.spec_from_file_location('sync_chrome', Path(__file__).with_name('sync-chrome.py'))
+def load_module(name):
+    spec = importlib.util.spec_from_file_location(name.replace('-', '_'), Path(__file__).with_name(f'{name}.py'))
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def load_chrome():
+    return load_module('sync-chrome')
 
 
 def jsonld(page):
@@ -302,6 +306,9 @@ def main():
         assert not target.find('meta', name='robots', content='noindex'), link
         if parsed.fragment:
             assert parsed.fragment in target.ids, link
+    # The approved guide URLs carry the game's name as a search word (see the SEO plan); nothing else may.
+    slugs = sorted((page['slug'] for page in load_module('pages').PAGES if 'yug' + 'ioh' in page['slug']), key=len, reverse=True)
+    unslug = lambda text: re.sub('|'.join(map(re.escape, slugs)), '', text)
     forbidden = re.compile(r'yu[\W_]*gi[\W_]*oh|king' + r'dom|duel\s+monsters', re.I)
     # Descriptive (nominative) use only: served copy may name the game in its exact official
     # spelling, next to the non-affiliation line every page carries. File names, styles, scripts,
@@ -310,12 +317,12 @@ def main():
     descriptive = {*PUBLIC.glob('*.html'), PUBLIC / 'llms.txt', PUBLIC / 'site.webmanifest'}
     for file in Path(__file__).resolve().parents[1].rglob('*'):
         if not file.is_file(): continue
-        assert not forbidden.search(file.name), file.name
+        assert not forbidden.search(unslug(file.name)), file.name
         if file.suffix in ('.html', '.css', '.js', '.mjs', '.py', '.md', '.svg', '.txt', '.xml', '.webmanifest'):
             text = file.read_text()
             if file in descriptive:
                 text = text.replace(game, '')
-            assert not forbidden.search(text), file
+            assert not forbidden.search(unslug(text)), file
     for attr in ('og:site_name', 'og:image:alt'):
         assert game not in index.find('meta', property=attr)[0]['attrs']['content'], attr
     assert all(game not in node.get('name', '') for node in graph), 'brand names stay free of the game name'
@@ -323,7 +330,7 @@ def main():
     # waitlist forms. The homepage may name Discord only in its four community links (href + visible label),
     # those two join links, the shared glyph symbol, and the JSON-LD sameAs. Strip exactly those, then fail
     # on any other "discord" text.
-    for name in ('index.html', '404.html', 'terms.html'):
+    for name in sorted(set(pages) - {'privacy.html'}):  # the privacy page lists the sign-in providers
         text = pages[name].file.read_text()
         if name == 'index.html':
             assert text.count(DISCORD_INVITE) == 5, 'invite expected in four links and sameAs'
@@ -340,6 +347,35 @@ def main():
         attrs = link['attrs']
         assert attrs.get('target') == '_blank' and attrs.get('rel') == 'noopener noreferrer', attrs
         assert 'aria-label' not in attrs and link['text'].strip() == 'Join our Discord (opens in a new tab)', link['text']
+    # Guide pages: built from pages.py and updates.json by build-pages.py. Each answers one question first,
+    # stays between 400 and 800 words (patch notes are shorter), links onward and offers the waitlist.
+    build = load_module('build-pages')
+    assert all((PUBLIC / f'{slug}.html').read_text() == text for slug, text in build.outputs().items()), 'run site/src/build-pages.py'
+    for slug in build.outputs():
+        page = pages[f'{slug}.html']
+        body = page.find('body')[0]
+        assert 'page-info' in body['attrs'].get('class', '').split(), slug
+        main_el = page.find('main')[0]
+        words = len(re.sub(r'\s+', ' ', main_el['text']).split())
+        low, high = (150, 3000) if slug == 'updates' else (400, 800)
+        assert low <= words <= high, (slug, 'word count', words)
+        answer = [e for e in page.find('p') if 'answer' in e['attrs'].get('class', '').split() and main_el in e['ancestors']]
+        assert len(answer) == 1 and 40 <= len(answer[0]['text']) <= 300, (slug, 'one short answer sentence')
+        first_p = next(e for e in page.elements if e['tag'] == 'p' and main_el in e['ancestors'] and 'eyebrow' not in e['attrs'].get('class', '').split())
+        assert first_p is answer[0], (slug, 'the answer comes first')
+        inside = [e['attrs'].get('href', '') for e in page.find('a') if main_el in e['ancestors']]
+        assert '/#join' in inside, (slug, 'waitlist button')
+        onward = {href for href in inside if href.startswith('/') and href != '/#join'}
+        assert len(onward) >= 2, (slug, 'needs at least two internal links', onward)
+        kinds = {node['@type'] for block in jsonld(page) for node in block.get('@graph', [block])}
+        assert 'BreadcrumbList' in kinds, slug
+        if slug == 'updates':
+            assert 'Article' in kinds and 'FAQPage' not in kinds, slug
+        else:
+            assert 'FAQPage' in kinds and 3 <= sum('faq-item' in e['attrs'].get('class', '').split() for e in page.find('div')) <= 5, (slug, 'FAQ count')
+        trailer = any('youtube.com/watch' in href for href in (e['attrs'].get('href', '') for e in page.find('a')))
+        assert trailer == ('VideoObject' in kinds), (slug, 'VideoObject goes with the trailer link')
+        assert page.find('img'), (slug, 'needs an image')
     # Owner rule: the Discord invite is the only sameAs profile until other channels are approved.
     assert organization['sameAs'] == [DISCORD_INVITE], 'Organization sameAs must be the Discord invite only'
     # Owner rules: never show or link the code host or a person's name in anything the site serves.

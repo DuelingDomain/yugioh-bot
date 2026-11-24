@@ -442,13 +442,39 @@ html:not(.js) .step .flip { transform: rotateY(180deg); }
 
 /* ---------- privacy, terms and not-found pages ---------- */
 .brand-defs { position: absolute; }
-.page-privacy .nav, .page-terms .nav, .page-404 .nav { position: relative; }
+.page-privacy .nav, .page-terms .nav, .page-404 .nav, .page-info .nav { position: relative; }
 .page-privacy .privacy-copy, .page-terms .privacy-copy { width: min(65ch, 100% - var(--gut) * 2); margin: 0 auto; padding: 56px 0 96px; font-size: 18px; line-height: 1.75; overflow-wrap: anywhere; }
 .page-privacy h1, .page-terms h1 { font-size: clamp(44px, 7vw, 72px); line-height: 1.1; }
 .page-privacy .privacy-date, .page-terms .privacy-date { margin-top: 16px; color: var(--text-2); font-size: 15px; }
 .page-privacy h2, .page-terms h2 { margin-top: 40px; margin-bottom: 12px; font-size: clamp(23px, 3vw, 28px); line-height: 1.25; text-wrap: pretty; }
 .page-privacy .privacy-copy p + p, .page-terms .privacy-copy p + p { margin-top: 16px; }
 .page-privacy .privacy-copy a, .page-terms .privacy-copy a { color: var(--gold-hi); text-underline-offset: 4px; }
+/* ---------- guide pages ---------- */
+.nav-links { display: flex; align-items: center; gap: 26px; }
+.nav-links a { padding: 10px 2px; font-size: 14px; font-weight: 500; letter-spacing: .14em; text-transform: uppercase; text-decoration: none; color: #AEB7D0; transition: color .2s var(--ease); }
+.nav-links a:hover { color: var(--text); text-decoration: underline; text-decoration-color: var(--gold-soft); text-underline-offset: 6px; }
+.page-info .info { width: min(72ch, 100% - var(--gut) * 2); margin: 0 auto; padding: 56px 0 96px; font-size: 18px; line-height: 1.7; overflow-wrap: anywhere; }
+.page-info h1 { font-size: clamp(36px, 6vw, 60px); line-height: 1.1; text-wrap: balance; }
+.page-info .answer { margin-top: 22px; font-size: 20px; line-height: 1.55; color: var(--text); text-wrap: pretty; }
+.page-info h2 { margin-top: 44px; margin-bottom: 12px; font-size: clamp(23px, 3vw, 28px); line-height: 1.25; text-wrap: pretty; }
+.page-info h3 { font-family: var(--display); font-weight: 400; font-size: 19px; line-height: 1.25; color: var(--gold-hi); margin-top: 22px; }
+.page-info .info > p + p { margin-top: 16px; }
+.page-info ul { margin: 14px 0 0; padding-left: 1.25em; }
+.page-info li + li { margin-top: 8px; }
+.page-info ul + p { margin-top: 14px; }
+.page-info li::marker { color: var(--gold-soft); }
+.page-info .info a:not(.btn) { color: var(--gold-hi); text-underline-offset: 4px; }
+.page-info .info a:not(.btn):hover { color: #fff; }
+.page-info .info-cta { margin-top: 26px; }
+.page-info .info-cta .btn { text-decoration: none; }
+.page-info .info-fig { margin: 34px 0 0; }
+.page-info .info-fig a { display: block; border-radius: 12px; }
+.page-info .info-fig img { display: block; width: 100%; height: auto; border-radius: 12px; border: 1px solid var(--border); }
+.page-info figcaption { margin-top: 10px; font-size: 14px; line-height: 1.5; color: var(--text-2); }
+.page-info .faq-list { grid-template-columns: 1fr; gap: 14px; margin-top: 16px; max-width: none; }
+.page-info .faq-item h3 { margin-top: 0; font-size: 19px; }
+.page-info .rel-date { margin-top: 6px; font-size: 15px; color: var(--text-2); }
+.page-info .release { margin-top: 12px; }
 .page-404 { min-height: 100svh; display: flex; flex-direction: column; isolation: isolate; }
 .page-404 .error-bg { position: fixed; inset: 0; z-index: -1; pointer-events: none; background: radial-gradient(60% 70% at 50% 46%, rgba(124, 58, 237, .24), transparent 70%), radial-gradient(40% 50% at 12% 0%, rgba(245, 158, 11, .07), transparent 70%), linear-gradient(180deg, #0A0E1A, #0B1020 70%, #0A0E1A); }
 .page-404 .error-rings { position: fixed; left: 50%; top: 46%; width: min(1000px, 130vw); aspect-ratio: 1; translate: -50% -50%; color: var(--gold-soft); z-index: -1; pointer-events: none; }
@@ -463,6 +489,10 @@ html:not(.js) .step .flip { transform: rotateY(180deg); }
 @media (max-width: 900px) {
   .foot .legal { flex: initial; }
   .page-privacy .privacy-copy, .page-terms .privacy-copy { padding-top: 32px; font-size: 17px; }
+  .nav-links { display: none; }
+  .page-info .info { padding-top: 32px; font-size: 17px; }
+  .page-info .answer { font-size: 18px; }
+  .page-info .info-cta .btn { width: 100%; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }

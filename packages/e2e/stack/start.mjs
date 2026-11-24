@@ -132,6 +132,8 @@ const base = {
   DATABASE_PATH: dbPath,
   DUEL_DATA_DIR: runtimeDuelDataDir,
   E2E_PRERELEASE_CATALOG: process.env.E2E_PRERELEASE_CATALOG ?? "0",
+  // 1 = card images come from images.ygoprodeck.com (marketing screenshots only). Default: 1x1 stub.
+  E2E_REAL_CARD_ART: process.env.E2E_REAL_CARD_ART ?? "0",
   DOTENV_CONFIG_PATH: resolve(stackDir, "none.env"),
   DOTENV_CONFIG_QUIET: "true",
   OWNER_USER_IDS: ownerUserIds,
@@ -202,6 +204,9 @@ run("worker", process.execPath, [resolve(repoRoot, "packages/worker/dist/index.j
   cwd: serviceDirectory("worker"),
   env: { ...base, NODE_OPTIONS: `--import=${stub}`, CARD_IMAGE_CACHE_DIR: cardImageDir,
     CARD_IMAGE_CACHE_MAX_BYTES: "16106127360", WORKER_HEALTH_PATH: workerHealthPath,
+    // Only scripts/site-screenshots.sh sets these: an operator-checked Genesys list for this throwaway stack.
+    ...(process.env.GENESYS_LIST_REVISION && process.env.GENESYS_LIST_EFFECTIVE_DATE
+      ? { GENESYS_LIST_REVISION: process.env.GENESYS_LIST_REVISION, GENESYS_LIST_EFFECTIVE_DATE: process.env.GENESYS_LIST_EFFECTIVE_DATE } : {}),
     WS_INTERNAL_URL: wsInternal, WS_INTERNAL_SECRET: secrets.ws,
     DISCORD_BOT_ENABLED: "0", BOT_ANNOUNCE_URL: "", BOT_ANNOUNCE_SECRET: "",
     SETS_SYNC_CRON: "0 6 * * *", SETS_SYNC_TIMEZONE: "UTC",
