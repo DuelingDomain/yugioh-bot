@@ -127,7 +127,7 @@ export function createRoomMutationQueue(read:()=>RemoteRoom|undefined,post:RoomM
       const prior = manual;
       const run = () => prior.then(() => write(proposal, key, rollback, true));
       // A log note can clear a pending placement confirmation in the reducer. A response never touches the board, so it skips the queue.
-      const independent = (proposal.type === 'log.note' || proposal.type === 'chain.respond') && room && !hasPendingTwinConfirmation(room);
+      const independent = (proposal.type === 'log.note' || proposal.type === 'chain.respond' || proposal.type === 'chain.thinking' || proposal.type === 'chain.ok') && room && !hasPendingTwinConfirmation(room);
       const result = independent ? run() : transaction(run);
       manual = result.catch(() => undefined);
       return result;

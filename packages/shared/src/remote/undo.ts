@@ -277,6 +277,7 @@ export function remoteUndoLabel(action: RemoteAction, position?: RemotePosition)
     case "pile.lift": return `${action.zone === "graveyard" ? "Graveyard" : "Banished"} picked up (${action.cardRefs.length} card${action.cardRefs.length === 1 ? "" : "s"})`;
     case "lp.change": return `${action.delta < 0 ? "−" : "+"}${Math.abs(action.delta)} LP`;
     case "phase.set": return action.phase;
+    case "chain.ok": return "OK";
     case "turn.end": return "Passed the turn";
     default: return action.type;
   }

@@ -84,12 +84,12 @@ function projectEvent(event:RemoteEvent,seats:ReadonlySet<number>):RemoteEvent {
 }
 /**
  * Spectators see the public field, including cards turned face-down after they were public there. Revealed and returned-to-hand
- * cards are filtered like a player's view. Private hand contents, notes, undo and deck data are omitted.
+ * cards are filtered like a player's view. Private hand contents, notes, undo history and deck data are omitted.
  * Allow list for events: a new action type shows as a private line until it is added here.
  */
 const SPECTATOR_EVENTS:ReadonlySet<string>=new Set(["table.created","table.configured","table.started","table.ended","idle.warning","admin.watching","seat.joined","seat.left","seat.ready","seat.deck",
   "phase.set","phase.advance","turn.end","lp.change","detection.mode","attack.declare","attack.resolve","player.concede","player.leave","match.declare","match.confirm","match.continue","match.first","side.ready","side.unready","side.timeout",
-  "hand.draw","hand.count","twin.place","twin.move","twin.flip","twin.remove","twin.attach","twin.detach","twin.equip","twin.control","monsters.tribute","pile.lift","pile.order","effect.activated","card.identified","cards.identified","chain.respond"]);
+  "hand.draw","hand.count","twin.place","twin.move","twin.flip","twin.remove","twin.attach","twin.detach","twin.equip","twin.control","monsters.tribute","pile.lift","pile.order","effect.activated","card.identified","cards.identified","chain.respond","chain.thinking","chain.ok"]);
 const PUBLIC_ZONE = (card: TwinCard) => card.faceUp !== false && !["hand", "deck", "extra"].includes(card.zone) ||
   !!card.knownFaceDown && !!card.publicIdentity && remoteFieldZone(card.zone);
 /** Twin refs can hold the card id ("c0-<id>-..."). A ref that is not of a card public now becomes a name with no meaning for one snapshot. */
@@ -133,11 +133,13 @@ function spectatorPosition<T extends RemotePosition>(state:T,refs:SpectatorRefs)
   next.identified=shown && on && PUBLIC_ZONE(on) && !shown.private ? {seat:shown.seat,cardRef:shown.cardRef,cardId:shown.cardId,passcode:shown.passcode,zone:shown.zone,source:shown.source,name:shown.name,addErrors:[]} : null;
   return next;
 }
-function spectatorEvent(event:RemoteEvent,refs:SpectatorRefs):RemoteEvent {
+function spectatorEvent(event:RemoteEvent,refs:SpectatorRefs,visibleEventIds:ReadonlySet<string>):RemoteEvent {
   const projected=projectEvent(event,new Set());
   delete projected.messages;
   const a=projected.action;
   const actor=event.actorSeat ?? -1;
+  // The live chain display can remove an undone event whose action is already visible in this snapshot.
+  if(a.type==="undo" && visibleEventIds.has(a.targetActionId)) return projected;
   if(!SPECTATOR_EVENTS.has(a.type)) return {...projected,action:{type:"log.note",actorSeat:actor,text:a.type==="undo" ? "Undid an action" : "Updated a private card",idempotencyKey:event.id}};
   if(a.type==="card.identified" || a.type==="cards.identified") {
     // A read of a card on a camera is what the spectator can see in the video. It is shown only when it names no hidden card: no hand, Deck or Extra Deck zone,
@@ -162,7 +164,13 @@ function spectatorEvent(event:RemoteEvent,refs:SpectatorRefs):RemoteEvent {
 export function projectRemoteSpectator(snapshot:RemoteSnapshot):RemoteSnapshot {
   const refs=spectatorRefs(snapshot.state), state={...spectatorPosition(snapshot.state,refs),undo:null,undoHistory:[]};
   renameRefs(state,refs.hide);
-  return {table:projectRemoteTable(snapshot.table),state,events:snapshot.events.map(event=>spectatorEvent(event,refs))};
+  const visibleEventIds=new Set<string>();
+  const events=snapshot.events.map(event=>{
+    const projected=spectatorEvent(event,refs,visibleEventIds);
+    if(SPECTATOR_EVENTS.has(projected.action.type)) visibleEventIds.add(projected.id);
+    return projected;
+  });
+  return {table:projectRemoteTable(snapshot.table),state,events};
 }
 export function projectRemoteSnapshot(snapshot:RemoteSnapshot,seats:ReadonlySet<number>=new Set()):RemoteSnapshot {
   return {table:projectRemoteTable(snapshot.table,seats),state:projectRemoteState(snapshot.state,seats),events:snapshot.events.map(e=>projectEvent(e,seats))};

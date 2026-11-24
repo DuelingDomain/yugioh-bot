@@ -1,7 +1,7 @@
 import { createTournamentRemoteResultService } from "./tournament-remote-results.js";
 import { assertRemoteTournamentEntrants, assertRemoteTournamentUser } from "./tournament-remote-access.js";
 import { readRemoteState, writeRemoteState, readRemoteEffects, writeRemoteEffects } from "../remote/storage.js";
-import { REMOTE_RESPOND_COOLDOWN_MS } from "../remote/actions.js";
+import { REMOTE_RESPOND_COOLDOWN_MS, REMOTE_SIGNAL_COOLDOWN_MS } from "../remote/actions.js";
 import { freezeRemoteValue } from "../remote/position.js";
 import type { RemoteRevealedHand, RemoteVisibility } from "../remote/types.js";
 import { remoteUndoLabel } from "../remote/undo.js";
@@ -599,10 +599,10 @@ export function createRemoteDuelService(db: Database.Database, options: {
         remoteAssert(Number.isSafeInteger(input.baseSeq) && input.baseSeq >= 0, "Invalid base sequence");
         // Admin watch notifications and player notes leave the board unchanged.
         // Quitting and conceding are final choices: another action in flight must not turn them into a refused click.
-        // A response is a public signal like a note: it neither waits for the board to settle nor makes other writes stale.
-        if (command.type !== "side.timeout" && command.type !== "player.leave" && command.type !== "player.concede" && command.type !== "chain.respond") {
+        // A response, Thinking and OK are public signals like a note: they neither waits for the board to settle nor makes other writes stale.
+        if (command.type !== "side.timeout" && command.type !== "player.leave" && command.type !== "player.concede" && command.type !== "chain.respond" && command.type !== "chain.thinking" && command.type !== "chain.ok") {
           remoteAssert(input.baseSeq === row.last_seq || (input.baseSeq < row.last_seq && !db.prepare(
-            "select 1 from remote_events where table_id=? and seq>? and json_extract(action_json,'$.type') not in ('admin.watching','log.note','chain.respond') limit 1",
+            "select 1 from remote_events where table_id=? and seq>? and json_extract(action_json,'$.type') not in ('admin.watching','log.note','chain.respond','chain.thinking','chain.ok') limit 1",
           ).get(row.id, input.baseSeq)), "Stale sequence; fetch state and retry", 409, "STALE_SEQUENCE");
         }
         // An idle table the sweep has not closed yet closes here, so the player sees the ended table at once instead of a refused move.
@@ -612,6 +612,10 @@ export function createRemoteDuelService(db: Database.Database, options: {
         if (command.type === "chain.respond") remoteAssert(!db.prepare(
           "select 1 from remote_events where table_id=? and actor_seat=? and json_extract(action_json,'$.type')='chain.respond' and created_at>? limit 1",
         ).get(row.id, command.actorSeat, now - REMOTE_RESPOND_COOLDOWN_MS), "You just responded. Wait a moment.", 409, "RESPOND_COOLDOWN");
+        // Thinking and OK are quick signals: one per seat per second, whichever of the two it was.
+        if (command.type === "chain.thinking" || command.type === "chain.ok") remoteAssert(!db.prepare(
+          "select 1 from remote_events where table_id=? and actor_seat=? and json_extract(action_json,'$.type') in ('chain.thinking','chain.ok') and created_at>? limit 1",
+        ).get(row.id, command.actorSeat, now - REMOTE_SIGNAL_COOLDOWN_MS), "Too fast. Wait a moment.", 409, "SIGNAL_COOLDOWN");
         const before = timeoutState ?? readState(row);
         // `now` was read before this write lock. A request that waited for another writer (a second web worker or the sweep) can carry a time just before the state it now sees; the reducer refuses a time before the state, which would drop a valid move. Event time never goes backward.
         const stamp = Math.max(now, before.updatedAt);
@@ -711,7 +715,7 @@ export function createRemoteDuelService(db: Database.Database, options: {
           const target = before.undoHistory?.find(e=>e.actionId===command.targetActionId);
           if (target) messages.push({seat:command.actorSeat,text:": Undone: "+remoteUndoLabel(target.action, target.after)});
         }
-        append(row, action, stamp, userId, command.actorSeat, command.type !== "chain.respond", effects, messages);
+        append(row, action, stamp, userId, command.actorSeat, command.type !== "chain.respond" && command.type !== "chain.thinking" && command.type !== "chain.ok", effects, messages);
         syncDecks(row, state);
         const matchDone = state.match.phase === "done";
         // A forfeit is a quit between games. A quit during a live game was a conceded game, with a normal game result.

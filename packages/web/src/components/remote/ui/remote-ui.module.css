@@ -378,6 +378,7 @@
 .lpbtn button{flex:1 1 0;min-width:0;height:30px;font-size:13px;max-height:none}
 .lpin{order:4;margin:0;flex:0 0 auto;width:84px;height:30px;font-size:13px}
 .lpbar{position:absolute;left:2px;right:2px;bottom:0;height:3px}
+.thinkrow{order:-1;flex:none;display:flex;align-items:center}
 @container seat (max-width:420px){
   .lp{flex-wrap:wrap}.lpbtn{flex-basis:100%;order:5}.lpin{margin-left:auto}
 }
@@ -419,6 +420,8 @@
 .dock.nomic{grid-template-columns:minmax(0,2fr) minmax(300px,.8fr)}
 /* "My field" is a phone-width control (the field scrolls below the camera there). On a wide screen it is not a dock cell: a fourth grid child pushes mic, voice and undo one column over. */
 .dock>.myfield{display:none}
+.signals{display:flex;gap:6px;min-width:0}
+.signals>button{flex:1 1 0;min-width:0;max-width:220px;white-space:nowrap}
 .dk{display:flex;align-items:center;gap:12px;min-width:0;min-height:0;overflow:hidden;border:1px solid var(--line);border-radius:10px;background:linear-gradient(180deg,var(--p1),var(--p0));padding:8px 12px}
 .mic{position:relative;transition:border-color .3s,box-shadow .3s}
 .mic.listen{border-color:rgb(232 185 79/.7);box-shadow:0 0 0 1px rgb(232 185 79/.2),0 0 28px rgb(232 185 79/.14)}

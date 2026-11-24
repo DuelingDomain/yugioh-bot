@@ -1,0 +1,35 @@
+.icon{width:18px;height:18px;flex:none;overflow:visible}
+.ring{fill:none;stroke:rgb(155 126 255/.35);stroke-width:1.6}
+.arc{fill:none;stroke:rgb(155 126 255);stroke-width:1.8;stroke-linecap:round;transform-origin:12px 12px;animation:thinkSpin 2.4s linear infinite}
+.core{fill:var(--gold,#e8b94f);transform-origin:12px 12px;animation:thinkPulse 2.4s ease-in-out infinite}
+@keyframes thinkSpin{to{transform:rotate(360deg)}}
+@keyframes thinkPulse{0%,100%{opacity:.55;transform:scale(.8)}50%{opacity:1;transform:scale(1)}}
+
+.chip{display:inline-flex;align-items:center;gap:6px;font:700 11px/1 var(--font-duel-ui,"Sofia Sans Semi Condensed",system-ui,sans-serif);letter-spacing:.08em;text-transform:uppercase;color:var(--ink2,#d4cbbd);padding:4px 8px;border:1px solid rgb(155 126 255/.45);border-radius:999px;background:rgb(155 126 255/.1);white-space:nowrap}
+.chip b{color:var(--gold-ink,#f6dc9a);font-variant-numeric:tabular-nums;min-width:2.2ch;text-align:left}
+
+.stack{position:fixed;top:84px;left:50%;transform:translateX(-50%);z-index:59;pointer-events:none;display:flex;flex-direction:column;align-items:center;gap:6px}
+.stack.low{top:196px}
+.line{display:flex;align-items:center;gap:10px;padding:8px 18px 8px 14px;border-radius:999px;border:1px solid rgb(155 126 255/.55);background:rgb(11 7 22/.92);box-shadow:0 6px 22px rgb(0 0 0/.45);animation:thinkIn .22s ease both}
+.line .icon{width:22px;height:22px}
+.line small{font:700 11px/1 var(--font-duel-ui,"Sofia Sans Semi Condensed",system-ui,sans-serif);letter-spacing:.22em;color:var(--ink2,#b9b0cc);text-transform:uppercase}
+.line b{font:700 15px/1 var(--font-duel-display,Oxanium,sans-serif);letter-spacing:.14em;color:var(--ink,#f1ead9);text-transform:uppercase}
+.line time{font:700 15px/1 var(--font-duel-display,Oxanium,sans-serif);color:var(--gold-ink,#f6dc9a);font-variant-numeric:tabular-nums;min-width:3ch;text-align:right}
+@keyframes thinkIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
+
+.ok{position:fixed;top:84px;left:50%;transform:translateX(-50%);z-index:60;pointer-events:none;display:flex;align-items:baseline;gap:10px;padding:8px 26px;border-block:1px solid var(--gold,#e8b94f);background:linear-gradient(90deg,transparent,rgb(11 7 22/.95) 14%,rgb(11 7 22/.95) 86%,transparent);animation:okIn 1.5s ease both}
+.ok small{font:700 12px/1 var(--font-duel-ui,"Sofia Sans Semi Condensed",system-ui,sans-serif);letter-spacing:.3em;color:var(--ink2,#b9b0cc);text-transform:uppercase}
+.ok b{font:700 24px/1 var(--font-duel-display,Oxanium,sans-serif);letter-spacing:.14em;color:var(--gold-ink,#f5d98a);text-shadow:0 0 18px rgb(232 185 79/.5)}
+@keyframes okIn{0%{opacity:0;transform:translateX(-50%) scaleY(.3)}10%{opacity:1;transform:translateX(-50%)}80%{opacity:1}100%{opacity:0}}
+
+.row{position:fixed;left:50%;bottom:92px;transform:translateX(-50%);z-index:70;display:flex;align-items:center;gap:10px;max-width:min(96vw,1100px);padding:8px 10px 8px 14px;border-radius:10px;border:1px solid var(--line2,#3a3052);background:rgb(11 7 22/.96);box-shadow:0 10px 30px rgb(0 0 0/.55);color:var(--ink,#f1ead9)}
+.rowHead{font:700 11px/1 var(--font-duel-ui,"Sofia Sans Semi Condensed",system-ui,sans-serif);letter-spacing:.14em;text-transform:uppercase;color:var(--gold-ink,#f6dc9a);white-space:nowrap}
+.row ol{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:6px;min-width:0}
+.row li button,.rowClose{display:inline-flex;align-items:center;gap:7px;height:28px;padding:0 9px;border-radius:6px;border:1px solid var(--line2,#3a3052);background:var(--p2,#1c1530);color:inherit;font:600 12px/1 var(--font-duel-ui,"Sofia Sans Semi Condensed",system-ui,sans-serif);max-width:180px}
+.row li button span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row li button:hover,.rowClose:hover{border-color:rgb(155 126 255)}
+.row kbd{font:700 11px/1 var(--font-duel-display,Oxanium,sans-serif);color:#1b1204;background:var(--gold,#e8b94f);border-radius:4px;padding:3px 5px}
+.rowClose{color:var(--ink3,#aaa1ba)}
+
+
+@media (prefers-reduced-motion:reduce){.arc,.core,.line,.ok{animation:none}}

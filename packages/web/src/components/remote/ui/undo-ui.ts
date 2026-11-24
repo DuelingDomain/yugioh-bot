@@ -53,6 +53,7 @@ export function shortUndoLabel(event: { action: unknown }, cardName: (seat: numb
     case "pile.lift": return `${a.zone === "graveyard" ? "Graveyard" : "Banished"} picked up (${a.cardRefs.length})`;
     case "lp.change": return `${name(a.seat)} ${a.delta < 0 ? "−" : "+"}${Math.abs(a.delta)} LP`;
     case "phase.set": return PHASE_LONG[a.phase] ?? a.phase;
+    case "chain.ok": return "OK";
     default: return null;
   }
 }

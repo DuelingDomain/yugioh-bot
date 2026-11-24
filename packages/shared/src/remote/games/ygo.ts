@@ -183,7 +183,7 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
   next.deckChecks ??= initialDeckChecks();
   // Given cards (control proxies): replays recorded without the flag keep the older rules.
   const givenCardsOn = !context?.replay || context.givenCards === 1;
-  if (action.type === "chain.respond") { /* a public signal: it never settles or cancels a pending twin confirmation */ }
+  if (action.type === "chain.respond" || action.type === "chain.thinking" || action.type === "chain.ok") { /* a public signal: it never settles or cancels a pending twin confirmation */ }
   else if (!context?.replay || (context.twinPlacementGuard ?? 0) >= 3) { delete next.twinConfirmation; delete next.twinConfirmationQueue; }
   else if (context.twinPlacementGuard !== 2 && action.type !== "log.note") delete next.twinConfirmation;
   const ownTurn = () => remoteAssert(action.actorSeat === state.turnSeat || state.seats[state.turnSeat].eliminated, "Only the turn player can advance", 403);
@@ -631,7 +631,10 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
       }
       break;
     }
-    case "log.note": case "chain.respond": return next;
+    case "chain.ok":
+      rememberRemoteAction(state, next, action);
+      return next;
+    case "log.note": case "chain.respond": case "chain.thinking": return next;
   }
   if (!tokenAction) {
     applyRemoteEffectTracking(next, state, deckAction, context);

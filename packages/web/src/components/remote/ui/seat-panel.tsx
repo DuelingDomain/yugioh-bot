@@ -14,6 +14,7 @@ import { NotifyDock } from "./notify-dock";
 import { HandStrip, type HandProps } from "./hand-ui";
 import { TapBoardNote } from "./tap-mode-banner";
 import { modeLabel, modeShort, type TournamentMode } from "@/lib/remote/tournament-detection";
+import { ThinkingChip } from "./think";
 import s from "./remote-ui.module.css";
 
 export const LP_STEPS: { delta: number; kind: string }[] = [
@@ -53,6 +54,7 @@ export type SeatPanelProps = {
   /** Cards with a same-identity twin on this field (ref to count). */
   twinCounts?: ReadonlyMap<string, number>; deckListSizes?:{deck:number;extra:number}; deckRegistered?:boolean;
   onPlate: () => void; onLp: (delta: number) => void; canLp: boolean;
+  /** Server time this player started Thinking (the T key). Shown in the status area under the field. */ thinkingSince?: number;
   /** Names the table shape (2, 3 or 4 seats) so the remembered view is per viewer, seat and shape. */ viewScope?: string;
   /** Undo on the player's own seat. Same action as the dock Undo. Set only for the viewer's seat. */
   undo?: SeatUndo;
@@ -189,6 +191,7 @@ export function SeatPanel(p: SeatPanelProps) {
         </div>
         {p.hand ? <HandStrip seat={p.seat} name={p.name} hand={compact ? { ...p.hand, tray: true } : p.hand} /> : null}
         <div className={s.lp} data-testid={`lp-${p.seat}`}>
+          {p.thinkingSince !== undefined ? <div className={s.thinkrow}><ThinkingChip since={p.thinkingSince} seat={p.seat} /></div> : null}
           <div className={s.lpmain}>
             <span className={s.lpl}>LP</span>
             <span className={`${s.lpn} ${s.num} ${low ? s.low : ""} ${delta < 0 ? s.loss : delta > 0 ? s.gain : ""}`} data-testid={`lp-value-${p.seat}`} data-lp-seat={p.seat}>{p.lp}</span>
