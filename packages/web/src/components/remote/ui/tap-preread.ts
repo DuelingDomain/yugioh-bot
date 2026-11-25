@@ -7,14 +7,15 @@ const SAMPLE_GAP_MS = 250;
 const ACTIVE_SAMPLE_MS = 400;
 const IDLE_SAMPLE_MS = 1200;
 const JOB_GAP_MS = 850;
-const JOB_LIMIT_MS = 3000;
 const RETRY_MS = 2000;
+const TIMEOUT_RETRY_MS = 10_000;
 
 // All feeds share one sampler and one inference budget. Advance round-robin after each sample.
 type Feed = { nextAt: number; tick(at: number): Promise<boolean> };
 const feeds = new Set<Feed>();
 let timer: ReturnType<typeof setTimeout> | undefined;
 let ticking = false;
+let retryAfterTimeout = -Infinity;
 
 function schedule(delay = 0) {
   if (timer === undefined && !ticking && feeds.size) timer = setTimeout(run, delay);
@@ -56,6 +57,11 @@ export function watchTapFeed(options: {
   let scope = "", lastVideoTime = -1, lastSample = -Infinity, retryAt = -Infinity;
   const feed: Feed = { nextAt: 0, tick };
 
+  function deferRetry(timedOut?: boolean) {
+    if (timedOut) retryAfterTimeout = performance.now() + TIMEOUT_RETRY_MS;
+    else retryAt = performance.now() + RETRY_MS;
+  }
+
   function syncCalibration() {
     const calibration = options.calibration();
     const key = calibration?.orientation && video.videoWidth && video.videoHeight
@@ -93,10 +99,10 @@ export function watchTapFeed(options: {
     const scan = current.sample(pixels, at);
     const next = current.next(card => options.tracked(fieldCenter(card)));
     if (next || scan || (pixels.scene?.sinceMark ?? 0) > 2) feed.nextAt = at + ACTIVE_SAMPLE_MS * pace;
-    if ((!next && !scan) || readerBusy() || at < retryAt) return false;
+    if ((!next && !scan) || readerBusy() || at < Math.max(retryAt, retryAfterTimeout)) return false;
     const frame = options.capture();
     if (!frame) return false;
-    const signal = AbortSignal.any([stop.signal, AbortSignal.timeout(JOB_LIMIT_MS)]);
+    const signal = stop.signal;
     try {
       await runUntilAbort(signal, async () => {
         if (next) {
@@ -104,7 +110,7 @@ export function watchTapFeed(options: {
           signal.throwIfAborted();
           const latestCalibration = syncCalibration();
           if (document.hidden || current !== tracker) return;
-          if (answer.status !== "ready") { retryAt = performance.now() + RETRY_MS; return; }
+          if (answer.status !== "ready") { deferRetry(answer.timedOut); return; }
           const latest = sample(performance.now(), latestCalibration);
           if (!latest || !current.currentFront(next, latest)) return;
           const { peek } = answer;
@@ -118,7 +124,7 @@ export function watchTapFeed(options: {
           signal.throwIfAborted();
           syncCalibration();
           if (document.hidden || current !== tracker) return;
-          if (found.status !== "ready") { retryAt = performance.now() + RETRY_MS; return; }
+          if (found.status !== "ready") { deferRetry(found.timedOut); return; }
           pixels.scene?.mark();
           current.sample(pixels, at, found.cards);
         }

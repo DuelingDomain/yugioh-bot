@@ -41,9 +41,9 @@ type VisionRecognizer = {
   warmup(): Promise<void>;
   prepare(opts?:import("@yugidraft/vision").PrepareOptions):Promise<{ backend: EngineBackend }>;
   recognize(frames: ImageBitmap[], opts?: object): Promise<RawResult>;
-  peek(frame: ImageBitmap, opts: { card: ReadCard; cards?: ReadCard[]; priors?: object; signal?: AbortSignal }): Promise<RawPeek>;
+  peek(frame: ImageBitmap, opts: { card: ReadCard; cards?: ReadCard[]; priors?: object; signal?: AbortSignal; background?: boolean }): Promise<RawPeek>;
   readAll(frame: ImageBitmap, opts: { cards?: ReadCard[]; priors?: object; signal?: AbortSignal }): Promise<RawBoard>;
-  detectCards(frame: ImageBitmap, opts?:import("@yugidraft/vision").DetectOptions, signal?: AbortSignal): Promise<ReadCard[]>;
+  detectCards(frame: ImageBitmap, opts?: import("@yugidraft/vision").DetectOptions & { background?: boolean }, signal?: AbortSignal): Promise<ReadCard[]>;
   askAI(result: RawResult, options?: { explicitRequest?: boolean; signal?: AbortSignal }): Promise<AIReading>;
   recordFeedback(result: RawResult, chosenCardId: string, source: FeedbackSource): Promise<unknown>;
   dispose(): void;
@@ -163,7 +163,7 @@ const priorsFor = (found: Meta, priors: Priors, voice = true): RecognitionPriors
 const toQuad = (card: ReadCard): ReadCard => ({ quad: card.quad, kind: card.kind, confidence: card.confidence, partial: card.partial, ...(card.covered ? { covered: true } : {}) });
 
 export type Peek = { cardId?: number; name: string | null; tier: "sure" | "not sure" | "low match"; faceDown: boolean; covered: boolean };
-export type PeekAnswer = { status: "ready"; peek: Peek } | { status: "unavailable" | "error"; note: string };
+export type PeekAnswer = { status: "ready"; peek: Peek } | { status: "unavailable" | "error"; note: string; timedOut?: boolean };
 /** Names one outlined card of a frozen frame, locally. No crop leaves this browser and no AI is asked. */
 export function peekCard(frame: HTMLCanvasElement, card: ReadCard, cards: ReadCard[], priors: Priors, signal: AbortSignal, background = false): Promise<PeekAnswer> {
   const job = async (signal: AbortSignal): Promise<PeekAnswer> => {
@@ -174,12 +174,15 @@ export function peekCard(frame: HTMLCanvasElement, card: ReadCard, cards: ReadCa
       const bitmap = await createImageBitmap(frame);
       try {
         signal.throwIfAborted();
-        const answer = await vision.peek(bitmap, { card: toQuad(card), cards: cards.map(toQuad), priors: priorsFor(found, priors, !background), signal });
+        const answer = await vision.peek(bitmap, { card: toQuad(card), cards: cards.map(toQuad), priors: priorsFor(found, priors, !background), signal, background });
         signal.throwIfAborted();
         const entry = answer.cardId ? found.entries.find(e => e.cardId === answer.cardId) : undefined;
         return { status: "ready" as const, peek: { cardId: entry?.passcode, name: answer.name ?? entry?.name ?? null, tier: answer.tier, faceDown: answer.faceDown, covered: answer.covered } };
       } finally { bitmap.close(); }
-    } catch (error) { return { status: "error" as const, note: error instanceof Error ? error.message : "Peek failed" }; }
+    } catch (error) {
+      const timedOut = background && error instanceof DOMException && error.name === "TimeoutError";
+      return { status: "error", timedOut, note: error instanceof Error ? error.message : "Peek failed" };
+    }
   };
   return background ? enqueueBackground(job, signal).catch(() => ({ status: "error", note: "Cancelled." })) : enqueue(() => job(signal));
 }
@@ -282,7 +285,8 @@ function enqueueBackground<T>(job: (signal: AbortSignal) => Promise<T>, outer: A
   if (readerBusy() || outer.aborted) return Promise.reject(new DOMException("Cancelled.", "AbortError"));
   const controller = backgroundRead = new AbortController();
   const signal = AbortSignal.any([outer, controller.signal]);
-  return enqueue(() => runUntilAbort(signal, () => job(signal)), false, false, true)
+  // Foreground work aborts this result and takes the next slot once the worker reaches a job boundary.
+  return enqueue(() => { signal.throwIfAborted(); return job(signal); }, false, false, true)
     .finally(() => { if (backgroundRead === controller) backgroundRead = undefined; });
 }
 
@@ -417,7 +421,7 @@ async function secondFrameAgrees(vision: VisionRecognizer, first: RawResult, poi
   } catch { return false; }
 }
 
-export type Detection = { status: "ready"; cards: DetectedQuad[]; ms: number } | { status: "unavailable" | "error"; cards: []; note: string };
+export type Detection = { status: "ready"; cards: DetectedQuad[]; ms: number } | { status: "unavailable" | "error"; cards: []; note: string; timedOut?: boolean };
 /** Finds every card in one frame. The bitmap is consumed. Without the card reader installed this answers "unavailable". */
 export async function detectCards(frame: ImageBitmap, opts?:import("@yugidraft/vision").DetectOptions, backgroundSignal?: AbortSignal): Promise<Detection> {
   const job = async (signal?: AbortSignal): Promise<Detection> => {
@@ -425,7 +429,7 @@ export async function detectCards(frame: ImageBitmap, opts?:import("@yugidraft/v
     signal?.throwIfAborted();
     if (!vision || !found) return { status: "unavailable", cards: [], note: "The card reader is not installed here." };
     const start = performance.now();
-    const cards = await vision.detectCards(frame, opts, signal);
+    const cards = await vision.detectCards(frame, signal ? { ...opts, background: true } : opts, signal);
     signal?.throwIfAborted();
     return { status: "ready", cards: cards.map(card => ({ ...card, refined: !card.partial })), ms: Math.round(performance.now() - start) };
   };
@@ -437,7 +441,8 @@ export async function detectCards(frame: ImageBitmap, opts?:import("@yugidraft/v
     const detect = () => job();
     return await (reader ? enqueueScene(reader, detect) : enqueue(detect));
   } catch (error) {
-    return { status: "error", cards: [], note: error instanceof Error ? error.message : "The card detector failed." };
+    const timedOut = !!backgroundSignal && error instanceof DOMException && error.name === "TimeoutError";
+    return { status: "error", timedOut, cards: [], note: error instanceof Error ? error.message : "The card detector failed." };
   } finally { frame.close(); }
 }
 

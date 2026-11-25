@@ -57,6 +57,10 @@ export interface RecognizerConfig {
   /** ONNX Runtime WASM threads per worker (default: see chooseWorkerLayout). */
   threads?: number;
 }
+type BackgroundFrameOptions = {
+  /** Discard cancelled or late results at the job boundary while keeping the worker warm. */
+  background?: boolean;
+};
 export interface Recognizer {
   /** Actual providers and fallback reasons from the last worker response. */
   readonly backendStatus?: BackendStatus;
@@ -73,9 +77,9 @@ export interface Recognizer {
   prepare(opts?:PrepareOptions):Promise<{backend:'webgpu'|'wasm'}>;
   /** ImageBitmaps transfer to the worker and are consumed. ImageData is copied. Up to 12 frames. */
   recognize(frames: ImageBitmap[] | ImageData[], opts?: RecognizeOptions): Promise<RecognitionResult>;
-  detectCards(frame: ImageBitmap | ImageData, opts?:DetectOptions, signal?: AbortSignal): Promise<DetectedQuad[]>;
+  detectCards(frame: ImageBitmap | ImageData, opts?: DetectOptions & BackgroundFrameOptions, signal?: AbortSignal): Promise<DetectedQuad[]>;
   /** Local name/tier only, without a crop, AI request or correction history. Same-frame outlines only. */
-  peek(frame: ImageBitmap | ImageData, opts: PeekOptions): Promise<PeekResult>;
+  peek(frame: ImageBitmap | ImageData, opts: PeekOptions & BackgroundFrameOptions): Promise<PeekResult>;
   /** Reads at most 60 outlined cards sequentially. Abort terminates the active worker; next use reinitializes. */
   readAll(frame: ImageBitmap | ImageData, opts?: ReadAllOptions): Promise<BoardResult>;
   askAI(result: RecognitionResult, options?: { explicitRequest?: boolean; signal?: AbortSignal }): Promise<AIReading>;
@@ -120,6 +124,8 @@ interface Lane {
 }
 class HybridWorkerFailed extends Error {}
 const HYBRID_WORKER_WAIT_MS = 15_000;
+const BACKGROUND_INFERENCE_MS = 3_000;
+const BACKGROUND_WORKER_HANG_MS = 60_000;
 export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
   if (config.game !== undefined && config.game !== 'yugioh') throw new Error(`Unsupported game: ${config.game}`);
   const profile = config.profile ?? yugioh;
@@ -229,43 +235,68 @@ export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
     signal?.throwIfAborted();
     restorePrepare = false;
   }
-  async function frameRequest(lane: Lane, type: 'detect' | 'peek' | 'readAll', frame: ImageBitmap | ImageData, opts: object, signal?: AbortSignal) {
+  async function frameRequest(lane: Lane, type: 'detect' | 'peek' | 'readAll', frame: ImageBitmap | ImageData, opts: object, signal?: AbortSignal, background = false) {
     signal?.throwIfAborted();
     if (lane.inFlight && (type !== 'detect' || lane === read)) throw new Error('Recognition is already in progress');
-    // The worker serializes inference. Stop just this lane so a live request can start immediately.
-    const abort = () => {
+    const stopLane = (error: DOMException) => {
       if (lane === read && lastPrepare) restorePrepare = true;
       reset(lane);
-      failAll(lane, new DOMException('Recognition aborted', 'AbortError'));
+      failAll(lane, error);
+    };
+    const abort = () => {
+      stopLane(new DOMException('Recognition aborted', 'AbortError'));
       lane.inFlight = false;
     };
+    let watchdog: ReturnType<typeof setTimeout> | undefined;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const watchWorker = () => {
+      clearTimeout(watchdog);
+      watchdog = setTimeout(() => stopLane(new DOMException('Recognition worker stopped responding', 'TimeoutError')), BACKGROUND_WORKER_HANG_MS);
+    };
     lane.inFlight = true;
-    signal?.addEventListener('abort', abort, { once: true });
+    if (background) watchWorker();
+    else signal?.addEventListener('abort', abort, { once: true });
     try {
       await startLane(lane, threadsOf(lane));
       if (disposed) throw new Error('Recognizer is disposed');
+      signal?.throwIfAborted();
       if (type !== 'detect') await restoreReadOptions(lane, signal);
+      let inferenceSignal = signal;
+      if (background) {
+        // The detector is ready after init. A peek also needs the index and embedder before its budget starts.
+        if (type === 'peek') await prepare();
+        signal?.throwIfAborted();
+        watchWorker();
+        const limit = new AbortController();
+        timeout = setTimeout(() => limit.abort(new DOMException('Background inference timed out', 'TimeoutError')), BACKGROUND_INFERENCE_MS);
+        inferenceSignal = signal ? AbortSignal.any([signal, limit.signal]) : limit.signal;
+      }
       const begin = performance.now();
-      const result = await request(lane, { type, frame, opts }, typeof ImageBitmap !== 'undefined' && frame instanceof ImageBitmap ? [frame] : [], signal);
+      const result = await request(lane, { type, frame, opts }, typeof ImageBitmap !== 'undefined' && frame instanceof ImageBitmap ? [frame] : [], inferenceSignal).catch(error => {
+        if (background) inferenceSignal?.throwIfAborted();
+        throw error;
+      });
+      if (background) inferenceSignal?.throwIfAborted();
       if (type === 'detect' && detectorTimingsMs) {
         detectorTimingsMs.roundTrip = performance.now() - begin;
         detectorTimingsMs.transfer = Math.max(0, detectorTimingsMs.roundTrip - (detectorTimingsMs.worker ?? 0) - (detectorTimingsMs.queue ?? 0));
       }
       return result;
     } finally {
-      signal?.removeEventListener('abort', abort);
-      if (!signal?.aborted) lane.inFlight = false;
+      if (background) { clearTimeout(timeout); clearTimeout(watchdog); }
+      else signal?.removeEventListener('abort', abort);
+      if (background || !signal?.aborted) lane.inFlight = false;
     }
   }
-  async function boardRequest(type: 'peek' | 'readAll', frame: ImageBitmap | ImageData, opts: PeekOptions | ReadAllOptions) {
+  async function boardRequest(type: 'peek' | 'readAll', frame: ImageBitmap | ImageData, opts: (PeekOptions | ReadAllOptions) & BackgroundFrameOptions) {
     if(disposed) throw new Error('Recognizer is disposed');
     opts.signal?.throwIfAborted();
     const lane = await laneFor('read');
     if(frame.width<3 || frame.height<3 || frame.width*frame.height>16_000_000) throw new Error('Invalid frame');
     if(opts.cards) validateBoard(opts.cards);
     if('card' in opts) validateOptions({card:opts.card});
-    const {signal,...workerOptions}=opts;
-    return await frameRequest(lane, type, frame, workerOptions, signal);
+    const {signal,background,...workerOptions}=opts;
+    return await frameRequest(lane, type, frame, workerOptions, signal, background);
   }
   // Both table-open warmup and camera startup need the full recognition pipeline.
   // The worker's init now loads only the detector so outlines can survive index failures.
@@ -323,7 +354,8 @@ export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
       if(disposed) throw new Error('Recognizer is disposed');
       if(frame.width<3 || frame.height<3 || frame.width*frame.height>16_000_000) throw new Error('Invalid frame');
       const lane = await laneFor('scene');
-      return await frameRequest(lane, 'detect', frame, opts, signal) as DetectedQuad[];
+      const {background, ...workerOptions} = opts;
+      return await frameRequest(lane, 'detect', frame, workerOptions, signal, background) as DetectedQuad[];
     },
     async askAI(result, options={}) {
       if(disposed) throw new Error('Recognizer is disposed');
