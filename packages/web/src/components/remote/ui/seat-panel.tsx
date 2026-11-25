@@ -108,7 +108,7 @@ export function SeatPanel(p: SeatPanelProps) {
   // The primary action of my camera tools. While the camera and the board disagree it glows and says why (the reason is also the tooltip and the screen reader text).
   const need = scan && scan.ready && !scan.scanning ? advice.reason : null;
   const scanButton = scan ? <button type="button" className={s.scanbtn} aria-disabled={scan.scanning || !scan.ready} aria-keyshortcuts="S" aria-label={scan.scanning ? "Scanning field" : scan.ready ? (need ? `Scan field. ${need}` : "Scan field") : "Scan field, camera off"}
-          onClick={() => { if (scan.ready && !scan.scanning) scan.scan?.(); }} data-testid="field-scan" data-need={need ? "" : undefined} data-scan-ms={advice.last?.totalMs} data-scan-sweep-ms={advice.last?.sweepMs}
+          onClick={() => { if (scan.ready && !scan.scanning) scan.scan?.(); }} data-testid="field-scan-board" data-need={need ? "" : undefined} data-scan-ms={advice.last?.totalMs} data-scan-sweep-ms={advice.last?.sweepMs}
           title={scan.ready ? (need ? `${need}. Press to compare the camera with the board now and fix it (S)` : "Compare the camera with the board now and fix differences (S)") : "Turn the camera on to scan the field"}>
           <ScanLine size={16} strokeWidth={2} aria-hidden="true" /><span>{scan.scanning ? "Scanning…" : "Scan field"}</span>
           {scan.ready ? <kbd aria-hidden="true">S</kbd> : <small>Camera off</small>}</button> : null;

@@ -108,8 +108,8 @@ test("two seated browsers exchange field video, detect stalled frames and reconn
     await a.close();
     await expect(video(b, 0)).toHaveCount(0, { timeout: 2_000 });
     console.info(`Remote camera leave observed in ${Date.now() - leaving} ms`);
-    // The camera control is always in the row under the feed.
-    await b.getByRole("button", { name: "Camera off" }).click();
+    // Camera off is in the camera settings panel, behind the webcam "..." menu: press it through the page.
+    await b.getByTestId("camera-row").locator("button", { hasText: /^Camera off$/ }).evaluate((el: HTMLElement) => el.click());
     await expect(video(b, 1)).toHaveCount(0);
     expect(await b.evaluate(() => (window as unknown as { videoSenders: { track: MediaStreamTrack }[] }).videoSenders.every(({ track }) => track.readyState === "ended"))).toBe(true);
   } finally { await Promise.allSettled([alice.close(), bob.close()]); }
