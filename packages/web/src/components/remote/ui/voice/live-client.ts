@@ -12,13 +12,13 @@ export type VoiceFinal = { id: string; method: VoiceMethod; text: string; canoni
 
 /** Imported only after the table's server capability and explicit mic choice both allow capture. */
 export function createLiveVoiceClient(options: {
-  method: VoiceMethod; context(): GrammarContext; accepting(): boolean;
+  method: VoiceMethod; context(): GrammarContext; accepting(): boolean; /** The microphone to use; empty is the system default. */ deviceId?: string;
   onFinal(final: VoiceFinal): void; onReady(): void; onError(message: string): void; onLevel(level: number, speaking: boolean): void;
 }) {
   const phrases = buildGatePhrases(createSentencePiece(vocab));
   const session = crypto.randomUUID();
   const hot = createHotListMatcher();
-  const common = { accepting: options.accepting, onReady: options.onReady, onError: options.onError, onLevel: options.onLevel,
+  const common = { accepting: options.accepting, deviceId: options.deviceId || undefined, onReady: options.onReady, onError: options.onError, onLevel: options.onLevel,
     onUtterance(u: KwsUtterance) {
       const combined = combineHits(u.hits, phrases.meanings);
       const canonical = u.verification ? u.verification.canonical
