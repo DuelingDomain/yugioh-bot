@@ -55,7 +55,9 @@ export type SeatPanelProps = {
   /** A token is being placed: free Main Monster Zones glow and take the click. */ tokenSlots?: readonly ZoneKey[];
   /** Cards with a same-identity twin on this field (ref to count). */
   twinCounts?: ReadonlyMap<string, number>; deckListSizes?:{deck:number;extra:number}; deckRegistered?:boolean;
-  onPlate: () => void; onLp: (delta: number) => void; canLp: boolean;
+  onPlate: () => void;
+  /** My Battle Phase, this seat is an opponent: its webcam gets a red outline and a hint, and a click on it or on its LP attacks directly. `atk` fills the LP box when an attacker is selected. */ direct?: { atk?: number };
+  onLp: (delta: number) => void; canLp: boolean;
   /** Server time this player started Thinking (the T key). Shown in the status area under the field. */ thinkingSince?: number;
   /** Names the table shape (2, 3 or 4 seats) so the remembered view is per viewer, seat and shape. */ viewScope?: string;
   /** This player's phase boxes (`PhaseTrack`). They sit between the camera and the virtual field, in every view. */ track?: ReactNode;
@@ -113,7 +115,9 @@ export function SeatPanel(p: SeatPanelProps) {
   const previous = useRef(p.lp); const [delta, setDelta] = useState(0); const [input, setInput] = useState("");
   // Click the LP number to type an amount. Enter applies it, Escape or leaving the box cancels.
   const reduced = usePrefersReducedMotion(); const [typing, setTyping] = useState(false); const lpField = useRef<HTMLInputElement>(null);
-  const startTyping = () => { setInput(""); setTyping(true); };
+  const startTyping = (prefill = "") => { setInput(prefill); setTyping(true); };
+  // A click on the opponent's LP or on the hint: with an attacker picked it declares the direct attack, else the LP box opens with the attacker's ATK.
+  const onDirect = () => { if (p.pickPlate) p.onPlate(); else if (p.canLp) startTyping(p.direct?.atk ? String(p.direct.atk) : ""); };
   const [badLp, setBadLp] = useState(false);
   const stopTyping = () => { setTyping(false); setInput(""); setBadLp(false); };
   useEffect(() => { if (typing) lpField.current?.focus(); }, [typing]);
@@ -127,7 +131,7 @@ export function SeatPanel(p: SeatPanelProps) {
   const low = p.lp < 2500; const width = Math.min(100, Math.max(0, (p.lp / Math.max(1, p.startingLp)) * 100));
   const label = (value: number) => `${p.name} ${value < 0 ? "minus" : "plus"} ${Math.abs(value)}`;
   const classes = [s.seat, s[`s${p.index}`], p.turn ? s.turn : "", p.you ? s.mine : "", p.turn && p.turnIn ? s.turnIn : "", p.next ? s.next : "", p.speaking ? s.speak : "", p.frozen ? s.frozen : "", p.eliminated ? s.out : ""].filter(Boolean).join(" ");
-  return <section className={classes} aria-label={`${p.name}'s seat`} style={{ "--c": p.color } as React.CSSProperties} data-testid={`seat-${p.seat}`} data-turn={p.turn || undefined} data-view={fieldView ? "field" : "camera"} data-wc={compact || undefined} data-swapping={swapping || undefined}>
+  return <section className={classes} aria-label={`${p.name}'s seat`} style={{ "--c": p.color } as React.CSSProperties} data-testid={`seat-${p.seat}`} data-turn={p.turn || undefined} data-view={fieldView ? "field" : "camera"} data-wc={compact || undefined} data-direct={p.direct ? "" : undefined} data-swapping={swapping || undefined}>
     <header className={s.sh}>
       <span className={s.pip} /><h2 className={s.nm} style={{ margin: 0 }}>{p.name}</h2>
       {p.you ? <span className={`${s.tag} ${s.you}`}>YOU</span> : null}
@@ -139,7 +143,6 @@ export function SeatPanel(p: SeatPanelProps) {
           <button type="button" onClick={event => p.onPile?.("extra", event.currentTarget)} aria-label={`${p.name} Extra Deck: ${extraHeld} cards the table holds. Open`} title={p.deckListSizes ? `Registered Extra Deck: ${p.deckListSizes.extra} cards` : undefined}>EX <b className={s.num}>{extraHeld}</b></button>
         </> : null}
       </span> : null}
-      {compact && p.pickPlate ? <button type="button" className={`${s.btn} ${s.go} ${s.sm} ${s.wcdirect}`} data-testid={`wc-direct-${p.seat}`} onClick={p.onPlate} aria-label={`Attack ${p.name} directly`}>Attack directly</button> : null}
       {p.tournamentTable && p.detectionMode ? <DetectionBadge seat={p.seat} name={p.name} mode={p.detectionMode === "unknown" ? undefined : p.detectionMode} /> : null}
       <span className={`${s.tag} ${s.turnt}`}>TURN</span><span className={`${s.tag} ${s.nextt}`}>NEXT</span>
       {p.eliminated ? <span className={s.tag}>OUT</span> : null}
@@ -160,6 +163,7 @@ export function SeatPanel(p: SeatPanelProps) {
         extra={<>
           <CameraToolsMenu seat={p.seat} name={p.name} you={p.you} scan={scan} advice={advice} warn={p.health.q === "bad"} onToken={p.onToken} onRescan={p.you ? undefined : p.onRescan} settings={p.cameraControl} />
           {fieldView ? <button type="button" className={s.swapcam} tabIndex={-1} aria-label="Camera view: show the camera large again" data-testid={`swap-cam-${p.seat}`} onClick={() => setFieldView(false)} /> : null}
+          {p.direct ? <button type="button" className={s.directHint} onClick={onDirect} data-testid={`direct-hint-${p.seat}`} aria-label={`Attack ${p.name} directly`}><Icon name="bolt" />Click webcam or LP to attack directly</button> : null}
           {targeting ? cardList : null}
           {compact && missingPiles.length ? <div className={s.wcoffmat} role="status" data-testid={`wc-off-mat-${p.seat}`}>{`${missingPiles.map(zone => zone === "DECK" ? "Deck" : "Extra Deck").join(" and ")} not on the mat`}</div> : null}
           {compact && p.hand ? <HandStrip seat={p.seat} name={p.name} hand={{ ...p.hand, overlay: true }} /> : null}
@@ -194,7 +198,7 @@ export function SeatPanel(p: SeatPanelProps) {
             {typing ? <input ref={lpField} className={s.lpin} inputMode="numeric" placeholder={`${MINUS}/+ amount`} aria-label={`Custom LP change for ${p.name}. A plus sign adds. A number alone takes away. Press Enter.`}
               value={input} aria-invalid={badLp || undefined} aria-describedby={badLp ? `lp-bad-${p.seat}` : undefined} onChange={event => { setInput(event.target.value); setBadLp(false); }} onBlur={stopTyping}
               onKeyDown={event => { event.stopPropagation(); if (event.key === "Escape") { stopTyping(); return; } if (event.key !== "Enter") return; const value = parseLpInput(input); if (value === null) { setBadLp(true); return; } p.onLp(value); stopTyping(); }} />
-              : <button type="button" className={`${s.lpn} ${low ? s.low : ""} ${delta < 0 ? s.loss : delta > 0 ? s.gain : ""}`} data-lp-seat={p.seat} disabled={!p.canLp} title="Click to type an amount" aria-label={`Type an LP change for ${p.name}. Life points ${p.lp}`} onClick={startTyping}>
+              : <button type="button" className={`${s.lpn} ${low ? s.low : ""} ${delta < 0 ? s.loss : delta > 0 ? s.gain : ""}`} data-lp-seat={p.seat} disabled={!p.canLp} title={p.direct ? "Attack directly" : "Click to type an amount"} aria-label={`Type an LP change for ${p.name}. Life points ${p.lp}`} onClick={p.direct ? onDirect : () => startTyping()}>
                 <LifePoints value={p.lp} reducedMotion={reduced} showChange={false} />
                 <span className={s.lpt} aria-hidden="true" data-testid={`lp-value-${p.seat}`}>{p.lp}</span>
               </button>}

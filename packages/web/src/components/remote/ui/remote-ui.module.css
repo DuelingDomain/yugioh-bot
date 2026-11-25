@@ -1123,7 +1123,12 @@
 .idle b{font-variant-numeric:tabular-nums}
 @media (max-width:700px){.idle{top:56px;flex-wrap:wrap}}
 /* A phone seat header: the name stays readable. The seat border and the rail show the turn, the dock has Undo. */
-.wcdirect{flex:none}
+/* My Battle Phase: the opponent webcam gets a thin red outline and one hint. A click on the hint or on their LP attacks directly. */
+.seat[data-direct] .cams{border-color:var(--loss);box-shadow:0 0 0 1px var(--loss)}
+.directHint{position:absolute;left:8px;bottom:8px;z-index:5;display:inline-flex;align-items:center;gap:6px;max-width:calc(100% - 16px);min-height:28px;padding:0 10px;border-radius:6px;border:1px solid var(--loss);background:rgb(7 4 14/.86);color:var(--ink);font-weight:600;font-size:12.5px;cursor:pointer}
+.directHint .ic{width:14px;height:14px;color:var(--loss);flex:none}
+.directHint:hover{background:rgb(40 8 14/.92)}.directHint:focus-visible{outline:2px solid var(--gold);outline-offset:1px}
+@media(max-width:720px){.directHint{min-height:36px}}
 @media (max-width:480px){.sh{gap:5px}.sh .nm{min-width:64px}.sh:has(.wcdirect) .vhide{display:none}.sh .sundo,.sh .tag.turnt,.sh .tag.nextt{display:none}.seat.turn .sh .tag.turnt,.seat.next .sh .tag.nextt{display:none}.wcpiles button{padding:0 5px}}
 
 /* ============ deck warning layer ============ */
