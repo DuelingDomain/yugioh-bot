@@ -6,8 +6,8 @@
 .controls button:focus-visible,.controls summary:focus-visible{outline:2px solid var(--gold,#fff0cf);outline-offset:2px}
 .controls button:disabled{opacity:.5;cursor:default}
 /* One joined control: two choices that share the row, with More beside it. */
-.segment{display:flex;flex:1 1 auto;min-width:0;gap:2px;padding:2px;border:1px solid var(--line2,#bca06c66);border-radius:8px;background:rgb(255 255 255/.03)}
-.segment button{flex:1 1 0;min-width:0;border-color:transparent;border-radius:6px;background:transparent;padding:2px 6px;white-space:nowrap}
+.segment{display:flex;flex:1 1 240px;min-width:0;gap:2px;padding:2px;border:1px solid var(--line2,#bca06c66);border-radius:8px;background:rgb(255 255 255/.03)}
+.segment button{flex:1 1 0;min-width:0;border-color:transparent;border-radius:6px;background:transparent;padding:4px 8px;white-space:normal;text-wrap:balance;line-height:1.2;text-align:center;overflow-wrap:break-word}
 .segment button[aria-pressed=true]{border-color:var(--gold,#f3ca75);background:rgb(232 185 79/.18)}
 .more{display:contents}
 .more>summary{min-height:34px;padding:2px 12px;border:1px solid var(--line2,#bca06c66);border-radius:8px;cursor:pointer;list-style:none;display:inline-flex;align-items:center;color:var(--ink2,inherit)}
