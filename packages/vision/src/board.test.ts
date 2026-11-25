@@ -1980,7 +1980,7 @@ test('a face-up card turned face-down in its zone flips in place, also after a l
  }
 });
 
-test('a replacement Set in a vacated S4 gets its own ref and reveal',async()=>{
+test('a Set keeps its ref on an unproven return and a proven vacancy gets a new ref',async()=>{
  const r=fieldRig('sure',20,undefined,{width:160,height:90},{zoomSets:true});
  try{
   r.watcher.setCalibration(zones.createFieldCalibration([{x:0,y:0},{x:1,y:1}]));
@@ -1996,17 +1996,33 @@ test('a replacement Set in a vacated S4 gets its own ref and reveal',async()=>{
   const ref=first.track.id;
   r.watcher.confirm(ref);
   r.known=[{id:ref,zone:'S4',faceDown:true}];
+  r.outlines=[];r.appearanceAt=()=>Array(288).fill(.2);
+  for(let i=0;i<10&&!r.events.some(e=>e.type==='removed');i++)await r.tick(100);
+  const unproven=r.events.find(e=>e.type==='removed');
+  assert.equal(unproven?.track.id,ref);
+  assert.equal(unproven.evidence?.emptyProofAt,undefined);
+  r.events.length=0;
+  r.outlines=[back];r.appearanceAt=()=>sleeve;
+  for(let i=0;i<10;i++)await r.tick(100);
+  assert.equal(r.events.find(e=>e.type==='moved')?.track.id,ref);
+  assert.ok(!r.events.some(e=>e.type==='placed'));
   r.outlines=[];r.appearanceAt=()=>mat;
+  // A palm can look like the mat inside the outline but cover much more of the cell.
+  r.touchedAt=c=>Math.max(...c.quad.map(p=>p.x))-Math.min(...c.quad.map(p=>p.x))>.1?.4:.07;
+  r.skinNearAt=()=>.15;
+  for(let i=0;i<10;i++)await r.tick(100);
+  assert.ok(!r.events.some(e=>e.type==='removed'));
   // The exposed artwork still registers skin near the old sleeve.
-  r.touchedAt=()=>.07;r.skinNearAt=()=>.15;
-  for(let i=0;i<12&&!r.events.some(e=>e.type==='removed');i++)await r.tick(100);
+  r.touchedAt=()=>.07;
+  for(let i=0;i<10&&!r.events.some(e=>e.type==='removed');i++)await r.tick(100);
   const removal=r.events.find(e=>e.type==='removed');
   assert.equal(removal?.track.id,ref,'the learned mat is visible at the old Set footprint');
   assert.equal(removal.evidence?.basis,'pixel');
+  assert.equal(removal.evidence?.emptyProofAt,r.at);
   r.events.length=0;
   r.touchedAt=undefined;r.skinNearAt=undefined;
   r.outlines=[back];r.appearanceAt=()=>sleeve;
-  for(let i=0;i<12;i++)await r.tick(100);
+  for(let i=0;i<10&&!r.events.some(e=>e.type==='placed');i++)await r.tick(100);
   const replacement=r.events.find(e=>e.type==='placed'&&e.track.faceDown);
   assert.ok(replacement,'the new back is placed even while the old departure is saving');
   assert.notEqual(replacement.track.id,ref);
@@ -2014,7 +2030,7 @@ test('a replacement Set in a vacated S4 gets its own ref and reveal',async()=>{
   r.watcher.confirm(replacement.track.id);
   r.known=[{id:ref,zone:'HAND',faceDown:true},{id:replacement.track.id,zone:'S4',faceDown:true}];
   r.outlines=[front];r.appearanceAt=()=>Array.from({length:288},(_,i)=>i%2?.6:.2);
-  for(let i=0;i<12;i++)await r.tick(100);
+  for(let i=0;i<10&&!r.events.some(e=>e.type==='placed'&&!e.track.faceDown);i++)await r.tick(100);
   const reveal=r.events.find(e=>e.type==='placed'&&!e.track.faceDown);
   assert.equal(reveal?.track.id,replacement.track.id);
   assert.equal(reveal?.track.cardId,'A');

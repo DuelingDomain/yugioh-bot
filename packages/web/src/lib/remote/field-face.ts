@@ -56,7 +56,8 @@ export function createFieldFaceCheck() {
         const card=twins.find(c=>c.ref===refOf(track)&&FIELD_ZONES.has(c.zone));
         if(!card||skip?.(card.ref))continue;
         // A front in another cell goes through the placement/move handler.
-        if(!track.faceDown&&track.zone!==zoneOf(card)){seen.delete(card.ref);continue;}
+        const zone=track.faceDown?undefined:zoneOf(card);
+        if(zone!==undefined&&track.zone!==zone){seen.delete(card.ref);continue;}
         const lock=locks.get(card.ref);
         if(lock&&(scan||lock.face===track.faceDown&&at-lock.since>=FIELD_FACE_CALM_MS)){locks.delete(card.ref);pairs.delete(card.ref);flips.delete(card.ref);}
         else if(lock&&lock.face!==track.faceDown){lock.face=track.faceDown;lock.since=at;}

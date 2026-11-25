@@ -129,6 +129,7 @@ export interface FieldTrack {
   state:'candidate'|'identified'|'prompt'|'dismissed'; bestMatch?:boolean; firstSeen:number; lastSeen:number; removed:boolean; visible?:boolean;
   /** First removal of this track in its current absence (watcher clock). */ removedAt?:number;
   /** First frame of the evidence window that confirmed removal. */ removedFrameAt?:number;
+  /** Pixel proof that this track's cell was vacant during its current absence. */ emptyProofAt?:number;
   /** Id of the track whose card lies on top of this one (hidden, kept on the field). */ under?:string; /** Since when this outline rests still on the mat plane with no hand on it (watcher clock). Absent while it moves or has no box. */ restSince?:number; /** The latest clean crop of this box shows a back in its pixels. */ pixelsDown?:boolean;
 }
 /** Epoch origin crosses browser/worker/HTTP boundaries; stages are offsets, never mixed clocks. */
@@ -248,6 +249,7 @@ const PILE_SLEEVE_GAP=.08;
 const REST_CELL_LIMIT=1.2,REST_CELL_HARD=1.35,REST_SIZE_LIMIT=1.2,REST_SIZE_HARD=1.35,REST_TILT=14,REST_TILT_HARD=25,REST_SIDES=.78,REST_SIDES_HARD=.6,REST_CELL_SHARE=.35,REST_SAMPLES=2,REST_MS=100,REST_PRINT_MS=1500;
 /** Edge-connected skin, not nearby skin. A timeout can ask the player, never release this gate. */
 const HAND_CONTACT_MAX=.02,HAND_RELEASE_SETTLE_MS=200,HAND_CONTACT_PROMPT_MS=10_000;
+const EXPOSED_MAT_CONTACT_MAX=.12;
 /** A new card that rests on the mat (hand released) gets at most this long of urgent ticks before its first read: no moving-scene rest, no backoff, no slowed sampling, and `cpuBusy(true)` instead of `cpuBusy()`. */
 const URGENT_MS=1500;
 /** A Deck/Extra pile stays while its spot still looks like it or a hand is over it; it goes after this long without either. */
@@ -798,6 +800,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
   const rearm=(t:InternalTrack,why:string)=>{
     delete t.view.removedAt;
     delete t.view.removedFrameAt;
+    delete t.view.emptyProofAt;
     t.view.state='candidate';t.view.removed=false;t.view.cardId=undefined;t.view.bestMatch=undefined;t.view.revision=(t.view.revision??0)+1;
     t.nameRetry=undefined;t.view.nameCandidates=undefined;t.prompted=false;t.promptOnly=undefined;t.identityCheck=undefined;t.resolvedAt=undefined;t.read=undefined;t.needsRead=true;t.best=undefined;
     t.unsureReads=0;t.rereadEarly=false;t.lastResult=undefined;t.handWaitAt=undefined;t.faceWaitAt=undefined;t.frontScans=0;t.dismissedMissAt=undefined;t.userDismissed=false;t.softDismiss=false;resetFace(t);resetAbsence(t);note(t,`re-armed: ${why}`);
@@ -818,6 +821,8 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       if(cell&&t.view.removedAt===undefined)cell.emptyZooms=cell.missedLook=undefined;
       t.view.removedAt??=now();
       t.view.removedFrameAt??=Number.isFinite(lastFrameAt)?lastFrameAt:t.view.removedAt;
+      if(extra.evidence?.emptyProofAt!==undefined)t.view.emptyProofAt=extra.evidence.emptyProofAt;
+      else if(t.view.emptyProofAt!==undefined)extra={...extra,evidence:{basis:'pixel',...extra.evidence,emptyProofAt:t.view.emptyProofAt}};
     }
     if(type==='placed')startupTracks.delete(t);
     if(type==='placed'&&options.backgroundReread!==false&&extra.result&&extra.result.tier!=='sure'&&t.view.bestMatch&&!t.view.faceDown&&fieldSlot(t.view.zone)&&!t.binding&&!t.userDismissed)
@@ -888,7 +893,8 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
     const vacantSet=!!box&&
       !evidence.occluded?.(spot)&&
       medianGap(t.setBackLook??t.identityAppearance,evidence.appearance?.(spot))>SET_BRIDGE_LOOK&&
-      (!handContact(evidence,box)&&cellEmpty(evidence,t.view.zone,false)||exposedMat());
+      (!handContact(evidence,box)&&cellEmpty(evidence,t.view.zone,false)||
+        (evidence.touched?.(box)??0)<=EXPOSED_MAT_CONTACT_MAX&&exposedMat());
     const stack=stackLooks.size>0&&stackStillThere(t.view.zone,evidence);
     const halo=evidence.halo?.(card),pixels=evidence.background?.(card)??evidence.appearance?.(card);
     // A sharp, hand-free footprint can show the mat even while a shadow
@@ -2255,15 +2261,17 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
             // never a hand nearby, its own look (the arm's), motion, nor a weak kept outline. Nor does a cell that shows its empty mat.
             const phantom=!plausible(t),back=t.view.faceDown&&t.view.setEvidence?.decision==='committed';
             const spot=back?t.announced??t.view.card:t.view.card;
+            const box=back?cellOf(t.view.zone):undefined;
+            const handInCell=!!box&&(evidence.touched?.(box)??0)>EXPOSED_MAT_CONTACT_MAX;
             const look=evidence.appearance?.(spot),ring=evidence.halo?.(spot),sleeve=back&&sleeveOnMat(look,ring);
             const nearBack=sleeve&&medianGap(t.identityAppearance,look)<=SET_BRIDGE_LOOK;
             // A clean match to the learned mat can disambiguate stationary skin
             // pixels around a missing sleeve. Its own contrasting colour must be gone.
-            const vacant=back&&!sleeve&&!removalHold(spot)&&evidence.motion(spot)<=.01&&
+            const vacant=back&&!handInCell&&!sleeve&&!removalHold(spot)&&evidence.motion(spot)<=.01&&
               medianGap(t.identityAppearance,look)>SET_BRIDGE_LOOK&&cellEmpty(evidence,t.view.zone,false);
             const empty=!phantom&&(vacant||cellEmpty(evidence,t.view.zone)),weak=phantom||empty;
             const spotSeen=detected.some(d=>quadIou(d,t.view.card)>=.1&&planeVerdict(d).ok&&follows(t,d)&&!ghostOutline(t,d,evidence)),
-              handOn=!vacant&&handOver(evidence,t.view.card);
+              handOn=handInCell||!vacant&&handOver(evidence,t.view.card);
             // Relative, not absolute: pixels that still look like this card mean a detector miss. A Set
             // counts too when its sleeve differs from the mat (a white sleeve whose score dropped is still there).
             const sameLook=lookRefs(t).some(l=>matchesLook(t,look,l));
@@ -2327,7 +2335,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         t.previewEligible=c.confidence>=.7&&!c.partial&&!c.covered&&!isCovered(c,cards)&&!cards.some(other=>other!==c&&quadIou(c,other)>0);
         proposePose(t,c,cards,evidence,sample.at,current.width,current.height);
         if(t.under){note(t,'seen again on top');t.under=undefined;delete t.view.under;}
-        if(t.view.removed){delete t.view.removedAt;delete t.view.removedFrameAt;}
+        if(t.view.removed){delete t.view.removedAt;delete t.view.removedFrameAt;delete t.view.emptyProofAt;}
         t.reappeared ||= t.view.removed;t.missed=false;t.view.removed=false;resetAbsence(t);if(!t.setBridged)t.view.lastSeen=sample.at;t.view.card=c;
         // A hand moves. Skin-coloured pixels that stay still on a still, confident outline for HAND_WAIT_MS are
         // the card's own print (an orange frame or warm art read as skin under a locked, darker exposure or white
@@ -2577,18 +2585,18 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
           if(t.view.state!=='identified'&&!restOk(t)){t.view.visible=false;note(t,`Set waits: ${t.rest?.text??'not resting yet'}`);continue;}
           if(!t.view.faceDown&&t.view.cardId)faceState.setCardId=t.view.cardId;
           t.view.cardId=undefined;t.read=undefined;t.needsRead=false;t.identityCheck=undefined;
-          // A recently lifted front can turn face-down in place. Once a Set
-          // has left, a new back in its cell gives no evidence of continuity.
+          // Reuse a recently lifted card's ref in the same cell unless the
+          // camera proved the sleeve's footprint was empty.
           const returnedAt=now(),known=options.getKnownCards?.()??[];
           const back=t.view.state==='candidate'&&!t.binding&&t.resolvedAt===undefined&&fieldSlot(t.view.zone)?tracks.filter(o=>{
             const {id,removed,removedAt,zone}=o.view;
-            if(o===t||!removed||removedAt===undefined||o.view.state!=='identified'||o.view.faceDown||o.under||zone!==t.view.zone||
+            if(o===t||!removed||removedAt===undefined||o.view.state!=='identified'||o.view.emptyProofAt!==undefined||o.under||zone!==t.view.zone||
               returnedAt-removedAt>FIELD_SET_RETURN_MS||known.some(k=>k.zone===zone&&k.id!==id)||!known.some(k=>k.id===id&&(k.zone===zone||k.zone==='HAND')))return false;
             const cardId=o.view.cardId??o.face?.setCardId??known.find(k=>k.id===id)?.cardId;
             return !cardId||heldReader.lastReadAt(cardId)<removedAt&&!tracks.some(other=>publicPile(other.view.zone)&&other.view.cardId===cardId&&other.view.lastSeen>=removedAt);
           }).sort((a,b)=>b.view.removedAt!-a.view.removedAt!)[0]:undefined;
           if(back){
-            const setCardId=back.view.cardId;
+            const setCardId=back.view.faceDown?back.face?.setCardId:back.view.cardId;
             tracks.splice(tracks.indexOf(back),1);back.best=undefined;twinMisses.delete(back.view.id);missingTwins.delete(back.view.id);
             t.binding={id:back.view.id,zone:back.view.zone,cardId:setCardId,faceDown:back.view.faceDown};t.view.revision=(back.view.revision??0)+1;
             t.identityEmbedding=back.identityEmbedding;t.latestEmbedding=back.latestEmbedding;faceState.setCardId=setCardId;faceState.reference=back.face?.reference;faceState.front=back.face?.front;
@@ -3009,7 +3017,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       blindSleeveSince:Object.fromEntries(stableBlindSleeves.map(([zone,{since}])=>[zone,since])),handZones:[...handZones],missingPiles:[...pilePresence].flatMap(([zone,p])=>p.present||deckZone(zone)&&piles.get(zone)?.down?[]:[zone]),pileTouchedAt:Object.fromEntries([...pileTouches].filter(([zone])=>publicPile(zone))),pileContactAt:Object.fromEntries(pileContacts),...(Number.isFinite(deckTouchedAt)||Number.isFinite(extraTouchedAt)?{deckTouchedAt:{...(Number.isFinite(deckTouchedAt)?{DECK:deckTouchedAt}:{}),...(Number.isFinite(extraTouchedAt)?{EXTRA:extraTouchedAt}:{})}}:{}),pileClearSince:Object.fromEntries(pileClear),lastFullAt:Number.isFinite(lastFullDetectionAt)?lastFullDetectionAt:undefined,...(Number.isFinite(lastScanAt)?{lastScanAt,lastScanBacks:[...lastScanBacks],lastScanOffFrame:[...lastScanOffFrame]}:{}),status,tracks:trackViews,piles:[...piles].flatMap(([zone,pile])=>pile.down&&now()-pile.keptAt<=PILE_GONE_MS?[{zone,card:structuredClone(pile.card)}]:[]),metrics:{...metrics},error,
       debug:{at:debugAt,path:debugTick,full:debug?.full??false,region:debug?.region,detections:debug?.detections??[],...(debug?.pileScores?{pileScores:debug.pileScores}:{}),reasons:Object.fromEntries(tracks.map(t=>[t.view.id,`${t.rest?.text?`${t.rest.text} · `:''}${t.read?'reading identity · ':''}${t.promptOnly?`prompt only (${t.promptOnly}) · `:''}${t.reason??''}${t.view.setEvidence?` · Set ${JSON.stringify(t.view.setEvidence)}`:''}${t.lastResult?.prior?` · prior: ${t.lastResult.prior}`:''}`]))}};},
     setCalibration(value?:FieldCalibration){lastFieldActivityAtByZone={};exposedTops.clear();calibration=value;cameraCells=readCells();cellQuads=new WeakMap();gridOffPasses=0;gridShift=undefined;untracked=0;heldReader.reset();if(status!=='starting')epoch++;interruptWindow();piles.clear();emptyLooks.clear();blindScans.clear();blindShape.clear();blindMisses.clear();blindZones.clear();blindSleevesSeen.clear();handZones.clear();blindCountAt.clear();setFollowUpAt.clear();zoomCells.clear();zoomPendingZones.clear();zoomDeparturePending.clear();zoomCheckedAt.clear();stackLooks.clear();zoomDeckAt=-Infinity;zoomDeckGone=false;zoomDeckContactSince=undefined;pileClear.clear();pileContacts.clear();restSize=undefined;restSizes.clear();for(const t of tracks){t.prompted=false;t.view.revision=(t.view.revision??0)+1;t.view.zone=mapFieldZone(t.view.card,calibration,[],options.format).zone;t.announcedZone=undefined;}notify();},
-    confirm(id:string,cardId?:string,ref?:string,human=true){const lock=locks.get(id);if(ref&&lock&&!locks.has(ref))locks.set(ref,lock);const t=tracks.find(t=>t.view.id===id);if(human&&cardId)for(const key of [id,ref])if(key)locks.set(key,{cardId,score:Infinity,at:now(),embedding:t?.latestEmbedding??t?.identityEmbedding,look:t?.identityAppearance?.slice()});if(t){if(human){t.nameRetry=undefined;t.view.nameCandidates=undefined;}if(human&&t.promptOnly==='card-presence'){rememberSetBack(setMemory,setLooks.get(t)??[]);options.onSetMemoryChange?.();}t.awaitingName=undefined;t.prompted=false;t.setRecovery=false;t.pose=undefined;t.read=undefined;const other=tracks.find(other=>other!==t&&other.view.id===ref);if(other&&(other.view.removed||!other.view.visible))tracks.splice(tracks.indexOf(other),1);if(ref&&!tracks.some(other=>other!==t&&other.view.id===ref))t.view.id=ref;t.view.visible=!t.missed;for(let i=suppressed.length-1;i>=0;i--)if(sameFieldAppearance(suppressed[i].appearance,t.appearance)||quadIou(suppressed[i].card,t.view.card)>.5)suppressed.splice(i,1);if(human&&!t.view.faceDown&&t.face&&cardId!==t.face.setCardId)t.face.setCardId=undefined;if(!t.view.faceDown&&cardId&&!t.view.nameCandidates)gallery.remember(t.latestEmbedding,cardId);t.view.cardId=t.view.faceDown?undefined:cardId;if(!t.view.faceDown&&cardId&&t.face?.front)t.face.reference={crop:t.face.front,embedding:t.latestEmbedding};t.realLook=undefined;t.identityAppearance=t.appearance?.slice();t.identityEmbedding=t.latestEmbedding;t.identityCheck=undefined;t.resolvedAt=now();t.promptOnly=undefined;t.binding=undefined;t.view.state='identified';t.needsRead=false;t.announced=t.view.card;t.announcedZone=t.view.zone;t.announcedPosition=t.view.position;t.moveAt=undefined;t.best=undefined;pruneFrames();notify();}},
+    confirm(id:string,cardId?:string,ref?:string,human=true){const lock=locks.get(id);if(ref&&lock&&(!cardId||lock.cardId===cardId)&&!locks.has(ref))locks.set(ref,lock);const t=tracks.find(t=>t.view.id===id);if(human&&cardId)for(const key of [id,ref])if(key)locks.set(key,{cardId,score:Infinity,at:now(),embedding:t?.latestEmbedding??t?.identityEmbedding,look:t?.identityAppearance?.slice()});if(t){if(human){t.nameRetry=undefined;t.view.nameCandidates=undefined;}if(human&&t.promptOnly==='card-presence'){rememberSetBack(setMemory,setLooks.get(t)??[]);options.onSetMemoryChange?.();}t.awaitingName=undefined;t.prompted=false;t.setRecovery=false;t.pose=undefined;t.read=undefined;const other=tracks.find(other=>other!==t&&other.view.id===ref);if(other&&(other.view.removed||!other.view.visible))tracks.splice(tracks.indexOf(other),1);if(ref&&!tracks.some(other=>other!==t&&other.view.id===ref))t.view.id=ref;t.view.visible=!t.missed;for(let i=suppressed.length-1;i>=0;i--)if(sameFieldAppearance(suppressed[i].appearance,t.appearance)||quadIou(suppressed[i].card,t.view.card)>.5)suppressed.splice(i,1);if((human||ref&&ref!==id)&&!t.view.faceDown&&t.face&&cardId!==t.face.setCardId)t.face.setCardId=undefined;if(!t.view.faceDown&&cardId&&!t.view.nameCandidates)gallery.remember(t.latestEmbedding,cardId);t.view.cardId=t.view.faceDown?undefined:cardId;if(!t.view.faceDown&&cardId&&t.face?.front)t.face.reference={crop:t.face.front,embedding:t.latestEmbedding};t.realLook=undefined;t.identityAppearance=t.appearance?.slice();t.identityEmbedding=t.latestEmbedding;t.identityCheck=undefined;t.resolvedAt=now();t.promptOnly=undefined;t.binding=undefined;t.view.state='identified';t.needsRead=false;t.announced=t.view.card;t.announcedZone=t.view.zone;t.announcedPosition=t.view.position;t.moveAt=undefined;t.best=undefined;pruneFrames();notify();}},
     setGuards(value:Partial<SetGuards>){const next={...DEFAULT_SET_GUARDS,...value};if(next.positiveBack===setGuards.positiveBack&&next.prompt===setGuards.prompt&&next.ignore===setGuards.ignore&&next.startup===setGuards.startup&&next.handRelease===setGuards.handRelease)return;setGuards=next;for(const t of tracks)if((t.view.state==='dismissed'||t.promptOnly==='card-presence')&&t.view.setEvidence){rearm(t,'Set safeguards changed');}notify();},
     acceptSet(id:string){const t=tracks.find(t=>t.view.id===id);if(!t||t.promptOnly!=='card-presence'||t.view.removed||!t.view.visible)return false;
       const heldChoice=handPrompts.has(t)&&!t.missed&&now()-t.view.lastSeen<=500&&planeVerdict(t.view.card).ok&&(latestEvidence?.motion(t.view.card)??1)<=.025;

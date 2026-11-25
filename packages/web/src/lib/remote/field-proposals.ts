@@ -293,7 +293,7 @@ export const fieldBackCandidate=(track:FieldTrack)=>!track.removed&&track.state!
 
 /** A new back or sleeve can keep a departure pending until the source is proven empty. */
 export function fieldDepartureHasBack(event:FieldEvent,snap:FieldSnapshot|undefined):boolean {
-  if(!snap||fieldCellEvidence(event)?.emptyProofAt!==undefined||event.track.faceDown&&event.reason==='empty')return false;
+  if(!snap||fieldCellEvidence(event)?.emptyProofAt!==undefined)return false;
   const {id,zone,lastSeen,removedFrameAt}=event.track;
   const since=removedFrameAt??event.removedAt??lastSeen;
   const sleeve=snap.blindZones?.includes(zone)&&(snap.blindSleeveAt?.[zone]??-Infinity)>=since;
@@ -421,7 +421,7 @@ export function fieldSetReturn({track,twins,tracks,owns,events,seat,at,now,pileT
   const returned=departed.filter(c=>handOrigin(c)&&there(c.departedFrom!)).sort((a,b)=>b.departedFrom!.at!-a.departedFrom!.at!)[0];
   if(returned){
     const from=origin(returned);
-    return from&&!from.faceDown&&inPlace(from)&&!sized(returned,returned.departedFrom!.at!)?{kind:'return',card:returned}:undefined;
+    return from&&from.emptyProofAt===undefined&&inPlace(from)&&!sized(returned,returned.departedFrom!.at!)?{kind:'return',card:returned}:undefined;
   }
   // Legacy recovery for an unnamed Set the camera already sent to the hand.
   const arrivals=tracks.filter(t=>t.faceDown&&!t.removed&&t.visible&&MAIN_FIELD_SLOT.test(t.zone)&&fieldZoneLocation(t.zone).zone===cell.zone&&!twins.some(c=>c.ref===owns(t)));
