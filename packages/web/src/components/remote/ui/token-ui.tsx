@@ -315,7 +315,9 @@ export function useTokens({ act, room, live, extraZones, layers, info, toast }: 
     {placing && canPlace ? <TokenBar template={placing} suggestions={suggestions} onPick={pick} onCustom={() => customize()} onCancel={() => setPlacing(null)} /> : null}
     {dialog}
   </>;
-  return { create, open, judge, drop, trigger, node, owns, placing: !!placing && canPlace, placeAt, openSlots };
+  /** A suggestion chip: starts placing tokens (the next click on a free Main Monster Zone). Stats that are not known are asked in the dialog that follows the zone. */
+  const start = (template: TokenTemplate) => { if (!canPlace) return false; setPlacing(template.ask ? suggestStats(template) : template); return true; };
+  return { create, open, judge, drop, trigger, node, owns, placing: !!placing && canPlace, placeAt, openSlots, start };
 }
 
 /** The strip shown while placing: what goes down, how many are left, and how to stop. The zones themselves glow on the fields. */

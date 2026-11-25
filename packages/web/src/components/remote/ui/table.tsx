@@ -84,6 +84,7 @@ import { FeedCardsProvider } from "./feed-cards";
 import { ChainBadges, chainMarksOf } from "./chain-marks";
 import { useTokens } from "./token-ui";
 import { useControlChange } from "./control-ui";
+import { useNextStep } from "./next-step-chip";
 import { quickMoves } from "./quick-moves";
 import { controlOffer, equipsItself } from "@/lib/remote/card-logic";
 import { handAdd, handCount, handCountOf, handReveal, knownHandOf, openSearch, SEARCH_WINDOW_MS, type HandBy, type HandCandidate, type HandSource, type HandSuggestion, type KnownHandCard } from "./reveal-model";
@@ -353,6 +354,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
   const placeInZone = (pick: ZonePick) => { const ref = crypto.randomUUID(); return saveZoneActions(latest => zonePlacement(latest, pick, ref)); };
   const tokens = useTokens({ act, room, live, extraZones, layers, info, toast });
   const control = useControlChange({ act, room, live, extraZones, layers, info, name, toast });
+  const nextStep = useNextStep({ room, live, tokens, control, layers });
   controlOfferRef.current = control.offer;
   // A monster that equips itself (Union, Agnumday-style) and sits face up in my Spell & Trap Zone: ask which monster it equips. No link is made without a click.
   const equipNudged = useRef(new Set<string>());
@@ -1635,7 +1637,11 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
   const onCardMenu = (seat: number, at: { x: number; y: number }) => {
     const card = cardAtPoint(seat, at.x, at.y);
     if (card) { feedMenu.current = openCardActions(card); return; }
-    const pile = pileAt(zoneAtPoint(seat, at.x, at.y)); if (pile) { openPile(seat, pile, null); feedMenu.current = true; }
+    const zone = zoneAtPoint(seat, at.x, at.y), pile = pileAt(zone);
+    if (pile) { openPile(seat, pile, null); feedMenu.current = true; return; }
+    // Right click or long press on an empty Monster or Spell & Trap Zone of a camera feed: the same menu as a click on that zone of the board (a trusted board only).
+    const mine = solo || seat === mySeat, key = zone?.toLowerCase() as ZoneKey | undefined;
+    if (key && /^[ms][1-5]$/.test(key) && !boardOff(seat) && (mine || /^m/.test(key) || control.canGive)) { openZonePicker(seat, key, undefined, true, false, !mine); feedMenu.current = true; }
   };
   const cardMenu = useCardMenu(target => {
     if (target.closest("[data-remote-seat]")) { const done = feedMenu.current; feedMenu.current = false; return done; }
@@ -1690,7 +1696,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
             selectedRef={picking?.seat === seat ? picking.ref : selected?.seat === seat ? selected.ref : undefined} targetRef={attack?.targetSeat === seat ? attack.targetCardRef : undefined} freshRef={fresh}
             warnRefs={warnRefs(seat)} twinCounts={twinCounts(seat)} pickPlate={plate} tournamentTable={isTournamentTable(room)} detectionMode={seat !== mySeat ? stateMode(room.state, seat) ?? "unknown" : undefined} viewScope={String(seatCount)} webcamOnly={webcamOnly && !needsBoard(seat)} onDock={onSeatDock} boardOff={boardOff(seat) ? {} : undefined} onToggleView={needsBoard(seat) || boardOff(seat) ? undefined : () => setWebcamOnly(!webcamOnly)}
             onZoneCard={onZoneCard} onCamPick={onCamPick} hoverTip={hoverTip} onCardMenu={onCardMenu}
-            tokenSlots={tokens.placing && !state.seats[seat]?.eliminated ? tokens.openSlots(seat) : control.giveSlots(seat)} onActivate={(key, card) => { if (tokens.placeAt(seat, key, card) || control.giveAt(seat, key, card)) return; if (picking && card && seat !== picking.seat && (card.zone === "monster" || card.zone === "extra-monster")) void declare(seat, card.ref); else if (!picking && (solo || seat === mySeat) && !isPile(key)) openZonePicker(seat,key); else if (!picking && !card && /^m[1-5]$/.test(key)) openZonePicker(seat,key,undefined,true,false,true); else if (card) openSubject(card); }}
+            tokenSlots={tokens.placing && !state.seats[seat]?.eliminated ? tokens.openSlots(seat) : control.giveSlots(seat)} onActivate={(key, card) => { if (tokens.placeAt(seat, key, card) || control.giveAt(seat, key, card)) return; if (picking && card && seat !== picking.seat && (card.zone === "monster" || card.zone === "extra-monster")) void declare(seat, card.ref); else if (!picking && (solo || seat === mySeat) && !isPile(key)) openZonePicker(seat,key); else if (!picking && !card && (/^m[1-5]$/.test(key) || control.canGive && /^s[1-5]$/.test(key))) openZonePicker(seat,key,undefined,true,false,true); else if (card) openSubject(card); }}
             onAttack={(_key, card) => startAttack(seat, card)} onInspect={card => openSubject(card)} onPile={(zone, opener) => openPile(seat, zone, opener)} onDeck={(solo || seat === mySeat) && surrenderable(seat) ? el => { setDeckAt({ seat, rect: el.getBoundingClientRect() }); layers.toggle("deck", el); } : undefined} live={live} drag={fieldDrag(seat)} onPlate={() => { if (plate) void declare(seat); }}
             onLp={delta => void changeLp(seat, delta)} canLp={live} deckWarning={deckFlag(room, seat)?.message} onDeckFlag={el => { setFlagSeat(seat); layers.toggle("flag", el); }}
             hand={handOf(seat)} thinkingSince={thinking.get(seat)}
@@ -1726,6 +1732,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     {zonePicker && layers.layer === 'zone' && live && (solo || zonePicker.seat === mySeat || zonePicker.tokenOnly) ? <ZoneActions key={zonePicker.requestId} tokenOnly={zonePicker.tokenOnly} room={room} seat={zonePicker.seat} zone={zonePicker.key} targetRef={zonePicker.targetRef} initialFaceUp={zonePicker.initialFaceUp} startPicker={zonePicker.startPicker} at={{anchor:zoneRect(zonePicker.seat,zonePicker.key),feed:null}} deck={deckIdsOf(room,zonePicker.seat)} busy={zoneBusy} error={zoneError} onPick={pick => void placeInZone(pick)}
       onAction={action => void saveZoneActions(latest => [zoneCardAction(latest, zonePicker.key, action)])} onSet={() => { const ref = crypto.randomUUID(); void saveZoneActions(latest => [zoneSet(latest, zonePicker.seat, zonePicker.key, ref)]); }}
       onToken={() => tokens.create(zonePicker.seat, /^m[1-5]$/.test(zonePicker.key) && !cellsFor(state.seats[zonePicker.seat].twin, extraZones)[zonePicker.key]?.card ? zonePicker.key : undefined)}
+      onGive={zonePicker.tokenOnly && control.canGive ? () => control.giveHere(zonePicker.seat, zonePicker.key) : undefined}
       onDetails={card => openSubject(card)} quick={quickFor(zonePicker.seat, cellsFor(state.seats[zonePicker.seat].twin, extraZones)[zonePicker.key]?.card)} onClose={() => layers.close('zone')} /> : null}
     <InspectorDrawer open={layers.layer === "insp"} onClose={() => layers.close("insp")}>
       <InspectorBody subject={subjectDetails} info={subjectInfo} warning={subject ? deckFlag(room, subject.seat)?.message : undefined} actions={shownActions}
@@ -1790,6 +1797,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     <Peek peek={peek} />
     {tokens.node}
     {control.node}
+    {nextStep.node}
     {/* A drawer or pile covers the stack, so a toast leaves it and stays readable. */}
     <Toasts items={toastItems} dock={layers.layer && layers.layer !== "card" && layers.layer !== "tray" ? null : seatDocks[mySeat] ?? null} top={layers.layer === "pile"} />
     <HandActivation events={room.events} name={name} />
