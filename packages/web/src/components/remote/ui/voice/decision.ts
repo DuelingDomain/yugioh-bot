@@ -4,12 +4,18 @@ import type { VoiceReason } from "@/lib/remote/voice-diagnostics";
 
 type PhaseTurn = Extract<VoiceIntent, { kind: "phase" | "turn" }>;
 type Board = Extract<VoiceIntent, { kind: "effect" | "lp" | "attack" }>;
+/** "effect" alone, said while a card is selected. */
+const BARE_EFFECT = /^(?:(?:activate|use|trigger)\s+)?(?:(?:the|its|this|that)\s+)?effect$/;
 /** All methods meet the same grammar boundary. Only "asr-names" may also carry effect, LP and attack lines; the others stay phase/turn only. */
 export function decideVoice(final: VoiceFinal, context: GrammarContext, accepting: boolean):
   | { accepted: true; intent: PhaseTurn | Board }
   | { accepted: false; reason: VoiceReason } {
   if (!accepting) return { accepted: false, reason: "muted" };
   if (final.method !== "asr" && final.method !== "asr-names" && !final.utterance.hits.length) return { accepted: false, reason: "no-keyword" };
+  // A bare "effect" has no card name to canonicalize: it means the selected card (names method only, like every effect line).
+  const selected = context.selected;
+  if (selected && final.method === "asr-names" && BARE_EFFECT.test(final.text.trim().toLowerCase().replace(/[.,!?]/g, "").replace(/\s+/g, " ")))
+    return { accepted: true, intent: { kind: "effect", proposal: { type: "effect.activated", actorSeat: context.me, source: { cardId: selected.cardId, cardRef: selected.ref } } } };
   if (!final.canonical) return { accepted: false, reason: final.utterance.verification?.stage2 === "skipped" && final.utterance.verification.stage1 === "hit" ? "other" : "not-a-command" };
   if (final.method === "asr-names") return decideBoard(final.text, final.canonical, context);
   if (context.me !== context.state.turnSeat) return { accepted: false, reason: "not-turn-player" };

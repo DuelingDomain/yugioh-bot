@@ -12,7 +12,7 @@ import { BottomBar } from "./bottom-bar";
 import { PhaseTrack, usePhaseAsk } from "./phase-track";
 import { CardPopover, InspectorBody, type CardActions, type CardEdit, type CardSource, type Subject } from "./card-view";
 import { ActivateRow, OkBanner, ThinkingCallout, useOkHold } from "./think";
-import { activatable, aliveSeats, chainOf, maySignal, onField, recentlyPlaced, thinkingSeats } from "./think-model";
+import { activatable, aliveSeats, CHAIN_GAP_MS, chainOf, maySignal, onField, recentlyPlaced, thinkingSeats } from "./think-model";
 /** The client sends Thinking and OK this far apart: a little over the server rule of one a second. */
 const SIGNAL_GAP_MS = 1050;
 import { MicSection, VoxSection, type Proposal } from "./dock";
@@ -1083,7 +1083,9 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
           setProposal(null); set("Which card? Say its name with ‘effect’, or activate it from its card view.", true); break;
         }
         // Through the voice action when there is one, so it is stamped, logged and recorded like phase.
-        set("Effect activated"); if (voiceAction) voiceAction(intent.proposal); else void act(intent.proposal); break;
+        { const open = chainOf(now.events, aliveSeats(current)).open; const last = open[open.length - 1];
+          set(`Activated · Chain ${last && last.actorSeat !== me && serverNow() - last.at <= CHAIN_GAP_MS ? open.length + 1 : 1}`); }
+        if (voiceAction) voiceAction(intent.proposal); else void act(intent.proposal); break;
       case "undo": set("Undone"); void doUndo(); break;
       case "phase":
         if (!now.solo && now.mySeat !== current.turnSeat) { set(`Only ${name(current.turnSeat)} can change phase`, true); break; }
@@ -1189,6 +1191,15 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     if (!cards.length) { toast("No face-up card to activate. Point at a card and press E."); return; }
     setActivateRow({ seat: me, cards });
   }, [sendActivation, toast]);
+  /** The card a bare spoken "effect" means: the open card menu, else the selected card, else the card under the pointer on a webcam. Mine, face up, on the field, named. */
+  const voicePick = useRef<{ seat: number; ref: string } | null>(null);
+  voicePick.current = subject?.ref ? { seat: subject.seat, ref: subject.ref } : selected ?? camHover.current;
+  const voiceSelected = useCallback(() => {
+    const { room: now, state: current } = R.current; const pick = voicePick.current; if (!pick || now.spectator) return undefined;
+    if (!(now.solo || pick.seat === now.mySeat)) return undefined;
+    const card = current.seats[pick.seat]?.twin.find(item => item.ref === pick.ref); const cardId = card ? cardCode(card) : undefined;
+    return card && cardId && card.faceUp !== false && onField(card) ? { seat: pick.seat, ref: pick.ref, cardId } : undefined;
+  }, []);
   const pendingVoice = useRef<{ id: string; method: VoiceFinal["method"]; context: VoiceContext } | null>(null);
   // Card names feed only the speech-model + names method; the other methods keep their own phrase lists.
   const voiceContext = (method?: VoiceMethod) => {
@@ -1200,7 +1211,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     const { room: now, state: current } = R.current;
     const utteranceAt = Date.now();
     const context: VoiceContext = { turn: current.turn, phase: current.phase, turnSeat: current.turnSeat, ownSeat: now.mySeat };
-    const decision = decideVoice(final, { state: current, players: now.seats, me: now.solo ? current.turnSeat : now.mySeat, trayOpen: false }, voiceAccept.current && gate !== "muted" && gate !== "off");
+    const decision = decideVoice(final, { state: current, players: now.seats, me: now.solo ? current.turnSeat : now.mySeat, trayOpen: false, selected: voiceSelected() }, voiceAccept.current && gate !== "muted" && gate !== "off");
     const record = (result: VoiceDecision) => diagnosticsRef.current.record(utteranceRecord({ at: utteranceAt, id: final.id, method: final.method, text: final.text, canonical: final.canonical, context, decision: result, utterance: final.utterance }));
     setTranscript({ requestId: final.id, text: final.text || "(no keyword)", result: decision.accepted ? "" : decision.reason, ignored: !decision.accepted });
     if (!decision.accepted) { record({ outcome: "rejected", reason: decision.reason, actionId: null }); return; }
@@ -1218,7 +1229,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
       if (decision.intent.kind === "turn") pendingVoice.current = null;
       const latest = R.current;
       // A confirm belongs to the position and microphone choice that produced it.
-      const stillLegal = decideVoice(final, { state: latest.state, players: latest.room.seats, me: latest.room.solo ? latest.state.turnSeat : latest.room.mySeat, trayOpen: false }, voiceAccept.current);
+      const stillLegal = decideVoice(final, { state: latest.state, players: latest.room.seats, me: latest.room.solo ? latest.state.turnSeat : latest.room.mySeat, trayOpen: false, selected: voiceSelected() }, voiceAccept.current);
       // LP and attack chips may wait while other events arrive; the server still checks the action. Other lines keep the strict rule.
       if (decision.intent.kind !== "lp" && decision.intent.kind !== "attack" && (latest.room.lastSeq !== baseSeq || !stillLegal.accepted)) {
         const result: VoiceDecision = { outcome: "rejected", reason: stillLegal.accepted ? "unconfirmed" : stillLegal.reason, actionId: null };
@@ -1234,7 +1245,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
         else setTranscript(old => old.requestId === final.id ? { ...old, result: "Command was not accepted", ignored: true } : old);
       });
     });
-  }, [apply, act, addVoiceLog, name, toast]);
+  }, [apply, act, addVoiceLog, name, toast, voiceSelected]);
   const voice = useVoice({ enabled: voiceRecognition && live, state: micState, ptt, held, context: voiceContext, onFinal,
     onPerf: room.voiceDiagnosticsEnabled ? record => diagnosticsRef.current.record(record) : undefined });
   const shownTranscript = { text: transcript.text, live: false, result: transcript.result, ignored: transcript.ignored };
