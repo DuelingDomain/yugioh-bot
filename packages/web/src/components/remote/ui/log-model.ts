@@ -68,8 +68,9 @@ function cardOf(action: RemoteAction | RemoteSystemAction, input: LogInput): { i
   }
 }
 
-/** Plain text of one event without the actor name, split from the line `describeEvent` writes. */
-function split(text: string, actor: string | null) {
+/** Plain text of one event without the actor name, split from the line `describeEvent` writes. A "Chain n: " lead is dropped too: the CHAIN n pill shows it. */
+function split(line: string, actor: string | null) {
+  const text = line.replace(/^Chain \d+: /, "");
   if (actor && text.startsWith(`${actor} `)) return text.slice(actor.length + 1);
   return text;
 }
