@@ -290,7 +290,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
   }, [room.events, voiceLog, name, info, chain]);
   const [drawerTab, setDrawerTab] = useState<DrawerTab>("log");
   const adminAccess = useAdminAccess(), fieldDeveloper = useFieldDeveloper();
-  const showAdmin = adminAccess === true || fieldDeveloper || room.recordingEnabled === true;
+  const showAdmin = adminAccess === true || (mySeat >= 0 && !room.spectator && (fieldDeveloper || room.recordingEnabled === true));
   // The card picture next to the drawer: hover shows it, a click pins it.
   const [logCard, setLogCard] = useState<{ row: LogRow; pinned: boolean } | null>(null);
   const previewLogCard = useCallback((row: LogRow, mode: "hover" | "pin" | "leave") => {
@@ -518,7 +518,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
    *  So does every board while a zone click is the next step (token, give control), except on a 3-way or 4-way table: there the click lands on the camera's zone grid, unless its zones are not known yet. */
   const noCamera = (seat: number) => !!room.seats.find(item => item.seat === seat)?.bot || hub.manual(seat) || hub.health(seat).label === "Scan mode";
   const needsBoard = (seat: number) => noCamera(seat) || ((tokens.placing || control.giving) && !(multi && zonesOnCamera(seat)));
-  const seatFocus = useSeatFocus({ seatCount, mySeat, turnSeat: turnShown, nextSeat, turn: state.turn, seats: seatIds, hasCamera: seat => !noCamera(seat) });
+  const seatFocus = useSeatFocus({ seatCount, mySeat, turnSeat: turnShown, nextSeat, turn: state.turn, seats: seatIds, hasCamera: seat => !noCamera(seat), eliminated: seat => !!state.seats[seat]?.eliminated, playing: seat => !!hub.sourceFor(seat) });
   const boardOff = (seat: number) => !needsBoard(seat) && (seat === room.mySeat ? ownBoardOff : tapSeats.split(",").includes(String(seat)));
   const flagFor = (seat: number, id: number) => hasDeck(room, seat) ? !deckIdsOf(room, seat).includes(id) : null;
   const reticle = (seat: number, next: FeedReticle | null, id: string) => setReticles(all => ({ ...all, [seat]: [...(all[seat] ?? []).filter(item => item.id !== id), ...(next ? [next] : [])] }));
@@ -1809,6 +1809,8 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
             onSample={text => apply(interpret(text, voiceContext()), text, `sample-${Date.now()}`)} /> } : null} />
     </div>
 
+    {/* Loads the saved feedback choice when the table mounts (the admin capture switch needs it before any drawer opens) and shows the first-time consent as a small card, not in the drawer. */}
+    {!solo ? <div className={s.consentCard} data-testid="feedback-consent"><VisionFeedbackSetting promptOnly loadOnly onChange={onFeedbackPref} /></div> : null}
     <IdleBanner closesAt={room.status === "active" && room.idleWarningAt !== null ? room.lastEventAt + REMOTE_IDLE_CLOSE_MS : null} now={serverNow()} onStay={() => void remoteApi(`/${room.slug}/activity`, {}).catch(() => {})} />
     <TableDrawer open={layers.layer === "log"} tab={drawerTab} onTab={setDrawerTab} onClose={() => layers.close("log")} admin={showAdmin}
       log={{ turns: logTurns, voiceFilter: voiceRecognition, color: seat => COLORS[seat] ?? "var(--ink)", onCard: previewLogCard, onAddToDeck: (seat, id) => void addToDeck(seat, id), adding: false,

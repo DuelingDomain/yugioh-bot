@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { SvButton } from '@/components/sheet';
 import styles from './duel-view-toggle.module.css';
 export interface FeedbackPreference {enabled:boolean;askedAt:number|null;collectionEnabled:boolean;isAdmin?:boolean}
-export function VisionFeedbackSetting({onChange,promptOnly=false}:{onChange?:(value:FeedbackPreference)=>void;promptOnly?:boolean}) {
+export function VisionFeedbackSetting({onChange,promptOnly=false,loadOnly=false}:{onChange?:(value:FeedbackPreference)=>void;promptOnly?:boolean;/** Load the saved choice and show only the first-time consent card (nothing else). */loadOnly?:boolean}) {
   const [value,setValue]=useState<FeedbackPreference|null>(null),[prompt,setPrompt]=useState(false),[busy,setBusy]=useState(false),[message,setMessage]=useState('');
   useEffect(()=>{
     let alive=true;
@@ -34,7 +34,7 @@ export function VisionFeedbackSetting({onChange,promptOnly=false}:{onChange?:(va
     try {const res=await fetch('/api/remote-vision/feedback',{method:'DELETE'});if(!res.ok)throw new Error();const body=await res.json();setMessage(`Deleted ${body.deleted} recognition samples.`);}
     catch{setMessage('Samples could not be deleted. Try again.');}finally{setBusy(false);}
   }
-  if(!value)return null;
+  if(!value||(loadOnly&&!prompt))return null;
   if(promptOnly&&value.isAdmin)return <div className={`${styles.block} ${styles.adminControl}`}>
     <label style={{display:'flex',alignItems:'center',gap:10}}><input className={styles.switch} type="checkbox" aria-label="Save to training set" checked={value.enabled} disabled={busy||!value.collectionEnabled} onChange={e=>void update(e.target.checked)} />
       <span>{!value.collectionEnabled?'Training collection disabled':value.enabled?'Saving to training set':'Training capture paused'}</span></label>

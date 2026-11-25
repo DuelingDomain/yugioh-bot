@@ -1713,3 +1713,10 @@
   .tdr .flt button{min-height:36px;padding:0 14px;font-size:13.5px}
   .tdr .tabs button{min-height:44px}
 }
+
+/* First-time consent for the training set: a small card in the bottom left corner. It never blocks the table or opens the drawer. */
+.consentCard{position:fixed;left:14px;bottom:14px;z-index:40;max-width:min(340px,calc(100vw - 28px));border-radius:10px;background:rgb(12 8 22/.96);border:1px solid rgb(255 255 255/.14);box-shadow:0 8px 28px rgb(0 0 0/.5);color:var(--ink);font-size:13px}
+.consentCard:empty{display:none}
+.consentCard :global(.set-sec){margin:0;padding:12px 14px}
+.consentCard :global(.set-intro h2){font-size:14px;margin:0 0 4px}
+.consentCard :global(.set-intro p){margin:0 0 8px;color:var(--ink2)}

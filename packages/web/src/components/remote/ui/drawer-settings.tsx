@@ -68,8 +68,8 @@ export function SettingsTab({ room, webcamOnly, onView, viewLocked, onCameraOff,
       {room.mySeat >= 0 && !room.spectator && !hasDeck(room, room.mySeat) ? <p className={d.hint} data-testid="deck-hint">Deck list (optional) — add one in the lobby next time; card detection gets faster and more accurate.</p> : null}
       {watcherError ? <p className={d.hint} role="status">{watcherError}</p> : null}
       <Row label="Freeze while hovering a card" note="Freezes the frame when the pointer rests on a camera."><Switch on={hoverFreeze} onChange={writeHoverFreeze} label="Freeze while hovering a card" testId="hover-freeze" /></Row>
-      <Row label="Show zone grid" note="My webcam. Shows where your zones are."><Switch on={ownGrid} onChange={on => writeGridPref(true, on)} label="Show zone grid on my webcam" testId="zone-grid-toggle" /></Row>
-      <Row label="Show zone grid on opponent webcams"><Switch on={opponentGrid} onChange={on => writeGridPref(false, on)} label="Show zone grid on opponent webcams" testId="zone-grid-toggle-opponent" /></Row>
+      <Row label="Show zone grid" note={<span data-testid="zone-grid-hint">{ownGrid ? "My webcam. Recommended: shows where your zones are." : "My webcam. Zones off."}</span>}><Switch on={ownGrid} onChange={on => writeGridPref(true, on)} label="Show zone grid on my webcam" testId="zone-grid-toggle" /></Row>
+      <Row label="Show zone grid on opponent webcams" note="An opponent who uses Tap to identify has no zone grid, so none shows on that camera."><Switch on={opponentGrid} onChange={on => writeGridPref(false, on)} label="Show zone grid on opponent webcams" testId="zone-grid-toggle-opponent" /></Row>
       <Row label="Zones" note={canZones ? "Move, resize or turn the zone grid to fit your mat." : "Available once your camera video is showing."}>
         <button type="button" className={`${s.btn} ${s.sm}`} disabled={!canZones} onClick={calibrate} data-testid="zone-grid-fit">Fit to my mat</button>
         <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} disabled={!canZones} onClick={calibrate} data-testid="zone-grid-adjust">Adjust zones</button>
@@ -93,7 +93,9 @@ export type DrawerAdminProps = {
 
 /** Admin tab. Each tool keeps the gate it had before: developer list, admin, recording users. */
 export function AdminTab({ room, isAdmin, collecting, onFeedbackPref }: DrawerAdminProps) {
-  const developer = useFieldDeveloper(), debugOn = useFieldDebugEnabled(), clipReady = useFieldClipReady();
+  // Each tool keeps the gate it had on the camera feed: debug and the clip need my own seat (`you`) as well as the developer flag.
+  const you = room.mySeat >= 0 && !room.spectator;
+  const developer = useFieldDeveloper() && you, debugOn = useFieldDebugEnabled(), clipReady = useFieldClipReady();
   const tables = useAdminWatchTables();
   const [clip, setClip] = useState<{ text: string; saved: boolean; detail: string } | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -112,11 +114,11 @@ export function AdminTab({ room, isAdmin, collecting, onFeedbackPref }: DrawerAd
       <Row label="Debug overlay" note="Shows what the field watcher sees: detector boxes, scores, tracks and reasons."><Switch on={debugOn} onChange={setFieldDebugEnabled} label="Debug overlay" testId="field-debug-toggle" /></Row>
       <Row label="Detector"><RecognitionBadge /></Row>
     </Group> : null}
-    {developer || room.recordingEnabled || isAdmin ? <Group title="Capture" testId="drawer-capture">
+    {(developer && clipReady) || (room.recordingEnabled && you) || isAdmin ? <Group title="Capture" testId="drawer-capture">
       {developer && clipReady ? <Row label="Save last 30 s" note="The last 30 s of your mat camera and watcher events, saved to a file on this computer. Nothing is uploaded.">
         <button type="button" className={`${s.btn} ${s.sm}`} onClick={saveClip} data-testid="field-clip-save">Save</button></Row> : null}
       {clip ? <p className={d.hint} role="status" data-testid="field-clip-note" title={clip.detail}>{clip.text}{clip.detail ? ` ${clip.detail}` : ""}</p> : null}
-      {room.recordingEnabled ? <Row label="Test recording" note="Your table camera is saved for recognition tests (video only, no sound)."><RecordingBadge /></Row> : null}
+      {room.recordingEnabled && you ? <Row label="Test recording" note="Your table camera is saved for recognition tests (video only, no sound)."><RecordingBadge /></Row> : null}
       {isAdmin ? <VisionFeedbackSetting onChange={onFeedbackPref} /> : null}
       {isAdmin ? <Row label="Field diagnostics"><span className={d.ro} data-testid="field-diagnostics">{collecting ? "collecting" : "off"}</span></Row> : null}
     </Group> : null}
