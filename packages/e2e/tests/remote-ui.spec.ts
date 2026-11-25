@@ -703,13 +703,15 @@ test.describe("remote lobby camera step", () => {
       const slug = await soloTable(context.request, seats); await page.goto(`/duels/remote/${slug}`);
       await page.getByTestId('camera-on-feed').click();
       for (const [width, height] of [[1920,1080],[2560,1440],[1366,768],[390,844]]) {
-        await page.setViewportSize({width,height}); await page.getByTestId('camera-tools-0').click(); await page.getByTestId('camera-settings').click();
-        await expect(lock).toContainText('Camera lock not supported — auto kept');
-        await expect(toggle).toContainText('On (not supported)');
-        const picker = page.getByTestId('recognition-mode-trigger');
+        await page.setViewportSize({width,height}); await page.getByTestId('camera-tools-0').click(); await page.getByTestId('camera-settings').first().click();
+        // The table has one settings panel per camera: this is the first (mine).
+        const seatLock = page.getByTestId('feed-box-0').getByTestId('camera-lock');
+        await expect(seatLock).toContainText('Camera lock not supported — auto kept');
+        await expect(seatLock.getByRole('button', { name: 'Camera lock', exact: true })).toContainText('On (not supported)');
+        const picker = page.getByTestId('recognition-mode-trigger').first();
         await expect(picker).toBeVisible();
         const box = await picker.boundingBox(); expect(box!.width).toBeGreaterThan(100); expect(box!.height).toBeGreaterThan(28);
-        const more = await page.getByTestId('camera-settings').boundingBox(); expect(more!.width).toBeGreaterThan(40);
+        const more = await page.getByTestId('camera-settings').first().boundingBox(); expect(more!.width).toBeGreaterThan(40);
         await shot(page, `camlock-more-${seats}-${width}`); await page.keyboard.press('Escape'); await page.keyboard.press('Escape');
       }
     }
@@ -1072,7 +1074,7 @@ test.describe("remote duels screen, moving cards by hand", () => {
     await page.goto(`/duels/remote/${slug}`);
     const choice = page.getByRole("radiogroup", { name: "Camera source" });
     // The camera choice sits in the settings panel, behind the webcam "..." menu. A click outside closes it, so each step opens it again when needed.
-    const openRow = async () => { if (await choice.isVisible()) return; await page.getByTestId("camera-tools-0").click(); await page.getByTestId("camera-settings").click(); await expect(choice).toBeVisible(); };
+    const openRow = async () => { if (await choice.isVisible()) return; await page.getByTestId("camera-tools-0").click(); await page.getByTestId("camera-settings").first().click(); await expect(choice).toBeVisible(); };
     await openRow();
     await expect(choice.getByRole("radio")).toHaveCount(3);
     await expect(choice.getByRole("radio", { name: "Use webcam" })).toBeVisible();
