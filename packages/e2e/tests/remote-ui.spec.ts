@@ -1114,8 +1114,8 @@ test.describe("remote duels screen, moving cards by hand", () => {
     await expect(page.getByTestId("mic")).toHaveAttribute("data-mic", "muted");
     await page.getByTestId("voice-open").click();
     await expect(page.getByTestId("log-drawer")).toHaveAttribute("data-tab", "settings");
-    await page.getByRole("button", { name: "Try saying…" }).click();
-    await expect(page.getByRole("button", { name: "end turn", exact: true })).toBeVisible();
+    // The Settings tab lists the samples under "Try saying…" with no button to open them.
+    await expect(page.getByTestId("log-drawer").getByRole("button", { name: "end turn", exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "monster zone two", exact: true })).toHaveCount(0);
   });
 
