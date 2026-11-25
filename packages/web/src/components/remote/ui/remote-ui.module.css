@@ -974,6 +974,8 @@
 .fctl{position:absolute;left:8px;bottom:8px;z-index:7;display:flex;flex-wrap:wrap;gap:6px;align-items:center;max-width:calc(100% - 16px);opacity:0;transition:opacity .15s;pointer-events:none}
 .cams:hover .fctl,.cams:focus-within .fctl,.fctlOn{opacity:1;pointer-events:auto}
 @media (hover:none){.fctl{opacity:1;pointer-events:auto}}
+/* Narrow feeds: the hint and the hover-freeze mode would cover the whole picture, so only the buttons stay. */
+@media (max-width:480px){.fctl .gridHint,.fctl .fzhover{display:none}}
 .fzchip{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 9px;border-radius:6px;background:rgb(7 4 14/.9);border:1px solid var(--gold);color:var(--gold-ink);font:700 11.5px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;letter-spacing:.04em}
 .fzchip .ic{width:13px;height:13px}
 /* A note that may need two lines on a small camera box. */

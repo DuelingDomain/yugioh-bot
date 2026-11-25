@@ -656,7 +656,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
         {you && !tapSeat ? <span className={s.gridHint} data-testid="zone-grid-hint">{gridOn ? "Recommended — shows where your zones are" : "Zones off"}</span> : null}
         {you && isDeveloper ? <button type="button" className={`${s.fzbtn} ${s.fzauto}`} aria-pressed={debugOn} onClick={() => setFieldDebugEnabled(!debugOn)} data-testid="field-debug-toggle" title="Show what the field watcher sees: detector boxes, scores, tracks and reasons">Debug</button> : null}
         {you && isDeveloper && clipReady ? <button type="button" className={`${s.fzbtn} ${s.fzauto}`} onClick={saveClip} data-testid="field-clip-save" title="Save the last 30 s of your mat camera and watcher events to a file on this computer. Nothing is uploaded. The recording restarts empty when the card reader restarts (backend switch, calibration on or off).">Save last 30 s</button> : null}
-        <button type="button" className={`${s.fzbtn} ${s.fzauto}`} aria-pressed={auto} onClick={toggleAuto} title="Freeze the frame when the pointer rests on the feed">Hover freeze {auto ? "on" : "off"}</button>
+        <button type="button" className={`${s.fzbtn} ${s.fzauto} ${s.fzhover}`} aria-pressed={auto} onClick={toggleAuto} title="Freeze the frame when the pointer rests on the feed">Hover freeze {auto ? "on" : "off"}</button>
         {clipNote ? <span className={`${s.fzchip} ${s.fzchipWrap}`} role="status" data-testid="field-clip-note" title={clipDetail}>{clipSaved ? <Icon name="check" /> : null}{clipNote}</span> : null}
       </>}
       <span className={s.watcherControlsSlot} data-field-watcher-controls />
