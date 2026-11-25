@@ -68,8 +68,6 @@ export function useTokens({ act, room, live, extraZones, layers, info, toast }: 
   const [pending, setPendingState] = useState<string[]>([]);
   const pendingRef = useRef<string[]>([]);
   const setPending = (next: string[]) => { pendingRef.current = next; setPendingState(next); };
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const wasPlacing = useRef(false);
   const { solo, mySeat } = room;
   const owns = useCallback((seat: number) => live && (solo || seat === mySeat), [live, solo, mySeat]);
   /** Any seated player (not a spectator) may put a token on any field. */
@@ -80,12 +78,6 @@ export function useTokens({ act, room, live, extraZones, layers, info, toast }: 
   useEffect(() => { if (placing && !canPlace) setPlacing(null); }, [placing, canPlace]);
   // Placing mode over: no zone stays marked as waiting for an answer.
   useEffect(() => { if (!placing) setPending([]); }, [placing]);
-  // When the mode ends, focus goes back to the Token button, unless a dialog took it.
-  useEffect(() => {
-    const on = !!placing;
-    if (wasPlacing.current && !on && !layers.layer) triggerRef.current?.focus({ preventScroll: true });
-    wasPlacing.current = on;
-  }, [placing, layers.layer]);
   useEffect(() => {
     if (!placing) return;
     const stop = (event: KeyboardEvent) => { if (event.key === "Escape" && !layers.layer) { event.preventDefault(); event.stopPropagation(); setPlacing(null); } };
@@ -105,8 +97,6 @@ export function useTokens({ act, room, live, extraZones, layers, info, toast }: 
     if (!canPlace || room.state.seats[seat]?.eliminated || key && !isMainCell(key)) return false;
     setView({ kind: "new", seat, key: key ?? null }); layers.open("token"); return true;
   }, [canPlace, room.state.seats, layers]);
-  /** The "Token" control: starts placing a generic token, or cancels when already placing. */
-  const toggle = () => { if (placing) setPlacing(null); else if (canPlace) setPlacing(GENERIC); };
   /** A click on a zone while placing. A free Main Monster Zone on a living seat gets the token; anything else keeps its usual click. */
   const placeAt = (seat: number, key: ZoneKey, card: TwinCard | undefined): boolean => {
     if (!placing || !canPlace) return false;
@@ -293,10 +283,6 @@ export function useTokens({ act, room, live, extraZones, layers, info, toast }: 
   };
   const drop = (seat: number, card: TwinCard, key: ZoneKey | "hand") => { if (key !== "hand" && judge(seat, card, key).kind === "ok") moveTo(seat, card, key); };
 
-  const trigger = (seat: number): ReactNode => canPlace && seat === (solo ? 0 : mySeat)
-    ? <button ref={triggerRef} type="button" className={`${s.btn} ${s.sm} ${placing ? s.go : ""}`} aria-pressed={!!placing} onClick={toggle} data-testid={`token-open-${seat}`}
-      title="Put a token on any free Monster Zone, yours or an opponent's. The camera does not read it.">Token</button> : null;
-
   const card = view?.kind === "card" ? room.state.seats[view.seat]?.twin.find(item => item.ref === view.ref) : undefined;
   const isCreator = (card: TwinCard) => mySeat >= 0 && card.token?.by === mySeat;
   const dialog = layers.layer === "token" && view ? view.kind === "new"
@@ -317,7 +303,7 @@ export function useTokens({ act, room, live, extraZones, layers, info, toast }: 
   </>;
   /** A suggestion chip: starts placing tokens (the next click on a free Main Monster Zone). Stats that are not known are asked in the dialog that follows the zone. */
   const start = (template: TokenTemplate) => { if (!canPlace) return false; setPlacing(template.ask ? suggestStats(template) : template); return true; };
-  return { create, open, judge, drop, trigger, node, owns, placing: !!placing && canPlace, placeAt, openSlots, start };
+  return { create, open, judge, drop, node, owns, placing: !!placing && canPlace, placeAt, openSlots, start };
 }
 
 /** The strip shown while placing: what goes down, how many are left, and how to stop. The zones themselves glow on the fields. */

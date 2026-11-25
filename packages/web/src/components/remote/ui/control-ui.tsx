@@ -72,14 +72,6 @@ export function useControlChange({ act, room, live, extraZones, layers, info, na
   }, [giving, layers.layer]);
   // One give at a time: a second click while the first is still on its way does nothing, so no second proxy is made.
   const givingNow = useRef(false);
-  // When the mode ends, focus goes back to the Give button, unless a dialog took it.
-  const giveButton = useRef<HTMLButtonElement>(null);
-  const wasGiving = useRef(false);
-  useEffect(() => {
-    const on = !!giving;
-    if (wasGiving.current && !on && !layers.layer) giveButton.current?.focus({ preventScroll: true });
-    wasGiving.current = on;
-  }, [giving, layers.layer]);
   const rowOf = (card: TwinCard): Row | undefined => card.zone === "monster" || card.zone === "extra-monster" ? "monster" : card.zone === "spell-trap" ? "spell-trap" : undefined;
   /** "Give to opponent" from the card menu. An Extra Monster Zone card goes into a Main Monster Zone. */
   const give = (card: TwinCard) => {
@@ -122,10 +114,8 @@ export function useControlChange({ act, room, live, extraZones, layers, info, na
     setGiving({ seat: mySeat, row, name, draft: { cardId: id, position: "attack", faceUp: true } });
     return true;
   };
-  const giveTrigger = (seat: number): ReactNode => canGive && seat === mySeat
-    ? <button ref={giveButton} type="button" className={`${s.btn} ${s.sm} ${giving ? s.go : ""}`} aria-pressed={!!giving} data-testid={`give-open-${seat}`}
-      onClick={() => { if (giving) setGiving(null); else open({ step: "hand", seat: mySeat }); }}
-      title="Give a card from your hand to an opponent's field (a Kaiju, Lava Golem). It shows there as your proxy.">Give card</button> : null;
+  /** The Give button next to the hand count: pick a card from my hand to give to an opponent's field (a Kaiju, Lava Golem). A second press cancels. */
+  const giveFromHand = () => { if (giving) setGiving(null); else if (canGive) open({ step: "hand", seat: mySeat }); };
 
   const offer = (seat: number, wanted: ControlOffer | undefined) => {
     if (!wanted || !may(seat)) return;
@@ -228,7 +218,7 @@ export function useControlChange({ act, room, live, extraZones, layers, info, na
     <span className={t.barText} role="status">Click a free {giving.row === "monster" ? "Monster" : "Spell & Trap"} Zone on an opponent's field for <b>{giving.name}</b>. It stays yours there. Move its paper card off your zones.</span>
     <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} onClick={() => setGiving(null)} data-testid="give-cancel">Cancel <kbd>Esc</kbd></button>
   </div> : null;
-  return { offer, take, giveBack, askEquip, node: <>{node}{bar}</>, may, give, giveSlots, giveAt, giveHere, giveCard, giveTrigger, giving: !!giving && canGive, canGive };
+  return { offer, take, giveBack, askEquip, node: <>{node}{bar}</>, may, give, giveSlots, giveAt, giveHere, giveCard, giveFromHand, giving: !!giving && canGive, canGive };
 }
 
 /** Search the catalog for the card in the hand, then ask how it lands. The zone is the next click. */
