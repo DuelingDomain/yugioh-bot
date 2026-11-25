@@ -35,8 +35,6 @@ export function DetectionBadge({ seat, name, mode }: { seat: number; name: strin
     <Glyph size={11} strokeWidth={2} aria-hidden />{modeShort(mode)}</span>;
 }
 
-export type SeatUndo = { label: string; enabled: boolean; reason?: string; onUndo: () => void };
-
 export type SeatPanelProps = {
   /** Called with this seat's notification slot (a portal target) when it mounts and unmounts. Not rendered in webcam only. */
   onDock?: (seat: number, node: HTMLElement | null) => void;
@@ -57,8 +55,7 @@ export type SeatPanelProps = {
   onPlate: () => void; onLp: (delta: number) => void; canLp: boolean;
   /** Server time this player started Thinking (the T key). Shown in the status area under the field. */ thinkingSince?: number;
   /** Names the table shape (2, 3 or 4 seats) so the remembered view is per viewer, seat and shape. */ viewScope?: string;
-  /** Undo on the player's own seat. Same action as the dock Undo. Set only for the viewer's seat. */
-  undo?: SeatUndo;
+  /** This player's phase boxes (`PhaseTrack`). They sit between the camera and the virtual field, in every view. */ track?: ReactNode;
   /** The virtual field is hidden (the default). The camera feed takes its space. */ webcamOnly?: boolean;
   /** Switches Both and Webcam only (shortcut W). */ onToggleView?: () => void;
   /** This player is in Tap mode, so the board is off for everyone: the seat shows its camera like Webcam only, plus a note. My own seat shows no note: the strip under my camera says it and has the Turn on button. */ boardOff?: Record<string, never>;
@@ -142,10 +139,6 @@ export function SeatPanel(p: SeatPanelProps) {
       <span className={`${s.tag} ${s.turnt}`}>TURN</span><span className={`${s.tag} ${s.nextt}`}>NEXT</span>
       {p.eliminated ? <span className={s.tag}>OUT</span> : null}
       <span className={s.micI}><Icon name="mic" /></span><span className={s.sp} />
-      {p.undo ? <button type="button" className={s.sundo} disabled={!p.undo.enabled} onClick={p.undo.onUndo} data-testid="seat-undo"
-        aria-label={p.undo.enabled ? `Undo: ${p.undo.label}. ${p.undo.reason ? p.undo.reason + ". " : ""}Shortcut Ctrl Z` : "Nothing to undo"}
-        title={p.undo.enabled ? (p.undo.reason ?? "Undo your last action (Ctrl+Z)") : "Nothing to undo"}>
-        <Icon name="undo" /><span className={s.sul} data-testid="seat-undo-label">{p.undo.enabled ? `Undo: ${p.undo.label}` : "Nothing to undo"}</span></button> : null}
       {p.onRescan && !scan ? <button type="button" className={`${s.vtog} ${s.rescan}`} data-testid={`field-rescan-${p.seat}`} data-sent={rescanNote || undefined} aria-label={`Rescan ${p.name}'s field${rescanNote ? `. ${rescanNote}` : ""}`}
         title={rescanNote || "Ask this player's Auto-detect to scan their field again"} onClick={() => { if (!rescanNote) void p.onRescan?.().then(setRescanNote); }}>
         <RefreshCw size={13} strokeWidth={1.8} aria-hidden="true" /><span className={s.rslabel}>Rescan</span><span className={s.sr} role="status">{rescanNote}</span></button> : null}
@@ -175,6 +168,7 @@ export function SeatPanel(p: SeatPanelProps) {
           </div>
         </>} />
       <div className={s.fside}>
+        {p.track}
         {p.boardOff && !p.you ? <TapBoardNote /> : null}
         {targeting ? null : cardList}
         <div className={s.fboard}>

@@ -11,8 +11,8 @@ export type Proposal = { id: number; title: string; sub: string; confirmLabel: s
 const BARS = 9;
 
 /** recognition=false: no voice commands. The mute control then only drives voice chat, or nothing at a solo table (chat="none"). */
-export function MicSection({ recognition = true, chat = "on", state, level, speaking, muted, ptt, held, service, error, onMute, onPtt, offTurn }: {
-  recognition?: boolean; chat?: "none" | "off" | "connecting" | "on"; state: MicState; level: number; speaking: boolean; muted: boolean; ptt: boolean; held: boolean; service: string; error: string;
+export function MicSection({ testId = "mic", recognition = true, chat = "on", state, level, speaking, muted, ptt, held, service, error, onMute, onPtt, offTurn }: {
+  /** The root test id. The bottom bar owns "mic", so its popover copy takes another. */ testId?: string; recognition?: boolean; chat?: "none" | "off" | "connecting" | "on"; state: MicState; level: number; speaking: boolean; muted: boolean; ptt: boolean; held: boolean; service: string; error: string;
   onMute: () => void; onPtt: () => void; offTurn: boolean;
 }) {
   const noMute = !recognition && chat === "none";
@@ -25,7 +25,7 @@ export function MicSection({ recognition = true, chat = "on", state, level, spea
     : ptt ? "Hold V and speak."
     : state === "listen" ? "Say a phase or end turn. Passing needs confirmation."
     : offTurn ? "Waiting for your turn." : "Say a phase or end turn.";
-  return <section className={`${s.dk} ${s.mic} ${s[state] ?? ""}`} aria-label="Voice control" data-testid="mic" data-mic={state}>
+  return <section className={`${s.dk} ${s.mic} ${s[state] ?? ""}`} aria-label="Voice control" data-testid={testId} data-mic={state}>
     <button type="button" className={s.micb} disabled={noMute} aria-label={muted ? "Unmute microphone" : "Mute microphone"} onClick={onMute}><Icon name={state === "muted" ? "micoff" : "mic"} /></button>
     <div className={s.mstat}>
       <span className={s.mrow}><span className={s.mlab} data-testid="mic-label">{label}</span>
