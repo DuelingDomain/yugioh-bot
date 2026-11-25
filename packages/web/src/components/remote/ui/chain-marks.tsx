@@ -49,12 +49,12 @@ export function ChainBadges({ marks }: { marks: readonly ChainMark[] | undefined
   const { live } = useLiveMarks(marks);
   const key = live.map(mark => `${mark.ref}:${mark.n}`).join("|");
   useEffect(() => {
-    const set: HTMLElement[] = [];
     for (const mark of live) {
       if (!mark.ref) continue;
-      document.querySelectorAll<HTMLElement>(`[data-zone][data-ref="${CSS.escape(mark.ref)}"]`).forEach(el => { el.setAttribute("data-chain", String(mark.n)); set.push(el); });
+      document.querySelectorAll<HTMLElement>(`[data-zone][data-ref="${CSS.escape(mark.ref)}"]`).forEach(el => el.setAttribute("data-chain", String(mark.n)));
     }
-    return () => set.forEach(el => el.removeAttribute("data-chain"));
+    // Cleanup sweeps every tagged element, including the ones the interval below tagged after a card moved.
+    return () => document.querySelectorAll<HTMLElement>("[data-chain]").forEach(el => el.removeAttribute("data-chain"));
     // The key stands for the live marks; the effect also runs again when the board draws new cards (see the interval below).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);

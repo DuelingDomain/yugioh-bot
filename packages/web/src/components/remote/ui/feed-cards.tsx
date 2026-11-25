@@ -98,10 +98,11 @@ function FeedChain({ seat, frame, format, read }: { seat: number; frame: CSSProp
     {mine.map(mark => {
       const key = (Object.keys(ZONE_OF) as (keyof typeof ZONE_OF)[]).find(zone => placed[zone as keyof typeof placed]?.card?.ref === mark.ref);
       const cell = key ? cells.find(item => item.zone === ZONE_OF[key]) : undefined;
+      const defense = key ? placed[key as keyof typeof placed]?.card?.position === "defense" : false;
       const at = calibration?.orientation && cell ? through(calibration, cell, { x: .5, y: .02 }) : null;
       const fresh = isFresh(mark, now);
       if (at && inView(at)) {
-        const corners = cardInCell(false).corners.map(p => through(calibration!, cell!, p));
+        const corners = cardInCell(defense).corners.map(p => through(calibration!, cell!, p));
         return <span key={`${mark.ref}:${mark.n}`} data-testid="feed-chain-mark" data-fresh={fresh ? "1" : "0"}>
           {fresh ? <svg viewBox="0 0 1 1" preserveAspectRatio="none"><polygon className={t.chainGlow} points={corners.map(p => `${p.x},${p.y}`).join(" ")} /></svg> : null}
           <span className={`${t.label} ${t.chainTag}`} style={{ left: `${at.x * 100}%`, top: `${at.y * 100}%` }}>{markLabel(mark, now)}</span>
