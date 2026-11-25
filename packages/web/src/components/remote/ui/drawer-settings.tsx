@@ -12,6 +12,7 @@ import { adminWatchHref, useAdminWatchTables } from "./admin-watch-list";
 import { CameraLockControl } from "./camera-lock-control";
 import { remoteFormatName } from "./create";
 import { Icon } from "./icons";
+import { hasDeck } from "./model";
 import { CardDetectionSetting, RecognitionBadge, RecognitionSetting, RecordingBadge, SetCardSettings, VideoRateSetting } from "./recognition-setting";
 import { useVideoHub } from "./video-hub";
 import s from "./remote-ui.module.css";
@@ -64,6 +65,7 @@ export function SettingsTab({ room, webcamOnly, onView, viewLocked, onCameraOff,
       <CardDetectionSetting />
       <RecognitionSetting />
       <Row label="Now" note="Where card recognition runs and the last read time."><RecognitionBadge phoneCamera={phone} /></Row>
+      {room.mySeat >= 0 && !room.spectator && !hasDeck(room, room.mySeat) ? <p className={d.hint} data-testid="deck-hint">Deck list (optional) — add one in the lobby next time; card detection gets faster and more accurate.</p> : null}
       {watcherError ? <p className={d.hint} role="status">{watcherError}</p> : null}
       <Row label="Freeze while hovering a card" note="Freezes the frame when the pointer rests on a camera."><Switch on={hoverFreeze} onChange={writeHoverFreeze} label="Freeze while hovering a card" testId="hover-freeze" /></Row>
       <Row label="Show zone grid" note="My webcam. Shows where your zones are."><Switch on={ownGrid} onChange={on => writeGridPref(true, on)} label="Show zone grid on my webcam" testId="zone-grid-toggle" /></Row>
@@ -77,7 +79,7 @@ export function SettingsTab({ room, webcamOnly, onView, viewLocked, onCameraOff,
     {voice ? <Group title="Voice" testId="drawer-voice">{voice}</Group> : null}
     <Group title="View" testId="drawer-view">
       <Row label={<>Virtual board<span className={d.beta}>BETA</span></>} note={viewLocked ? "Only at 1v1 tables. 3-way and 4-way tables run on the cameras." : "Shows the virtual fields next to the cameras (W)."}>
-        <Switch on={!webcamOnly && !viewLocked} disabled={viewLocked} onChange={on => onView(!on)} label="Virtual board" testId="view-board" />
+        <Switch on={!webcamOnly && !viewLocked} disabled={viewLocked} onChange={on => onView(!on)} label="Virtual board" testId="drawer-view-board" />
       </Row>
     </Group>
   </>;

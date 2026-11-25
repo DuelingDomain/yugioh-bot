@@ -944,8 +944,8 @@ test.describe("remote duels screen, moving cards by hand", () => {
     await page.locator('[data-testid="feed-0"]').getByTestId("orientation-confirm").click();
     await orientation.click(); await page.getByRole("option", { name: "Camera faces me" }).click(); await expect(orientation).not.toBeFocused();
     await expect(page.getByTestId("reticle")).toHaveCount(0); await expect(page.getByTestId("no-card")).toHaveCount(0);
-    await openDrawer(page, "settings"); await page.getByTestId("view-board").click();
-    await expect(page.getByTestId("view-board")).toHaveAttribute("aria-checked", "false"); await page.keyboard.press("Escape");
+    await openDrawer(page, "settings"); await page.getByTestId("drawer-view-board").click();
+    await expect(page.getByTestId("drawer-view-board")).toHaveAttribute("aria-checked", "false"); await page.keyboard.press("Escape");
     await expect(page.getByTestId("fwrap-0")).toBeHidden(); await expect(page.getByTestId("feed-box-0")).toBeVisible();
     // A bot seat has no camera to read, so it keeps its board and has no toggle.
     await expect(page.getByTestId("feed-box-1")).toBeVisible(); await expect(page.getByTestId("fwrap-1")).toBeVisible(); await expect(page.getByTestId("field-toggle-1")).toHaveCount(0);
@@ -972,7 +972,7 @@ test.describe("remote duels screen, moving cards by hand", () => {
     await expect(page.getByTestId("field-toggle-0")).toContainText("Show virtual field");
     await page.keyboard.press("w"); await expect(page.getByTestId("fwrap-0")).toBeVisible(); await expect(page.getByTestId("field-toggle-0")).toContainText("Hide virtual field");
     await page.getByTestId("field-toggle-0").click(); await expect(page.getByTestId("fwrap-0")).toBeHidden();
-    await openDrawer(page, "settings"); await page.getByTestId("view-board").click(); await page.keyboard.press("Escape"); await expect(page.getByTestId("fwrap-0")).toBeVisible();
+    await openDrawer(page, "settings"); await page.getByTestId("drawer-view-board").click(); await page.keyboard.press("Escape"); await expect(page.getByTestId("fwrap-0")).toBeVisible();
     // Both view: notices dock beside the player's own field, can be dragged, and fold into a chip with a count.
     await page.keyboard.press("Control+z"); const mine = page.getByTestId("notify-dock-0");
     await expect(mine.getByTestId("toasts")).toContainText("Undid"); await expect(page.getByTestId("notify-dock-1")).toHaveAttribute("data-count", "0");
