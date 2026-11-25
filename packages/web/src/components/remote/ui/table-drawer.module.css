@@ -35,11 +35,13 @@
 .sec h3{margin:0 0 8px;font:700 11px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;letter-spacing:.16em;text-transform:uppercase;color:var(--ink3)}
 .row{display:flex;align-items:center;justify-content:space-between;gap:14px;min-height:48px;padding:8px 0}
 .row+.row{border-top:1px solid rgb(167 139 255/.09)}
+.row+.hint,.hint+.row{margin-top:12px}
 .row>span:first-child{min-width:0;font-weight:600;font-size:14px;color:var(--ink)}
-.row>span:first-child small{display:block;margin-top:2px;font-weight:500;font-size:12px;line-height:1.3;color:var(--ink3)}
+.row>span:first-child small{display:block;margin-top:3px;font-weight:500;font-size:12px;line-height:1.3;color:var(--ink3)}
 .row kbd{font-size:10.5px}
 .stack{flex-direction:column;align-items:stretch;gap:7px}
 .stack .btns{justify-content:flex-start}
+.stack .ctl{max-width:none;justify-content:flex-start;align-items:stretch}.stack .ctl>*{width:100%}
 .ctl{flex:none;display:flex;flex-wrap:wrap;justify-content:flex-end;align-items:center;gap:6px;max-width:214px}
 .ctl>*{max-width:100%}
 .btns{flex:none;display:flex;flex-wrap:wrap;justify-content:flex-end;align-items:center;gap:6px}
@@ -56,10 +58,14 @@
 .pl b{flex:1;font-weight:700}
 .pl.turnOn b{color:var(--gold-ink)}
 .pl small{color:var(--ink3);font-size:12px;text-align:right}
-.hint{margin:6px 0 12px;font-size:12.5px;line-height:1.45;color:var(--ink3)}
+.hint{margin:12px 0;font-size:12.5px;line-height:1.45;color:var(--ink3)}
 .ro{font:600 12px/1.3 var(--font-duel-display),Oxanium,sans-serif;font-variant-numeric:tabular-nums;color:var(--ink2);white-space:normal}
 .kv .ro{color:var(--ink)}
 .det{border-top:1px solid rgb(167 139 255/.09)}
+.det.first{border-top:0}
+.mini{height:30px;padding:0 10px;border:1px solid var(--line2);border-radius:6px;background:var(--p0);color:var(--ink);font:600 12.5px/1 var(--font-duel-ui),system-ui,sans-serif;cursor:pointer}
+.mini:disabled{opacity:.45;cursor:default}
+.mini:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
 .det>summary{display:flex;align-items:center;gap:8px;min-height:44px;list-style:none;cursor:pointer;font-weight:600;font-size:14px;color:var(--ink)}
 .det>summary::-webkit-details-marker{display:none}
 .det>summary svg{width:14px;height:14px;color:var(--ink3);transition:transform .2s}
@@ -90,3 +96,10 @@
 .peekx { all: unset; cursor: pointer; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 6px; }
 .peekx:hover { background: rgba(255,255,255,.1); }
 @media (max-width: 900px) { .peek { left: auto; right: 12px; top: auto; bottom: 12px; width: min(200px, 50vw); } }
+
+/* Admin tab while the table list loads. */
+.skel{display:grid;gap:10px;margin:8px 0 14px}
+.skel i{display:block;height:16px;border-radius:5px;background:linear-gradient(90deg,rgb(167 139 255/.08),rgb(167 139 255/.2),rgb(167 139 255/.08));background-size:200% 100%;animation:skel 1.2s linear infinite}
+.skel i:nth-child(2){width:80%}.skel i:nth-child(3){width:55%}
+@keyframes skel{to{background-position:-200% 0}}
+@media (prefers-reduced-motion:reduce){.skel i{animation:none}}
