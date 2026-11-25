@@ -55,6 +55,8 @@ export function foundationZone(z: ZoneKey): { zone: string; slot?: number } {
 
 export const PHASES = ygoModule.phases;
 export const PHASE_SHORT: Record<string, string> = { draw: "Draw", standby: "Standby", main1: "Main 1", battle: "Battle", main2: "Main 2", end: "End" };
+/** One or two letters, for a phase box too narrow for its name. */
+export const PHASE_ABBR: Record<string, string> = { draw: "DP", standby: "SP", main1: "M1", battle: "BP", main2: "M2", end: "EP" };
 export const PHASE_LONG: Record<string, string> = { draw: "Draw Phase", standby: "Standby Phase", main1: "Main Phase 1", battle: "Battle Phase", main2: "Main Phase 2", end: "End Phase" };
 export const phaseIndex = (id: string) => Math.max(0, PHASES.findIndex(p => p.id === id));
 

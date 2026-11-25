@@ -560,7 +560,10 @@
 
 /* ---- each player's phase boxes, between the camera and the virtual field ---- */
 .ptrack{display:flex;gap:4px;list-style:none;margin:0;padding:0;flex:none;min-width:0;order:-1}
+.ptrack{container:ptrack/inline-size}
 .ptrack li{flex:1 1 0;min-width:0}
+.pabbr{display:none}
+@container ptrack (max-width:320px){.pfull{display:none}.pabbr{display:inline}}
 .pbox{display:flex;align-items:center;justify-content:center;width:100%;height:28px;padding:0 3px;border:1px solid var(--line);border-radius:7px;background:var(--p0);color:var(--ink3);font:600 12.5px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:background .25s,color .25s,border-color .25s,box-shadow .25s}
 .ptrack:not(.pton) .pbox{opacity:.55;cursor:default}
 .pton .pbox{border-color:var(--line2);color:var(--ink2)}
