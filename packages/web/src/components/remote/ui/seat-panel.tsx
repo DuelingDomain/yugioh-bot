@@ -18,6 +18,7 @@ import { ThinkingChip } from "./think";
 import { LifePoints } from "@/components/duel/life-points";
 import { usePrefersReducedMotion } from "@/lib/motion";
 import s from "./remote-ui.module.css";
+import type { SeatFocus } from "./seat-focus";
 
 export const LP_STEPS: { delta: number; kind: string }[] = [
   { delta: -1000, kind: `${s.m} ${s.x}` }, { delta: -500, kind: s.m }, { delta: -100, kind: s.m }, { delta: 100, kind: s.p }, { delta: 500, kind: `${s.p} ${s.x}` },
@@ -59,7 +60,6 @@ export type SeatPanelProps = {
   /** Names the table shape (2, 3 or 4 seats) so the remembered view is per viewer, seat and shape. */ viewScope?: string;
   /** This player's phase boxes (`PhaseTrack`). They sit between the camera and the virtual field, in every view. */ track?: ReactNode;
   /** The virtual field is hidden (the default). The camera feed takes its space. */ webcamOnly?: boolean;
-  /** Switches Both and Webcam only (shortcut W). */ onToggleView?: () => void;
   /** This player is in Tap mode, so the board is off for everyone: the seat shows its camera like Webcam only, plus a note. My own seat shows no note: the strip under my camera says it and has the Turn on button. */ boardOff?: Record<string, never>;
   /** A camera click on a card the table knows (both views). Webcam only also uses the camera for hover info and piles. Right click or long press opens the card actions (always). Same shapes as on the feed. */
   onZoneCard?: ComponentProps<typeof Feed>["onZoneCard"]; onCamPick?: ComponentProps<typeof Feed>["onPick"]; hoverTip?: ComponentProps<typeof Feed>["hoverTip"]; onCardMenu?: ComponentProps<typeof Feed>["onCardMenu"];
@@ -68,6 +68,7 @@ export type SeatPanelProps = {
   /** The mode this player announced. Tournament tables show it to the opponent. */ detectionMode?: TournamentMode | "unknown";
   /** Opponent seats only: asks that player's Auto-detect to Scan field again. Absent for my seat, bots and spectators. */ onRescan?: () => Promise<string>;
   /** A tournament table. */ tournamentTable?: boolean;
+  /** Multi-seat tables: this seat is the large one (3-way desktop) or a tile (phone focus view), and how a click makes it the large one. */ focus?: SeatFocus;
   deckWarning?: string; onDeckFlag?: (button: HTMLElement) => void; cameraControl?: ReactNode | ((tool: ReactNode) => ReactNode); emptyFeedText: string; emptyFeedAction?: ReactNode; turnIn: boolean;
 };
 
@@ -95,6 +96,8 @@ export function SeatPanel(p: SeatPanelProps) {
   const tapHere = useTapToIdentify(p.seat);
   // Webcam only, while this seat can be attacked: the list of its monsters is on the feed, because a feed without a camera or outlines cannot be clicked.
   const targeting = compact && p.picking && !p.eliminated;
+  // Free zones that take the next click (token or give): on a camera feed they are marked on its zone grid.
+  const openZones = (p.tokenSlots ?? []).map(key => key.toUpperCase()).filter(zone => /^[MS][1-5]$/.test(zone));
   const listing = !!p.webcamOnly || !!p.boardOff || targeting;
   const listed = listing ? (Object.entries(cellsFor(p.twin, !!p.extraZones)) as [ZoneKey, { card?: TwinCard } | undefined][]).flatMap(([key, cell]) =>
     cell?.card && !isPile(key) && (!targeting || cell.card.zone === "monster" || cell.card.zone === "extra-monster") ? [{ key, card: cell.card }] : []) : [];
@@ -127,21 +130,22 @@ export function SeatPanel(p: SeatPanelProps) {
   }, [p.lp]);
   const deckHeld = p.twin.filter(card => card.zone === "deck").length, extraHeld = p.twin.filter(card => card.zone === "extra").length;
   const gy = p.twin.filter(card => card.zone === "graveyard").length; const banished = p.twin.filter(card => card.zone === "banished").length;
-  const low = p.lp < 2500; const width = Math.min(100, Math.max(0, (p.lp / Math.max(1, p.startingLp)) * 100));
-  const label = (value: number) => `${p.name} ${value < 0 ? "minus" : "plus"} ${Math.abs(value)}`;
-  const classes = [s.seat, s[`s${p.index}`], p.turn ? s.turn : "", p.you ? s.mine : "", p.turn && p.turnIn ? s.turnIn : "", p.next ? s.next : "", p.speaking ? s.speak : "", p.frozen ? s.frozen : "", p.eliminated ? s.out : ""].filter(Boolean).join(" ");
-  return <section className={classes} aria-label={`${p.name}'s seat`} style={{ "--c": p.color } as React.CSSProperties} data-testid={`seat-${p.seat}`} data-turn={p.turn || undefined} data-view={fieldView ? "field" : "camera"} data-wc={compact || undefined} data-swapping={swapping || undefined}>
-    <header className={s.sh}>
-      <span className={s.pip} /><h2 className={s.nm} style={{ margin: 0 }}>{p.name}</h2>
-      {p.you ? <span className={`${s.tag} ${s.you}`}>YOU</span> : null}
-      {compact && p.onPile ? <span className={s.wcpiles} role="group" aria-label="Piles" data-testid={`wc-piles-${p.seat}`}>
+  const piles = compact && p.onPile ? <span className={s.wcpiles} role="group" aria-label="Piles" data-testid={`wc-piles-${p.seat}`}>
         <button type="button" onClick={event => p.onPile?.("graveyard", event.currentTarget)} aria-label={`${p.name} Graveyard: ${gy} cards. Open`}>GY <b className={s.num}>{gy}</b></button>
         <button type="button" onClick={event => p.onPile?.("banished", event.currentTarget)} aria-label={`${p.name} Banished: ${banished} cards. Open`}>BAN <b className={s.num}>{banished}</b></button>
         {p.you && p.live ? <>
           <button type="button" onClick={event => p.onPile?.("deck", event.currentTarget)} aria-label={`${p.name} Deck: ${deckHeld} cards the table holds. Open`} title={p.deckListSizes ? `Registered deck: ${p.deckListSizes.deck} cards` : undefined}>DECK <b className={s.num}>{deckHeld}</b></button>
           <button type="button" onClick={event => p.onPile?.("extra", event.currentTarget)} aria-label={`${p.name} Extra Deck: ${extraHeld} cards the table holds. Open`} title={p.deckListSizes ? `Registered Extra Deck: ${p.deckListSizes.extra} cards` : undefined}>EX <b className={s.num}>{extraHeld}</b></button>
         </> : null}
-      </span> : null}
+  </span> : null;
+  const low = p.lp < 2500; const width = Math.min(100, Math.max(0, (p.lp / Math.max(1, p.startingLp)) * 100));
+  const label = (value: number) => `${p.name} ${value < 0 ? "minus" : "plus"} ${Math.abs(value)}`;
+  const classes = [s.seat, s[`s${p.index}`], p.turn ? s.turn : "", p.you ? s.mine : "", p.turn && p.turnIn ? s.turnIn : "", p.next ? s.next : "", p.speaking ? s.speak : "", p.frozen ? s.frozen : "", p.eliminated ? s.out : ""].filter(Boolean).join(" ");
+  return <section className={classes} aria-label={`${p.name}'s seat`} style={{ "--c": p.color } as React.CSSProperties} data-testid={`seat-${p.seat}`} data-turn={p.turn || undefined} data-view={fieldView ? "field" : "camera"} data-wc={compact || undefined} data-nocam={(!compact && !!p.focus) || undefined} data-big={p.focus?.big || undefined} data-tile={p.focus?.tile || undefined} data-swapping={swapping || undefined}>
+    <header className={s.sh}>
+      <span className={s.pip} /><h2 className={s.nm} style={{ margin: 0 }} data-pick={p.focus && !p.focus.big ? "" : undefined} onClick={p.focus && !p.focus.big ? p.focus.onPick : undefined}>{p.name}</h2>
+      {p.you ? <span className={`${s.tag} ${s.you}`}>YOU</span> : null}
+      {p.hand ? null : piles}
       {compact && p.pickPlate ? <button type="button" className={`${s.btn} ${s.go} ${s.sm} ${s.wcdirect}`} data-testid={`wc-direct-${p.seat}`} onClick={p.onPlate} aria-label={`Attack ${p.name} directly`}>Attack directly</button> : null}
       {p.tournamentTable && p.detectionMode ? <DetectionBadge seat={p.seat} name={p.name} mode={p.detectionMode === "unknown" ? undefined : p.detectionMode} /> : null}
       <span className={`${s.tag} ${s.turnt}`}>TURN</span><span className={`${s.tag} ${s.nextt}`}>NEXT</span>
@@ -150,19 +154,17 @@ export function SeatPanel(p: SeatPanelProps) {
       {p.onRescan && !scan ? <button type="button" className={`${s.vtog} ${s.rescan}`} data-testid={`field-rescan-${p.seat}`} data-sent={rescanNote || undefined} aria-label={`Rescan ${p.name}'s field${rescanNote ? `. ${rescanNote}` : ""}`}
         title={rescanNote || "Ask this player's Auto-detect to scan their field again"} onClick={() => { if (!rescanNote) void p.onRescan?.().then(setRescanNote); }}>
         <RefreshCw size={13} strokeWidth={1.8} aria-hidden="true" /><span className={s.rslabel}>Rescan</span><span className={s.sr} role="status">{rescanNote}</span></button> : null}
-      {p.onToggleView ? <button type="button" className={`${s.vtog} ${s.vhide}`} data-testid={`field-toggle-${p.seat}`} onClick={p.onToggleView} aria-keyshortcuts="W"
-        title={p.webcamOnly ? "Show the virtual fields (beta) (W). Card recognition does not need them." : "Hide the virtual fields (beta). The camera takes the screen (W)"}>
-        <span>{p.webcamOnly ? "Show" : "Hide"} <span className={s.vlong}>virtual </span>field</span> <span className={s.vbeta}>Beta</span> <kbd>W</kbd></button> : null}
-      {compact ? null : <button type="button" className={s.vtog} data-testid={`view-toggle-${p.seat}`} onClick={() => setFieldView(!fieldView)}
+      {compact || p.focus ? null : <button type="button" className={s.vtog} data-testid={`view-toggle-${p.seat}`} onClick={() => setFieldView(!fieldView)}
         title={fieldView ? "Show the camera large again" : "Show the virtual field large and the camera small"}>{fieldView ? "Camera view" : "Enlarge field"}</button>}
-      <button type="button" className={`${s.hl} ${s[p.health.q] ?? ""}`} aria-haspopup="dialog" aria-expanded={p.healthOpen} data-hl={p.seat}
+      <button type="button" className={`${s.hl} ${s[p.health.q] ?? ""}`} aria-haspopup="dialog" aria-expanded={p.healthOpen} data-hl={p.seat} title={`${p.health.label}${p.health.detail ? `, ${p.health.detail}` : ""}`}
         aria-label={`${p.name} feed: ${p.health.label}${p.health.detail ? `, ${p.health.detail}` : ""}. Open feed health`} onClick={event => p.onHealth(event.currentTarget)}>
         <span className={s.sig}><i /><i /><i /><i /></span><i className={s.hlt}>{p.health.label}</i>
       </button>
     </header>
+    {p.focus?.tile ? <button type="button" className={s.tileTap} aria-label={`Show ${p.name}`} onClick={p.focus.onPick} /> : null}
     {p.onDock ? <NotifyDock seat={p.seat} onSlot={p.onDock} view={`${compact ? "webcam" : "both"}:${fieldView ? "field" : "camera"}`} /> : null}
     <div className={s.sbody}>
-      <Feed seat={p.seat} name={p.name} you={p.you} health={p.health} marks={p.marks} reticles={p.reticles} onBegin={p.onBegin} readLive={p.readLive} onAbort={p.onAbort} onMiss={p.onMiss} onSearch={p.onSearch} onPoint={p.onPoint} onSelect={p.onSelect} holdSelection={p.holdSelection} onAdd={p.onAdd} onReset={p.onReset} onReadBoard={p.onReadBoard} onZoneCard={p.onZoneCard} onPick={compact ? p.onCamPick : undefined} hoverTip={p.webcamOnly ? p.hoverTip : undefined} onCardMenu={p.onCardMenu} emptyText={p.emptyFeedText} emptyAction={p.emptyFeedAction} tournament={p.tournamentTable} prereadScope={compact && p.live ? p.prereadScope : undefined} announcedMode={p.detectionMode === "unknown" ? undefined : p.detectionMode}
+      <Feed seat={p.seat} name={p.name} you={p.you} health={p.health} marks={p.marks} reticles={p.reticles} onBegin={p.onBegin} readLive={p.readLive} onAbort={p.onAbort} onMiss={p.onMiss} onSearch={p.onSearch} onPoint={p.onPoint} onSelect={p.onSelect} holdSelection={p.holdSelection} onAdd={p.onAdd} onReset={p.onReset} onReadBoard={p.onReadBoard} onZoneCard={p.onZoneCard} onPick={compact ? p.onCamPick : undefined} openZones={compact ? openZones : undefined} hoverTip={p.webcamOnly ? p.hoverTip : undefined} onCardMenu={p.onCardMenu} emptyText={p.emptyFeedText} emptyAction={p.emptyFeedAction} tournament={p.tournamentTable} prereadScope={compact && p.live ? p.prereadScope : undefined} announcedMode={p.detectionMode === "unknown" ? undefined : p.detectionMode}
         below={typeof p.cameraControl === "function" ? p.cameraControl(inTools ? scanButton : null) : p.cameraControl}
         extra={<>
           {fieldView ? <button type="button" className={s.swapcam} tabIndex={-1} aria-label="Camera view: show the camera large again" data-testid={`swap-cam-${p.seat}`} onClick={() => setFieldView(false)} /> : null}
@@ -192,7 +194,7 @@ export function SeatPanel(p: SeatPanelProps) {
           <div className={s.projector} />
         </div>
         </div>
-        {p.hand ? <HandStrip seat={p.seat} name={p.name} hand={compact ? { ...p.hand, tray: true } : p.hand} /> : null}
+        {p.hand ? <HandStrip seat={p.seat} name={p.name} hand={compact ? { ...p.hand, tray: true, trail: piles } : p.hand} /> : null}
         <div className={s.lp} data-testid={`lp-${p.seat}`}>
           {p.thinkingSince !== undefined ? <div className={s.thinkrow}><ThinkingChip since={p.thinkingSince} seat={p.seat} who={p.name} /></div> : null}
           <div className={s.lpmain}>

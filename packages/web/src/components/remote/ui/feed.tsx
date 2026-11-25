@@ -88,7 +88,7 @@ function copyOf(canvas: HTMLCanvasElement) {
   copy.getContext("2d")?.drawImage(canvas, 0, 0); return copy;
 }
 
-export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLive, onAbort, onPoint, onMiss, onSearch, onSelect, onAdd, onReset, onReadBoard, holdSelection, extra, onZoneCard, onPick, hoverTip, onCardMenu, below, emptyText, emptyAction, prereadScope, announcedMode, tournament = false }: {
+export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLive, onAbort, onPoint, onMiss, onSearch, onSelect, onAdd, onReset, onReadBoard, holdSelection, extra, onZoneCard, onPick, hoverTip, onCardMenu, below, emptyText, emptyAction, prereadScope, announcedMode, tournament = false, openZones }: {
   seat: number; name: string; you: boolean; health: Health; marks: FeedMark[]; reticles: FeedReticle[];
   /** A click landed on the live feed, before the card is found. Returns the id of this read. No popup opens yet. */
   onBegin: (seat: number, start: FeedStart) => number | void;
@@ -109,6 +109,8 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
   onReadBoard?: (seat: number, reading: BoardReading) => Promise<string>;
   /** True while the table shows a popover or tray for a card on this feed. */
   holdSelection: boolean; extra?: ReactNode;
+  /** Zones ("M1", "S3" ...) that take the next click (a token or a given card is being placed). They glow on the zone grid, and the grid shows even when it is turned off. */
+  openZones?: readonly string[];
   /** Webcam only: a click on a spot with no outline asks the table first. It answers true when the zone under the click holds a card it handled. */
   onZoneCard?: (seat: number, at: { x: number; y: number; anchor: Rect; feed: Rect }) => boolean;
   /** Webcam only, while the table waits for an attack target: a click on a card there picks it. It answers true when it took the click. */
@@ -568,7 +570,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
       <div className={s.grain} />
       {tip && !frozen ? <div className={s.peek2} ref={tipBox} data-testid="hover-tip" style={{ left: tip.left, top: tip.top, transform: tip.flip ? "translateX(calc(-100% - 28px))" : undefined }} aria-hidden="true">
         <b>{tip.label}</b>{tip.detail ? <em>{tip.detail}</em> : null}</div> : null}
-      {source && !frozen ? <ZoneGridOverlay seat={seat} box={box} visible={gridOn && !tapSeat} onControlsEnter={calmHover} /> : null}
+      {source && !frozen ? <ZoneGridOverlay seat={seat} box={box} visible={(gridOn && !tapSeat) || !!openZones?.length} openZones={openZones} onControlsEnter={calmHover} /> : null}
       {source && !frozen ? <HubFeedCards seat={seat} frame={box ? boxStyle : null} /> : null}
       {source && !frozen && you && debugOn ? <FieldDebugOverlay box={box} /> : null}
       {flash && !frozen ? <svg key={flash.key} className={s.qflash} style={boxStyle} viewBox="0 0 1 1" preserveAspectRatio="none" aria-hidden="true" data-testid="click-flash">

@@ -22,7 +22,8 @@ const inView = (p: { x: number; y: number }) => p.x > .01 && p.x < .99 && p.y > 
  * Another seat draws only the grid its owner shared.
  * With the grid off, only the "Move into one zone" hint stays: it helps recognition.
  */
-export function ZoneGridOverlay({ seat, box, visible=true, onControlsEnter, spectator }: { seat: number; box: Box | null; visible?:boolean; onControlsEnter?:()=>void;
+export function ZoneGridOverlay({ seat, box, visible=true, onControlsEnter, spectator, openZones }: { seat: number; box: Box | null; visible?:boolean; onControlsEnter?:()=>void;
+  /** Zones that take the next click (placing a token or a given card): they are marked on the grid. */ openZones?: readonly string[];
   /** A spectator has no video hub: it passes its own read of the shared calibration and the table format, and the grid fills the camera box. Geometry only. */
   spectator?: { format: FieldFormat; read: () => FieldCalibration | undefined } }) {
   const grid = useZoneGrid();
@@ -75,12 +76,12 @@ export function ZoneGridOverlay({ seat, box, visible=true, onControlsEnter, spec
   if (!drawn) return hints.length ? <div className={s.zglabels} style={frame} aria-hidden="true">{straddle}</div> : null;
   return <>
     <svg className={s.zgrid} style={frame} viewBox="0 0 1 1" preserveAspectRatio="none" aria-hidden="true" data-testid="zone-grid" data-calibrated={calibrated} data-seat={seat}>
-      {projected.map(({ cell, corners }) => <polygon key={cell.zone} data-zone={cell.zone} data-glow={!!glow[cell.zone]} className={s.zgcell}
+      {projected.map(({ cell, corners }) => <polygon key={cell.zone} data-zone={cell.zone} data-glow={!!glow[cell.zone]} data-open={openZones?.includes(cell.zone) || undefined} className={s.zgcell}
         points={corners.map(p => `${p.x},${p.y}`).join(" ")} />)}
     </svg>
     <div className={s.zglabels} style={frame} aria-hidden="true">
       {projected.filter(({ center }) => inView(center)).map(({ cell, center }) =>
-        <span key={cell.zone} style={{ left: `${center.x * 100}%`, top: `${center.y * 100}%` }} data-glow={!!glow[cell.zone]}>{cell.label}</span>)}
+        <span key={cell.zone} style={{ left: `${center.x * 100}%`, top: `${center.y * 100}%` }} data-glow={!!glow[cell.zone]} data-open={openZones?.includes(cell.zone) || undefined}>{cell.label}</span>)}
       {straddle}
 
     </div>

@@ -5,6 +5,7 @@ import { REMOTE_TABLE_TALK } from "@/lib/remote/table-talk";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
 import { REMOTE_FORMATS, REMOTE_HAND_SUGGESTION_EVENT, type RemoteHandSuggestionEvent, matchCardsByName, previousYgoPhase, normalizeRemoteFormat, remoteRecognitionRef, remoteRecognitionRefs, type RemoteActionProposal, type RemoteEvent, type RemoteRoom, type RemoteUndoEntry } from "@yugidraft/shared/remote";
+import { useSeatFocus } from "./seat-focus";
 import { cardInfo, isLinkInfo, isMonsterInfo, loadCards, searchCards, useCardInfo } from "./catalog";
 import { EffectControls, EffectPicker } from "./effect-controls";
 import { LpStrip, TopBar, AdminWatchStrip, type Player } from "./chrome";
@@ -486,7 +487,9 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
   const detection = useCardDetection();
   const [choice, setChoice] = useState<boolean | null>(null);
   useLayoutEffect(() => { try { const stored = localStorage.getItem(WEBCAM_ONLY_KEY); setChoice(stored === null ? null : stored !== "0"); localStorage.removeItem("dd-remote-webcam-only-mode"); } catch { /* storage blocked: the default */ } }, []);
-  const webcamOnly = resolveWebcamOnly(choice);
+  // A 3-way or 4-way table shows only the cameras: no virtual field, no toggle, no W. The board state is still built; it is only not drawn.
+  const multi = seatCount > 2;
+  const webcamOnly = multi || resolveWebcamOnly(choice);
   const setWebcamOnly = useCallback((next: boolean) => {
     setChoice(next);
     try { localStorage.setItem(WEBCAM_ONLY_KEY, next ? "1" : "0"); } catch { /* storage blocked: not remembered */ }
@@ -496,8 +499,14 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
   const subscribeTap = useCallback((listener: () => void) => { const a = hub.subscribeFieldBacks(listener), b = hub.subscribePeerVision(listener); return () => { a(); b(); }; }, [hub.subscribeFieldBacks, hub.subscribePeerVision]);
   const tapSeats = useSyncExternalStore(subscribeTap, () => room.seats.filter(item => item.seat !== room.mySeat && seatBoardOff({ stateMode: stateMode(room.state, item.seat), tracksTap: hub.tapMode(item.seat), visionTap: hub.peerVision(item.seat)?.detect === "tap" })).map(item => item.seat).join(","), () => "");
   const ownBoardOff = room.mySeat >= 0 && !!detection && !detection.autoDetect && hub.cameraOn;
-  /** A bot, manual or Scan mode seat has no camera to read: its board twin is the only view of its cards, so it stays on. So does every board while a zone click is the next step (token, give control). */
-  const needsBoard = (seat: number) => tokens.placing || !!room.seats.find(item => item.seat === seat)?.bot || hub.manual(seat) || hub.health(seat).label === "Scan mode" || control.giving;
+  const zoneGrid = useZoneGrid();
+  /** The mat zones of this seat's camera are known (the same test as `zoneAtPoint`): a click on its feed can name a zone. */
+  const zonesOnCamera = (seat: number) => !!(zoneGrid.ownSeat === seat ? zoneGrid.calibration : hub.trackedCalibration?.(seat))?.orientation;
+  /** A bot, manual or Scan mode seat has no camera to read: its board twin is the only view of its cards, so it stays on (also on a 3-way or 4-way table).
+   *  So does every board while a zone click is the next step (token, give control), except on a 3-way or 4-way table: there the click lands on the camera's zone grid, unless its zones are not known yet. */
+  const noCamera = (seat: number) => !!room.seats.find(item => item.seat === seat)?.bot || hub.manual(seat) || hub.health(seat).label === "Scan mode";
+  const needsBoard = (seat: number) => noCamera(seat) || ((tokens.placing || control.giving) && !(multi && zonesOnCamera(seat)));
+  const seatFocus = useSeatFocus({ seatCount, mySeat, turnSeat: turnShown, nextSeat, turn: state.turn, seats: seatIds, hasCamera: seat => !noCamera(seat) });
   const boardOff = (seat: number) => !needsBoard(seat) && (seat === room.mySeat ? ownBoardOff : tapSeats.split(",").includes(String(seat)));
   const flagFor = (seat: number, id: number) => hasDeck(room, seat) ? !deckIdsOf(room, seat).includes(id) : null;
   const reticle = (seat: number, next: FeedReticle | null, id: string) => setReticles(all => ({ ...all, [seat]: [...(all[seat] ?? []).filter(item => item.id !== id), ...(next ? [next] : [])] }));
@@ -1246,7 +1255,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
   const cancelChip = () => { if (proposal) setProposal(null); else cancelAttack(); };
 
   // ---- keyboard ----
-  const toggleView = () => setWebcamOnly(!webcamOnly);
+  const toggleView = () => { if (!multi) setWebcamOnly(!webcamOnly); };
   const signalSeat = solo ? state.turnSeat : mySeat;
   const signalShown = live && (solo || mySeat >= 0) && maySignal(state, signalSeat);
   // The Think button shows pressed while any seat this client controls is thinking (a solo table controls every seat).
@@ -1567,7 +1576,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
   void draftPhase;
 
   // ---- camera card info and card actions ----
-  const zoneGrid = useZoneGrid(); const tapOwnSeat = useTapToIdentify(mySeat);
+  const tapOwnSeat = useTapToIdentify(mySeat);
   const gridFormat = (room.format?.id ?? state.deckChecks.format.id) as FieldFormat;
   /** The mat zone under a point on a camera feed ("M1", "GY", "BANISHED" ...). Needs the feed's confirmed mat grid. */
   const zoneAtPoint = (seat: number, x: number, y: number): string | undefined => {
@@ -1604,6 +1613,11 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
   };
   /** Webcam only: a click where no card is outlined. A card the table knows there opens its info. A hidden card says "Set card". The Graveyard and Banished open their pile. */
   const onZoneCard = (seat: number, at: { x: number; y: number; anchor: Rect; feed: Rect }) => {
+    // 3-way and 4-way: placing a token or giving a card is a click on a free zone of the camera's zone grid (no board is shown).
+    if (multi && (tokens.placing || control.giving)) {
+      const zone = zoneAtPoint(seat, at.x, at.y), key = zone && /^[MS][1-5]$/.test(zone) ? zone.toLowerCase() as ZoneKey : undefined;
+      if (key && (tokens.placeAt(seat, key, twinAtPoint(seat, at.x, at.y)) || control.giveAt(seat, key, twinAtPoint(seat, at.x, at.y)))) { cancelRead(); return true; }
+    }
     // Tap to identify: the board does not follow this camera, so its zones can be out of date. The click reads the frame.
     if (tapOwnSeat && seat === mySeat) return false;
     const card = twinAtPoint(seat, at.x, at.y);
@@ -1669,7 +1683,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
         onHealth={el => layers.toggle("health", el)} onCard={el => layers.toggle("insp", el)} onLog={el => layers.toggle("log", el)}
         onSurrender={canSurrender ? el => openLeave("game", el) : undefined} surrenderOpen={layers.layer === "surrender" && leaveMode === "game"}
         onQuit={canQuit ? el => openLeave("match", el) : undefined}
-        webcamOnly={webcamOnly} onView={setWebcamOnly} />
+        webcamOnly={webcamOnly} onView={multi ? undefined : setWebcamOnly} />
       <AdminWatchStrip names={(room.adminWatchers ?? []).map(watcher => watcher.name)} />
       <main className={s.stage} id="stage" tabIndex={-1} aria-label="Duel table" ref={stage}>
         <LpStrip players={players} turnSeat={turnShown} lp={lpOf} onJump={seat => document.querySelector(`[data-testid="seat-${seat}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" })} />
@@ -1696,14 +1710,14 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
           const twin = state.seats[seat]?.twin ?? []; const bot = !!room.seats.find(item => item.seat === seat)?.bot;
           const registration=room.seats.find(item=>item.seat===seat),deck=registration?.deck?.deck;
           const plate = !!picking && seat !== picking.seat && !state.seats[seat].eliminated;
-          return <SeatPanel key={seat} index={seat} seat={seat} name={name(seat)} onRescan={seat !== mySeat && mySeat >= 0 && !solo && !isTournamentTable(room) && room.seats.find(item => item.seat === seat)?.userId != null ? () => hub.requestRescan(seat).then(rescanText) : undefined} color={COLORS[seat]} you={seat === mySeat} turn={seat === turnShown} next={seat === nextSeat && seatCount > 2}
+          return <SeatPanel key={seat} index={seat} seat={seat} focus={seatFocus(seat)} name={name(seat)} onRescan={seat !== mySeat && mySeat >= 0 && !solo && !isTournamentTable(room) && room.seats.find(item => item.seat === seat)?.userId != null ? () => hub.requestRescan(seat).then(rescanText) : undefined} color={COLORS[seat]} you={seat === mySeat} turn={seat === turnShown} next={seat === nextSeat && seatCount > 2}
             speaking={seat === mySeat && voice.speaking} frozen={hub.health(seat).label === "Frozen"} eliminated={!!state.seats[seat]?.eliminated} lp={lpOf(seat)} startingLp={startingLp}
             health={hub.health(seat)} healthOpen={layers.layer === "health"} onHealth={el => layers.toggle("health", el)}
             marks={marks[seat] ?? []} reticles={reticles[seat] ?? []} onBegin={beginRead} readLive={readLive} onAbort={abortRead} onMiss={noCard} onSearch={searchHere} onPoint={(sd, x, y, point) => void startRead(sd, x, y, { point })} onSelect={(sd, hit) => void startRead(sd, hit.x, hit.y, { hit })}
             holdSelection={(layers.layer === "tray" || layers.layer === "card") && ctx.current?.seat === seat} onAdd={mark => void addToDeck(seat, mark.cardCode)} onReset={resetFeed} onReadBoard={readBoardInto} prereadScope={prereadScope}
             twin={twin} deckRegistered={!!(registration?.deckRegistered??registration?.deck)} deckListSizes={deck?{deck:deck.main.length,extra:deck.extra.length}:undefined} info={info} extraZones={extraZones} facing={facing(seat)} boardSeats={state.seats} owners={state.seats.map(item => ({ seat: item.seat, name: name(item.seat), color: COLORS[item.seat] }))} rv={rv[seat] ?? "m1"} onRv={key => setRv(old => ({ ...old, [seat]: key }))} picking={!!picking && seat !== picking.seat}
             selectedRef={picking?.seat === seat ? picking.ref : selected?.seat === seat ? selected.ref : undefined} targetRef={attack?.targetSeat === seat ? attack.targetCardRef : undefined} freshRef={fresh}
-            warnRefs={warnRefs(seat)} twinCounts={twinCounts(seat)} pickPlate={plate} tournamentTable={isTournamentTable(room)} detectionMode={seat !== mySeat ? stateMode(room.state, seat) ?? "unknown" : undefined} viewScope={String(seatCount)} webcamOnly={webcamOnly && !needsBoard(seat)} onDock={onSeatDock} boardOff={boardOff(seat) ? {} : undefined} onToggleView={needsBoard(seat) || boardOff(seat) ? undefined : () => setWebcamOnly(!webcamOnly)}
+            warnRefs={warnRefs(seat)} twinCounts={twinCounts(seat)} pickPlate={plate} tournamentTable={isTournamentTable(room)} detectionMode={seat !== mySeat ? stateMode(room.state, seat) ?? "unknown" : undefined} viewScope={String(seatCount)} webcamOnly={webcamOnly && !needsBoard(seat)} onDock={onSeatDock} boardOff={boardOff(seat) ? {} : undefined}
             onZoneCard={onZoneCard} onCamPick={onCamPick} hoverTip={hoverTip} onCardMenu={onCardMenu}
             tokenSlots={tokens.placing && !state.seats[seat]?.eliminated ? tokens.openSlots(seat) : control.giveSlots(seat)} onActivate={(key, card) => { if (tokens.placeAt(seat, key, card) || control.giveAt(seat, key, card)) return; if (picking && card && seat !== picking.seat && (card.zone === "monster" || card.zone === "extra-monster")) void declare(seat, card.ref); else if (!picking && (solo || seat === mySeat) && !isPile(key)) openZonePicker(seat,key); else if (!picking && !card && (/^m[1-5]$/.test(key) || control.canGive && /^s[1-5]$/.test(key))) openZonePicker(seat,key,undefined,true,false,true); else if (card) openSubject(card); }}
             onAttack={(_key, card) => startAttack(seat, card)} onInspect={card => openSubject(card)} onPile={(zone, opener) => openPile(seat, zone, opener)} onDeck={(solo || seat === mySeat) && surrenderable(seat) ? el => { setDeckAt({ seat, rect: el.getBoundingClientRect() }); layers.toggle("deck", el); } : undefined} live={live} drag={fieldDrag(seat)} onPlate={() => { if (plate) void declare(seat); }}
@@ -1719,7 +1733,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
         backTo={previousYgoPhase(state)} ask={phaseAsk.ask} onAsk={phaseAsk.setAsk} onAskYes={id => { phaseAsk.setAsk(null); phaseBack(id); }} onAskNo={() => phaseAsk.setAsk(null)} onPass={passTurn} dockRef={dockRef}
         undo={{ spokenUndo: false, recognition: voiceRecognition, label: undoText, enabled: canUndo, reason: newestUndo?.reason, flash, histOpen: layers.layer === "hist", onUndo: () => void doUndo(), onHist: el => layers.toggle("hist", el) }}
         center={<>
-          {live && mySeat >= 0 ? <button type="button" className={`${s.btn} ${s.sm} ${s.q} ${s.myfield}`} onClick={() => { setWebcamOnly(false); document.querySelector(`[data-testid="field-${mySeat}"]`)?.scrollIntoView?.({ block: 'center' }); }}>My field</button> : null}
+          {live && mySeat >= 0 && !multi ? <button type="button" className={`${s.btn} ${s.sm} ${s.q} ${s.myfield}`} onClick={() => { setWebcamOnly(false); document.querySelector(`[data-testid="field-${mySeat}"]`)?.scrollIntoView?.({ block: 'center' }); }}>My field</button> : null}
           {signalShown ? <div className={s.signals}>
             <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} aria-pressed={thinkOn} onClick={event => { thinkNow(); event.currentTarget.blur(); }} title="Thinking: tell the table you are deciding. Press again to cancel. No time limit." data-testid="think-button">{thinkOn ? "Thinking…" : "Think"} <kbd>T</kbd></button>
             <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} onClick={event => { okNow(); event.currentTarget.blur(); }} title="OK: no response" data-testid="ok-button">OK <kbd>Space</kbd></button>

@@ -808,21 +808,61 @@
 /* No browser callout (image menu, link preview) on a long press over the table. The table menu opens instead. */
 .app{-webkit-touch-callout:none}
 .app :is(input,textarea,[contenteditable]){-webkit-touch-callout:default}
-@container seat (max-aspect-ratio:1.55){
-  .seat[data-wc] .sbody{justify-content:center}
-  .seat[data-wc] .feedcol{flex:0 1 auto;width:100%}
-  .seat[data-wc] .feedcol>.cams{flex:none;width:min(100%,calc((100cqh - 288px) * var(--vr)));max-height:none}
+/* Webcam first, desktop: the webcam box takes all the free height of the seat and the ledge (this player's phases, LP and revealed cards) sits directly under it, with no gap.
+   A very wide, short seat keeps the box at most 2.6 times wider than tall, so the ledge stays as wide as the picture. The feed column goes away as a box (display:contents)
+   so the camera tool row, when there is one, falls under the ledge. */
+@media (min-width:901px){
+  .seat:is([data-wc],[data-nocam]) .sbody{--ledge-h:170px;display:flex;flex-direction:column;gap:0;margin-inline:auto;align-self:stretch;justify-self:center}
+  .seat[data-wc] .sbody{width:min(100%,calc((100cqh - 52px - var(--ledge-h)) * 2.6))}
+  .seat[data-wc] .feedcol{display:contents}
+  .seat[data-wc] .feedcol>.cams{order:0;flex:1 1 0;min-height:0;width:100%;max-width:none;max-height:none;aspect-ratio:auto;align-self:stretch;border-radius:8px 8px 0 0}
+  .seat[data-wc] .feedcol>:not(.cams){order:3;margin-top:6px}
+  .seat[data-wc] .fside{order:1;flex:none;position:relative;container:ledge/inline-size;display:flex;flex-direction:column;gap:0;padding:8px 8px 9px;background:rgb(0 0 0/.26);border:1px solid var(--line);border-top:0;border-radius:0 0 10px 10px;overflow:hidden}
+  .seat[data-wc] .fside>*{order:3}
+  .seat[data-wc] .fside>.ptrack{order:0;display:flex;gap:6px}
+  .seat[data-wc] .fside>.lp{order:1}
+  .seat[data-wc] .fboard:not(:has(.scanbtn)){display:none}
+  .seat[data-wc] .htray{height:auto;flex:none;flex-direction:row;align-items:center;gap:10px;min-height:0;padding-top:6px}
+  .seat[data-wc] .htop{flex-direction:row;height:22px;gap:8px;flex:none}
+  .seat[data-wc] .htop .hcount{padding-right:0}
+  .seat[data-wc] .htlist{flex:1 1 0;flex-direction:row;height:28px;min-height:0;overflow-x:auto;overflow-y:hidden;align-items:center}
+  .seat[data-wc] .htlist li,.seat[data-wc] .htlist .hcard{width:auto}
+  .seat:is([data-wc],[data-nocam]) .pbox{height:38px;font-size:14px}
+  .seat:is([data-wc],[data-nocam]) .lp{padding:6px 0 0;gap:12px}
+  .seat:is([data-wc],[data-nocam]) .lpl{align-self:flex-end;padding-bottom:10px}
+  .seat:is([data-wc],[data-nocam]) .lpn{--lp-size:clamp(40px,7cqw,64px)}
+  .seat:is([data-wc],[data-nocam]) .lpd{font-size:18px}
+  .seat:is([data-wc],[data-nocam]) .lpbtn{flex:0 0 auto;margin-left:auto;gap:6px}
+  .seat:is([data-wc],[data-nocam]) .lpbtn button{flex:none;width:74px;height:42px;font-size:15px}
+  .seat:is([data-wc],[data-nocam]) .lpbar{left:0;right:0;bottom:-9px;height:4px;border-radius:0}
+  .seat:is([data-wc],[data-nocam]) .lpin{width:150px;height:42px;margin-left:auto}
+  /* Narrow ledge: short phase names; -1000 only on a ledge 640 px or wider; the middle steps go below 520 px. */
+  @container ledge (max-width:560px){.seat:is([data-wc],[data-nocam]) .pfull{display:none}.seat:is([data-wc],[data-nocam]) .pabbr{display:inline}}
+  @container ledge (max-width:639px){.seat:is([data-wc],[data-nocam]) .lpbtn button:first-child{display:none}.seat:is([data-wc],[data-nocam]) .lpbtn button{width:62px;height:38px}}
+  @container ledge (max-width:519px){.seat:is([data-wc],[data-nocam]) .lpbtn button:is(:nth-child(3),:nth-child(4)){display:none}}
 }
-@container seat (min-aspect-ratio:1.55){
-  .seat[data-wc] .sbody{grid-template-columns:minmax(0,1fr) 128px;grid-template-rows:minmax(0,1fr)}
-  .seat[data-wc] .feedcol{--cellw:calc(100cqw - 26px - 128px);justify-content:center}
-  .seat[data-wc] .fside{align-self:stretch;max-height:100%;min-height:0;justify-content:flex-start}
-  .seat[data-wc] .lp{flex:none}
-  .seat[data-wc] .lp{flex-direction:column;flex-wrap:nowrap;align-items:stretch;gap:6px}
-  .seat[data-wc] .lpn{--lp-size:34px}
-  .seat[data-wc] .lpin{width:100%;margin:0;order:1}
-  .seat[data-wc] .lpbtn{flex-basis:auto;order:3;display:grid;grid-template-columns:1fr 1fr}
-  .seat[data-wc] .lpbtn button{height:28px}
+/* A short seat (4-way, or a small seat of a 3-way table): one row. LP, the short phase names, the quick steps. */
+@container seat (max-height:560px){
+  @media (min-width:901px){
+    .seat[data-wc] .sbody{--ledge-h:96px}
+    .seat[data-wc] .fside{flex-direction:row;flex-wrap:wrap;align-items:center;column-gap:10px;row-gap:2px;padding:6px 8px 8px}
+    .seat[data-wc] .fside>.lp{display:contents}
+    .seat[data-wc] .lpl{order:0;padding:0;align-self:center}
+    .seat[data-wc] .lpn{order:1;--lp-size:clamp(30px,5cqw,44px)}
+    .seat[data-wc] .lpd{order:2;font-size:14px}
+    .seat[data-wc] .lpin{order:1;width:120px;height:34px}
+    .seat[data-wc] .fside>.ptrack{order:3;flex:1 1 0;min-width:0;gap:4px}
+    .seat[data-wc] .lpbtn{order:4;margin-left:0}
+    .seat[data-wc] .lpbtn button{height:34px;font-size:14px}
+    .seat[data-wc] .pbox{height:32px;font-size:12.5px;border-radius:6px}
+    .seat[data-wc] .pfull{display:none}.seat[data-wc] .pabbr{display:inline}
+    .seat[data-wc] .fside>.htray{order:5;flex:1 1 100%;padding-top:0}
+    .seat[data-wc] .lpbar{bottom:0}
+    .seat[data-nocam] .pbox{height:30px;font-size:12.5px}
+    /* Too narrow for the phases and LP on one line: the phases get their own row above LP. */
+    @container seat (max-width:660px){.seat[data-wc] .fside>.ptrack{order:-1;flex:1 1 100%}.seat[data-wc] .lpbtn button:first-child{display:none}}
+    .seat[data-nocam] .lpn{--lp-size:34px}.seat[data-nocam] .lpbtn button{height:34px}
+  }
 }
 
 /* Webcam only: every seat keeps the normal table grid, so all camera feeds get the same width. Each seat shows its slim header, its feed at 16:9 and its notices. */
@@ -835,7 +875,7 @@
 /* In a narrow seat the header has no room for the long labels: "Hide virtual field" shortens, the Beta tag goes, and Rescan shows its icon only, so nothing runs into the feed signal. */
 @container seat (max-width:700px){.vlong{display:none}}
 @container seat (max-width:420px){.vhide .vbeta{display:none}}
-@container seat (max-width:560px){:is(.tag.you,.hlt,.sul,.rslabel){display:none}.sh{gap:6px}.vhide{padding:0 6px}.wcpiles button{padding:0 5px}.sh .sundo{flex:none;padding:0 3px}}
+@container seat (max-width:560px){:is(.hlt,.sul,.rslabel){display:none}.sh{gap:6px}.vhide{padding:0 6px}.wcpiles button{padding:0 5px}.sh .sundo{flex:none;padding:0 3px}}
 .seat[data-wc] .seatDock{--dock-anchor:bottom;top:auto;bottom:8px;width:min(280px,calc(100% - 20px));max-height:min(34%,240px);justify-content:flex-end}
 /* One notice, or a card choice, shows in full. It may cover the camera and grows away from its anchor; only a longer list scrolls. */
 .seat .seatDock:is([data-count="1"],:has(.bigTray)){max-height:var(--dock-room,calc(100% - 44px))}
@@ -1204,6 +1244,8 @@
 .zglabels>.zghint{transform:translate(-50%,-100%);padding:2px 6px;border-radius:4px;background:rgb(60 30 8/.88);border:1px solid rgb(255 190 90/.8);color:#ffe3b0;font-size:10.5px;letter-spacing:0}
 .zglabels>.zgcal{position:absolute;left:50%;top:6px;bottom:auto;transform:translateX(-50%);pointer-events:auto;height:22px;padding:0 9px;border-radius:5px;background:rgb(7 4 14/.86);border:1px solid var(--line2);color:var(--gold-ink);font:600 11px/1 var(--font-duel-ui),system-ui,sans-serif;cursor:pointer}
 .zglabels>.zgcal:hover{border-color:var(--gold)}
+.zgcell[data-open="true"]{fill:rgb(120 220 160/.2);stroke:rgb(150 240 190/.95);stroke-width:2}
+.zglabels span[data-open="true"]{color:#fff;font-weight:700}
 @media(prefers-reduced-motion:reduce){.zgcell[data-glow="true"]{animation:none}}
 /* Two public cards of one seat look like one card: amber badge on each, one line above the field. */
 .zc .dupb{position:absolute;right:-3px;top:-3px;z-index:4;padding:1px 4px;border-radius:9px;background:var(--warn);color:#1b1204;font:800 10px/12px var(--font-duel-display),Oxanium,sans-serif;letter-spacing:.02em;box-shadow:0 0 8px rgb(240 178 79/.8);pointer-events:none}
@@ -1559,3 +1601,66 @@
 
 /* A card of the virtual board that is a link of the open chain keeps a small "Chain N" badge on its top edge. */
 .zc[data-chain]::before{content:"Chain " attr(data-chain);position:absolute;left:50%;top:-9px;transform:translateX(-50%);z-index:6;pointer-events:none;padding:2px 7px;border:1px solid rgb(155 126 255/.85);border-radius:999px;background:rgb(11 7 22/.94);box-shadow:0 0 10px rgb(155 126 255/.5);font:700 10px/1.2 var(--font-duel-display,Oxanium,sans-serif);letter-spacing:.08em;text-transform:uppercase;color:#f6dc9a;white-space:nowrap}
+
+/* A seat with no camera (a bot, manual play, a phone in scan mode) on a 3-way or 4-way table: a small board takes the place of the webcam, the phases and LP sit under it. */
+@media (min-width:901px){
+  .seat[data-nocam] .feedcol{display:none}
+  .seat[data-nocam] .sbody{width:100%}
+  .seat[data-nocam] .fside{flex:1 1 0;min-height:0;container:ledge/inline-size;display:flex;flex-direction:column;gap:4px}
+  .seat[data-nocam] .fside>*{order:3}
+  .seat[data-nocam] .fside>.fboard{order:0;flex:1 1 0;min-height:0;justify-content:center}
+  .seat[data-nocam] .fside>.ptrack{order:1}.seat[data-nocam] .fside>.lp{order:2}
+  .seat[data-nocam] .fwrap{--fw:calc(100cqw - 24px);--fh:calc(100cqh - 52px - var(--ledge-h) + 40px)}
+  /* The 3-way table: one large seat on the left, two small seats stacked on the right. */
+  .app[data-mode="3"] .stage{grid-template-columns:minmax(0,2.45fr) minmax(0,1fr);grid-template-rows:repeat(2,minmax(0,1fr));grid-template-areas:none}
+  .app[data-mode="3"] .stage>.seat{grid-area:auto;grid-column:2}
+  .app[data-mode="3"] .stage>.seat[data-big]{grid-column:1;grid-row:1/span 2}
+  .seat .nm[data-pick]{cursor:pointer}.seat .nm[data-pick]:hover{color:var(--gold-ink)}
+  /* Board on (1v1): the ledge sits right under the webcam, the board under the ledge. */
+  .seat:not([data-wc]):not([data-nocam]) .fside>.lp{order:-1}
+}
+.tileTap{display:none}
+@media (max-width:900px){
+  /* Phone, webcam only: webcam, then the ledge (phases, LP) directly under it. */
+  .seat[data-wc] .sbody{gap:0}
+  .seat[data-wc] .feedcol{order:0;gap:0}
+  .seat[data-wc] .feedcol>.cams{border-radius:8px 8px 0 0}
+  .seat[data-wc] .feedcol>:not(.cams){margin-top:6px}
+  .seat[data-wc] .ptrack{order:1;gap:4px;padding:8px 8px 4px;background:rgb(0 0 0/.26);border:1px solid var(--line);border-bottom:0}
+  .seat[data-wc] .lp{order:2;padding:2px 8px 6px;background:rgb(0 0 0/.26);border:1px solid var(--line);border-top:0;border-radius:0 0 10px 10px}
+  .seat[data-wc] .fside>:not(.ptrack):not(.lp){order:3}
+  .seat[data-wc] .pbox{height:36px;font-size:12px}
+  .seat[data-wc] .pfull{display:none}.seat[data-wc] .pabbr{display:inline}
+  /* 3-way and 4-way on a phone: the focus view. One seat is full width, the other seats are tiles (name, webcam, LP). A tap on a tile focuses that seat. */
+  .app:is([data-mode="3"],[data-mode="4"]) .stage{display:grid;grid-template-areas:none;grid-template-columns:repeat(var(--tiles,2),minmax(0,1fr));grid-template-rows:none;align-content:start;gap:8px}
+  .app[data-mode="4"] .stage{--tiles:3}
+  .app:is([data-mode="3"],[data-mode="4"]) .lpstrip{display:none}
+  .app:is([data-mode="3"],[data-mode="4"]) .stage>.seat{order:0;grid-area:auto;grid-column:1/-1;grid-row:1}
+  .app:is([data-mode="3"],[data-mode="4"]) .stage>.seat[data-tile]{grid-column:auto;grid-row:2}
+  .seat[data-tile]{cursor:pointer}
+  .seat[data-tile] .tileTap{display:block;position:absolute;inset:0;z-index:30;width:100%;border:0;background:none;padding:0}
+  .seat[data-tile] .sh{padding:4px 6px;min-height:0}
+  .seat[data-tile] .sh>:not(.pip):not(.nm){display:none}
+  .seat[data-tile] .sh .nm{font-size:13px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .seat[data-tile] .sbody{padding:0 6px 6px;gap:4px}
+  .seat[data-tile] .feedcol>:not(.cams){display:none}
+  .seat[data-tile] .cams :is(.ctag,.camq,.fctl,.feedTagRow,.peerBadge,.seatDock){display:none}
+  .seat[data-tile] .seatDock{display:none}
+  .seat[data-tile] .cams :is(button,select,[role=combobox],[role=listbox]){display:none}
+  .seat[data-tile] .nofeed>:not(.ic){display:none}
+  .seat[data-tile] .fside>:not(.lp){display:none}
+  .seat[data-tile] .lp{padding:0;background:none;border:0;min-height:0;order:2}
+  .seat[data-tile] :is(.lpl,.lpbtn,.lpbar,.thinkrow,.lpd){display:none}
+  .seat[data-tile] .lpn{--lp-size:22px}
+  .seat[data-tile] .lpmain{min-height:0}
+}
+
+/* Clean header: name, YOU / TURN / NEXT and the signal bars. The feed text shows only when the feed needs attention. */
+.hl:not(.warn):not(.bad) .hlt{display:none}
+.boardtog .boardst{font:800 11px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;letter-spacing:.08em;color:var(--ink3)}
+.boardtog[aria-pressed=true] .boardst{color:var(--gold-ink)}
+/* Pile counts: small, on the right of the Revealed in hand row. */
+.htop .wcpiles{flex:none;margin-left:auto;gap:3px}
+.htop .wcpiles button{height:20px;padding:0 5px;font-size:10.5px}
+@media (max-width:900px){.boardtog .lbl{display:inline}.boardtog .vbeta{display:none}}
+@container ledge (max-width:600px){.htop .wcpiles button:nth-child(n+3){display:none}}
