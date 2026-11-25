@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { connect } from "node:net";
-import { expect, test, type APIRequestContext, type BrowserContext, type Page } from "@playwright/test";
+import { expect, test, type APIRequestContext, type BrowserContext, type Locator, type Page } from "@playwright/test";
 import { projectRemoteState } from "@yugidraft/shared/remote";
 import { authenticatePlayer } from "../stack/login-auth.mjs";
 import { startTwoPlayerTable } from "./remote-table";
@@ -11,6 +11,16 @@ import { io } from "socket.io-client";
 // The default view follows the detection mode (Auto shows the virtual field, Tap to identify hides it). These tests use the board, so a browser with no saved choice starts in Both view.
 const bothView = (context: BrowserContext) => context.addInitScript(() => { for (const key of ["dd-remote-webcam-only", "dd-remote-spectator-webcam-only"]) if (localStorage.getItem(key) === null) localStorage.setItem(key, "0"); });
 test.beforeEach(async ({ context }) => { await bothView(context); });
+// The open pages send actions too (camera, detection mode), so a hand-made action retries once the table moved on (409 STALE_SEQUENCE).
+async function postAction(request: APIRequestContext, path: string, action: Record<string, unknown>) {
+  for (let attempt = 0; ; attempt++) {
+    const { lastSeq } = await (await request.get(path)).json();
+    const response = await request.post(`${path}/actions`, { data: { baseSeq: lastSeq, action: { idempotencyKey: crypto.randomUUID(), ...action } } });
+    if (response.status() !== 409 || attempt >= 4) return response;
+  }
+}
+// A click on your own card opens its zone menu. Card details leads to the inspector, or to the Set candidate picker for a Set card with a known origin.
+const cardDetails = async (page: Page, cell: Locator) => { await cell.click(); await page.getByRole("button", { name: "Card details" }).click(); };
 
 const SHOTS = process.env.E2E_SHOTS ?? "";
 // A still picture of two cards on a table, served as the camera. Chrome's fake-file camera is not reliable between tests.
@@ -369,8 +379,9 @@ test.describe("remote duels screen, solo", () => {
       await expect(seat0).toHaveAttribute("data-view", "camera");
       const camBefore = await area("feed-box-0"); const fieldBefore = await area("fwrap-0");
       await shot(page, `swap-${mode}-camera`);
-      // A click on a card keeps its own meaning: the card inspector opens and the view does not change.
+      // A click on your own card opens its zone menu, Card details opens the inspector, and the view does not change.
       await page.getByTestId("field-0").locator('[data-zone="m1"]').click();
+      await page.getByRole("button", { name: "Card details" }).click();
       await expect(page.getByTestId("inspector-body")).toBeVisible();
       await expect(seat0).toHaveAttribute("data-view", "camera");
       await page.keyboard.press("Escape");
@@ -387,6 +398,7 @@ test.describe("remote duels screen, solo", () => {
       await shot(page, `swap-${mode}-field`);
       // Cards still answer clicks in the field view.
       await page.getByTestId("field-0").locator('[data-zone="m1"]').click();
+      await page.getByRole("button", { name: "Card details" }).click();
       await expect(page.getByTestId("inspector-body")).toBeVisible();
       await page.keyboard.press("Escape");
       await expect(seat0).toHaveAttribute("data-view", "field");
@@ -496,7 +508,7 @@ test.describe("remote duels screen, solo", () => {
     };
     await act({ type: "twin.place", actorSeat: 0, seat: 0, zone: "extra-monster", card: { ref: "link0", cardId: 5318639, name: "Mystical Space Typhoon", slot: 1, faceUp: true, position: "attack" } });
     await act({ type: "twin.place", actorSeat: 1, seat: 1, zone: "extra-monster", card: { ref: "link1", cardId: 73628505, name: "Terraforming", slot: 1, faceUp: true, position: "attack" } });
-    await act({ type: "twin.place", actorSeat: 0, seat: 0, zone: "pendulum", card: { ref: "scale", cardId: 47355498, name: "Necrovalley", slot: 2, faceUp: true, position: "attack" } });
+    await act({ type: "twin.place", actorSeat: 0, seat: 0, zone: "pendulum", card: { ref: "scale", cardId: 70825459, name: "Trap Tracks", slot: 2, faceUp: true, position: "attack" } });
     await page.goto(`/duels/remote/${slug}`);
     const field = page.getByTestId("field-0");
     const e1 = field.locator('[data-zone="e1"]'); const e2 = field.locator('[data-zone="e2"]'); const m2 = field.locator('[data-zone="m2"]');
@@ -508,7 +520,7 @@ test.describe("remote duels screen, solo", () => {
     // Seat 1's zone 1 is seat 0's zone 2: it shows as taken there, and as a card on the other seat.
     await expect(e2).toHaveAttribute("aria-label", /taken by their monster/);
     await expect(page.getByTestId("field-1").locator('[data-zone="e1"]')).toHaveAttribute("aria-label", /Terraforming/);
-    await expect(field.locator('[data-zone="s5"]')).toHaveAttribute("aria-label", /Necrovalley/);
+    await expect(field.locator('[data-zone="s5"]')).toHaveAttribute("aria-label", /Trap Tracks/);
     await expect(field.locator('[data-zone="s1"]')).toContainText("PZ");
     await expect(field.locator('[data-zone="ex"]')).toContainText(/EXTRA/);
     await shot(page, "field-emz-1v1");
@@ -829,8 +841,8 @@ test.describe("remote duels screen, moving cards by hand", () => {
       await authenticatePlayer(fresh.request, { userId: 101 }, process.env.E2E_AUTH_SECRET!, url);
       const slug = await soloTable(fresh.request, 2); const page = await fresh.newPage(); await fakeCamera(page, "16:9");
       await page.goto(`/duels/remote/${slug}`);
-      // The board is off until the player turns it on, in every detection mode (resolveWebcamOnly).
-      await expect(page.getByTestId("remote-table")).toBeVisible(); await expect(page.getByTestId("fwrap-0")).toBeHidden(); await expect(page.getByTestId("fwrap-1")).toBeHidden();
+      // The board is off until the player turns it on, in every detection mode (resolveWebcamOnly). The test opponent is a bot, so its board stays on.
+      await expect(page.getByTestId("remote-table")).toBeVisible(); await expect(page.getByTestId("fwrap-0")).toBeHidden(); await expect(page.getByTestId("fwrap-1")).toBeVisible();
       await expect(page.getByTestId("field-toggle-0")).toContainText("Show virtual field"); await expect(page.getByTestId("field-toggle-0")).toContainText("Beta");
       // The grid shows only while the zones need calibration. Saved zones leave a clean camera.
       await page.getByTestId("camera-on-feed").click();
@@ -1201,7 +1213,7 @@ test.describe("Remote Duel with the flag off leaves no trace", () => {
 });
 
 test.describe("remote duels screen, two players on LiveKit", () => {
-  test("Bob reads Alice's feed, both see it, and the other player can undo", async ({ browser }) => {
+  test("Bob reads Alice's feed, both see it, and an undo shows on the other screen", async ({ browser }) => {
     test.skip(!HAVE_LIVEKIT, `needs LiveKit at ${LIVEKIT.origin} (LIVEKIT_URL)`);
     test.setTimeout(300_000);
     const alice = await browser.newContext(); const bob = await browser.newContext();
@@ -1211,6 +1223,8 @@ test.describe("remote duels screen, two players on LiveKit", () => {
       const slug = await startTwoPlayerTable(alice.request, bob.request);
       const a = await alice.newPage(); const b = await bob.newPage();
       // Only Alice's camera shows cards. Bob's page needs a camera to join the table, nothing more.
+      // Alice's card reader is a stand-in (the stack has no vision models): it answers Dark Magician for any point on her feed.
+      await a.addInitScript(() => { (window as unknown as { __e2eRecognize: unknown }).__e2eRecognize = async () => ({ candidates: [{ cardId: 46986414, name: "Dark Magician", score: .95 }], tier: "sure", faceDown: false, covered: false }); });
       await fakeCamera(a); await fakeCamera(b);
       await Promise.all([a.goto(`/duels/remote/${slug}`), b.goto(`/duels/remote/${slug}`)]);
       for (const page of [a, b]) { await expect(page.getByTestId("remote-table")).toBeVisible(); await page.getByTestId("camera-on-feed").click(); }
@@ -1232,14 +1246,14 @@ test.describe("remote duels screen, two players on LiveKit", () => {
       await expect(a.getByTestId("log-list")).toContainText("Dark Magician identified on E2E Alice", { timeout: 20_000 });
       await a.keyboard.press("Escape");
       await shot(a, "two-players-alice-log");
-      // Alice changes her LP. Bob undoes it from his own screen.
+      // Alice changes her LP and undoes it. A player can only undo their own actions, so Bob's screen follows.
       const lp = (page: Page) => page.getByTestId("lp-value-0");
       const before = Number((await lp(b).textContent())?.replace(/\D/g, ""));
       await a.getByRole("button", { name: "E2E Alice minus 500" }).click();
       await expect(lp(a)).toContainText(String(before - 500));
       await expect(lp(b)).toContainText(String(before - 500));
-      await expect(b.getByTestId("undo")).toBeEnabled();
-      await b.getByTestId("undo").click();
+      await expect(a.getByTestId("undo")).toBeEnabled();
+      await a.getByTestId("undo").click();
       await expect(lp(a)).toContainText(String(before));
       await expect(lp(b)).toContainText(String(before));
       await shot(b, "two-players-undo");
@@ -1263,15 +1277,15 @@ test("private Set candidate pick, public reveal and a soft mismatch note",async(
   await page.route("**/api/cards/*/image**",route=>route.fulfill({status:204}));
   await page.goto(`/duels/remote/${slug}`);
   await page.getByTestId("field-0").locator('[data-zone="s1"]').click();
-  await page.getByRole("button",{name:"Activate",exact:true}).click();
+  await page.getByTestId("zone-activate").click();
   await page.getByRole("button",{name:"Set face-down",exact:true}).click();
   const set=page.getByTestId("field-0").locator('[data-zone="s2"]');
   await expect(set).toHaveAttribute("aria-label",/Face-down · Set by Trap Tracks/);
-  await set.click();
+  await cardDetails(page,set);
   await expect(page.getByTestId("effect-picker")).toBeVisible();
   await page.getByRole("button",{name:/Torrential Tribute ×1/}).click();
   await expect(set).toHaveAttribute("aria-label",/Torrential Tribute/);
-  await set.click(); await page.getByRole("button",{name:"Reveal chosen card"}).click();
+  await cardDetails(page,set); await page.getByRole("button",{name:"Reveal chosen card"}).click();
   await expect(set).toHaveAttribute("aria-label",/Torrential Tribute/);
   await expect(set).not.toHaveAttribute("aria-label",/Face-down/);
   // A later camera correction is assistive: the action succeeds and everyone gets a dismissible note.
@@ -1308,7 +1322,7 @@ for (const showCardsSetFromDeck of [true]) test(`two browsers honor Deck publici
     const observer=await bob.newPage();
     await Promise.all([page,observer].map(p=>p.route("**/api/cards/*/image**",route=>route.fulfill({status:204}))));
     await Promise.all([page.goto(`/duels/remote/${room.slug}`),observer.goto(`${url}/duels/remote/${room.slug}`)]);
-    await page.getByTestId("field-0").locator('[data-zone="s1"]').click();
+    await cardDetails(page,page.getByTestId("field-0").locator('[data-zone="s1"]'));
     await page.getByRole("button",{name:/Torrential Tribute ×1/}).click();
     const otherSet=observer.getByTestId("field-0").locator('[data-zone="s1"]');
     await expect(otherSet).toHaveAttribute("aria-label",showCardsSetFromDeck ? /Face-down · Set from Deck by Trap Tracks: Torrential Tribute/ : /Face-down · Set by Trap Tracks/);
@@ -1404,8 +1418,7 @@ test.describe("remote duels, spectators", () => {
       await expect(c.getByTestId("popover-name")).toHaveText("Dark Magician");
       await shot(c, "spectator-tap-read");
       // A tap-mode read of a player (no board place) is a public read, so the spectator sees it in the recent reads of that seat.
-      const room = await (await alice!.request.get(`/api/remote/${slug}`)).json();
-      const tapped = await alice!.request.post(`/api/remote/${slug}/actions`, { data: { baseSeq: room.lastSeq, action: { type: "card.identified", actorSeat: 0, seat: 0, cardId: 46986414, source: "click", idempotencyKey: crypto.randomUUID() } } });
+      const tapped = await postAction(alice!.request, `/api/remote/${slug}`, { type: "card.identified", actorSeat: 0, seat: 0, cardId: 46986414, source: "click" });
       expect(tapped.status(), await tapped.text()).toBe(200);
       await expect(c.getByTestId("tap-reads-0")).toContainText("Dark Magician", { timeout: 15_000 });
     } finally { await Promise.allSettled([alice!, bob!, carol!].map(context => context.close())); }
@@ -1416,6 +1429,7 @@ test.describe("remote duels, spectators", () => {
     const url = process.env.E2E_REMOTE_UI_URL ?? "http://localhost:3310";
     const [alice, bob, carol, dave] = await Promise.all([1, 2, 3, 4].map(() => browser.newContext()));
     const db = new Database(new URL("../.stack-remote-ui/ui.sqlite", import.meta.url).pathname);
+    await Promise.all([alice!, bob!, carol!, dave!].map(bothView));
     try {
       for (const [context, userId] of [[alice, 101], [bob, 102], [carol, 103], [dave, 104]] as const) await authenticatePlayer(context!.request, { userId }, process.env.E2E_AUTH_SECRET!, url);
       const slug = await startTwoPlayerTable(alice!.request, bob!.request, "public"), path = `/api/remote/${slug}`;
@@ -2423,8 +2437,7 @@ test.describe("remote duels screen, tokens and the camera", () => {
     await expect(page.getByTestId("seat-0")).toBeVisible();
     await page.getByTestId("fwrap-0").click({ position: { x: 4, y: 4 } });
     await expect(page.getByTestId("seat-0")).toHaveAttribute("data-view", "camera");
-    const room = await (await context.request.get(path)).json();
-    const response = await context.request.post(`${path}/actions`, { data: { baseSeq: room.lastSeq, action: { idempotencyKey: crypto.randomUUID(), type: "twin.place", actorSeat: 0, seat: 0, zone: "spell-trap", card: { ref: "sg", cardId: 73915051, name: "Scapegoat", slot: 1, faceUp: true, position: "attack" } } } });
+    const response = await postAction(context.request, path, { type: "twin.place", actorSeat: 0, seat: 0, zone: "spell-trap", card: { ref: "sg", cardId: 73915051, name: "Scapegoat", slot: 1, faceUp: true, position: "attack" } });
     expect(response.status(), await response.text()).toBe(200);
     const sheep = async () => ((await (await context.request.get(path)).json()).state.seats[0].twin as { name?: string; token?: { artId?: number } }[]).filter(card => card.name === "Sheep Token" && card.token?.artId === 73915052).length;
     await expect.poll(sheep, { timeout: 15_000 }).toBe(4);
@@ -2687,8 +2700,7 @@ test.describe("remote duels screen, Auto-detect off", () => {
       await expect(b.getByTestId("fwrap-0")).toBeVisible(); await expect(b.getByTestId("tap-board-off")).toHaveCount(0);
       // Alice announces Tap mode. The table state carries it, so Bob needs no camera signal.
       const mode = async (value: "tap" | "auto") => {
-        const { lastSeq } = await (await alice.request.get(`/api/remote/${slug}`)).json();
-        const sent = await alice.request.post(`/api/remote/${slug}/actions`, { data: { baseSeq: lastSeq, action: { type: "detection.mode", actorSeat: 0, mode: value, reason: "player", idempotencyKey: crypto.randomUUID() } } });
+        const sent = await postAction(alice.request, `/api/remote/${slug}`, { type: "detection.mode", actorSeat: 0, mode: value, reason: "player" });
         expect(sent.ok(), await sent.text()).toBe(true);
       };
       await mode("tap");
