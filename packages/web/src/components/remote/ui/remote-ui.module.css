@@ -875,7 +875,7 @@
 /* In a narrow seat the header has no room for the long labels: "Hide virtual field" shortens, the Beta tag goes, and Rescan shows its icon only, so nothing runs into the feed signal. */
 @container seat (max-width:700px){.vlong{display:none}}
 @container seat (max-width:420px){.vhide .vbeta{display:none}}
-@container seat (max-width:560px){:is(.tag.you,.hlt,.sul,.rslabel){display:none}.sh{gap:6px}.vhide{padding:0 6px}.wcpiles button{padding:0 5px}.sh .sundo{flex:none;padding:0 3px}}
+@container seat (max-width:560px){:is(.hlt,.sul,.rslabel){display:none}.sh{gap:6px}.vhide{padding:0 6px}.wcpiles button{padding:0 5px}.sh .sundo{flex:none;padding:0 3px}}
 .seat[data-wc] .seatDock{--dock-anchor:bottom;top:auto;bottom:8px;width:min(280px,calc(100% - 20px));max-height:min(34%,240px);justify-content:flex-end}
 /* One notice, or a card choice, shows in full. It may cover the camera and grows away from its anchor; only a longer list scrolls. */
 .seat .seatDock:is([data-count="1"],:has(.bigTray)){max-height:var(--dock-room,calc(100% - 44px))}
@@ -1654,3 +1654,13 @@
   .seat[data-tile] .lpn{--lp-size:22px}
   .seat[data-tile] .lpmain{min-height:0}
 }
+
+/* Clean header: name, YOU / TURN / NEXT and the signal bars. The feed text shows only when the feed needs attention. */
+.hl:not(.warn):not(.bad) .hlt{display:none}
+.boardtog .boardst{font:800 11px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;letter-spacing:.08em;color:var(--ink3)}
+.boardtog[aria-pressed=true] .boardst{color:var(--gold-ink)}
+/* Pile counts: small, on the right of the Revealed in hand row. */
+.htop .wcpiles{flex:none;margin-left:auto;gap:3px}
+.htop .wcpiles button{height:20px;padding:0 5px;font-size:10.5px}
+@media (max-width:900px){.boardtog .lbl{display:inline}.boardtog .vbeta{display:none}}
+@container ledge (max-width:600px){.htop .wcpiles button:nth-child(n+3){display:none}}

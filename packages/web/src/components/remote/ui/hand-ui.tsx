@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { cardArt } from "./catalog";
 import { Icon } from "./icons";
@@ -24,6 +24,8 @@ export type HandProps = {
   overlay?: boolean;
   /** Webcam only: the revealed cards and the hand count, as a compact tray above life points (never over the feed). */
   tray?: boolean;
+  /** Webcam only: small controls on the right of the label row (the pile counts). */
+  trail?: ReactNode;
 };
 
 
@@ -135,6 +137,7 @@ export function HandStrip({ seat, name, hand }: { seat: number; name: string; ha
     return <div className={s.htray} role="region" aria-label={`${name}: revealed in hand`} data-testid={`hand-strip-${seat}`} data-tray={seat}>
       <div className={s.htop}>
         <span className={s.hlab}>Revealed<span className={s.hmore}> in hand</span>{hand.cards.length ? <b className={s.num}>{hand.cards.length}</b> : null}</span>
+        {hand.trail}
         <HandCount seat={seat} hand={hand} />
       </div>
       <ul ref={list} className={s.htlist} onWheel={event => { if (event.currentTarget.scrollWidth > event.currentTarget.clientWidth) event.currentTarget.scrollLeft += event.deltaY; }}>

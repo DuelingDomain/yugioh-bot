@@ -180,7 +180,7 @@ test.describe("remote duels screen, solo", () => {
       await expect(page.getByTestId("remote-table")).toHaveAttribute("data-mode", mode);
       for (let seat = 0; seat < count; seat++) await expect(page.getByTestId(`seat-${seat}`)).toBeVisible();
       // Only the webcams show: no board and no W view switch (the board logic runs hidden).
-      await expect(page.getByTestId("table-view")).toHaveCount(0);
+      await expect(page.getByTestId("view-board")).toHaveCount(0); await expect(page.getByText("Enlarge field")).toHaveCount(0);
       // The seat with a camera shows no board. Test bots have no camera, so their seats show a small board instead.
       await expect(page.locator('[data-testid^="seat-"][data-nocam]')).toHaveCount(count - 1);
       await expect(page.getByTestId("remote-table")).toHaveAttribute("data-wc", "1");
@@ -848,7 +848,7 @@ test.describe("remote duels screen, moving cards by hand", () => {
       await page.goto(`/duels/remote/${slug}`);
       // The board is off until the player turns it on, in every detection mode (resolveWebcamOnly). The test opponent is a bot, so its board stays on.
       await expect(page.getByTestId("remote-table")).toBeVisible(); await expect(page.getByTestId("fwrap-0")).toBeHidden(); await expect(page.getByTestId("fwrap-1")).toBeVisible();
-      await expect(page.getByTestId("field-toggle-0")).toContainText("Show virtual field"); await expect(page.getByTestId("field-toggle-0")).toContainText("Beta");
+      await expect(page.getByTestId("view-board")).toContainText("Virtual board"); await expect(page.getByTestId("view-board")).toContainText("OFF"); await expect(page.getByTestId("view-board")).toContainText("Beta");
       // The grid shows only while the zones need calibration. Saved zones leave a clean camera.
       await page.getByTestId("camera-on-feed").click();
       await expect.poll(() => page.locator('[data-testid="feed-0"] video').evaluate((v: HTMLVideoElement) => v.videoWidth), { timeout: 30_000 }).toBeGreaterThan(0);
@@ -951,12 +951,12 @@ test.describe("remote duels screen, moving cards by hand", () => {
     await page.locator('[data-testid="feed-0"]').getByTestId("orientation-confirm").click();
     await orientation.click(); await page.getByRole("option", { name: "Camera faces me" }).click(); await expect(orientation).not.toBeFocused();
     await expect(page.getByTestId("reticle")).toHaveCount(0); await expect(page.getByTestId("no-card")).toHaveCount(0);
-    await page.getByTestId("view-webcam").click();
-    await expect(page.getByTestId("view-webcam")).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByTestId("view-board")).toHaveAttribute("aria-pressed", "true"); await page.getByTestId("view-board").click();
+    await expect(page.getByTestId("view-board")).toHaveAttribute("aria-pressed", "false");
     await expect(page.getByTestId("fwrap-0")).toBeHidden(); await expect(page.getByTestId("feed-box-0")).toBeVisible();
-    // A bot seat has no camera to read, so it keeps its board and has no toggle.
-    await expect(page.getByTestId("feed-box-1")).toBeVisible(); await expect(page.getByTestId("fwrap-1")).toBeVisible(); await expect(page.getByTestId("field-toggle-1")).toHaveCount(0);
-    // The Graveyard and Banished counts sit in the seat header, one click from their pile.
+    // A bot seat has no camera to read, so it keeps its board.
+    await expect(page.getByTestId("feed-box-1")).toBeVisible(); await expect(page.getByTestId("fwrap-1")).toBeVisible();
+    // The Graveyard and Banished counts sit on the Revealed in hand row, one click from their pile.
     await expect(page.getByTestId("wc-piles-0")).toContainText("GY");
     // A card on the camera: hover shows its name, click opens its info, right click opens its actions (Monster Zone 1 holds Dark Magician).
     const grid = page.locator('[data-testid="feed-0"] [data-testid="zone-grid"]'); const m1 = (await grid.locator('polygon[data-zone="M1"]').boundingBox())!;
@@ -975,11 +975,11 @@ test.describe("remote duels screen, moving cards by hand", () => {
     expect(await apart()).toBe(true);
     await expect(page.getByTestId("notify-dock-0").getByTestId("toasts")).toBeVisible(); await shot(page, "webcam-only-notice-1920");
     await page.reload(); await expect(page.getByTestId("fwrap-0")).toBeHidden();
-    // W switches the view. Each seat has its own "Hide virtual field" button.
-    await expect(page.getByTestId("field-toggle-0")).toContainText("Show virtual field");
-    await page.keyboard.press("w"); await expect(page.getByTestId("fwrap-0")).toBeVisible(); await expect(page.getByTestId("field-toggle-0")).toContainText("Hide virtual field");
-    await page.getByTestId("field-toggle-0").click(); await expect(page.getByTestId("fwrap-0")).toBeHidden();
-    await page.getByTestId("view-both").click(); await expect(page.getByTestId("fwrap-0")).toBeVisible();
+    // W switches the view. The top bar has one Virtual board ON/OFF switch.
+    await expect(page.getByTestId("view-board")).toContainText("OFF");
+    await page.keyboard.press("w"); await expect(page.getByTestId("fwrap-0")).toBeVisible(); await expect(page.getByTestId("view-board")).toContainText("ON");
+    await page.getByTestId("view-board").click(); await expect(page.getByTestId("fwrap-0")).toBeHidden();
+    await page.getByTestId("view-board").click(); await expect(page.getByTestId("fwrap-0")).toBeVisible();
     // Both view: notices dock beside the player's own field, can be dragged, and fold into a chip with a count.
     await page.keyboard.press("Control+z"); const mine = page.getByTestId("notify-dock-0");
     await expect(mine.getByTestId("toasts")).toContainText("Undid"); await expect(page.getByTestId("notify-dock-1")).toHaveAttribute("data-count", "0");
@@ -1616,7 +1616,7 @@ test.describe("remote duels, spectators", () => {
       await expect(c.getByTestId("inspector").locator("button", { hasText: /Wrong card|Attack|Flip|Move|Activate/ })).toHaveCount(0);
       await c.keyboard.press("Escape");
       // Webcam only keeps the public card list and the Set count.
-      await c.getByTestId("field-toggle-0").click();
+      await c.getByTestId("view-board").click();
       await expect(c.getByTestId("public-cards-0")).toContainText("Origin fixture 1");
       await expect(c.getByTestId("set-count-0")).toHaveText("2 Set");
       hiddenFree((await c.locator("body").innerText()));
