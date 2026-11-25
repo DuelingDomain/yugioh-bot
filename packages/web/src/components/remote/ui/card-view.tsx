@@ -152,7 +152,7 @@ function Actions({ a, subject }: { a: CardActions; subject: Subject }) {
       {edit?.position ? <button type="button" className={BTN} onClick={edit.position.onTurn} data-testid="card-position">{edit.position.defense ? "Change to Attack" : "Change to Defense"}</button> : null}
       {a.undo ? <button type="button" className={`${BTN} ${a.undo.reason ? s.cblocked : ""}`} aria-disabled={!!a.undo.reason} aria-describedby={a.undo.reason ? "card-undo-reason" : undefined}
         onClick={a.undo.onUndo} data-testid="card-undo" title={a.undo.label}>Undo last change</button> : null}
-      {a.onWrong ? <button type="button" className={BTN} onClick={a.onWrong}>Wrong card?</button> : null}
+      {a.onWrong ? <button type="button" className={BTN} onClick={a.onWrong}>Wrong card? Pick the right one</button> : null}
       {a.onPin ? <button type="button" className={BTN} onClick={a.onPin} data-testid="pin-inspector">Pin to inspector</button> : null}
       {a.onFlag ? <button type="button" className={BTN} data-layer-opener onClick={event => a.onFlag?.(event.currentTarget)} data-testid="review-flag"><Icon name="warn" />Deck warning</button> : null}
       {a.undo?.reason ? <small className={s.cureason} id="card-undo-reason" data-testid="card-undo-reason">{a.undo.reason}</small> : null}
@@ -211,7 +211,7 @@ function CameraCardMenu({ subject, info, at, warning, actions, onClose }: {
       {actions.zoneCheck ? <ZoneCheck reason={actions.zoneCheck} /> : null}
       <div className={s.zaList} data-testid="card-quick-moves">
         {activate ? <Row icon="bolt" primary hint="E" data-autofocus="" onClick={() => go(activate)} data-testid="quick-activate">{activate.label}</Row> : null}
-        {actions.onPeek ? <Row icon="eye" sub="Peek at or identify a face-down card" onClick={actions.onPeek} data-testid="card-peek">What is this card?</Row> : null}
+        {actions.onPeek ? <Row icon="eye" sub={subject.cardId ? "Opens the card inspector, with Wrong card? and the full text" : "Peek at or identify a face-down card"} onClick={actions.onPeek} data-testid="card-peek">What is this card?</Row> : null}
         {sends.map(m => <Row key={m.id} icon={sendIcon[m.id as "grave" | "banish" | "hand"]} onClick={() => go(m)} data-testid={`quick-${m.id}`}>{m.label}</Row>)}
         {give ? <Row icon="swap" onClick={() => go(give)} data-testid={`quick-${give.id}`}>{give.label}</Row> : null}
         {remove ? <Row icon="x" onClick={() => go(remove)} data-testid="quick-remove">{remove.label}</Row> : null}

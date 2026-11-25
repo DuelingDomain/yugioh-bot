@@ -92,7 +92,7 @@ function copyOf(canvas: HTMLCanvasElement) {
   copy.getContext("2d")?.drawImage(canvas, 0, 0); return copy;
 }
 
-export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLive, onAbort, onPoint, onMiss, onSearch, onSelect, onAdd, onReset, onReadBoard, holdSelection, extra, onZoneCard, onPick, hoverTip, onCardMenu, below, emptyText, emptyAction, prereadScope, announcedMode, tournament = false }: {
+export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLive, onAbort, onPoint, onMiss, onSearch, onSelect, onAdd, onReset, onReadBoard, holdSelection, extra, onZoneCard, onPick, hoverTip, silentHover, onCardMenu, below, emptyText, emptyAction, prereadScope, announcedMode, tournament = false }: {
   seat: number; name: string; you: boolean; health: Health; marks: FeedMark[]; reticles: FeedReticle[];
   /** A click landed on the live feed, before the card is found. Returns the id of this read. No popup opens yet. */
   onBegin: (seat: number, start: FeedStart) => number | void;
@@ -117,7 +117,9 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
   onZoneCard?: (seat: number, at: { x: number; y: number; anchor: Rect; feed: Rect }) => boolean;
   /** Webcam only, while the table waits for an attack target: a click on a card there picks it. It answers true when it took the click. */
   onPick?: (seat: number, x: number, y: number) => boolean;
-  /** Webcam only: the name line for the card under the pointer, from the outlines or from the zone. */
+  /** The board is shown: hoverTip only tracks the card under the pointer (for E) and shows no label. */
+  silentHover?: boolean;
+  /** The name line for the card under the pointer, from the outlines or from the zone. */
   hoverTip?: (seat: number, x: number, y: number) => { label: string; detail?: string; /** A key hint under the name, e.g. "Activate" for E. Hidden on small cameras. */ hint?: string } | null;
   /** Right click (or a long press) on the camera. The table opens the card actions for the card under the point, if it knows one. The event goes on to the table menu. */
   onCardMenu?: (seat: number, at: { x: number; y: number }, mouse: boolean, where: { anchor: Rect; feed: Rect }) => void;
@@ -441,7 +443,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
     const f = frozenRef.current;
     if (hoverTip && !f && p && event.pointerType === "mouse") {
       const found = hoverTip(seat, p.x, p.y); const area = cam.current?.getBoundingClientRect();
-      if (found && area) {
+      if (silentHover) { /* no label while the board is shown */ } else if (found && area) {
         const left = event.clientX - area.left + 14; const y = event.clientY - area.top; const top = y + 16 > area.height - 56 ? y - 54 : y + 16; const flip = left > area.width - 300;
         const wide = area.width >= 560;
         setTip(old => old && old.label === found.label && old.detail === found.detail && old.hint === found.hint && old.wide === wide && old.flip === flip ? old : { left, top, flip, wide, ...found });
