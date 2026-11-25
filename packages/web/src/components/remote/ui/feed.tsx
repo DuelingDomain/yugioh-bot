@@ -116,7 +116,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
   /** Webcam only: the name line for the card under the pointer, from the outlines or from the zone. */
   hoverTip?: (seat: number, x: number, y: number) => { label: string; detail?: string } | null;
   /** Right click (or a long press) on the camera. The table opens the card actions for the card under the point, if it knows one. The event goes on to the table menu. */
-  onCardMenu?: (seat: number, at: { x: number; y: number }, mouse: boolean) => void;
+  onCardMenu?: (seat: number, at: { x: number; y: number }, mouse: boolean, where: { anchor: Rect; feed: Rect }) => void;
   /** A strip under the video box (camera controls). It never covers the video. */
   below?: ReactNode; emptyText: string; emptyAction?: ReactNode;
   /** A tournament table: the Auto-detect off strip then gives no reason from this computer's own choice. */
@@ -557,7 +557,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
       onPointerCancel={()=>{phonePointerHandled.current=false;}}
       onContextMenu={event => {
         if (!onCardMenu || !source || event.shiftKey) return;
-        const p = point(event.clientX, event.clientY); if (p) onCardMenu(seat, p, lastPointer.current === "mouse");
+        const p = point(event.clientX, event.clientY); if (p) onCardMenu(seat, p, lastPointer.current === "mouse", { anchor: { left: event.clientX - 14, right: event.clientX + 14, top: event.clientY - 14, bottom: event.clientY + 14 }, feed: feedRect() });
       }}
       data-testid={`feed-${seat}`} data-remote-seat={seat}
       style={{ cursor: !source ? "default" : hover >= 0 ? "pointer" : "crosshair" }}>

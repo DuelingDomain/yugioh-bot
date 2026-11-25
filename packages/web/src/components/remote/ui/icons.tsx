@@ -29,6 +29,15 @@ const PATHS = {
   info: <><circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 8v.01" /></>,
   chev: <path d="m9 6 6 6-6 6" />,
   back: <path d="m15 6-6 6 6 6" />,
+  bolt: <path d="M13 3 5 14h6l-1 7 8-11h-6z" />,
+  eye: <><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z" /><circle cx="12" cy="12" r="3" /></>,
+  ban: <><circle cx="12" cy="12" r="9" /><path d="m5.6 5.6 12.8 12.8" /></>,
+  swap: <><path d="M4 8h14l-4-4M20 16H6l4 4" /></>,
+  refresh: <><path d="M20 12a8 8 0 1 1-2.3-5.6L20 8" /><path d="M20 3v5h-5" /></>,
+  dots: <path d="M5 12v.01M12 12v.01M19 12v.01" strokeWidth="3" strokeLinecap="round" />,
+  scan: <path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3M4 12h16" />,
+  snow: <path d="M12 3v18M4.2 7.5l15.6 9M4.2 16.5l15.6-9" />,
+  sliders: <path d="M4 7h10M18 7h2M4 17h2M10 17h10M14 4v6M6 14v6" />,
 } as const;
 
 export type IconName = keyof typeof PATHS;

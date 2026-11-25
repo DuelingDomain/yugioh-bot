@@ -30,7 +30,7 @@ import { beginManualCorrection } from "@/lib/remote/manual-corrections";
 import { ZoneActions } from './zone-actions';
 import { zonePlacement, zoneSet, zoneCardAction, type ZonePick } from './zone-placement';
 import { RecentDepartures } from './recent-departures';
-import { COLORS, battleMath, leavePosition, pileEntryFace, cardCode, cellsFor, isPile, sameObservedCard, cardName, cellKeyOf, deckFlag, deckIdsOf, voiceCardNames, facingSeat, foundationZone, hasDeck, hasExtraZones, mirrorEmz, PHASES, PHASE_LONG, readCardOf, placedTwin, sg, type TwinCard, type ZoneKey } from "./model";
+import { COLORS, battleMath, leavePosition, pileEntryFace, cardCode, cellsFor, zoneLabel, isPile, sameObservedCard, cardName, cellKeyOf, deckFlag, deckIdsOf, voiceCardNames, facingSeat, foundationZone, hasDeck, hasExtraZones, mirrorEmz, PHASES, PHASE_LONG, readCardOf, placedTwin, sg, type TwinCard, type ZoneKey } from "./model";
 import { findTwinGroups } from "./twins";
 import { PileViewer, type PileZone } from "./pile-viewer";
 import { NotifyDock } from "./notify-dock";
@@ -1413,12 +1413,30 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
   const cardEntry = subject?.ref ? ownUndo.find(entry => entry.cards.includes(`${subject.seat}:${subject.ref}`)) : undefined;
   const cardUndo: CardActions["undo"] = cardEntry && live
     ? { label: entryShort(cardEntry), reason: cardEntry.reason, onUndo: () => { void doUndo(cardEntry); if (!cardEntry.reason) layers.close(); } } : undefined;
-  /** The important card moves, shared by the board zone menu and the Tap-mode card popup. */
-  const quickFor = (seat: number, card: TwinCard | undefined) => card ? quickMoves({ card, seat, mySeat, solo, live, isLink: isLinkInfo(info(cardCode(card))), canGive: control.canGive,
+  /** The important card moves, shared by the board zone menu (`board`: with the battle position) and the webcam card menu. */
+  const quickFor = (seat: number, card: TwinCard | undefined, board = false) => card ? quickMoves({ card, seat, mySeat, solo, live, board, isLink: isLinkInfo(info(cardCode(card))), canGive: control.canGive,
     ownerAlive: card.ownerSeat !== undefined && !state.seats[card.ownerSeat]?.eliminated, act, announce: (at, ref) => announceManualMove({ slug: room.slug, seat: at, ref }),
     give: item => { if (control.give(item)) { layers.close(); setSubject(null); } }, giveBack: control.giveBack }) : [];
+  /** A new read from the camera at the spot of the open card. A face-up card that took this spot reaches the table through it. `hidden`: a private read of my own Set card. */
+  const readAt = (hidden: boolean) => {
+    const at = ctx.current; if (!subject || !at || !at.at.anchor || !at.at.feed) return;
+    at.invalidatePreread?.(); cancelRead();
+    void startRead(subject.seat, at.x, at.y, { point: { anchor: at.at.anchor, feed: at.at.feed }, force: true, ...(hidden ? { hidden } : {}) });
+  };
+  const readAgain = () => readAt(!!ctx.current?.setClick || subject?.via === "preread");
+  /** "What is this card?": a named face-up card opens its text in the card drawer; a face-down or unnamed card is read (a Set card of mine privately). */
+  const peekCard = () => {
+    if (subject?.cardId && subjectCard?.faceUp !== false) { setSubject({ ...subject, from: "board" }); layers.open("insp"); return; }
+    readAt(subjectCard?.faceUp === false);
+  };
+  /** The short zone name of a card for the line under its name in the card menu ("M3", "S2", "EMZ", "Field"). */
+  const whereIs = (seat: number, ref?: string) => {
+    const key = ref ? (Object.entries(cellsFor(state.seats[seat]?.twin ?? [], extraZones)).find(([, cell]) => cell?.card?.ref === ref)?.[0] as ZoneKey | undefined) : undefined;
+    return key ? zoneLabel(key) : undefined;
+  };
   const actions: CardActions = {
     quick: quickFor(subject?.seat ?? mySeat, subjectCard),
+    ...(subject?.from === "camera" ? { where: whereIs(subject.seat, subject.ref), onPeek: peekCard, onReadAgain: readAgain } : {}),
     ...(subject && subjectCard && live && (solo || subject.seat === mySeat) ? (() => {
       const twins = state.seats[subject.seat].twin;
       const xyz = (c: TwinCard) => c.faceUp && ['monster','extra-monster'].includes(c.zone) && /xyz/i.test(info(cardCode(c))?.type ?? '');
@@ -1502,8 +1520,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
   };
   /** Local camera identities open with the correction and reread actions. */
   const shownActions: CardActions = subject && (subject.remembered || subject.via === "preread") ? { canAdd: false, adding: false, onAdd: () => undefined, canAttack: false, attackHint: "", onAttack: () => undefined, onWrong: actions.onWrong,
-    // A new read from the camera. A face-up card that took this spot reaches the table through it.
-    onReadAgain: () => { const at = ctx.current; if (!at || !at.at.anchor || !at.at.feed) return; at.invalidatePreread?.(); cancelRead(); const hidden = !!at.setClick || subject.via === "preread"; void startRead(subject.seat, at.x, at.y, { point: { anchor: at.at.anchor, feed: at.at.feed }, force: true, ...(hidden ? { hidden } : {}) }); } } : actions;
+    where: actions.where, onPeek: peekCard, onReadAgain: readAgain } : actions;
   /** "Equipped to" choices: every monster on any field. One twin.equip action, one Undo. */
   function equipChoice(seat: number, card: TwinCard): NonNullable<CardEdit["equip"]> {
     const options = state.seats.flatMap(other => other.eliminated ? [] : other.twin.filter(c => c.zone === "monster" || c.zone === "extra-monster").map(c => ({
@@ -1521,7 +1538,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     if(!card.faceUp && origin && (solo || seat===mySeat)) {setEffectOrigin(origin.id); layers.open("effect"); return;}
     const id = cardCode(card);
     // Your own card with no name still gets its actions (move, flip, Graveyard, Wrong card?). cardId 0 = not identified.
-    if (!id && !((solo || seat === mySeat) && from === "board" && !anchor)) { toast(card.setBy ? "Face-down · Set by "+card.setBy.name : card.faceUp?"This card is not identified yet. Click it on the camera feed.":"Face-down card"); return; }
+    if (!id && !((solo || seat === mySeat) && (from === "camera" || (from === "board" && !anchor)))) { toast(card.setBy ? "Face-down · Set by "+card.setBy.name : card.faceUp?"This card is not identified yet. Click it on the camera feed.":"Face-down card"); return; }
     setSubject({ from, cardId: id ?? 0, seat, ref: card.ref, name: id ? card.name : card.faceUp ? "Unidentified card" : "Face-down card", bestMatch:card.bestMatch, notInDecklist: id && card.ownerSeat === undefined ? flagFor(seat, id) : null, addErrors: [], via: "field" });
     setSelected({ seat, ref: card.ref });
     // From a pile tile the popup points at the tile, so it opens over the viewer and the viewer stays.
@@ -1602,6 +1619,12 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     if (id) return { label: cardName(card, info(id)), detail: card.faceUp ? statLine(id) : "Set" };
     return card.faceUp ? null : { label: "Set card" };
   };
+  /** The webcam card menu (a click, a right click or a long press on a card of a camera feed). It points at the pointer and keeps the read context for Read again. */
+  const openCameraMenu = (card: TwinCard, at: { x: number; y: number; anchor: Rect; feed: Rect }) => {
+    const seat = state.seats.findIndex(item => item.twin.some(c => c.ref === card.ref));
+    cancelRead(); openSubject(card, "camera", at.anchor);
+    ctx.current = { seat, x: at.x, y: at.y, at: { anchor: at.anchor, feed: at.feed }, id: ++readCounter.current, ref: card.ref };
+  };
   /** Webcam only: a click where no card is outlined. A card the table knows there opens its info. A hidden card says "Set card". The Graveyard and Banished open their pile. */
   const onZoneCard = (seat: number, at: { x: number; y: number; anchor: Rect; feed: Rect }) => {
     // Tap to identify: the board does not follow this camera, so its zones can be out of date. The click reads the frame.
@@ -1610,9 +1633,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     if (card?.token) { cancelRead(); tokens.open(seat, card); return true; }
     // The table already knows this card: its details open in both views, with no read.
     if (card && cardCode(card)) {
-      cancelRead(); openSubject(card, "camera", at.anchor);
-      ctx.current = { seat, x: at.x, y: at.y, at: { anchor: at.anchor, feed: at.feed }, id: ++readCounter.current, ref: card.ref };
-      return true;
+      openCameraMenu(card, at); return true;
     }
     if (!webcamOnly && !boardOff(seat)) return false;
     if (!card) { const pile = pileAt(zoneAtPoint(seat, at.x, at.y)); if (!pile) return false; cancelRead(); openPile(seat, pile, null); return true; }
@@ -1639,8 +1660,10 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
   };
   /** The feed handler runs first and the table handler after it, in the same event. This tells the table handler what the feed did. */
   const feedMenu = useRef(false);
-  const onCardMenu = (seat: number, at: { x: number; y: number }, mouse: boolean) => {
+  const onCardMenu = (seat: number, at: { x: number; y: number }, mouse: boolean, where: { anchor: Rect; feed: Rect }) => {
     const card = cardAtPoint(seat, at.x, at.y);
+    // A webcam seat gets the short webcam card menu; the virtual board (and the drawer) keep the full card actions.
+    if (card && boardHidden(seat) && !card.token && (cardCode(card) || solo || seat === mySeat)) { openCameraMenu(card, { ...at, ...where }); feedMenu.current = true; return; }
     if (card) { feedMenu.current = openCardActions(card); return; }
     const zone = zoneAtPoint(seat, at.x, at.y), pile = pileAt(zone);
     if (pile) { openPile(seat, pile, null); feedMenu.current = true; return; }
@@ -1743,7 +1766,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
       onAction={action => void saveZoneActions(latest => [zoneCardAction(latest, zonePicker.key, action)])} onSet={() => { const ref = crypto.randomUUID(); void saveZoneActions(latest => [zoneSet(latest, zonePicker.seat, zonePicker.key, ref)]); }}
       onToken={() => tokens.create(zonePicker.seat, /^m[1-5]$/.test(zonePicker.key) && !cellsFor(state.seats[zonePicker.seat].twin, extraZones)[zonePicker.key]?.card ? zonePicker.key : undefined)}
       onGive={zonePicker.tokenOnly && control.canGive ? () => control.giveHere(zonePicker.seat, zonePicker.key) : undefined}
-      onDetails={card => openSubject(card)} quick={quickFor(zonePicker.seat, cellsFor(state.seats[zonePicker.seat].twin, extraZones)[zonePicker.key]?.card)} onClose={() => layers.close('zone')} /> : null}
+      onDetails={card => openSubject(card)} quick={quickFor(zonePicker.seat, cellsFor(state.seats[zonePicker.seat].twin, extraZones)[zonePicker.key]?.card, true)} onClose={() => layers.close('zone')} /> : null}
     <InspectorDrawer open={layers.layer === "insp"} onClose={() => layers.close("insp")}>
       <InspectorBody subject={subjectDetails} info={subjectInfo} warning={subject ? deckFlag(room, subject.seat)?.message : undefined} actions={shownActions}
         sourceLine={subject ? `Identified by ${subject.via} on ${name(subject.seat)}'s side` : ""} />
