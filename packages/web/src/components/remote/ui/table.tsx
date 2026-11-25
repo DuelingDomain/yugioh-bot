@@ -83,6 +83,7 @@ import {distinctFieldQuads,fieldReadingPlaceholder,rememberFieldObservation} fro
 import {SUMMON_WINDOW_MS} from '@/lib/remote/field-summons';
 import { useCardMenu } from "./card-menu";
 import { FeedCardsProvider } from "./feed-cards";
+import { ChainBadges, chainMarksOf } from "./chain-marks";
 import { useTokens } from "./token-ui";
 import { useControlChange } from "./control-ui";
 import { quickMoves } from "./quick-moves";
@@ -221,6 +222,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     return () => clearTimeout(timer);
   }, [pendingThink, thinking]);
   const chain = useMemo(() => chainOf(room.events, aliveSeats(state)), [room.events, state]);
+  const chainMarks = useMemo(() => chainMarksOf(chain), [chain]);
   const [peek, setPeek] = useState<PeekState>(null); const peekTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const showPeek = useCallback((kind: LogKind, text: ReactNode) => {
     if (R.current.layer === "log") return;
@@ -1652,7 +1654,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     if (isPile(key)) return false;
     const card = cellsFor(state.seats[seat]?.twin ?? [], extraZones)[key]?.card; return card ? openCardActions(card) : tokens.create(seat, key);
   });
-  return <FeedCardsProvider seats={state.seats} info={info}><div ref={appRef} className={`${duelFontClasses} ${s.app}`} data-mode={mode} data-wc={webcamOnly ? "1" : undefined} data-testid="remote-table" data-status={room.status} {...cardMenu}>
+  return <FeedCardsProvider seats={state.seats} info={info} marks={chainMarks}><div ref={appRef} className={`${duelFontClasses} ${s.app}`} data-mode={mode} data-wc={webcamOnly ? "1" : undefined} data-testid="remote-table" data-status={room.status} {...cardMenu}>
     <AutoFieldWatcher dock={seatDocks[mySeat] ?? null} room={room} transaction={ctl.transaction} diagnosticsAllowed={feedbackPref?.isAdmin===true && feedbackPref.collectionEnabled} />
     <a className={s.skip} href="#stage">Skip to the table</a>
     <div className={s.shell}>
@@ -1801,6 +1803,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     <Toasts items={toastItems} dock={layers.layer && layers.layer !== "card" && layers.layer !== "tray" ? null : seatDocks[mySeat] ?? null} top={layers.layer === "pile"} />
     <HandActivation events={room.events} name={name} />
     {activateRow ? <ActivateRow cards={activateRow.cards} info={info} onPick={card => pickFromRow(activateRow.seat, card)} onClose={() => setActivateRow(null)} /> : null}
+    <ChainBadges marks={chainMarks} />
     <RemoteFx state={state} webcamOnly={webcamOnly} seq={room.lastSeq} last={room.events.find(event => event.seq === room.lastSeq)?.action} chainNo={chain.links.get(room.events.find(event => event.seq === room.lastSeq)?.id ?? "")?.n} />
   </div></FeedCardsProvider>;
 }

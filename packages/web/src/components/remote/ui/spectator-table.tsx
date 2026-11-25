@@ -32,6 +32,7 @@ import { TapBoardNote, TapModeChip } from "./tap-mode-banner";
 import { seatBoardOff, stateMode } from "@/lib/remote/tournament-detection";
 import { PileViewer, type PileZone } from "./pile-viewer";
 import { FeedCards, FeedCardsProvider } from "./feed-cards";
+import { ChainBadges, chainMarksOf } from "./chain-marks";
 import type { PopAt, Rect } from "./popup";
 import { useLayers } from "./use-layers";
 import { HandActivation } from "./hand-activation";
@@ -170,7 +171,9 @@ function SpectatorTable({ room }: { room: RemoteRoom }) {
   const lp = (seat: number) => state.seats[seat]?.resources.lp ?? 0;
   const okHold = useOkHold(room.events);
   const thinking = useMemo(() => thinkingSeats(room.events, room.status === "active" && !state.ended && match.phase === "duel"), [room.events, room.status, state.ended, match.phase]);
-  const chainLinks = chainOf(room.events, aliveSeats(state)).links;
+  const chain = useMemo(() => chainOf(room.events, aliveSeats(state)), [room.events, state]);
+  const chainLinks = chain.links;
+  const chainMarks = useMemo(() => chainMarksOf(chain), [chain]);
   const [subject, setSubject] = useState<Subject | null>(null);
   const [popAt, setPopAt] = useState<PopAt>({ anchor: null, feed: null });
   const publicIds = state.seats.flatMap(item => [...item.twin.map(card => cardCode(card) ?? card.token?.artId), ...(item.knownHand ?? []).map(card => card.cardId)]);
@@ -278,7 +281,7 @@ function SpectatorTable({ room }: { room: RemoteRoom }) {
   // The end and siding screens carry their own words; the note is for a game result and for video problems.
   const note = ended || siding ? null : readNote || (match.phase === "result" ? "This game is over. The next game starts soon." : snapshot.error || null);
 
-  return <FeedCardsProvider seats={state.seats} info={info}><div className={`${duelFontClasses} ${s.app} ${v.app}`} data-mode={seatCount === 2 ? "1v1" : String(seatCount)} data-wc={webcamOnly ? "1" : undefined} data-testid="spectator-table" data-status={room.status}>
+  return <FeedCardsProvider seats={state.seats} info={info} marks={chainMarks}><ChainBadges marks={chainMarks} /><div className={`${duelFontClasses} ${s.app} ${v.app}`} data-mode={seatCount === 2 ? "1v1" : String(seatCount)} data-wc={webcamOnly ? "1" : undefined} data-testid="spectator-table" data-status={room.status}>
     <ThinkingCallout thinking={thinking} name={name} pointer={seatCount > 2} />
     <OkBanner hold={okHold} name={name} />
     <div className={s.shell} inert={covered ? true : undefined}>

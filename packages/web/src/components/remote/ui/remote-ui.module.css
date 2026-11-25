@@ -1472,3 +1472,6 @@
 /* Changed here: the zone has a dotted purple edge outside the card (the cue button is in field-watcher-ui). */
 .zc:has(>[data-changed-cue]){outline:1.5px dashed rgb(167 139 255/.85);outline-offset:1px}
 .zc:has(>[data-changed-cue]):focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+
+/* A card of the virtual board that is a link of the open chain keeps a small "Chain N" badge on its top edge. */
+.zc[data-chain]::after{content:"Chain " attr(data-chain);position:absolute;left:50%;top:-9px;transform:translateX(-50%);z-index:6;pointer-events:none;padding:2px 7px;border:1px solid rgb(155 126 255/.85);border-radius:999px;background:rgb(11 7 22/.94);box-shadow:0 0 10px rgb(155 126 255/.5);font:700 10px/1.2 var(--font-duel-display,Oxanium,sans-serif);letter-spacing:.08em;text-transform:uppercase;color:#f6dc9a;white-space:nowrap}

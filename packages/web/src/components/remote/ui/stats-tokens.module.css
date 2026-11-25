@@ -14,6 +14,12 @@
 .tokenFill{fill:rgb(42 38 60/.82);stroke:rgb(232 185 79/.95);stroke-width:.0035}
 .proxyEdge{fill:none;stroke:rgb(232 185 79/.95);stroke-width:.004;stroke-linejoin:round}
 .tag{transform:translate(-50%,-100%);max-width:none;padding:0 3px;background:rgb(232 185 79/.94);color:#1a1405;font:700 8px/1.2 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;letter-spacing:.04em;text-transform:uppercase;text-shadow:none}
+/* The chain mark on a feed: a short glow on the card, then a small "Chain N" badge. */
+.chainGlow{fill:rgb(155 126 255/.35);stroke:rgb(246 220 154/.95);stroke-width:.006;stroke-linejoin:round;animation:chainGlow 1.2s ease-out both}
+.chainTag{transform:translate(-50%,-100%);max-width:none;padding:2px 7px;border:1px solid rgb(155 126 255/.85);border-radius:999px;background:rgb(11 7 22/.94);color:#f6dc9a;font:700 10px/1.2 var(--font-duel-display),Oxanium,sans-serif;letter-spacing:.08em;text-transform:uppercase;box-shadow:0 0 12px rgb(155 126 255/.55)}
+.chainTop{left:50%;top:8%;transform:translate(-50%,0)}
+@keyframes chainGlow{0%{opacity:0}25%{opacity:1}100%{opacity:0}}
+@media (prefers-reduced-motion:reduce){.chainGlow{animation-duration:.45s}}
 .tokenFront{stroke:#fff2cd;stroke-width:.008;stroke-linecap:round;fill:none}
 
 /* The token dialog and menu. */
