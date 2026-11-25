@@ -30,15 +30,12 @@ export function AdminWatchStrip({ names }: { names: string[] }) {
   return names.length ? <div className={s.adminStrip}><span className={s.adminPill} role="status" data-testid="admin-watching-strip">Admin watching · {names.join(", ")}</span></div> : null;
 }
 
-export function TopBar({ crumb, tournament = null, chip, startedAt = null, endedAt = null, adminWatchers = [], health, healthOpen, cardOpen, logOpen, logDot, onHealth, onCard, onLog, onSurrender, surrenderOpen, onQuit, webcamOnly, onView }: {
-  crumb: string; /** When the duel started, in ms. Null before it starts. */ startedAt?: number | null; endedAt?: number | null; /** A tournament table: its name and page. The logo goes there too, so a phone has the way back. */ tournament?: { name: string; href: string } | null; chip: string; /** Names of the admins who watch now. The players see them as "Admin watching". */ adminWatchers?: string[]; health: { q: "good" | "warn" | "bad" | "off"; text: string }; healthOpen: boolean; cardOpen: boolean; logOpen: boolean; logDot: boolean;
-  onHealth: (el: HTMLElement) => void; onCard: (el: HTMLElement) => void; onLog: (el: HTMLElement) => void;
-  /** Set while I am a living player in a live game: shows the Surrender button. */ onSurrender?: (el: HTMLElement) => void; surrenderOpen?: boolean;
-  /** Set while I am a seated player in a live match: shows the Quit match button. */ onQuit?: (el: HTMLElement) => void;
+export function TopBar({ crumb, tournament = null, chip, startedAt = null, endedAt = null, adminWatchers = [], cardOpen, logOpen, logDot, onCard, onLog, webcamOnly, onView }: {
+  crumb: string; /** When the duel started, in ms. Null before it starts. */ startedAt?: number | null; endedAt?: number | null; /** A tournament table: its name and page. The logo goes there too, so a phone has the way back. */ tournament?: { name: string; href: string } | null; chip: string; /** Names of the admins who watch now. The players see them as "Admin watching". */ adminWatchers?: string[];
+  cardOpen: boolean; logOpen: boolean; logDot: boolean;
+  onCard: (el: HTMLElement) => void; onLog: (el: HTMLElement) => void;
   /** True when the virtual fields are hidden and the camera feeds take the space. */ webcamOnly: boolean; /** Absent on a 3-way or 4-way table: only the cameras show, so there is no board switch. */ onView?: (webcamOnly: boolean) => void;
 }) {
-  const dot = health.q === "warn" ? s.warn : health.q === "bad" ? s.bad : "";
-  const tone = health.q === "warn" ? s.warnc : health.q === "bad" ? s.badc : "";
   return <header className={s.top}>
     <a className={s.logo} href={tournament?.href ?? "/duels"} aria-label={tournament ? `Leave the table and return to ${tournament.name}` : "Leave the table and return to the Remote Duels lobby"}><span className={s.gem} /><b>Dueling Domain</b></a>
     <span className={s.crumb}>{tournament ? <><a className={s.crumbLink} href={tournament.href} data-testid="table-tournament-link"><b>{tournament.name}</b></a> · </> : null}<b>Remote Duel</b> · {crumb}</span>
@@ -46,18 +43,9 @@ export function TopBar({ crumb, tournament = null, chip, startedAt = null, ended
     <DuelTimer startedAt={startedAt} endedAt={endedAt} />
     {adminWatchers.length ? <span className={s.adminBadge} role="status" data-testid="admin-watching-badge" title="An admin can see this table as a spectator. Hidden cards stay hidden.">Admin watching · {adminWatchers.join(", ")}</span> : null}
     <span className={s.sp} />
-    {onSurrender || onQuit ? <div className={s.leaveGrp} role="group" aria-label="Leave the game or the match" data-testid="leave-group">
-    {onSurrender ? <button type="button" className={`${s.tb} ${s.leaveBtn}`} aria-haspopup="dialog" aria-expanded={surrenderOpen} aria-label="Surrender this game" title="Surrender this game" data-layer-opener data-testid="surrender-button" onClick={e => onSurrender(e.currentTarget)}>
-      <Icon name="flag" /><span>Surrender</span></button> : null}
-    {onQuit ? <button type="button" className={`${s.tb} ${s.leaveBtn}`} aria-haspopup="dialog" aria-label="Quit the match" title="Quit the match" data-layer-opener data-testid="quit-button" onClick={e => onQuit(e.currentTarget)}>
-      <Icon name="x" /><span>Quit match</span></button> : null}
-    </div> : null}
-    <span className={s.sp} />
     {onView ? <button type="button" className={`${s.tb} ${s.boardtog}`} aria-pressed={!webcamOnly} data-testid="view-board" aria-label={`Virtual board, beta: ${webcamOnly ? "off" : "on"}`} onClick={() => onView(!webcamOnly)}
       title={webcamOnly ? "Show the virtual board under each webcam, beta (W)" : "Hide the virtual board. The webcams get the space (W)"}>
       <Icon name="layers" /><span className={s.lbl}>Virtual board</span> <span className={s.vbeta}>Beta</span> <b className={s.boardst}>{webcamOnly ? "OFF" : "ON"}</b></button> : null}
-    <button type="button" className={`${s.tb} ${tone}`} aria-haspopup="dialog" aria-expanded={healthOpen} data-layer-opener data-testid="health-chip" onClick={e => onHealth(e.currentTarget)}>
-      <span className={`${s.hdot} ${dot}`} /><span>{health.text}</span></button>
     <button type="button" className={s.tb} aria-haspopup="dialog" aria-expanded={cardOpen} data-layer-opener data-testid="card-button" onClick={e => onCard(e.currentTarget)}>
       <Icon name="card" /><span className={s.lbl}>Card</span></button>
     <button type="button" className={s.tb} aria-haspopup="dialog" aria-expanded={logOpen} data-layer-opener data-testid="log-button" onClick={e => onLog(e.currentTarget)}>

@@ -8,6 +8,9 @@ export type LayerId = "log" | "insp" | "health" | "hist" | "tray" | "card" | "fl
 const FOCUSABLE = 'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
 const FIRST = '[data-autofocus],li[role=option],input[type=text]';
 
+/** A sticky layer (the table drawer) does not trap Tab or close on an outside press when the page is wide enough to push the table. */
+const pushed = (root: HTMLElement | null) => !!root && root.dataset.sticky === "true" && window.matchMedia("(min-width: 1100px)").matches;
+
 /**
  * Focus goes into the layer when it opens, Tab stays inside, Esc closes, a press outside closes
  * (a press on a camera feed keeps a card popup open, because that click starts the next read), and focus returns to whatever opened it.
@@ -45,6 +48,7 @@ export function useLayers() {
       const root = document.querySelector<HTMLElement>(`[data-layer="${layerRef.current}"]`); if (!root) return;
       if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); if (root.dataset.modal !== "true") close(); return; }
       if (event.key !== "Tab") return;
+      if (pushed(root)) return;
       const items = [...root.querySelectorAll<HTMLElement>(FOCUSABLE)].filter(el => el.offsetParent !== null || el === document.activeElement);
       if (!items.length) { event.preventDefault(); return; }
       const first = items[0]; const last = items[items.length - 1]; const active = document.activeElement as HTMLElement | null;
@@ -57,6 +61,8 @@ export function useLayers() {
       const id = layerRef.current;
       // A press on a camera feed starts a new read, which replaces the popup. Anywhere else outside closes it.
       if ((id === "tray" || id === "card") && target.closest("[data-remote-seat]")) return;
+      // A drawer that pushes the table stays open while the player works on the table.
+      if (id && pushed(document.querySelector<HTMLElement>(`[data-layer="${id}"]`))) return;
       // A modal layer closes only through its own button.
       if (document.querySelector(`[data-layer="${id}"][data-modal="true"]`)) return;
       if (target.closest(`[data-layer="${id}"]`) || (opener.current && opener.current.contains(target)) || target.closest("[data-layer-opener]")) return;

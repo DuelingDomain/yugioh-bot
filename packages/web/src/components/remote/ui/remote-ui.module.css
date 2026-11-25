@@ -1664,3 +1664,25 @@
 .htop .wcpiles button{height:20px;padding:0 5px;font-size:10.5px}
 @media (max-width:900px){.boardtog .lbl{display:inline}.boardtog .vbeta{display:none}}
 @container ledge (max-width:600px){.htop .wcpiles button:nth-child(n+3){display:none}}
+
+/* ---- table drawer (Log / Settings / Info / Admin): right side, pushes the table from 1100 px, full sheet on a phone ---- */
+.app{--tdr-w:392px}
+@media (max-width:1499px){.app{--tdr-w:340px}}
+.drawer.tdr{z-index:40;right:0;left:auto;transform:translateX(104%);border-left:1px solid var(--line2);width:392px;max-width:100vw}
+.drawer.tdr.open{transform:none}
+.tdr .dh .sp{flex:1}
+.tdr .tabs{padding:0 8px}
+.tdr .tabs button{flex:1;padding:10px 8px 9px}
+.tdr .db{padding:0}
+.tdr .flt button{min-height:28px;padding:3px 12px}
+@media (min-width:901px){.drawer.tdr{width:var(--tdr-w)}}
+@media (min-width:1100px){
+  .app[data-drawer] .shell{width:calc(100% - var(--tdr-w))}
+  .app[data-drawer] .drawer.tdr{top:0}
+}
+@media (max-width:900px){
+  .drawer.tdr{top:var(--hdr);left:0;right:0;width:auto;max-width:none;bottom:0}
+  .tdr .flt{gap:6px;padding:10px 12px 6px}
+  .tdr .flt button{min-height:36px;padding:0 14px;font-size:13.5px}
+  .tdr .tabs button{min-height:44px}
+}
