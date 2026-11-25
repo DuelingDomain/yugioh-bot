@@ -1731,6 +1731,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
       log={{ turns: logTurns, voiceFilter: voiceRecognition, color: seat => COLORS[seat] ?? "var(--ink)", onCard: previewLogCard, onAddToDeck: (seat, id) => void addToDeck(seat, id), adding: false,
         undo: { label: undoText, enabled: canUndo, reason: newestUndo?.reason, onUndo: () => void doUndo() } }}
       info={{ format: formatLabel, game: match.bestOf > 1 ? `Game ${match.games.length + 1} of ${match.bestOf}` : "Single game", time: <DuelTimer startedAt={room.startedAt} endedAt={room.endedAt} />, startingLp,
+        order: players.map(p => ({ seat: p.seat, name: p.name, color: p.color, turn: p.seat === turnShown, lp: lpOf(p.seat), note: p.seat === turnShown ? "Turn" : p.seat === nextSeat ? "Next" : "" })),
         feeds: healthRows.map(row => ({ ...row, color: row.color, mode: isTournamentTable(room) && row.seat !== mySeat ? stateMode(room.state, row.seat) ?? "unknown" : undefined })), extras,
         onSurrender: canSurrender ? el => openLeave("game", el) : undefined, onQuit: canQuit ? el => openLeave("match", el) : undefined, declare: declareResult,
         extra: !solo && !adminAccess ? <VisionFeedbackSetting promptOnly onChange={onFeedbackPref} /> : undefined }}

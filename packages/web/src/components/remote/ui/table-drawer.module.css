@@ -54,6 +54,7 @@
 .pl{display:flex;align-items:center;gap:9px;padding:8px 0;font-size:14px}
 .pl+.pl{border-top:1px solid rgb(167 139 255/.09)}
 .pl b{flex:1;font-weight:700}
+.pl.turnOn b{color:var(--gold-ink)}
 .pl small{color:var(--ink3);font-size:12px;text-align:right}
 .leave{display:flex;gap:8px;padding:12px 14px 16px}
 .leave :global(button){flex:1;justify-content:center}

@@ -4,6 +4,7 @@ import { Fragment, useEffect, useState, type CSSProperties, type ReactNode } fro
 import { cardArt } from "./catalog";
 import { Icon } from "./icons";
 import type { LogCat, LogFilter, LogRow, LogTurn } from "./log-model";
+import type { TableSeat } from "./drawers";
 import type { Health } from "./video-hub";
 import s from "./remote-ui.module.css";
 import d from "./table-drawer.module.css";
@@ -30,7 +31,7 @@ export type TableDrawerProps = {
     undo: { label: string; enabled: boolean; reason?: string; onUndo: () => void };
   };
   info: {
-    format: string; game: string; time: ReactNode; startingLp: number; feeds: DrawerFeed[]; extras: DrawerExtra[];
+    format: string; game: string; time: ReactNode; startingLp: number; /** Seats in turn order, with LP and the Turn / Next note. */ order: TableSeat[]; feeds: DrawerFeed[]; extras: DrawerExtra[];
     onSurrender?: (el: HTMLElement) => void; onQuit?: (el: HTMLElement) => void;
     declare?: { choices: { seat: number | null; label: string }[]; waiting: string | null; onDeclare: (winnerSeat: number | null) => void };
     /** The feedback prompt that asks players once about the training set. */ extra?: ReactNode;
@@ -102,6 +103,14 @@ function InfoTab({ p }: { p: TableDrawerProps["info"] }) {
       <div className={d.kv}><span>Game</span><b>{p.game}</b></div>
       <div className={d.kv}><span>Time</span><b className={d.num}>{p.time}</b></div>
       <div className={d.kv}><span>Starting LP</span><b className={d.num}>{p.startingLp}</b></div>
+    </div>
+    <div className={d.sec} data-testid="turn-order"><h3>Turn order</h3>
+      {p.order.map(seat => <div className={`${d.pl} ${seat.turn ? d.turnOn : ""}`} key={seat.seat} data-turn={seat.turn || undefined}>
+        <span className={s.pip} style={{ "--c": seat.color } as CSSProperties} /><b>{seat.name}</b>
+        <small>{seat.note}</small><span className={d.num}>{seat.lp}</span>
+      </div>)}
+      <p className={d.hint}>Pass turn moves the highlight to the next seat in this order.</p>
+      <p className={d.hint}>Undo: your last 20 actions, this turn and the one before.</p>
     </div>
     <div className={d.sec} data-testid="health-popover"><h3>Players</h3>
       {p.feeds.map(feed => <div className={d.pl} key={feed.seat}>
