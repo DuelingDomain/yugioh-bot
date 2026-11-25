@@ -2585,12 +2585,12 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
           if(t.view.state!=='identified'&&!restOk(t)){t.view.visible=false;note(t,`Set waits: ${t.rest?.text??'not resting yet'}`);continue;}
           if(!t.view.faceDown&&t.view.cardId)faceState.setCardId=t.view.cardId;
           t.view.cardId=undefined;t.read=undefined;t.needsRead=false;t.identityCheck=undefined;
-          // Reuse a recently lifted card's ref in the same cell unless the
-          // camera proved the sleeve's footprint was empty.
+          // A brief vacancy shows the card was lifted. A settled back in the
+          // same cell can still be that card returning.
           const returnedAt=now(),known=options.getKnownCards?.()??[];
           const back=t.view.state==='candidate'&&!t.binding&&t.resolvedAt===undefined&&fieldSlot(t.view.zone)?tracks.filter(o=>{
             const {id,removed,removedAt,zone}=o.view;
-            if(o===t||!removed||removedAt===undefined||o.view.state!=='identified'||o.view.emptyProofAt!==undefined||o.under||zone!==t.view.zone||
+            if(o===t||!removed||removedAt===undefined||o.view.state!=='identified'||o.under||zone!==t.view.zone||
               returnedAt-removedAt>FIELD_SET_RETURN_MS||known.some(k=>k.zone===zone&&k.id!==id)||!known.some(k=>k.id===id&&(k.zone===zone||k.zone==='HAND')))return false;
             const cardId=o.view.cardId??o.face?.setCardId??known.find(k=>k.id===id)?.cardId;
             return !cardId||heldReader.lastReadAt(cardId)<removedAt&&!tracks.some(other=>publicPile(other.view.zone)&&other.view.cardId===cardId&&other.view.lastSeen>=removedAt);
@@ -2697,7 +2697,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
             // A background attempt may settle a question only with a sure, unflagged name.
             if(!sureName(result)){t.needsRead=false;t.best=undefined;continue;}
             if(t.view.state==='identified'){
-              t.nameRetry=undefined;t.prompted=false;t.view.nameCandidates=undefined;t.view.bestMatch=undefined;
+              t.nameRetry=undefined;t.prompted=false;t.view.nameCandidates=undefined;t.view.bestMatch=false;
               t.awaitingName={previous:t.view.cardId,next:result!.candidates[0].cardId};
               t.view.cardId=result!.candidates[0].cardId;t.identityAppearance=pixels;t.identityEmbedding=result?.identityEmbedding;t.latestEmbedding=t.identityEmbedding;t.lastResult=result;
               emit('placed',t,{result});continue;
@@ -2735,7 +2735,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
           }
           if(t.confirming){
             t.confirming=false;t.identityAppearance=pixels;t.identityEmbedding=result?.identityEmbedding??t.identityEmbedding;t.latestEmbedding=t.identityEmbedding;
-            if(winner&&result!.tier==='sure'&&winner!==t.view.cardId&&t.view.state==='identified'&&(!locked||beatsLock(locked,result))){t.view.cardId=winner;t.view.bestMatch=undefined;note(t,'confirm read corrected the name');emit('placed',t,{result});}
+            if(winner&&result!.tier==='sure'&&winner!==t.view.cardId&&t.view.state==='identified'&&(!locked||beatsLock(locked,result))){t.view.cardId=winner;t.view.bestMatch=false;note(t,'confirm read corrected the name');emit('placed',t,{result});}
             continue;
           }
           if(t.identityCheck&&locked&&!beatsLock(locked,result)&&locked.cardId===t.identityCheck.cardId){restoreIdentity(t,pixels);t.view.visible=t.view.state==='identified';note(t,'identity locked');continue;}

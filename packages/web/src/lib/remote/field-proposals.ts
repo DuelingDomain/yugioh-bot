@@ -171,14 +171,20 @@ export function recentCommittedSet(track:FieldTrack,at=performance.now()):boolea
 }
 export const fieldSetRebind=(event:FieldEvent)=>event.track.faceDown&&(event.type==='flipped'||event.type==='moved');
 
+/** A named, settled front with an unflagged catalog read. */
+export function fieldSureSetRead(track:FieldTrack,result:FieldEvent['result']):boolean {
+  const top=result?.candidates[0];
+  return !!track.visible&&!track.under&&!track.faceDown&&track.restSince!==undefined&&
+    !track.card?.partial&&!track.card?.covered&&!track.nameCandidates?.length&&track.bestMatch!==undefined&&
+    result?.tier==='sure'&&!!top&&top.cardId===track.cardId&&top.score>=.84&&
+    !result.quality.fallback&&!result.quality.covered&&!result.quality.partial&&!result.quality.faceDown;
+}
+
 /** A sure, settled read can reveal its bound Set through the atomic placement path. */
 export function fieldSureSetReveal(event:FieldEvent,track:FieldTrack,card:Pick<TwinCard,'ref'|'zone'|'slot'|'faceUp'|'ownerSeat'>):boolean {
-  const result=event.result,top=result?.candidates[0];
   const location=fieldZoneLocation(track.zone);
   return event.type==='placed'&&event.track.zone===track.zone&&card.ref===track.id&&!card.faceUp&&card.ownerSeat===undefined&&
-    card.zone===location.zone&&card.slot===location.slot&&!!track.visible&&!track.under&&!track.faceDown&&
-    track.restSince!==undefined&&!track.nameCandidates?.length&&result?.tier==='sure'&&!!top&&top.cardId===track.cardId&&top.score>=.84&&
-    !result.quality.fallback&&!result.quality.covered&&!result.quality.partial&&!result.quality.faceDown;
+    card.zone===location.zone&&card.slot===location.slot&&fieldSureSetRead(track,event.result);
 }
 
 /** An identified track that was seen this recently still has evidence when a slow tick set `visible` false. */
@@ -396,10 +402,10 @@ export function fieldSetReturn({track,twins,tracks,owns,events,seat,at,now,pileT
       (pileTouched?.GY??-Infinity)>=removedAt-1500||(pileTouched?.BANISHED??-Infinity)>=removedAt-1500)return;
     return from;
   };
-  const inPlace=(from:RemovedFieldTrack)=>{
+  const inPlace=(from:RemovedFieldTrack,windowMs=3000)=>{
     // A front outline may predate the removal and turn over without starting a new track.
     const backAt=track.firstSeen<from.lastSeen-1000&&committedSet(track)?track.lastSeen:track.firstSeen;
-    return backAt>=from.lastSeen-1000&&backAt<=from.removedAt+3000;
+    return backAt>=from.lastSeen-1000&&backAt<=from.removedAt+windowMs;
   };
   const handOrigin=(c:TwinCard)=>c.zone==='hand'&&c.departedFrom?.auto&&c.departedFrom.at!==undefined&&c.departedFrom.at<=at?c.departedFrom:undefined;
   const sized=(c:TwinCard,since:number)=>events.some(e=>e.at>=since&&(e.action.type==='hand.draw'||e.action.type==='hand.count'||e.action.type==='hand.add'||e.action.type==='twin.move'&&e.action.zone==='hand'&&e.action.cardRef!==c.ref)&&('seat' in e.action?e.action.seat:e.action.actorSeat)===seat);
@@ -421,7 +427,7 @@ export function fieldSetReturn({track,twins,tracks,owns,events,seat,at,now,pileT
   const returned=departed.filter(c=>handOrigin(c)&&there(c.departedFrom!)).sort((a,b)=>b.departedFrom!.at!-a.departedFrom!.at!)[0];
   if(returned){
     const from=origin(returned);
-    return from&&from.emptyProofAt===undefined&&inPlace(from)&&!sized(returned,returned.departedFrom!.at!)?{kind:'return',card:returned}:undefined;
+    return from&&from.zone===track.zone&&inPlace(from,FIELD_SET_RETURN_MS)&&!sized(returned,returned.departedFrom!.at!)?{kind:'return',card:returned}:undefined;
   }
   // Legacy recovery for an unnamed Set the camera already sent to the hand.
   const arrivals=tracks.filter(t=>t.faceDown&&!t.removed&&t.visible&&MAIN_FIELD_SLOT.test(t.zone)&&fieldZoneLocation(t.zone).zone===cell.zone&&!twins.some(c=>c.ref===owns(t)));
