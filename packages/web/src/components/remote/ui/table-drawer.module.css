@@ -31,9 +31,9 @@
 .foot .btn{align-self:flex-start;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
 /* Settings, Info and Admin rows */
-.sec{padding:12px 14px 6px;border-bottom:1px solid var(--line)}
-.sec h3{margin:0 0 4px;font:700 11px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;letter-spacing:.16em;text-transform:uppercase;color:var(--ink3)}
-.row{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:44px;padding:6px 0}
+.sec{padding:18px 18px 10px;border-bottom:1px solid var(--line)}
+.sec h3{margin:0 0 8px;font:700 11px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;letter-spacing:.16em;text-transform:uppercase;color:var(--ink3)}
+.row{display:flex;align-items:center;justify-content:space-between;gap:14px;min-height:48px;padding:8px 0}
 .row+.row{border-top:1px solid rgb(167 139 255/.09)}
 .row>span:first-child{min-width:0;font-weight:600;font-size:14px;color:var(--ink)}
 .row>span:first-child small{display:block;margin-top:2px;font-weight:500;font-size:12px;line-height:1.3;color:var(--ink3)}
@@ -56,7 +56,7 @@
 .pl b{flex:1;font-weight:700}
 .pl.turnOn b{color:var(--gold-ink)}
 .pl small{color:var(--ink3);font-size:12px;text-align:right}
-.hint{margin:4px 0 8px;font-size:12.5px;line-height:1.35;color:var(--ink3)}
+.hint{margin:6px 0 12px;font-size:12.5px;line-height:1.45;color:var(--ink3)}
 .ro{font:600 12px/1.3 var(--font-duel-display),Oxanium,sans-serif;font-variant-numeric:tabular-nums;color:var(--ink2);white-space:normal}
 .kv .ro{color:var(--ink)}
 .det{border-top:1px solid rgb(167 139 255/.09)}
