@@ -36,7 +36,9 @@ export function FitToMatControl(props:Props) {
       const calibration=matFitCalibration(result);
       if(!calibration){setNote(`${result.flags.colWindowAmbiguous?'Show the whole mat width, including Deck and GY. ':''}${fallback}`);return;}
       lastApplied.current=calibration;latest.current.onCapture(canvas);latest.current.onApply(calibration);setFit(result);
-      setNote(result.flags.sideByPrior?'Preview only. Your side is unsure: check M1 and S5, use Flip if reversed, then Save calibration to confirm.':'Preview fitted to printed zones. Check it, then Save calibration to keep it.');
+      const preview=result.confidence==='low'?'Best-guess preview. Adjust the grid if needed.':'Preview fitted to printed zones.';
+      const confirm=result.flags.sideByPrior?'Your side is unsure. Check M1 and S5, use Flip if reversed, then Save calibration.':'Check the grid, then Save calibration to keep it.';
+      setNote(`${preview} ${confirm}`);
     }catch{if(!controller.signal.aborted)setNote(fallback);}
     finally{
       frame?.close();

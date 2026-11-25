@@ -115,6 +115,37 @@ test('occupied production camera frame fits the correct printed rows',async()=>{
   assert.ok(result.metrics.meanErrorPitch<.1);assert.ok(result.metrics.maxErrorPitch<.2);
 });
 
+test('first fit previews the pale Raging Tempest mat with the correct side and columns',async()=>{
+  const image=await frame('raging-tempest.png');
+  const start=performance.now(),result=fitMat(image,{playerSide:'top'}),elapsed=performance.now()-start;
+  const grid=matFitCalibration(result);
+  assert.ok(grid,JSON.stringify(result));
+  assert.deepEqual(result.orientation,{playerSide:'top',mirrored:false});
+  assert.equal(result.flags.colWindowAmbiguous,false);
+  assert.equal(result.flags.sideByPrior,false);
+  assert.equal(result.metrics.columnSpan,7);
+  assert.equal(result.confidence,'low');
+
+  // Camera pixels hand-marked from the exposed printed edges, including the
+  // visible portions around the piles. The older outer boxes are staggered.
+  const points=[
+    ['S5',249,171],['S4',345,170],['S1',628,171],['M3',439,287],
+    ['DECK',170,138],['EXTRA',713,135],['FIELD',733,326],
+  ] as const;
+  const cells=fieldZoneCells(),errors=points.map(([name,x,y])=>{
+    const cell=cells.find(c=>c.zone===name)!;
+    const p=fieldMatPoint({x:cell.x+cell.w/2,y:cell.y+cell.h/2},grid);
+    const nx=x/image.width,ny=y/image.height;
+    assert.equal(mapFieldZone({quad:[{x:nx-.005,y:ny-.005},{x:nx+.005,y:ny-.005},{x:nx+.005,y:ny+.005},{x:nx-.005,y:ny+.005}],confidence:1,partial:false,kind:'face-up'},grid).zone,name);
+    return Math.hypot(p.x*image.width-x,p.y*image.height-y);
+  });
+  const mean=(values:number[])=>values.reduce((sum,error)=>sum+error,0)/values.length;
+  const mainMean=mean(errors.slice(0,4)),allMean=mean(errors),max=Math.max(...errors);
+  console.log(`pale: zones=${result.flags.zonesFound} inliers=${result.metrics.inliers} main mean=${mainMean.toFixed(2)}px all mean=${allMean.toFixed(2)}px max=${max.toFixed(2)}px wall=${elapsed.toFixed(0)}ms`);
+  assert.ok(mainMean<10,`main-row mean error ${mainMean}px`);
+  assert.ok(allMean<20&&max<48,`overall error ${allMean}px mean, ${max}px max`);
+});
+
 // These retain real printed edges and move GT with the same known camera transform.
 test('rotated real-frame variants retain correct rows and sub-pitch accuracy',async()=>{
   const image=await frame();

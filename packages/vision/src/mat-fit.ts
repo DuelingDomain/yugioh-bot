@@ -175,7 +175,7 @@ function neighbours(a:Rect,b:Rect):boolean {
   return dist>=w&&dist<=3.2*w&&Math.abs(dy)<.36*Math.abs(dx)+.15*h&&Math.abs(dx)>.8*w
     ||dist>=.95*h&&dist<=1.6*h&&Math.abs(dx)<.36*Math.abs(dy)+.15*w&&Math.abs(dy)>.8*h;
 }
-function filter(rects:Rect[]):Rect[] {
+function filter(rects:Rect[],sparseCandidates?:Rect[][]):Rect[] {
   const groups:Rect[][]=[];rects.sort((a,b)=>b.score-a.score);
   for(const a of rects){
     const group=groups.find(([b])=>Math.hypot(a.cx-b.cx,a.cy-b.cy)<=.45*Math.min(a.h,b.h));
@@ -198,6 +198,12 @@ function filter(rects:Rect[]):Rect[] {
     const connected=aligned.filter(a=>aligned.some(b=>a!==b&&neighbours(a,b)));
     const count=(connected.length>=3&&lattice(connected).nc>=4?1:0)*connected.reduce((sum,a)=>sum+connected.filter(b=>a!==b&&neighbours(a,b)).length,0);
     if(count>support||count===support&&target.h>height){support=count;frames=connected;height=target.h;width=target.w;}
+    if(sparseCandidates){
+      const clear=candidates.filter(a=>a.score>=.66&&a.edgeMin>=.38);
+      if(clear.length>=3&&clear.length<=5&&Math.max(...clear.map(a=>a.cx))-Math.min(...clear.map(a=>a.cx))>6.7*target.w){
+        sparseCandidates.push(clear);
+      }
+    }
   }
   frames=frames.filter(a=>a.score>=.55).sort((a,b)=>b.score-a.score).filter((a,i,all)=>!all.slice(0,i).some(b=>Math.hypot(a.cx-b.cx,a.cy-b.cy)<.3*Math.min(a.h,b.h)));
   const printedHeight=frames.length?median(frames.map(a=>a.h)):height;
@@ -319,10 +325,11 @@ function cluster(values:number[],gap:number,minPitch:number,maxPitch:number,maxS
   groups.forEach((g,i)=>g.forEach(j=>indices[j]=k[i]));
   return {indices,span:Math.max(...k),count:groups.length,pitch};
 }
-function lattice(d:Rect[]):Lattice {
-  const w=median(d.map(a=>a.w)),h=median(d.map(a=>a.h));let best=-1,theta=0;
+function lattice(d:Rect[],rowAngle?:number):Lattice {
+  const w=median(d.map(a=>a.w)),h=median(d.map(a=>a.h));let best=-1,theta=rowAngle??0;
   // Broad enough for the same rotated fixtures as the seven-angle ridge search.
-  for(let deg=-18;deg<=18;deg+=.5){
+  const middle=theta,range=rowAngle===undefined?18:3;
+  for(let deg=middle-range;deg<=middle+range;deg+=.5){
     const c=Math.cos(deg*rad),s=Math.sin(deg*rad),ys=d.map(p=>p.cy*c-p.cx*s);let score=0;
     for(const y of ys)for(const y2 of ys)score+=Math.exp(-.5*((y-y2)/(.1*h))**2);
     if(score>best){best=score;theta=deg;}
@@ -367,12 +374,241 @@ function fitPlane(src:Point[],dst:Point[],projective:boolean):((p:Point)=>Point)
   return ({x,y})=>{const den=projective?h[6]*x+h[7]*y+1:1;return {x:(h[0]*x+h[1]*y+h[2])/den,y:(h[3]*x+h[4]*y+h[5])/den};};
 }
 
+type Plane=(p:Point)=>Point;
+const unitCorners=[{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1}];
+
+function fitSparseLattice(groups:Rect[][],tone:Float32Array,w:number,h:number,theta:number,options:MatFitOptions):MatFitResult|undefined {
+  const evidence=new Map<Rect,boolean>();
+  let best:MatFitResult|undefined;
+  for(const group of groups){
+    const printed=group.filter(a=>{
+      if(!evidence.has(a)){
+        const {nested,filled}=outlineEvidence(a,tone,w,h);
+        evidence.set(a,nested||!filled);
+      }
+      return evidence.get(a);
+    }).map(a=>({...a,printed:true}));
+    if(printed.length<3)continue;
+    // Three boxes can look like one slanted row. Their borders give a separate
+    // estimate of the row angle, so constrain the tilt search in the sparse case.
+    const lat=lattice(printed,theta);
+    const boxWidth=median(printed.map(a=>a.w)),boxHeight=median(printed.map(a=>a.h));
+    // Verify a one-column gap as well as the full span, so a shorter crop
+    // cannot masquerade as seven columns at an artificially small pitch.
+    const columns=[...new Set(lat.cols)].sort((a,b)=>a-b);
+    if(lat.nr!==2||lat.rspan!==1||columns.length<3||lat.cspan!==6||!columns.some((c,i)=>c-columns[i-1]===1))continue;
+    if(lat.px<1.18*boxWidth||lat.px>1.85*boxWidth||lat.py<1.04*boxHeight||lat.py>1.6*boxHeight)continue;
+    const result=fitLattice(printed,lat,w,h,options,true);
+    if(!result.corners)continue;
+    if(best){
+      const near=best.corners!.every((p,i)=>Math.hypot((p.x-result.corners![i].x)*w,(p.y-result.corners![i].y)*h)<.22*lat.px);
+      if(!near)return;
+      if(best.metrics.inliers>result.metrics.inliers||best.metrics.inliers===result.metrics.inliers&&best.metrics.meanErrorPitch<=result.metrics.meanErrorPitch)continue;
+    }
+    best=result;
+  }
+  return best;
+}
+
+/** A pale printed stroke is brighter than the art on both sides of it. Sum
+ * its clipped contrast along a straight line so a few bright pixels or a
+ * sharp step at the edge of a card cannot supply a whole side. */
+function paleOutline(at:Point,map:Plane,tone:Float32Array,w:number,h:number) {
+  const corners=unitCorners.map(p=>map({x:at.x+(p.x-.5)*.68,y:at.y+(p.y-.5)*.78}));
+  const center=map(at);
+  const lines=corners.map((a,i)=>{
+    const b=corners[(i+1)%4],dx=b.x-a.x,dy=b.y-a.y,len=Math.hypot(dx,dy);
+    const nx=-dy/len,ny=dx/len,radius=Math.min(10,len*.14);
+    let best={score:0,offset:0},quality=0;
+    for(let offset=-radius;offset<=radius;offset+=1.25)for(const skew of [-5,0,5]){
+      let score=0;
+      for(let j=0;j<20;j++){
+        const t=(j+.5)/20,d=offset+skew*(t-.5),x=a.x+t*dx+nx*d,y=a.y+t*dy+ny*d;
+        const mid=luminanceAt(tone,w,h,x,y);
+        const lo=luminanceAt(tone,w,h,x-2.5*nx,y-2.5*ny),hi=luminanceAt(tone,w,h,x+2.5*nx,y+2.5*ny);
+        if(Number.isFinite(mid+lo+hi))score+=Math.max(0,Math.min(.09,mid-Math.max(lo,hi)));
+      }
+      score/=20;
+      const rank=score-.0005*Math.abs(offset);
+      if(rank>quality){quality=rank;best={score,offset};}
+    }
+    return {...best,nx,ny};
+  });
+  // Opposite sides bracket the centre. A lone edge proves a partial outline,
+  // but its offset alone also includes any error in the predicted box size.
+  for(const [a,b] of [[lines[0],lines[2]],[lines[1],lines[3]]]){
+    const weightA=a.score>=.02?1:0,weightB=b.score>=.02?1:0;
+    center.x+=(a.offset*a.nx*weightA+b.offset*b.nx*weightB)/2;
+    center.y+=(a.offset*a.ny*weightA+b.offset*b.ny*weightB)/2;
+  }
+  const horizontal=Math.max(lines[0].score,lines[2].score),vertical=Math.max(lines[1].score,lines[3].score);
+  const scores=lines.map(line=>line.score).sort((a,b)=>b-a);
+  return {at,center,corner:horizontal>=.035&&vertical>=.035,three:scores[1]>=.035&&scores[2]>=.024,score:scores.reduce((a,b)=>a+b,0)};
+}
+
+// Older printed mats have staggered outer boxes and a Pendulum Zone between
+// Extra and Field. Use those offsets as detection evidence. The returned
+// calibration is still the current, equally spaced gameplay grid.
+const legacyMat={
+  spell:{x:0,y:0},oppositeSpell:{x:4,y:0},field:{x:-1,y:1.34},pendulum:{x:-.84,y:.48},
+  extra:{x:-.9,y:-.32},deck:{x:4.9,y:-.32},
+};
+function fitStaggeredMat(rects:Rect[],tone:Float32Array,w:number,h:number,theta:number,options:MatFitOptions) {
+  const seeds:Rect[]=[];
+  // filter() already sorted the search results by outline score.
+  for(const rect of rects){
+    if(rect.score<.59||seeds.length>=55)break;
+    if(!seeds.some(a=>Math.hypot(a.cx-rect.cx,a.cy-rect.cy)<.23*Math.min(a.h,rect.h)))seeds.push(rect);
+  }
+  const {spell,oppositeSpell,field,pendulum,extra,deck}=legacyMat;
+  const candidates:{map:Plane;side:'top'|'bottom';mirror:boolean;score:number;count:number;columns:number;mean:number;max:number}[]=[];
+  const slope=Math.tan(theta*rad);
+  for(const s of seeds){
+    if(s.score<.67)break;
+    for(const f of seeds){
+      const dx=f.cx-s.cx,dy=f.cy-s.cy-slope*dx;
+      if(Math.abs(dx)<1.15*s.w||Math.abs(dx)>2*s.w||Math.abs(dy)<1.5*s.h||Math.abs(dy)>2.15*s.h||f.h/s.h<.85||f.h/s.h>1.3)continue;
+      const direction=dx>0?-1:1,away=dy>0?1:-1,py=dy/field.y;
+      const side=away>0?'top':'bottom',mirror=(side==='top'?direction>0:direction<0);
+      for(let px=Math.max(s.w/.82,Math.abs(dx)-.17*Math.abs(dy));px<=Math.min(s.w/.55,Math.abs(dx)+.17*Math.abs(dy));px+=2){
+        const vx=direction*px,vy=slope*vx;
+        // The nearer row is generally wider in an angled camera. Probe both
+        // parallel and slightly converging sides before refitting the centres.
+        for(const keystone of [0,.055*away]){
+          const farScale=1-keystone*field.y,shear=(dx*farScale+vx)/field.y;
+          const map:Plane=({x,y})=>{
+            const den=1-keystone*y;
+            return {x:s.cx+(vx*x+shear*y)/den,y:s.cy+(vy*x+(py*farScale+slope*shear)*y)/den};
+          };
+          const check=(at:Point)=>paleOutline(at,map,tone,w,h);
+          const start=check(spell);
+          if(!start.three)continue;
+          const end=check(oppositeSpell);
+          if(!end.corner)continue;
+          const outer=check(field),between=check(pendulum);
+          if(!outer.three||!between.three)continue;
+          // Confirm the arrangement with an exposed pile outline or an
+          // independent monster box if the piles hide both printed corners.
+          const piles=[check(extra),check(deck)].filter(a=>a.corner);
+          const inner=[{x:1,y:0},{x:2,y:1},{x:3,y:0}].map(check).filter(a=>a.three);
+          if(!piles.length&&!inner.some(a=>a.at.y===1))continue;
+          const matches=[start,end,outer,between,...piles,...inner];
+          const points=matches.map(a=>a.at),centers=matches.map(a=>a.center);
+          const fitted=fitPlane(points,centers,false);
+          if(!fitted)continue;
+          const errors=points.map((p,i)=>{const q=fitted(p);return Math.hypot(q.x-centers[i].x,q.y-centers[i].y)/px;});
+          const mean=errors.reduce((a,b)=>a+b)/errors.length,max=Math.max(...errors);
+          if(mean>=.065||max>=.13)continue;
+          const prior=.002*Number(side===options.playerSide)+.001*Number(mirror===(options.mirrored??false));
+          const score=start.score+end.score+outer.score+between.score+
+            .6*piles.reduce((sum,a)=>sum+a.score,0)+.4*inner.reduce((sum,a)=>sum+a.score,0)-mean+prior;
+          const columns=new Set(points.map(p=>Math.round(p.x))).size;
+          candidates.push({map:fitted,side,mirror,score,count:matches.length,columns,mean,max});
+        }
+      }
+    }
+  }
+  candidates.sort((a,b)=>b.score-a.score);
+  const best=candidates[0];
+  if(!best)return;
+  const distance=(a:Point,b:Point)=>Math.hypot(a.x-b.x,a.y-b.y);
+  const pitch=distance(best.map(spell),best.map(oppositeSpell))/4;
+  // Competing offsets, rows or orientations require more evidence.
+  const competing=candidates.some(a=>best.score-a.score<.06&&(
+    a.side!==best.side||a.mirror!==best.mirror||
+    [spell,oppositeSpell,field].some(p=>distance(a.map(p),best.map(p))>.3*pitch)
+  ));
+  if(competing)return;
+  const corners=unitCorners.map(p=>{
+    let {x,y}=p;
+    if(best.side==='top'){x=1-x;y=1-y;}
+    if(best.mirror)x=1-x;
+    const q=best.map({x:(x-(.5-2*FIELD_ZONE_PITCH))/FIELD_ZONE_PITCH,y:2.5-3*y});
+    return {x:q.x/w,y:q.y/h};
+  }) as NonNullable<MatFitResult['corners']>;
+  const orientation={playerSide:best.side,mirrored:best.mirror};
+  try{createFieldCalibration(corners,orientation);}catch{return;}
+  const reason='sparse-printed-zones';
+  return {corners,orientation,mirror:best.mirror,confidence:'low',reason,
+    flags:{colWindowAmbiguous:false,sideByPrior:false,zonesFound:best.count,reason},
+    metrics:{inliers:best.count,rows:2,columns:best.columns,columnSpan:7,meanErrorPitch:best.mean,maxErrorPitch:best.max}} satisfies MatFitResult;
+}
+
+function emptyResult(options:MatFitOptions,reason=''):MatFitResult {
+  return {corners:null,orientation:{playerSide:options.playerSide??'bottom',mirrored:options.mirrored??false},mirror:options.mirrored??false,confidence:'low',flags:{colWindowAmbiguous:false,sideByPrior:false,zonesFound:0,reason},reason,metrics:{inliers:0,rows:0,columns:0,columnSpan:0,meanErrorPitch:0,maxErrorPitch:0}};
+}
+
+function fitLattice(d:Rect[],lat:Lattice,w:number,h:number,options:MatFitOptions,sparse=false):MatFitResult {
+  const result=emptyResult(options);
+  const fail=(reason:string)=>{result.reason=result.flags.reason=reason;return result;};
+  result.flags.zonesFound=d.length;
+  result.metrics.rows=lat.nr;result.metrics.columns=lat.nc;result.metrics.columnSpan=lat.cspan+1;
+  result.flags.colWindowAmbiguous=lat.cspan!==6;
+  const minColumns=sparse?3:4,minInliers=sparse?3:6;
+  const meanLimit=sparse?.065:.1,maxLimit=sparse?.13:.2;
+  if(lat.nr<2||lat.nc<minColumns)return fail('too-few-rows-or-columns');
+  const hy=hypotheses(lat,d.length,options);if(!hy.length)return fail('not-a-zone-lattice');
+  const best=hy[0],ties=hy.filter(h=>best.score-h.score<.05);
+  result.flags.colWindowAmbiguous ||= ties.some(h=>h.c0!==best.c0);
+  result.flags.sideByPrior=ties.some(h=>h.side!==best.side);
+  result.orientation={playerSide:best.side,mirrored:best.mirror};result.mirror=best.mirror;
+  // The same seven pitches as fieldZoneCells: its outer cells span .024..976, not 0..1.
+  const minX=.5-3.5*FIELD_ZONE_PITCH;
+  const model=d.map((_,i)=>({x:minX+(best.c0+lat.cols[i]+.5)*FIELD_ZONE_PITCH,y:(best.r0+lat.rows[i]+.5)/3}));
+  const dest=d.map(a=>({x:a.cx/w,y:a.cy/h})),pitch=Math.min(lat.px,lat.py);
+  const distance=(p:Point,q:Point)=>Math.hypot((p.x-q.x)*w,(p.y-q.y)*h)/pitch;
+  let active=d.map((_,i)=>i),map=fitPlane(model,dest,false);
+  if(!map)return fail('unstable-fit');
+  if(!sparse){
+    active=active.filter(i=>distance(map!(model[i]),dest[i])<.35);
+    if(active.length<minInliers)return fail('too-few-inliers');
+    map=fitPlane(active.map(i=>model[i]),active.map(i=>dest[i]),true);
+    if(!map)return fail('unstable-fit');
+    const inliers=active.filter(i=>distance(map!(model[i]),dest[i])<.35);
+    if(inliers.length!==active.length){active=inliers;map=fitPlane(active.map(i=>model[i]),active.map(i=>dest[i]),true);}
+    // Refit after removing a centre that disagrees with the others.
+    while(map&&active.length>minInliers){
+      const errors=active.map(i=>distance(map!(model[i]),dest[i]));
+      const max=Math.max(...errors),mean=errors.reduce((a,b)=>a+b)/errors.length;
+      if(mean<.1&&max<.2)break;
+      active=active.filter((_,i)=>i!==errors.indexOf(max));
+      map=fitPlane(active.map(i=>model[i]),active.map(i=>dest[i]),true);
+    }
+  }
+  result.metrics.inliers=active.length;
+  if(!map||active.length<minInliers)return fail('too-few-inliers');
+  const errors=active.map(i=>distance(map!(model[i]),dest[i]));
+  result.metrics.meanErrorPitch=errors.reduce((a,b)=>a+b)/errors.length;result.metrics.maxErrorPitch=Math.max(...errors);
+  // Recheck coverage AFTER outlier rejection; an outlier cannot prove a seventh column.
+  const rows=new Set(active.map(i=>lat.rows[i])),cols=new Set(active.map(i=>lat.cols[i])),printedCols=active.filter(i=>d[i].printed).map(i=>lat.cols[i]);
+  result.metrics.rows=rows.size;result.metrics.columns=cols.size;result.metrics.columnSpan=Math.max(...cols)-Math.min(...cols)+1;
+  result.flags.colWindowAmbiguous ||= Math.max(...printedCols)-Math.min(...printedCols)!==6;
+  if(result.flags.colWindowAmbiguous)return fail('show-whole-mat-width');
+  if(rows.size<2||cols.size<minColumns)return fail('too-few-rows-or-columns');
+  if(Math.max(...rows)-Math.min(...rows)!==lat.rspan)return fail('inconsistent-zones');
+  if(result.metrics.meanErrorPitch>=meanLimit||result.metrics.maxErrorPitch>=maxLimit)return fail('inconsistent-zones');
+  result.corners=unitCorners.map(map) as NonNullable<MatFitResult['corners']>;
+  try{createFieldCalibration(result.corners,result.orientation);}catch{result.corners=null;return fail('unstable-fit');}
+  const opposite=ties.find(h=>h.side!==best.side&&h.mirror===best.mirror);
+  if(opposite){
+    const plane=quadMap(result.corners);
+    if(plane){
+      const dx=(best.c0-opposite.c0)*FIELD_ZONE_PITCH,dy=(best.r0-opposite.r0)/3;
+      const corners=unitCorners.map(p=>plane(p.x+dx,p.y+dy)) as NonNullable<MatFitResult['corners']>;
+      const orientation={playerSide:opposite.side,mirrored:opposite.mirror};
+      try{createFieldCalibration(corners,orientation);result.flipped={corners,orientation};}catch{/* Keep the primary fit; manual side controls remain available. */}
+    }
+  }
+  if(result.flags.sideByPrior&&!result.flipped){result.corners=null;return fail('side-not-clear');}
+  if(sparse)result.reason=result.flags.reason='sparse-printed-zones';
+  else result.confidence='high';
+  return result;
+}
+
 /** Pure, one-shot CPU detector. Supply RAW camera pixels before drawing any grid or labels. */
 function fitMatAtScale(image:RGBAImage,options:MatFitOptions,workingWidth:number):MatFitResult {
-  const result:MatFitResult={corners:null,orientation:{playerSide:options.playerSide??'bottom',mirrored:options.mirrored??false},mirror:options.mirrored??false,confidence:'low',flags:{colWindowAmbiguous:false,sideByPrior:false,zonesFound:0,reason:''},reason:'',metrics:{inliers:0,rows:0,columns:0,columnSpan:0,meanErrorPitch:0,maxErrorPitch:0}};
-  const fail=(reason:string)=>{result.reason=result.flags.reason=reason;return result;};
-  if(!Number.isInteger(image.width)||!Number.isInteger(image.height)||image.width<128||image.height<128||image.width*image.height>16_000_000||image.data.length!==image.width*image.height*4)return fail('invalid-frame');
-  if(Math.max(image.width/image.height,image.height/image.width)>6)return fail('invalid-frame');
+  if(!Number.isInteger(image.width)||!Number.isInteger(image.height)||image.width<128||image.height<128||image.width*image.height>16_000_000||image.data.length!==image.width*image.height*4)return emptyResult(options,'invalid-frame');
+  if(Math.max(image.width/image.height,image.height/image.width)>6)return emptyResult(options,'invalid-frame');
   // A side camera sees the seven columns vertically. Normalize its raw pixels,
   // then restore image-clockwise corners and the player's original side.
   if(options.playerSide==='left'||options.playerSide==='right'){
@@ -394,69 +630,18 @@ function fitMatAtScale(image:RGBAImage,options:MatFitOptions,workingWidth:number
     return fitted;
   }
   const {strength,angle,w,h,tone}=ridges(image,workingWidth);
-  if(percentile(strength,.99)<.001)return fail('no-zones');
+  if(percentile(strength,.99)<.001)return emptyResult(options,'no-zones');
   const theta=estimateTilt(strength,angle,w),rects:Rect[]=[];
   for(const delta of [-6,-4,-2,0,2,4,6]){
     const [bh,bv]=lineMasks(strength,angle,w,h,theta+delta);rects.push(...search(bh,bv,w,h,theta+delta));
   }
-  const d=recoverOuterFrames(filter(rects),strength,angle,w,h,tone);result.flags.zonesFound=d.length;
-  if(d.length<3)return fail('too-few-zones');
-  const lat=lattice(d);result.metrics.rows=lat.nr;result.metrics.columns=lat.nc;result.metrics.columnSpan=lat.cspan+1;
-  result.flags.colWindowAmbiguous=lat.cspan!==6;
-  if(lat.nr<2||lat.nc<4)return fail('too-few-rows-or-columns');
-  const hy=hypotheses(lat,d.length,options);if(!hy.length)return fail('not-a-zone-lattice');
-  const best=hy[0],ties=hy.filter(h=>best.score-h.score<.05);
-  result.flags.colWindowAmbiguous ||= ties.some(h=>h.c0!==best.c0);
-  result.flags.sideByPrior=ties.some(h=>h.side!==best.side);
-  result.orientation={playerSide:best.side,mirrored:best.mirror};result.mirror=best.mirror;
-  // The same seven pitches as fieldZoneCells: its outer cells span .024..976, not 0..1.
-  const minX=.5-3.5*FIELD_ZONE_PITCH;
-  const model=d.map((_,i)=>({x:minX+(best.c0+lat.cols[i]+.5)*FIELD_ZONE_PITCH,y:(best.r0+lat.rows[i]+.5)/3}));
-  const dest=d.map(a=>({x:a.cx/w,y:a.cy/h})),pitch=Math.min(lat.px,lat.py);
-  const distance=(p:Point,q:Point)=>Math.hypot((p.x-q.x)*w,(p.y-q.y)*h)/pitch;
-  let active=d.map((_,i)=>i),map=fitPlane(model,dest,false);
-  if(!map)return fail('unstable-fit');
-  active=active.filter(i=>distance(map!(model[i]),dest[i])<.35);
-  if(active.length<6)return fail('too-few-inliers');
-  map=fitPlane(active.map(i=>model[i]),active.map(i=>dest[i]),true);
-  if(!map)return fail('unstable-fit');
-  const inliers=active.filter(i=>distance(map!(model[i]),dest[i])<.35);
-  if(inliers.length!==active.length){active=inliers;map=fitPlane(active.map(i=>model[i]),active.map(i=>dest[i]),true);}
-  // Trim inconsistent centres before the coverage check. The minimum of six
-  // inliers and the printed-frame span still have to survive this rejection.
-  while(map&&active.length>6){
-    const errors=active.map(i=>distance(map!(model[i]),dest[i]));
-    const max=Math.max(...errors),mean=errors.reduce((a,b)=>a+b)/errors.length;
-    if(mean<.1&&max<.2)break;
-    active=active.filter((_,i)=>i!==errors.indexOf(max));
-    map=fitPlane(active.map(i=>model[i]),active.map(i=>dest[i]),true);
-  }
-  result.metrics.inliers=active.length;
-  if(!map||active.length<6)return fail('too-few-inliers');
-  const errors=active.map(i=>distance(map!(model[i]),dest[i]));
-  result.metrics.meanErrorPitch=errors.reduce((a,b)=>a+b)/errors.length;result.metrics.maxErrorPitch=Math.max(...errors);
-  // Recheck coverage AFTER outlier rejection; an outlier cannot prove a seventh column.
-  const rows=new Set(active.map(i=>lat.rows[i])),cols=new Set(active.map(i=>lat.cols[i])),printedCols=active.filter(i=>d[i].printed).map(i=>lat.cols[i]);
-  result.metrics.rows=rows.size;result.metrics.columns=cols.size;result.metrics.columnSpan=Math.max(...cols)-Math.min(...cols)+1;
-  result.flags.colWindowAmbiguous ||= Math.max(...printedCols)-Math.min(...printedCols)!==6;
-  if(result.flags.colWindowAmbiguous)return fail('show-whole-mat-width');
-  if(rows.size<2||cols.size<4)return fail('too-few-rows-or-columns');
-  if(Math.max(...rows)-Math.min(...rows)!==lat.rspan)return fail('inconsistent-zones');
-  if(result.metrics.meanErrorPitch>=.1||result.metrics.maxErrorPitch>=.2)return fail('inconsistent-zones');
-  result.corners=[{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1}].map(map) as [Point,Point,Point,Point];
-  try{createFieldCalibration(result.corners,result.orientation);}catch{result.corners=null;return fail('unstable-fit');}
-  const opposite=ties.find(h=>h.side!==best.side&&h.mirror===best.mirror);
-  if(opposite){
-    const plane=quadMap(result.corners);
-    if(plane){
-      const dx=(best.c0-opposite.c0)*FIELD_ZONE_PITCH,dy=(best.r0-opposite.r0)/3;
-      const corners=[{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1}].map(p=>plane(p.x+dx,p.y+dy)) as [Point,Point,Point,Point];
-      const orientation={playerSide:opposite.side,mirrored:opposite.mirror};
-      try{createFieldCalibration(corners,orientation);result.flipped={corners,orientation};}catch{/* Keep the primary fit; manual side controls remain available. */}
-    }
-  }
-  if(result.flags.sideByPrior&&!result.flipped){result.corners=null;return fail('side-not-clear');}
-  result.confidence='high';return result;
+  const sparseCandidates:Rect[][]=[];
+  const filtered=filter(rects,workingWidth===832?sparseCandidates:undefined);
+  const d=recoverOuterFrames(filtered,strength,angle,w,h,tone);
+  const result=d.length>=3?fitLattice(d,lattice(d),w,h,options):emptyResult(options,'too-few-zones');
+  result.flags.zonesFound=d.length;
+  if(result.corners||workingWidth!==832)return result;
+  return fitStaggeredMat(rects,tone,w,h,theta,options)??fitSparseLattice(sparseCandidates,tone,w,h,theta,options)??result;
 }
 /** Normalize camera pixels before detection. Thin printed strokes and wider
  * occupied outlines need different ridge scales; each must pass every fit gate.
@@ -465,13 +650,13 @@ export function fitMat(image:RGBAImage,options:MatFitOptions={}):MatFitResult {
   let refusal:MatFitResult|undefined;
   for(const width of [832,768,512,480,448,416]){
     const result=fitMatAtScale(image,options,width);
-    if(result.confidence==='high'||result.reason==='invalid-frame'||options.playerSide==='left'||options.playerSide==='right')return result;
+    if(result.corners||result.reason==='invalid-frame'||options.playerSide==='left'||options.playerSide==='right')return result;
     refusal??=result;
   }
   return refusal!;
 }
-/** The owner rule in one place: callers can only apply a high-confidence, unambiguous fit. */
+/** A preview requires a resolved column window, even for a sparse fit. */
 export function matFitCalibration(result:MatFitResult):FieldCalibration|undefined {
-  if(result.confidence!=='high'||result.flags.colWindowAmbiguous||!result.corners)return undefined;
+  if(result.flags.colWindowAmbiguous||!result.corners)return undefined;
   try{return createFieldCalibration(result.corners,result.orientation);}catch{return undefined;}
 }
