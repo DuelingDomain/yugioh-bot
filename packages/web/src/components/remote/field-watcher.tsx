@@ -1865,9 +1865,9 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   }
   useEffect(()=>{
     // Tap to identify: the saved mat grid still goes out (it is not a tracking claim), so the other feeds draw their overlays on this camera. The `tap` mode tells them no card is followed.
-    const message={...fieldTrackMessage(watch.snapshot,entries.current,known(),watch.calibration),...(watch.enabled&&!syncHold?{}:{mode:'tap' as const})},key=JSON.stringify(message);lastMessage.current=message;
+    const message={...fieldTrackMessage(watch.snapshot,entries.current,known(),watch.placed?watch.calibration:undefined),...(watch.enabled&&!syncHold?{}:{mode:'tap' as const})},key=JSON.stringify(message);lastMessage.current=message;
     if(key!==published.current){published.current=key;hub.publishFieldTracks(message);}
-  },[watch.snapshot,watch.calibration,watch.enabled,syncHold,hub.publishFieldTracks,room.state]);
+  },[watch.snapshot,watch.calibration,watch.placed,watch.enabled,syncHold,hub.publishFieldTracks,room.state]);
   // The feeds draw the zone grid from the saved calibration and the cards the watcher sees.
   const gridFormat=room.format?.id??room.state.deckChecks.format.id;
   const gridKey=watch.snapshot.tracks.filter(t=>t.visible&&!t.removed).map(t=>`${t.id}:${t.zone}:${t.card.quad.map(p=>`${p.x.toFixed(3)},${p.y.toFixed(3)}`).join(';')}`).join('|');
