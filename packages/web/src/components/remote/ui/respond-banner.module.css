@@ -1,5 +1,0 @@
-.banner{position:fixed;top:84px;left:50%;transform:translateX(-50%);z-index:60;pointer-events:none;display:flex;flex-direction:column;align-items:center;gap:4px;min-width:min(86vw,340px);padding:12px 40px;border-block:1px solid var(--gold,#e8b94f);background:linear-gradient(90deg,transparent,rgb(11 7 22/.95) 14%,rgb(11 7 22/.95) 86%,transparent);animation:respondIn 4s ease both}
-.banner small{font:700 12px/1 var(--font-duel-ui,"Sofia Sans Semi Condensed",system-ui,sans-serif);letter-spacing:.3em;color:var(--ink2,#b9b0cc);text-transform:uppercase}
-.banner b{font:700 clamp(26px,3vw,46px)/1 var(--font-duel-display,Oxanium,sans-serif);letter-spacing:.12em;color:var(--gold-ink,#f5d98a);text-transform:uppercase;text-shadow:0 0 24px rgb(232 185 79/.6)}
-@keyframes respondIn{0%{opacity:0;transform:translateX(-50%) scaleY(.2)}6%{opacity:1;transform:translateX(-50%)}88%{opacity:1}100%{opacity:0}}
-@media (prefers-reduced-motion:reduce){.banner{animation:none}}

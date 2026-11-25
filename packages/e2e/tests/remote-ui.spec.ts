@@ -2718,13 +2718,15 @@ test.describe("remote duels Thinking, OK and E", () => {
     await expect(page.getByTestId("think-button")).toBeVisible(); await expect(other.getByTestId("think-button")).toBeVisible();
     await page.locator("body").click({ position: { x: 5, y: 5 } });
     await page.keyboard.press("t");
+    // The call-out plays about 1.5 s on every screen and goes; the chip with the seconds stays in that player's panel.
     await expect(other.getByTestId("thinking-banner-0")).toContainText(/Thinking/);
+    await expect(other.getByTestId("thinking-callout")).toHaveCount(0, { timeout: 5000 });
     await expect(page.getByTestId("thinking-chip-0")).toBeVisible();
-    await expect(other.getByTestId("thinking-banner-0").locator("time")).toHaveText(/[1-9]s/, { timeout: 5000 });
+    await expect(other.getByTestId("thinking-chip-0")).toHaveText(/[1-9]s/, { timeout: 5000 });
     await shot(other, "think-1920"); await other.setViewportSize({ width: 1366, height: 768 }); await other.waitForTimeout(300); await shot(other, "think-1366");
     await page.keyboard.press("Space");
     await expect(other.getByTestId("ok-banner")).toBeVisible(); await shot(other, "ok-1366");
-    await expect(other.getByTestId("thinking-banner")).toHaveCount(0); await expect(page.getByTestId("thinking-chip-0")).toHaveCount(0);
+    await expect(other.getByTestId("thinking-chip-0")).toHaveCount(0); await expect(page.getByTestId("thinking-chip-0")).toHaveCount(0);
     await page.keyboard.press("e");
     // The empty field says so, opens no row and sends no activation: the room events stay without effect.activated.
     await expect(page.getByText("No face-up card to activate")).toBeVisible();

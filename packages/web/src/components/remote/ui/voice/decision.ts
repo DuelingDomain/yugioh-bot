@@ -1,31 +1,16 @@
 import { interpret, type GrammarContext, type VoiceIntent } from "../grammar";
 import type { VoiceFinal } from "./live-client";
 import type { VoiceReason } from "@/lib/remote/voice-diagnostics";
-import { mayRespond } from "../respond";
-import { RESPOND_LINE } from "./natural-phrases";
 
 type PhaseTurn = Extract<VoiceIntent, { kind: "phase" | "turn" }>;
-type Board = Extract<VoiceIntent, { kind: "effect" | "lp" | "attack" | "respond" }>;
-/** All methods meet the same grammar boundary. Only "asr-names" may also carry effect, LP and attack lines; the others stay phase/turn only. "asr" and "asr-names" also carry a respond line. */
+type Board = Extract<VoiceIntent, { kind: "effect" | "lp" | "attack" }>;
+/** All methods meet the same grammar boundary. Only "asr-names" may also carry effect, LP and attack lines; the others stay phase/turn only. */
 export function decideVoice(final: VoiceFinal, context: GrammarContext, accepting: boolean):
   | { accepted: true; intent: PhaseTurn | Board }
   | { accepted: false; reason: VoiceReason } {
   if (!accepting) return { accepted: false, reason: "muted" };
   if (final.method !== "asr" && final.method !== "asr-names" && !final.utterance.hits.length) return { accepted: false, reason: "no-keyword" };
   if (!final.canonical) return { accepted: false, reason: final.utterance.verification?.stage2 === "skipped" && final.utterance.verification.stage1 === "hit" ? "other" : "not-a-command" };
-  // "response", "I chain": any seat may say it, so it comes before the turn-player rule. Only the methods that hear free text carry it.
-  if (final.method === "asr" || final.method === "asr-names") {
-    const spoken = interpret(final.canonical, { ...context, trayOpen: false });
-    if (spoken.kind === "respond") {
-      // The listener matches phrases loosely, so "any response?" can arrive as "chain". Only the words actually heard count.
-      const heard = final.text.toLowerCase().replace(/['’]/g, " ").replace(/[^a-z ]/g, "").replace(/\s+/g, " ").trim();
-      if (!RESPOND_LINE.test(heard)) return { accepted: false, reason: "not-a-command" };
-      if (!mayRespond(context.state, context.me)) return { accepted: false, reason: "illegal-phase" };
-      // A bare "chain" is also what a turn player says while building a chain, so only the other seats may say it that way.
-      if (heard === "chain" && context.me === context.state.turnSeat) return { accepted: false, reason: "not-turn-player" };
-      return { accepted: true, intent: spoken };
-    }
-  }
   if (final.method === "asr-names") return decideBoard(final.text, final.canonical, context);
   if (context.me !== context.state.turnSeat) return { accepted: false, reason: "not-turn-player" };
   if (final.utterance.verification && final.utterance.verification.stage2 !== "confirmed") return { accepted: false, reason: "illegal-phase" };

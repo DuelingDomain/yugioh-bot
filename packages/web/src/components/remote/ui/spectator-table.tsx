@@ -38,8 +38,7 @@ import { HandActivation } from "./hand-activation";
 import type { RoomController } from "./use-remote-room";
 import s from "./remote-ui.module.css";
 import v from "./spectator-table.module.css";
-import { RespondBanner, useRespondHold } from "./respond-banner";
-import { OkBanner, ThinkingBanner, useOkHold } from "./think";
+import { OkBanner, ThinkingCallout, ThinkingChip, useOkHold } from "./think";
 import { aliveSeats, chainOf, thinkingSeats } from "./think-model";
 
 const NO_ACTIONS: CardActions = { readOnly: true, canAdd: false, adding: false, onAdd: () => undefined, canAttack: false, attackHint: "", onAttack: () => undefined };
@@ -169,7 +168,6 @@ function SpectatorTable({ room }: { room: RemoteRoom }) {
   const seatIds = room.seats.map(seat => seat.seat);
   const name = (seat: number) => room.seats.find(item => item.seat === seat)?.displayName ?? `Seat ${seat + 1}`;
   const lp = (seat: number) => state.seats[seat]?.resources.lp ?? 0;
-  const respondHold = useRespondHold(room.events);
   const okHold = useOkHold(room.events);
   const thinking = useMemo(() => thinkingSeats(room.events, room.status === "active" && !state.ended && match.phase === "duel"), [room.events, room.status, state.ended, match.phase]);
   const chainLinks = chainOf(room.events, aliveSeats(state)).links;
@@ -281,8 +279,7 @@ function SpectatorTable({ room }: { room: RemoteRoom }) {
   const note = ended || siding ? null : readNote || (match.phase === "result" ? "This game is over. The next game starts soon." : snapshot.error || null);
 
   return <FeedCardsProvider seats={state.seats} info={info}><div className={`${duelFontClasses} ${s.app} ${v.app}`} data-mode={seatCount === 2 ? "1v1" : String(seatCount)} data-wc={webcamOnly ? "1" : undefined} data-testid="spectator-table" data-status={room.status}>
-    <RespondBanner hold={respondHold} name={name} />
-    <ThinkingBanner thinking={thinking} name={name} lowered={!!respondHold} />
+    <ThinkingCallout thinking={thinking} name={name} pointer={seatCount > 2} />
     <OkBanner hold={okHold} name={name} />
     <div className={s.shell} inert={covered ? true : undefined}>
       <header className={s.top}>
@@ -325,7 +322,7 @@ function SpectatorTable({ room }: { room: RemoteRoom }) {
               {video ? <SpectatorFeed seat={seat} name={name(seat)} format={format} gridOn={gridOn} video={video} online={online} stopped={!!snapshot.error} frozen={onFrozen} onCard={onFeed} /> : <div className={s.feedcol}><div className={s.cams} data-testid={`feed-${seat}`}><div className={s.nofeed}><span>Table video is off.</span></div></div></div>}
               {wc ? <div className={`${s.fside} ${v.side}`}>
                 <HandStrip seat={seat} name={name(seat)} hand={{ cards: knownHandOf(state, seat), count: handCountOf(state, seat), tray: true, onInspect: card => showKnown(seat, card) }} />
-                <div className={v.stats}><span data-testid={`lp-${seat}`}>LP <b data-testid={`lp-value-${seat}`} aria-label={`${name(seat)}: ${lp(seat)} of ${startingLp} life points`}>{lp(seat)}</b></span></div>
+                <div className={v.stats}>{thinking.has(seat) ? <ThinkingChip since={thinking.get(seat) ?? 0} seat={seat} who={name(seat)} /> : null}<span data-testid={`lp-${seat}`}>LP <b data-testid={`lp-value-${seat}`} aria-label={`${name(seat)}: ${lp(seat)} of ${startingLp} life points`}>{lp(seat)}</b></span></div>
                 {boardOff ? <TapBoardNote /> : null}<ul className={v.cards} aria-label={`${name(seat)}'s public cards`} data-testid={`public-cards-${seat}`}>
                   {shown.map(card => <li key={card.ref}><button type="button" onClick={event => { const box = event.currentTarget.getBoundingClientRect(); show(seat, card, { left: box.left, right: box.right, top: box.top, bottom: box.bottom }, null); }}>{cardName(card, info(cardCode(card)))}</button></li>)}
                   {hiddenCount ? <li className={v.set} data-testid={`set-count-${seat}`}>{hiddenCount} Set</li> : null}
@@ -346,7 +343,7 @@ function SpectatorTable({ room }: { room: RemoteRoom }) {
                 </div>
                 <HandStrip seat={seat} name={name(seat)} hand={{ cards: knownHandOf(state, seat), count: handCountOf(state, seat), onInspect: card => showKnown(seat, card) }} />
                 {readList(seat)}
-                <div className={v.stats}><span data-testid={`lp-${seat}`}>LP <b data-testid={`lp-value-${seat}`} aria-label={`${name(seat)}: ${lp(seat)} of ${startingLp} life points`}>{lp(seat)}</b></span></div>
+                <div className={v.stats}>{thinking.has(seat) ? <ThinkingChip since={thinking.get(seat) ?? 0} seat={seat} who={name(seat)} /> : null}<span data-testid={`lp-${seat}`}>LP <b data-testid={`lp-value-${seat}`} aria-label={`${name(seat)}: ${lp(seat)} of ${startingLp} life points`}>{lp(seat)}</b></span></div>
               </div>}
             </div>
           </section>;

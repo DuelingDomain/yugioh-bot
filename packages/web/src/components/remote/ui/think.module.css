@@ -1,21 +1,32 @@
 .icon{width:18px;height:18px;flex:none;overflow:visible}
-.ring{fill:none;stroke:rgb(155 126 255/.35);stroke-width:1.6}
-.arc{fill:none;stroke:rgb(155 126 255);stroke-width:1.8;stroke-linecap:round;transform-origin:12px 12px;animation:thinkSpin 2.4s linear infinite}
-.core{fill:var(--gold,#e8b94f);transform-origin:12px 12px;animation:thinkPulse 2.4s ease-in-out infinite}
-@keyframes thinkSpin{to{transform:rotate(360deg)}}
-@keyframes thinkPulse{0%,100%{opacity:.55;transform:scale(.8)}50%{opacity:1;transform:scale(1)}}
+.cloud{fill:none;stroke:currentColor;stroke-width:3.2;stroke-linecap:round;stroke-linejoin:round}
+.dots circle{fill:currentColor;animation:thinkDot 1.2s infinite both}
+.dots circle:nth-child(2){animation-delay:.2s}
+.dots circle:nth-child(3){animation-delay:.4s}
+@keyframes thinkDot{0%,100%{opacity:.25}40%{opacity:1}}
 
-.chip{display:inline-flex;align-items:center;gap:6px;font:700 11px/1 var(--font-duel-ui,"Sofia Sans Semi Condensed",system-ui,sans-serif);letter-spacing:.08em;text-transform:uppercase;color:var(--ink2,#d4cbbd);padding:4px 8px;border:1px solid rgb(155 126 255/.45);border-radius:999px;background:rgb(155 126 255/.1);white-space:nowrap}
+/* The small state that stays beside the player's own field: thought icon and the seconds they have thought. */
+.chip{display:inline-flex;align-items:center;gap:6px;font:700 11px/1 var(--font-duel-ui,"Sofia Sans Semi Condensed",system-ui,sans-serif);letter-spacing:.08em;text-transform:uppercase;color:#a78bff;padding:4px 9px 4px 7px;border:1px solid rgb(167 139 255/.5);border-radius:999px;background:rgb(167 139 255/.12);white-space:nowrap}
 .chip b{color:var(--gold-ink,#f6dc9a);font-variant-numeric:tabular-nums;min-width:2.2ch;text-align:left}
 
-.stack{position:fixed;top:84px;left:50%;transform:translateX(-50%);z-index:59;pointer-events:none;display:flex;flex-direction:column;align-items:center;gap:6px}
-.stack.low{top:196px}
-.line{display:flex;align-items:center;gap:10px;padding:8px 18px 8px 14px;border-radius:999px;border:1px solid rgb(155 126 255/.55);background:rgb(11 7 22/.92);box-shadow:0 6px 22px rgb(0 0 0/.45);animation:thinkIn .22s ease both}
-.line .icon{width:22px;height:22px}
-.line small{font:700 11px/1 var(--font-duel-ui,"Sofia Sans Semi Condensed",system-ui,sans-serif);letter-spacing:.22em;color:var(--ink2,#b9b0cc);text-transform:uppercase}
-.line b{font:700 15px/1 var(--font-duel-display,Oxanium,sans-serif);letter-spacing:.14em;color:var(--ink,#f1ead9);text-transform:uppercase}
-.line time{font:700 15px/1 var(--font-duel-display,Oxanium,sans-serif);color:var(--gold-ink,#f6dc9a);font-variant-numeric:tabular-nums;min-width:3ch;text-align:right}
-@keyframes thinkIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
+/* The call-out when someone starts thinking: a band across the middle, in 0.3 s, held 0.9 s, faded out in 0.3 s. It never takes a click. */
+.callouts{position:fixed;inset-inline:0;top:50%;transform:translateY(-50%);z-index:61;pointer-events:none;display:flex;flex-direction:column;gap:8px}
+.band{position:relative;display:flex;align-items:center;justify-content:center;gap:clamp(14px,2.6vw,44px);height:clamp(84px,15vh,150px);border-block:2px solid #a78bff;color:#a78bff;
+  background:linear-gradient(90deg,rgb(8 5 18/0) 0,rgb(8 5 18/.94) 15%,rgb(8 5 18/.94) 85%,rgb(8 5 18/0) 100%);box-shadow:0 0 60px rgb(167 139 255/.28);animation:bandRun 1.5s cubic-bezier(.2,.9,.25,1) both}
+.band::before{content:"";position:absolute;inset:0;background:linear-gradient(105deg,transparent 30%,rgb(167 139 255/.16) 44%,transparent 58%);animation:bandSheen .9s .1s ease-out both}
+.medal{position:relative;width:clamp(56px,9vh,104px);aspect-ratio:1;display:grid;place-items:center;flex:none;clip-path:polygon(25% 3%,75% 3%,100% 50%,75% 97%,25% 97%,0 50%);background:#a78bff;color:#14091f;animation:medalPop .34s .08s cubic-bezier(.2,1.4,.4,1) both}
+.medal svg{width:62%;height:62%}
+.txt{display:flex;flex-direction:column;gap:4px;min-width:0}
+.who{display:flex;align-items:center;gap:10px;font:700 clamp(12px,1.6vw,20px)/1 var(--font-duel-ui,"Sofia Sans Semi Condensed",system-ui,sans-serif);letter-spacing:.28em;text-transform:uppercase;color:var(--ink2,#d4cbbd);white-space:nowrap}
+.who i{font-style:normal;display:inline-grid;place-items:center;width:1.5em;height:1.5em;border-radius:50%;border:1.5px solid #a78bff;font:700 .8em/1 var(--font-duel-display,Oxanium,sans-serif);letter-spacing:0;color:var(--ink,#f1ead9)}
+.word{font:800 clamp(30px,5.4vw,84px)/1 var(--font-duel-display,Oxanium,sans-serif);letter-spacing:.06em;text-transform:uppercase;color:#a78bff;transform:skewX(-8deg);text-shadow:0 0 30px rgb(167 139 255/.55);white-space:nowrap;animation:wordIn .34s .1s cubic-bezier(.2,.9,.3,1) both}
+.aim{flex:none;width:clamp(22px,3vw,38px);height:clamp(22px,3vw,38px);color:var(--gold-ink,#f6dc9a);filter:drop-shadow(0 0 8px rgb(232 185 79/.5))}
+.aim svg{display:block;width:100%;height:100%}
+@keyframes bandRun{0%{clip-path:inset(0 50% 0 50%);opacity:0}20%{clip-path:inset(0);opacity:1}80%{clip-path:inset(0);opacity:1;transform:none}100%{clip-path:inset(0);opacity:0;transform:translateY(-12px)}}
+@keyframes bandSheen{from{transform:translateX(-60%);opacity:1}to{transform:translateX(60%);opacity:0}}
+@keyframes medalPop{from{transform:scale(1.7) rotate(-12deg);opacity:0}to{transform:none;opacity:1}}
+@keyframes wordIn{from{transform:translateX(-60px) skewX(-8deg);opacity:0}to{transform:skewX(-8deg);opacity:1}}
+@keyframes bandFade{0%{opacity:0}20%{opacity:1}80%{opacity:1}100%{opacity:0}}
 
 .ok{position:fixed;top:84px;left:50%;transform:translateX(-50%);z-index:60;pointer-events:none;display:flex;align-items:baseline;gap:10px;padding:8px 26px;border-block:1px solid var(--gold,#e8b94f);background:linear-gradient(90deg,transparent,rgb(11 7 22/.95) 14%,rgb(11 7 22/.95) 86%,transparent);animation:okIn 1.5s ease both}
 .ok small{font:700 12px/1 var(--font-duel-ui,"Sofia Sans Semi Condensed",system-ui,sans-serif);letter-spacing:.3em;color:var(--ink2,#b9b0cc);text-transform:uppercase}
@@ -32,4 +43,4 @@
 .rowClose{color:var(--ink3,#aaa1ba)}
 
 
-@media (prefers-reduced-motion:reduce){.arc,.core,.line,.ok{animation:none}}
+@media (prefers-reduced-motion:reduce){.ok,.dots circle,.medal,.word,.band::before{animation:none}.band{animation:bandFade 1.5s linear both}}
