@@ -52,7 +52,7 @@ export function PhaseTrack({ seat, name, turn, phase, canAct, onPick }: { seat: 
       <button type="button" className={`${s.pbox} ${i < at ? s.done : ""} ${i === at ? s.on : ""}`} aria-current={i === at ? "step" : undefined} data-phase={p.id} data-testid={turn ? `phase-${p.id}` : `phase-${seat}-${p.id}`}
         tabIndex={turn ? 0 : -1} aria-disabled={!live || undefined}
         aria-label={`${PHASE_LONG[p.id] ?? p.id}${i === at ? ", current" : i < at ? ", go back to this phase" : ""}${!turn ? `, not ${name}'s turn` : canAct ? "" : ", not your turn"}`}
-        onClick={() => { if (live) onPick(p.id); }}>{PHASE_SHORT[p.id] ?? p.id}</button>
+        onClick={event => { if (event.detail > 0) event.currentTarget.blur(); if (live) onPick(p.id); }}>{PHASE_SHORT[p.id] ?? p.id}</button>
     </li>)}
   </ol>;
 }

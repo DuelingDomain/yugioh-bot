@@ -36,7 +36,7 @@ export function BottomBar({ players, turnSeat, turn, phase, canAct, nextSeat, pa
   useEffect(() => {
     if (!open) return;
     const away = (event: PointerEvent) => { if (!voiceRef.current?.contains(event.target as Node)) setOpen(false); };
-    const key = (event: KeyboardEvent) => { if (event.key === "Escape") setOpen(false); };
+    const key = (event: KeyboardEvent) => { if (event.key === "Escape") { event.stopPropagation(); event.preventDefault(); setOpen(false); } };
     document.addEventListener("pointerdown", away, true); document.addEventListener("keydown", key);
     return () => { document.removeEventListener("pointerdown", away, true); document.removeEventListener("keydown", key); };
   }, [open]);

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { serverNow } from "./api";
 import { Icon } from "./icons";
 import { PHASES, PHASE_LONG, PHASE_SHORT, phaseIndex } from "./model";
 import s from "./remote-ui.module.css";
@@ -14,9 +15,9 @@ export function formatDuelTime(ms: number): string {
 
 /** The duel clock at the top of the table. It counts up from the start and stops when the duel ends. */
 export function DuelTimer({ startedAt, endedAt }: { startedAt: number | null; endedAt?: number | null }) {
-  const [now, setNow] = useState(() => Date.now());
+  const [now, setNow] = useState(() => serverNow());
   const running = startedAt !== null && !endedAt;
-  useEffect(() => { if (!running) return; setNow(Date.now()); const id = window.setInterval(() => setNow(Date.now()), 1000); return () => window.clearInterval(id); }, [running]);
+  useEffect(() => { if (!running) return; setNow(serverNow()); const id = window.setInterval(() => setNow(serverNow()), 1000); return () => window.clearInterval(id); }, [running]);
   if (startedAt === null) return null;
   const text = formatDuelTime((endedAt ?? now) - startedAt);
   return <span className={s.dtimer} role="timer" aria-label={`Duel time ${text}`} title="How long this duel has been going" data-testid="duel-timer"><Icon name="clock" /><b>{text}</b></span>;

@@ -337,6 +337,8 @@
 .lpd{font:600 20px/1 var(--font-duel-display),Oxanium,sans-serif;opacity:0;color:var(--loss);transition:opacity .4s}.lpd.show{opacity:1}.lpd.gain{color:var(--gold-ink)}
 .lpin{margin-left:auto;width:100px;height:30px;border:1px solid var(--line2);border-radius:6px;background:rgb(0 0 0/.3);padding:0 8px;font:600 13px var(--font-duel-display),Oxanium,sans-serif;min-width:0}
 .lpin::placeholder{color:var(--ink3);opacity:1}
+.lpin[aria-invalid="true"]{border-color:var(--bad,#ff6b6b)}
+.lpbad{font:600 11px var(--font-duel-display),Oxanium,sans-serif;color:var(--bad,#ff8a8a);white-space:nowrap}
 .lpbar{height:5px;border-radius:3px;background:var(--p3);overflow:hidden}.lpbar i{display:block;height:100%;background:linear-gradient(90deg,var(--pen-deep),var(--pen));transition:width .6s var(--ease)}
 .lpbar.low i{background:linear-gradient(90deg,var(--lossd),var(--loss))}
 .lpbtn{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:5px}
@@ -570,6 +572,17 @@
 @container seat (max-width:470px){.pbox{font-size:11px;padding:0 1px;border-radius:6px}.ptrack{gap:3px}}
 @container seat (max-height:330px){.pbox{height:22px}}
 @container seat (min-aspect-ratio:1.55){.seat[data-wc] .ptrack{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}}
+
+/* Small windows and iPad landscape: the bar stays one row. The turn name and the Undo label shorten, the next player's name goes, and Think and OK keep a floor. */
+@media (min-width:901px) and (max-width:1100px){
+  .bar{gap:8px;padding:0 8px}
+  .bturn{padding-right:8px;gap:8px}.bturn .tn b{max-width:96px;font-size:16px}
+  .bar .dk.undo{flex:0 1 auto;min-width:0}.bar .ubtn{flex:0 1 auto;min-width:0;padding:0 10px}.bar .ubtn .ul{max-width:96px;font-size:14px}
+  .bsig{flex:1 1 auto;min-width:150px}
+  .bar .pass{padding:0 12px;font-size:14px}.bar .pass>span:last-child{display:none}
+  .bar .pback{padding:0 10px}
+  .bvbtn .bvl{display:none}
+}
 
 @media (max-width:900px){
   .bar{position:fixed;left:0;right:0;bottom:0;z-index:36;height:auto;margin:0;display:grid;grid-template-columns:minmax(0,1fr) auto auto;grid-template-areas:"turn back pass" "undo undo voice" "sig sig sig";gap:6px 8px;align-items:center;padding:8px 10px calc(8px + env(safe-area-inset-bottom));border-radius:14px 14px 0 0;border-width:1px 0 0}

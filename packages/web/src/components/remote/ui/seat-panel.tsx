@@ -117,7 +117,8 @@ export function SeatPanel(p: SeatPanelProps) {
   // Click the LP number to type an amount. Enter applies it, Escape or leaving the box cancels.
   const reduced = usePrefersReducedMotion(); const [typing, setTyping] = useState(false); const lpField = useRef<HTMLInputElement>(null);
   const startTyping = () => { setInput(""); setTyping(true); };
-  const stopTyping = () => { setTyping(false); setInput(""); };
+  const [badLp, setBadLp] = useState(false);
+  const stopTyping = () => { setTyping(false); setInput(""); setBadLp(false); };
   useEffect(() => { if (typing) lpField.current?.focus(); }, [typing]);
   useEffect(() => {
     if (previous.current === p.lp) return;
@@ -197,12 +198,13 @@ export function SeatPanel(p: SeatPanelProps) {
           <div className={s.lpmain}>
             <span className={s.lpl}>LP</span>
             {typing ? <input ref={lpField} className={s.lpin} inputMode="numeric" placeholder={`${MINUS}/+ amount`} aria-label={`Custom LP change for ${p.name}. A plus sign adds. A number alone takes away. Press Enter.`}
-              value={input} onChange={event => setInput(event.target.value)} onBlur={stopTyping}
-              onKeyDown={event => { event.stopPropagation(); if (event.key === "Escape") { stopTyping(); return; } if (event.key !== "Enter") return; const value = parseLpInput(input); if (value !== null) p.onLp(value); stopTyping(); }} />
-              : <button type="button" className={`${s.lpn} ${low ? s.low : ""} ${delta < 0 ? s.loss : delta > 0 ? s.gain : ""}`} data-lp-seat={p.seat} disabled={!p.canLp} title="Click to type an amount" aria-label={`Type an LP change for ${p.name}`} onClick={startTyping}>
+              value={input} aria-invalid={badLp || undefined} aria-describedby={badLp ? `lp-bad-${p.seat}` : undefined} onChange={event => { setInput(event.target.value); setBadLp(false); }} onBlur={stopTyping}
+              onKeyDown={event => { event.stopPropagation(); if (event.key === "Escape") { stopTyping(); return; } if (event.key !== "Enter") return; const value = parseLpInput(input); if (value === null) { setBadLp(true); return; } p.onLp(value); stopTyping(); }} />
+              : <button type="button" className={`${s.lpn} ${low ? s.low : ""} ${delta < 0 ? s.loss : delta > 0 ? s.gain : ""}`} data-lp-seat={p.seat} disabled={!p.canLp} title="Click to type an amount" aria-label={`Type an LP change for ${p.name}. Life points ${p.lp}`} onClick={startTyping}>
                 <LifePoints value={p.lp} reducedMotion={reduced} showChange={false} />
                 <span className={s.lpt} aria-hidden="true" data-testid={`lp-value-${p.seat}`}>{p.lp}</span>
               </button>}
+            {typing && badLp ? <span className={s.lpbad} id={`lp-bad-${p.seat}`} role="alert" data-testid={`lp-bad-${p.seat}`}>Type a number, like 500 or +500</span> : null}
             <span className={`${s.lpd} ${s.num} ${delta ? s.show : ""} ${delta > 0 ? s.gain : ""}`} aria-hidden="true">{delta ? sg(delta) : ""}</span>
           </div>
           <div className={`${s.lpbar} ${low ? s.low : ""}`}><i style={{ width: `${width}%` }} /></div>
