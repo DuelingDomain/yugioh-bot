@@ -89,12 +89,13 @@ export function ZoneActions({ tokenOnly, room, seat, zone, at, deck, targetRef, 
       </section>:null}
       <div className={s.zaList}>
         {tokenOnly ? null : card ? <>
-          {!card.token ? <Row icon="layers" next primary data-autofocus="" disabled={busy} onClick={() => { setTopRef(card.ref); setMode('top'); }}>Put a card on top</Row> : null}
+          {move('activate') ? <Row icon="check" primary data-autofocus="" disabled={busy} onClick={() => go(move('activate')!)} data-testid="zone-activate">{move('activate')!.label}</Row> : null}
+          {!card.token ? <Row icon="layers" next primary={!move('activate')} data-autofocus={move('activate') ? undefined : ""} disabled={busy} onClick={() => { setTopRef(card.ref); setMode('top'); }}>Put a card on top</Row> : null}
           {move('give') ? <Row icon="hand" disabled={busy} onClick={() => go(move('give')!)} data-testid="zone-give">{move('give')!.label}</Row> : null}
           {move('return') ? <Row icon="hand" disabled={busy} onClick={() => go(move('return')!)} data-testid="zone-return">{move('return')!.label}</Row> : null}
           {move('position') ? <Row icon="flip" disabled={busy} onClick={() => go(move('position')!)}>{move('position')!.label}</Row> : null}
           {!card.faceUp && !card.token ? <Row icon="flip" next disabled={busy} onClick={() => { setTopRef(card.ref); setMode('flip'); }}>Flip</Row> : null}
-          {card.faceUp && !card.token && set ? <Row icon="cardback" disabled={busy} onClick={() => action({type:'twin.flip',actorSeat,seat,cardRef:card.ref,faceUp:false,...(card.zone==='monster'?{position:'defense' as const}:{})})}>Set a card here</Row> : null}
+          {card.faceUp && !card.token && set ? <Row icon="cardback" disabled={busy} onClick={() => action({type:'twin.flip',actorSeat,seat,cardRef:card.ref,faceUp:false,...(card.zone==='monster'?{position:'defense' as const}:{})})}>Set (turn face down)</Row> : null}
         </> : <>
           <Row icon="plus" next primary data-autofocus="" disabled={busy} onClick={() => setMode('place')}>Put a card here</Row>
           {set ? <Row icon="cardback" disabled={busy} onClick={onSet}>Set a card here</Row> : null}
