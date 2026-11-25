@@ -21,74 +21,130 @@ interface Lattice {theta:number;rows:number[];cols:number[];rspan:number;cspan:n
 interface Hypothesis {side:'top'|'bottom';mirror:boolean;r0:number;c0:number;score:number}
 const rad=Math.PI/180;
 const MIN_SPARSE_BOXES=4;
+const MIN_LATTICE_INLIERS=6;
+const FIT_BUDGET_MS=1100;
+const PREVIEW_WIDTH=832;
+const fitTimedOut=Symbol('mat fit timed out');
+type CheckBudget=()=>void;
 const median=(v:number[])=>{v.sort((a,b)=>a-b);return (v[(v.length-1)>>1]+v[v.length>>1])/2;};
 const mod=(a:number,b:number)=>((a%b)+b)%b;
 
-/** Linear-time selection; copies only the eligible values, never sorts image-sized JS arrays. */
-function percentile(input:Float32Array,p:number,positive=false):number {
-  const a=new Float32Array(input.length);let n=0;
-  for(let i=0;i<input.length;i++)if(!positive||input[i]>0)a[n++]=input[i];
+/** Select in place from the eligible values. */
+function selectPercentile(a:Float32Array,n:number,p:number,checkBudget:CheckBudget):number {
   if(!n)return Infinity;
   const k=Math.floor((n-1)*p);let lo=0,hi=n-1;
   while(lo<hi){
+    checkBudget();
     const pivot=a[(lo+hi)>>1];let i=lo,j=hi;
     while(i<=j){while(a[i]<pivot)i++;while(a[j]>pivot)j--;if(i<=j){const t=a[i];a[i++]=a[j];a[j--]=t;}}
     if(k<=j)hi=j;else if(k>=i)lo=i;else break;
   }
   return a[k];
 }
-function blur(a:Float32Array,w:number,h:number,sigma:number):Float32Array {
+function percentile(input:Float32Array,p:number,checkBudget:CheckBudget,positive=false):number {
+  const a=new Float32Array(input.length);let n=0;
+  for(let i=0;i<input.length;i++)if(!positive||input[i]>0)a[n++]=input[i];
+  return selectPercentile(a,n,p,checkBudget);
+}
+function blur(a:Float32Array,w:number,h:number,sigma:number,checkBudget:CheckBudget):Float32Array {
   const r=Math.ceil(4*sigma),kernel=new Float32Array(2*r+1);let sum=0;
   for(let k=-r;k<=r;k++)sum+=kernel[k+r]=Math.exp(-k*k/(2*sigma*sigma));
   for(let k=0;k<kernel.length;k++)kernel[k]/=sum;
-  const tmp=new Float32Array(a.length),out=new Float32Array(a.length);
-  const reflect=(v:number,n:number)=>v<0?-v:v>=n?2*n-2-v:v;
-  for(let y=0;y<h;y++)for(let x=0;x<w;x++){
-    let s=0;for(let k=-r;k<=r;k++)s+=a[y*w+reflect(x+k,w)]*kernel[k+r];tmp[y*w+x]=s;
-  }
-  for(let y=0;y<h;y++)for(let x=0;x<w;x++){
-    let s=0;for(let k=-r;k<=r;k++)s+=tmp[reflect(y+k,h)*w+x]*kernel[k+r];out[y*w+x]=s;
-  }
-  return out;
+  // Reflect only at the row ends. Transposing each pass gives both axes
+  // contiguous input for the convolution.
+  const pass=(src:Float32Array,width:number,height:number)=>{
+    const row=new Float32Array(width+2*r),out=new Float32Array(src.length);
+    for(let y=0;y<height;y++){
+      checkBudget();
+      const start=y*width;
+      row.set(src.subarray(start,start+width),r);
+      for(let k=1;k<=r;k++){
+        row[r-k]=src[start+k];
+        row[r+width-1+k]=src[start+width-1-k];
+      }
+      for(let x=0;x<width;x++){
+        let s=row[x+r]*kernel[r];
+        for(let k=0;k<r;k++)s+=(row[x+k]+row[x+2*r-k])*kernel[k];
+        out[x*height+y]=s;
+      }
+    }
+    return out;
+  };
+  return pass(pass(a,w,h),h,w);
 }
-function ridges(image:RGBAImage,workingWidth:number) {
+function ridges(image:RGBAImage,workingWidth:number,checkBudget:CheckBudget) {
   // Exact area averages keep thin strokes stable across camera resolutions.
   // Every ridge kernel and rectangle step runs on a bounded working raster.
   const scale=Math.min(workingWidth/image.width,600/image.height),w=Math.round(image.width*scale),h=Math.round(image.height*scale);
   const gray=new Float32Array(w*h),{data}=image;
-  for(let y=0;y<h;y++)for(let x=0;x<w;x++){
-    const x0=x*image.width/w,x1=(x+1)*image.width/w,y0=y*image.height/h,y1=(y+1)*image.height/h;
-    let g=0;
-    for(let iy=Math.floor(y0);iy<Math.ceil(y1);iy++)for(let ix=Math.floor(x0);ix<Math.ceil(x1);ix++){
-      const weight=(Math.min(ix+1,x1)-Math.max(ix,x0))*(Math.min(iy+1,y1)-Math.max(iy,y0));
-      const i=(iy*image.width+ix)*4;g+=weight*(.299*data[i]+.587*data[i+1]+.114*data[i+2]);
+  const xSpans=Array.from({length:w},(_,x)=>{
+    const lo=x*image.width/w,hi=(x+1)*image.width/w;
+    const first=Math.floor(lo),end=Math.ceil(hi);
+    return {first,end,firstWeight:Math.min(first+1,hi)-lo,lastWeight:hi-(end-1),width:hi-lo};
+  });
+  // Reuse the last horizontal average when a source row straddles two
+  // output rows. Only two working rows are needed for the area resize.
+  const horizontal=new Float64Array(w),row=new Float64Array(w);
+  let cachedY=-1;
+  for(let y=0;y<h;y++){
+    checkBudget();
+    const y0=y*image.height/h,y1=(y+1)*image.height/h;
+    row.fill(0);
+    for(let iy=Math.floor(y0);iy<Math.ceil(y1);iy++){
+      if(iy!==cachedY){
+        const offset=iy*image.width*4;
+        for(let x=0;x<w;x++){
+          const {first,end,firstWeight,lastWeight}=xSpans[x];
+          let g=0;
+          for(let ix=first;ix<end;ix++){
+            const weight=ix===first?firstWeight:ix===end-1?lastWeight:1;
+            const i=offset+ix*4;
+            g+=weight*(.299*data[i]+.587*data[i+1]+.114*data[i+2]);
+          }
+          horizontal[x]=g;
+        }
+        cachedY=iy;
+      }
+      const weight=Math.min(iy+1,y1)-Math.max(iy,y0);
+      for(let x=0;x<w;x++)row[x]+=weight*horizontal[x];
     }
-    gray[y*w+x]=g/((x1-x0)*(y1-y0)*255);
+    for(let x=0;x<w;x++)gray[y*w+x]=row[x]/(xSpans[x].width*(y1-y0)*255);
   }
-  const tone=gray.slice(),mean=blur(gray,w,h,10);
+  const tone=gray.slice(),mean=blur(gray,w,h,10,checkBudget);
   for(let i=0;i<gray.length;i++)gray[i]/=mean[i]+.08;
-  const gs=blur(gray,w,h,1.1),strength=new Float32Array(w*h),angle=new Float32Array(w*h);
-  for(let y=1;y<h-1;y++)for(let x=1;x<w-1;x++){
-    const i=y*w+x,a=gs[i-w-1],b=gs[i-w],c=gs[i-w+1],d=gs[i-1],e=gs[i],f=gs[i+1],g=gs[i+w-1],j=gs[i+w],k=gs[i+w+1];
-    const xx=a-2*b+c+2*d-4*e+2*f+g-2*j+k,yy=a+2*b+c-2*d-4*e-2*f+g+2*j+k,xy=a-c-g+k;
-    const mid=(xx+yy)/2,delta=Math.hypot((xx-yy)/2,xy),l1=mid-delta,l2=mid+delta;
-    const bright=Math.max(0,-l1)-.5*Math.abs(l2),dark=Math.max(0,l2)-.5*Math.abs(l1);
-    strength[i]=Math.max(0,bright,dark);
-    angle[i]=mod(.5*Math.atan2(2*xy,xx-yy)+(bright>=dark?0:Math.PI/2),Math.PI);
+  const gs=blur(gray,w,h,1.1,checkBudget),strength=new Float32Array(w*h),angle=new Float32Array(w*h);
+  for(let y=1;y<h-1;y++){
+    checkBudget();
+    for(let x=1;x<w-1;x++){
+      const i=y*w+x,a=gs[i-w-1],b=gs[i-w],c=gs[i-w+1],d=gs[i-1],e=gs[i],f=gs[i+1],g=gs[i+w-1],j=gs[i+w],k=gs[i+w+1];
+      const xx=a-2*b+c+2*d-4*e+2*f+g-2*j+k,yy=a+2*b+c-2*d-4*e-2*f+g+2*j+k,xy=a-c-g+k;
+      const mid=(xx+yy)/2,diff=(xx-yy)/2,delta=Math.sqrt(diff*diff+xy*xy),l1=mid-delta,l2=mid+delta;
+      const bright=Math.max(0,-l1)-.5*Math.abs(l2),dark=Math.max(0,l2)-.5*Math.abs(l1);
+      strength[i]=Math.max(0,bright,dark);
+      const phi=.5*Math.atan2(2*xy,xx-yy)+(bright>=dark?0:Math.PI/2);
+      angle[i]=phi<0?phi+Math.PI:phi>=Math.PI?phi-Math.PI:phi;
+    }
   }
   return {strength,angle,w,h,tone};
 }
-function estimateTilt(r:Float32Array,phi:Float32Array,w:number):number {
-  const threshold=percentile(r,.94),points:{x:number;y:number;a:number;v:number}[]=[];let re=0,im=0;
+function ridgeFamily(a:number,tolerance:number):number {
+  if(a<0)a+=Math.PI;else if(a>=Math.PI)a-=Math.PI;
+  if(a<tolerance||a>Math.PI-tolerance)return 0;
+  if(Math.abs(a-Math.PI/2)<tolerance)return 1;
+  return -1;
+}
+function estimateTilt(r:Float32Array,phi:Float32Array,w:number,checkBudget:CheckBudget):number {
+  const threshold=percentile(r,.94,checkBudget),points:{x:number;y:number;a:number;v:number}[]=[];let re=0,im=0;
   for(let i=0;i<r.length;i++)if(r[i]>threshold){const a=phi[i];re+=r[i]*Math.cos(4*a);im+=r[i]*Math.sin(4*a);points.push({x:i%w,y:Math.floor(i/w),a,v:r[i]});}
   const theta=Math.atan2(im,re)/4/rad;let best=-1,chosen=theta;
   const extent=Math.ceil(2*Math.hypot(w,r.length/w));
   for(let delta=-4;delta<=4;delta+=.5){
+    checkBudget();
     const t=(theta+delta)*rad,c=Math.cos(t),s=Math.sin(t),hor=new Float32Array(extent*2),vert=new Float32Array(extent*2);
     for(const p of points){
-      if(Math.abs(mod(p.a-t+Math.PI/4,Math.PI/2)-Math.PI/4)>=10*rad)continue;
-      const isH=Math.abs(mod(p.a-t+Math.PI/2,Math.PI)-Math.PI/2)<Math.PI/4;
-      const v=isH?-p.x*s+p.y*c:p.x*c+p.y*s;(isH?hor:vert)[Math.round(v)+extent]+=p.v;
+      const family=ridgeFamily(p.a-t,10*rad);
+      if(family===0)hor[Math.round(-p.x*s+p.y*c)+extent]+=p.v;
+      else if(family===1)vert[Math.round(p.x*c+p.y*s)+extent]+=p.v;
     }
     let score=0;
     for(const hist of [hor,vert])for(let i=3;i<hist.length-3;i++){
@@ -99,56 +155,109 @@ function estimateTilt(r:Float32Array,phi:Float32Array,w:number):number {
   return chosen;
 }
 /** Rectify each ridge family, suppress across-line maxima, threshold and grow only across lines. */
-function lineMasks(r:Float32Array,phi:Float32Array,w:number,h:number,theta:number) {
+function lineMasks(r:Float32Array,phi:Float32Array,w:number,h:number,theta:number,checkBudget:CheckBudget) {
   const t=theta*rad,c=Math.cos(t),s=Math.sin(t),hor=new Float32Array(r.length),vert=new Float32Array(r.length);
   for(let i=0;i<r.length;i++){
-    if(Math.abs(mod(phi[i]-t+Math.PI/4,Math.PI/2)-Math.PI/4)>=14*rad)continue;
-    const isH=Math.abs(mod(phi[i]-t+Math.PI/2,Math.PI)-Math.PI/2)<Math.PI/4;(isH?hor:vert)[i]=r[i];
+    const family=ridgeFamily(phi[i]-t,14*rad);
+    if(family===0)hor[i]=r[i];else if(family===1)vert[i]=r[i];
   }
-  return [hor,vert].map((src,family)=>{
-    const warped=new Float32Array(r.length),thin=new Float32Array(r.length),mask=new Uint8Array(r.length),step=family===0?w:1;
-    for(let y=0;y<h;y++)for(let x=0;x<w;x++){
-      const ox=w/2+c*(x-w/2)-s*(y-h/2),oy=h/2+s*(x-w/2)+c*(y-h/2),ix=Math.floor(ox),iy=Math.floor(oy);
+  const warpedHor=new Float32Array(r.length),warpedVert=new Float32Array(r.length);
+  for(let y=0;y<h;y++){
+    checkBudget();
+    const offsetX=s*(y-h/2),offsetY=c*(y-h/2);
+    for(let x=0;x<w;x++){
+      const ox=w/2+c*(x-w/2)-offsetX,oy=h/2+s*(x-w/2)+offsetY,ix=Math.floor(ox),iy=Math.floor(oy);
       if(ix<0||iy<0||ix>=w-1||iy>=h-1)continue;
-      const fx=ox-ix,fy=oy-iy,i=iy*w+ix;
-      warped[y*w+x]=(1-fy)*(src[i]*(1-fx)+src[i+1]*fx)+fy*(src[i+w]*(1-fx)+src[i+w+1]*fx);
+      const fx=ox-ix,fy=oy-iy,i=iy*w+ix,j=y*w+x;
+      warpedHor[j]=(1-fy)*(hor[i]*(1-fx)+hor[i+1]*fx)+fy*(hor[i+w]*(1-fx)+hor[i+w+1]*fx);
+      warpedVert[j]=(1-fy)*(vert[i]*(1-fx)+vert[i+1]*fx)+fy*(vert[i+w]*(1-fx)+vert[i+w+1]*fx);
     }
+  }
+  return [warpedHor,warpedVert].map((warped,family)=>{
+    checkBudget();
+    const peaks=new Float32Array(r.length),indices=new Uint32Array(r.length),mask=new Uint8Array(r.length),step=family===0?w:1;
+    let nPeaks=0,nIndices=0;
     for(let y=1;y<h-1;y++)for(let x=1;x<w-1;x++){
-      const i=y*w+x;if(warped[i]>=warped[i-step]&&warped[i]>=warped[i+step])thin[i]=warped[i];
+      const i=y*w+x,value=warped[i];
+      if(value>0&&value>=warped[i-step]&&value>=warped[i+step]){
+        peaks[nPeaks++]=value;
+        if(y>=2&&y<h-2&&x>=2&&x<w-2)indices[nIndices++]=i;
+      }
     }
-    const threshold=percentile(thin,.88,true);
-    for(let y=2;y<h-2;y++)for(let x=2;x<w-2;x++){
-      const i=y*w+x;if(thin[i]>threshold)for(let d=-2;d<=2;d++)mask[i+d*step]=1;
+    const threshold=selectPercentile(peaks,nPeaks,.88,checkBudget);
+    for(let j=0;j<nIndices;j++){
+      const i=indices[j];if(warped[i]>threshold)for(let d=-2;d<=2;d++)mask[i+d*step]=1;
     }
     return mask;
   });
 }
-function search(hor:Uint8Array,vert:Uint8Array,w:number,h:number,angle:number):Rect[] {
+function search(hor:Uint8Array,vert:Uint8Array,w:number,h:number,angle:number,checkBudget:CheckBudget):Rect[] {
   // Directional integral images give each side's support in O(1).
-  const ch=new Uint32Array((w+1)*h),cv=new Uint32Array(w*(h+1));
+  const ch=new Uint16Array((w+1)*h),cv=new Uint16Array(w*(h+1));
   for(let y=0;y<h;y++)for(let x=0;x<w;x++){
     ch[y*(w+1)+x+1]=ch[y*(w+1)+x]+hor[y*w+x];cv[(y+1)*w+x]=cv[y*w+x]+vert[y*w+x];
   }
-  const found:Rect[]=[];
-  for(let rh=Math.floor(.12*h);rh<=Math.floor(.3*h);rh+=2)for(const aspect of [.62,.68,.74]){
-    const rw=Math.round(rh*aspect);
+  const found:Rect[]=[],even=new Uint16Array(w),odd=new Uint16Array(w);
+  for(let rh=Math.floor(.12*h);rh<=Math.floor(.3*h);rh+=2){
+    checkBudget();
+    const minV=Math.ceil(.3*rh);
+    const columns:number[]=[];
+    for(let x=0;x<w;x++)if(cv[h*w+x]>=minV)columns.push(x);
+    if(!columns.length)continue;
+    const shapes=[.62,.68,.74].map(aspect=>{
+      const rw=Math.round(rh*aspect);
+      return {rw,minH:Math.ceil(.3*rw),matches:[] as Rect[]};
+    });
     for(let y=0;y+rh<h;y+=2){
       const ht=y*(w+1),hb=(y+rh)*(w+1),vt=y*w,vb=(y+rh)*w;
-      for(let x=0;x+rw<w;x+=2){
-        const top=(ch[ht+x+rw]-ch[ht+x])/rw,bottom=(ch[hb+x+rw]-ch[hb+x])/rw,left=(cv[vb+x]-cv[vt+x])/rh,right=(cv[vb+x+rw]-cv[vt+x+rw])/rh;
-        const worst=Math.min(top,bottom,left,right),sum=top+bottom+left+right;
-        // At least three supported sides; the missing side can be occluded by a hand or card.
-        if(Number(top>=.3)+Number(bottom>=.3)+Number(left>=.3)+Number(right>=.3)<3)continue;
-        const score=.8*(sum-worst)/3+.2*worst;
-        if(score>=.5)found.push({score,edgeMin:worst,cx:x+rw/2,cy:y+rh/2,w:rw,h:rh,angle});
+      if(ch[ht+w]<shapes[0].minH&&ch[hb+w]<shapes[0].minH)continue;
+      // At least one vertical side must have support. Only check columns
+      // with enough support in the whole mask, then reuse the list at all widths.
+      let nEven=0,nOdd=0;
+      for(const x of columns)if(cv[vb+x]-cv[vt+x]>=minV){
+        if(x%2)odd[nOdd++]=x;else even[nEven++]=x;
+      }
+      if(!nEven&&!nOdd)continue;
+      for(const {rw,minH,matches} of shapes){
+        const rightColumns=rw%2?odd:even,nRight=rw%2?nOdd:nEven;
+        let l=0,r=0;
+        while(r<nRight&&rightColumns[r]<rw)r++;
+        while(l<nEven||r<nRight){
+          const leftX=l<nEven?even[l]:w,rightX=r<nRight?rightColumns[r]-rw:w;
+          const x=Math.min(leftX,rightX);
+          if(x+rw>=w)break;
+          if(x===leftX)l++;
+          if(x===rightX)r++;
+          const topPixels=ch[ht+x+rw]-ch[ht+x],bottomPixels=ch[hb+x+rw]-ch[hb+x];
+          const topOK=topPixels>=minH,bottomOK=bottomPixels>=minH;
+          if(leftX===rightX?!(topOK||bottomOK):!(topOK&&bottomOK))continue;
+          const leftPixels=cv[vb+x]-cv[vt+x],rightPixels=cv[vb+x+rw]-cv[vt+x+rw];
+          const top=topPixels/rw,bottom=bottomPixels/rw,left=leftPixels/rh,right=rightPixels/rh;
+          const worst=Math.min(top,bottom,left,right),sum=top+bottom+left+right;
+          const score=.8*(sum-worst)/3+.2*worst;
+          if(score>=.5)matches.push({score,edgeMin:worst,cx:x+rw/2,cy:y+rh/2,w:rw,h:rh,angle});
+        }
       }
     }
+    // Keep the scan's aspect-first tie order when equally scored boxes overlap.
+    for(const {matches} of shapes)for(const match of matches)found.push(match);
   }
-  found.sort((a,b)=>b.score-a.score);const groups:Rect[][]=[];
-  for(const a of found){
+  let comparisons=0;
+  found.sort((a,b)=>{
+    if((comparisons++&4095)===0)checkBudget();
+    return b.score-a.score;
+  });
+  const groups:Rect[][]=[];
+  for(let i=0;i<found.length;i++){
+    if((i&1023)===0)checkBudget();
+    const a=found[i];
+    const left=a.cx-a.w/2,right=a.cx+a.w/2,top=a.cy-a.h/2,bottom=a.cy+a.h/2,area=a.w*a.h;
     const group=groups.find(([b])=>{
-      const ix=Math.max(0,Math.min(a.cx+a.w/2,b.cx+b.w/2)-Math.max(a.cx-a.w/2,b.cx-b.w/2)),iy=Math.max(0,Math.min(a.cy+a.h/2,b.cy+b.h/2)-Math.max(a.cy-a.h/2,b.cy-b.h/2)),inter=ix*iy;
-      return inter/(a.w*a.h+b.w*b.h-inter)>.25;
+      const ix=Math.min(right,b.cx+b.w/2)-Math.max(left,b.cx-b.w/2);
+      if(ix<=0)return false;
+      const iy=Math.min(bottom,b.cy+b.h/2)-Math.max(top,b.cy-b.h/2);
+      const inter=ix*iy;
+      return iy>0&&inter/(area+b.w*b.h-inter)>.25;
     });
     if(group)group.push(a);else if(groups.length<40)groups.push([a]);
   }
@@ -167,18 +276,27 @@ function outerFrame(outer:Rect,inner:Rect):boolean {
   const ratio=outer.h/inner.h;
   return outer.edgeMin>=.3&&ratio>=1.05&&ratio<=1.25&&Math.hypot(outer.cx-inner.cx,outer.cy-inner.cy)<=.1*outer.h&&outer.w>=inner.w;
 }
-function outline(group:Rect[]):Rect {
-  const anchor=group[0];
-  return group.filter(a=>a===anchor||outerFrame(a,anchor)).sort((a,b)=>b.h-a.h||b.score-a.score)[0];
+function outlineAtSize(group:Rect[],target:Rect):Rect|undefined {
+  const maxHeightGap=.09*target.h,maxWidthGap=.17*target.w;
+  let anchor:Rect|undefined,best:Rect|undefined;
+  // Groups are already in descending score order, which also breaks height ties.
+  for(const a of group){
+    if(Math.abs(a.h-target.h)>=maxHeightGap||Math.abs(a.w-target.w)>=maxWidthGap)continue;
+    if(!anchor)anchor=best=a;
+    else if(a.h>best!.h&&outerFrame(a,anchor))best=a;
+  }
+  return best;
 }
 function neighbours(a:Rect,b:Rect):boolean {
   const dx=b.cx-a.cx,dy=b.cy-a.cy,w=(a.w+b.w)/2,h=(a.h+b.h)/2,dist=Math.hypot(dx,dy);
   return dist>=w&&dist<=3.2*w&&Math.abs(dy)<.36*Math.abs(dx)+.15*h&&Math.abs(dx)>.8*w
     ||dist>=.95*h&&dist<=1.6*h&&Math.abs(dx)<.36*Math.abs(dy)+.15*w&&Math.abs(dy)>.8*h;
 }
-function filter(rects:Rect[],sparseCandidates?:Rect[][]):Rect[] {
+function filter(rects:Rect[],checkBudget:CheckBudget,sparseCandidates?:Rect[][]):Rect[] {
   const groups:Rect[][]=[];rects.sort((a,b)=>b.score-a.score);
-  for(const a of rects){
+  for(let i=0;i<rects.length;i++){
+    if((i&255)===0)checkBudget();
+    const a=rects[i];
     const group=groups.find(([b])=>Math.hypot(a.cx-b.cx,a.cy-b.cy)<=.45*Math.min(a.h,b.h));
     if(group)group.push(a);else groups.push([a]);
   }
@@ -188,16 +306,24 @@ function filter(rects:Rect[],sparseCandidates?:Rect[][]):Rect[] {
   for(const a of rects)sizes.set(`${a.w}:${a.h}`,a);
   let frames:Rect[]=[],support=-1,height=0,width=0;
   for(const target of sizes.values()){
-    const candidates=groups.map(group=>{const sized=group.filter(a=>Math.abs(a.h-target.h)<.09*target.h&&Math.abs(a.w-target.w)<.17*target.w);return sized.length?outline(sized):undefined;}).filter((a):a is Rect=>!!a);
-    const lat=candidates.length>=3?lattice(candidates):null;
+    checkBudget();
+    const candidates:Rect[]=[];
+    for(const group of groups){
+      const outline=outlineAtSize(group,target);
+      if(outline)candidates.push(outline);
+    }
+    const theta=candidates.length>=3?latticeAngle(candidates,checkBudget):0;
     const bands:Rect[][]=[];
-    const y=(a:Rect)=>a.cy*Math.cos((lat?.theta??0)*rad)-a.cx*Math.sin((lat?.theta??0)*rad);
+    const c=Math.cos(theta*rad),s=Math.sin(theta*rad);
+    const y=(a:Rect)=>a.cy*c-a.cx*s;
     for(const a of [...candidates].sort((a,b)=>y(a)-y(b))){
       const last=bands.at(-1);if(!last||y(a)-y(last.at(-1)!)>.35*target.h)bands.push([a]);else last.push(a);
     }
     const aligned=bands.filter(row=>row.length>=2).sort((a,b)=>b.length-a.length).slice(0,2).flat();
     const connected=aligned.filter(a=>aligned.some(b=>a!==b&&neighbours(a,b)));
-    const count=(connected.length>=3&&lattice(connected).nc>=4?1:0)*connected.reduce((sum,a)=>sum+connected.filter(b=>a!==b&&neighbours(a,b)).length,0);
+    const count=connected.length>=4&&lattice(connected,checkBudget).nc>=4
+      ?connected.reduce((sum,a)=>sum+connected.filter(b=>a!==b&&neighbours(a,b)).length,0)
+      :0;
     if(count>support||count===support&&target.h>height){support=count;frames=connected;height=target.h;width=target.w;}
     if(sparseCandidates){
       const clear=candidates.filter(a=>a.score>=.66&&a.edgeMin>=.38);
@@ -265,20 +391,24 @@ function outlineEvidence(a:Rect,image:Float32Array,w:number,h:number) {
 
 /** Check faint outer frames directly in the ridges: the global edge threshold
  * can hide them when many brighter card outlines occupy the mat. */
-function recoverOuterFrames(rects:Rect[],strength:Float32Array,phi:Float32Array,w:number,h:number,image:Float32Array):Rect[] {
-  if(rects.length<4)return rects;
-  const threshold=percentile(strength,.8,true),lat=lattice(rects),theta=lat.theta*rad,c=Math.cos(theta),s=Math.sin(theta);
+function recoverOuterFrames(rects:Rect[],strength:Float32Array,phi:Float32Array,w:number,h:number,image:Float32Array,checkBudget:CheckBudget):Rect[] {
+  if(rects.length<MIN_LATTICE_INLIERS)return rects;
+  const threshold=percentile(strength,.8,checkBudget,true),theta=latticeAngle(rects,checkBudget)*rad,c=Math.cos(theta),s=Math.sin(theta);
   const supported=(x:number,y:number,family:number)=>{
     const px=Math.round(x),py=Math.round(y);
     if(px<0||py<0||px>=w||py>=h)return false;
     const i=py*w+px,expected=theta+(family?0:Math.PI/2);
     return strength[i]>threshold&&Math.abs(mod(phi[i]-expected+Math.PI/2,Math.PI)-Math.PI/2)<14*rad;
   };
-  const outlines=rects.map(a=>outlineEvidence(a,image,w,h));
+  const outlines=rects.map(a=>{
+    checkBudget();
+    return outlineEvidence(a,image,w,h);
+  });
   // Direct evidence can recover printed frames that lost the global size vote.
   // Mask dilation alone cannot turn a single card outline into printed proof.
   rects=rects.map((a,i)=>({...a,printed:outlines[i].nested||(a.printed&&!outlines[i].filled)}));
   const outer=rects.map((a,i)=>{
+    checkBudget();
     let best:Rect|undefined,quality=0;const filled=outlines[i].filled;
     for(const kh of [1.15,1.2,1.25])for(const kw of [1.18,1.24,1.3]){
       const rw=a.w*kw,rh=a.h*kh,sides=[0,0,0,0];
@@ -299,7 +429,7 @@ function recoverOuterFrames(rects:Rect[],strength:Float32Array,phi:Float32Array,
   });
   const evidence=outer.filter((a):a is Rect=>!!a);
   if(evidence.length<2)return rects;
-  const proof=lattice(evidence);if(proof.nc<2)return rects;
+  const proof=lattice(evidence,checkBudget);if(proof.nc<2)return rects;
   const cardHeight=median(rects.filter((_,i)=>outer[i]).map(a=>a.h));
   return rects.map((a,i)=>outer[i]??(Math.abs(a.h-cardHeight)<.09*cardHeight?{...a,printed:false}:a));
 }
@@ -313,9 +443,13 @@ function cluster(values:number[],gap:number,minPitch:number,maxPitch:number,maxS
   // a pitch. Missing columns and perspective can make that gap misleading.
   let pitch=minPitch,best=Infinity;
   for(let candidate=minPitch;candidate<=maxPitch;candidate+=.25){
-    const indices=centers.map(c=>Math.round((c-centers[0])/candidate));
-    if(Math.max(...indices)>maxSpan)continue;
-    const error=centers.reduce((sum,c,i)=>sum+Math.min(.04,((c-centers[0])/candidate-indices[i])**2),0);
+    const origin=centers[0];
+    if(Math.round((centers[centers.length-1]-origin)/candidate)>maxSpan)continue;
+    let error=0;
+    for(const center of centers){
+      const index=(center-origin)/candidate;
+      error+=Math.min(.04,(index-Math.round(index))**2);
+    }
     if(error<best){best=error;pitch=candidate;}
   }
   let k=centers.map(c=>Math.round((c-centers[0])/pitch));
@@ -326,15 +460,20 @@ function cluster(values:number[],gap:number,minPitch:number,maxPitch:number,maxS
   groups.forEach((g,i)=>g.forEach(j=>indices[j]=k[i]));
   return {indices,span:Math.max(...k),count:groups.length,pitch};
 }
-function lattice(d:Rect[],rowAngle?:number):Lattice {
-  const w=median(d.map(a=>a.w)),h=median(d.map(a=>a.h));let best=-1,theta=rowAngle??0;
+function latticeAngle(d:Rect[],checkBudget:CheckBudget,rowAngle?:number):number {
+  const h=median(d.map(a=>a.h));let best=-1,theta=rowAngle??0;
   // Broad enough for the same rotated fixtures as the seven-angle ridge search.
   const middle=theta,range=rowAngle===undefined?18:3;
   for(let deg=middle-range;deg<=middle+range;deg+=.5){
+    checkBudget();
     const c=Math.cos(deg*rad),s=Math.sin(deg*rad),ys=d.map(p=>p.cy*c-p.cx*s);let score=0;
-    for(const y of ys)for(const y2 of ys)score+=Math.exp(-.5*((y-y2)/(.1*h))**2);
+    for(let i=0;i<ys.length;i++)for(let j=0;j<i;j++)score+=Math.exp(-.5*((ys[i]-ys[j])/(.1*h))**2);
     if(score>best){best=score;theta=deg;}
   }
+  return theta;
+}
+function lattice(d:Rect[],checkBudget:CheckBudget,rowAngle?:number):Lattice {
+  const w=median(d.map(a=>a.w)),h=median(d.map(a=>a.h)),theta=latticeAngle(d,checkBudget,rowAngle);
   const c=Math.cos(theta*rad),s=Math.sin(theta*rad),rows=cluster(d.map(p=>p.cy*c-p.cx*s),.45*h,.95*h,1.7*h,2),cols=cluster(d.map(p=>p.cx*c+p.cy*s),.55*w,.95*w,2.6*w,6);
   return {theta,rows:rows.indices,cols:cols.indices,rspan:rows.span,cspan:cols.span,nr:rows.count,nc:cols.count,px:cols.pitch,py:rows.pitch};
 }
@@ -378,10 +517,11 @@ function fitPlane(src:Point[],dst:Point[],projective:boolean):((p:Point)=>Point)
 type Plane=(p:Point)=>Point;
 const unitCorners=[{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1}];
 
-function fitSparseLattice(groups:Rect[][],tone:Float32Array,w:number,h:number,theta:number,options:MatFitOptions):MatFitResult|undefined {
+function fitSparseLattice(groups:Rect[][],tone:Float32Array,w:number,h:number,theta:number,options:MatFitOptions,checkBudget:CheckBudget):MatFitResult|undefined {
   const evidence=new Map<Rect,boolean>();
   let best:MatFitResult|undefined;
   for(const group of groups){
+    checkBudget();
     const printed=group.filter(a=>{
       if(!evidence.has(a)){
         const {nested,filled}=outlineEvidence(a,tone,w,h);
@@ -392,14 +532,14 @@ function fitSparseLattice(groups:Rect[][],tone:Float32Array,w:number,h:number,th
     // Three centres can fit an affine transform exactly, even for unrelated rectangles.
     if(printed.length<MIN_SPARSE_BOXES)continue;
     // The borders give a separate estimate of the row angle when there are few centres.
-    const lat=lattice(printed,theta);
+    const lat=lattice(printed,checkBudget,theta);
     const boxWidth=median(printed.map(a=>a.w)),boxHeight=median(printed.map(a=>a.h));
     // Verify a one-column gap as well as the full span, so a shorter crop
     // cannot masquerade as seven columns at an artificially small pitch.
     const columns=[...new Set(lat.cols)].sort((a,b)=>a-b);
     if(lat.nr!==2||lat.rspan!==1||columns.length<3||lat.cspan!==6||!columns.some((c,i)=>c-columns[i-1]===1))continue;
     if(lat.px<1.18*boxWidth||lat.px>1.85*boxWidth||lat.py<1.04*boxHeight||lat.py>1.6*boxHeight)continue;
-    const result=fitLattice(printed,lat,w,h,options,true);
+    const result=fitLattice(printed,lat,w,h,options,checkBudget,true);
     if(!result.corners)continue;
     if(best){
       const near=best.corners!.every((p,i)=>Math.hypot((p.x-result.corners![i].x)*w,(p.y-result.corners![i].y)*h)<.22*lat.px);
@@ -454,10 +594,11 @@ const legacyMat={
   spell:{x:0,y:0},oppositeSpell:{x:4,y:0},field:{x:-1,y:1.34},pendulum:{x:-.84,y:.48},
   extra:{x:-.9,y:-.32},deck:{x:4.9,y:-.32},
 };
-function fitStaggeredMat(rects:Rect[],tone:Float32Array,w:number,h:number,theta:number,options:MatFitOptions) {
+function fitStaggeredMat(rects:Rect[],tone:Float32Array,w:number,h:number,theta:number,options:MatFitOptions,checkBudget:CheckBudget) {
   const seeds:Rect[]=[];
   // filter() already sorted the search results by outline score.
   for(const rect of rects){
+    checkBudget();
     if(rect.score<.59||seeds.length>=55)break;
     if(!seeds.some(a=>Math.hypot(a.cx-rect.cx,a.cy-rect.cy)<.23*Math.min(a.h,rect.h)))seeds.push(rect);
   }
@@ -467,6 +608,7 @@ function fitStaggeredMat(rects:Rect[],tone:Float32Array,w:number,h:number,theta:
   for(const s of seeds){
     if(s.score<.67)break;
     for(const f of seeds){
+      checkBudget();
       const dx=f.cx-s.cx,dy=f.cy-s.cy-slope*dx;
       if(Math.abs(dx)<1.15*s.w||Math.abs(dx)>2*s.w||Math.abs(dy)<1.5*s.h||Math.abs(dy)>2.15*s.h||f.h/s.h<.85||f.h/s.h>1.3)continue;
       const direction=dx>0?-1:1,away=dy>0?1:-1,py=dy/field.y;
@@ -476,6 +618,7 @@ function fitStaggeredMat(rects:Rect[],tone:Float32Array,w:number,h:number,theta:
         // The nearer row is generally wider in an angled camera. Probe both
         // parallel and slightly converging sides before refitting the centres.
         for(const keystone of [0,.055*away]){
+          checkBudget();
           const farScale=1-keystone*field.y,shear=(dx*farScale+vx)/field.y;
           const map:Plane=({x,y})=>{
             const den=1-keystone*y;
@@ -516,6 +659,7 @@ function fitStaggeredMat(rects:Rect[],tone:Float32Array,w:number,h:number,theta:
   const disagrees=(a:typeof best,b:typeof best)=>
     [spell,oppositeSpell,field].some(p=>distance(a.map(p),b.map(p))>.3*pitch);
   for(const candidate of candidates.slice(1)){
+    checkBudget();
     if(best.score-candidate.score>=.06)break;
     if(candidate.mirror!==best.mirror)return;
     if(candidate.side===best.side){
@@ -553,13 +697,14 @@ function emptyResult(options:MatFitOptions,reason=''):MatFitResult {
   return {corners:null,orientation:{playerSide:options.playerSide??'bottom',mirrored:options.mirrored??false},mirror:options.mirrored??false,confidence:'low',flags:{colWindowAmbiguous:false,sideByPrior:false,zonesFound:0,reason},reason,metrics:{inliers:0,rows:0,columns:0,columnSpan:0,meanErrorPitch:0,maxErrorPitch:0}};
 }
 
-function fitLattice(d:Rect[],lat:Lattice,w:number,h:number,options:MatFitOptions,sparse=false):MatFitResult {
+function fitLattice(d:Rect[],lat:Lattice,w:number,h:number,options:MatFitOptions,checkBudget:CheckBudget,sparse=false):MatFitResult {
+  checkBudget();
   const result=emptyResult(options);
   const fail=(reason:string)=>{result.reason=result.flags.reason=reason;return result;};
   result.flags.zonesFound=d.length;
   result.metrics.rows=lat.nr;result.metrics.columns=lat.nc;result.metrics.columnSpan=lat.cspan+1;
   result.flags.colWindowAmbiguous=lat.cspan!==6;
-  const minColumns=sparse?3:4,minInliers=sparse?MIN_SPARSE_BOXES:6;
+  const minColumns=sparse?3:4,minInliers=sparse?MIN_SPARSE_BOXES:MIN_LATTICE_INLIERS;
   const meanLimit=sparse?.065:.1,maxLimit=sparse?.13:.2;
   if(lat.nr<2||lat.nc<minColumns)return fail('too-few-rows-or-columns');
   const hy=hypotheses(lat,d.length,options);if(!hy.length)return fail('not-a-zone-lattice');
@@ -583,6 +728,7 @@ function fitLattice(d:Rect[],lat:Lattice,w:number,h:number,options:MatFitOptions
     if(inliers.length!==active.length){active=inliers;map=fitPlane(active.map(i=>model[i]),active.map(i=>dest[i]),true);}
     // Refit after removing a centre that disagrees with the others.
     while(map&&active.length>minInliers){
+      checkBudget();
       const errors=active.map(i=>distance(map!(model[i]),dest[i]));
       const max=Math.max(...errors),mean=errors.reduce((a,b)=>a+b)/errors.length;
       if(mean<.1&&max<.2)break;
@@ -620,58 +766,93 @@ function fitLattice(d:Rect[],lat:Lattice,w:number,h:number,options:MatFitOptions
   return result;
 }
 
-/** Pure, one-shot CPU detector. Supply RAW camera pixels before drawing any grid or labels. */
-function fitMatAtScale(image:RGBAImage,options:MatFitOptions,workingWidth:number):MatFitResult {
-  if(!Number.isInteger(image.width)||!Number.isInteger(image.height)||image.width<128||image.height<128||image.width*image.height>16_000_000||image.data.length!==image.width*image.height*4)return emptyResult(options,'invalid-frame');
-  if(Math.max(image.width/image.height,image.height/image.width)>6)return emptyResult(options,'invalid-frame');
-  // A side camera sees the seven columns vertically. Normalize its raw pixels,
-  // then restore image-clockwise corners and the player's original side.
-  if(options.playerSide==='left'||options.playerSide==='right'){
-    const left=options.playerSide==='left',data=new Uint8ClampedArray(image.data.length);
-    for(let y=0;y<image.height;y++)for(let x=0;x<image.width;x++){
+// A side camera sees the seven columns vertically. Normalize its raw pixels,
+// then restore image-clockwise corners and the player's original side.
+function fitSideMat(image:RGBAImage,options:MatFitOptions,checkBudget:CheckBudget):MatFitResult {
+  const left=options.playerSide==='left',data=new Uint8ClampedArray(image.data.length);
+  for(let y=0;y<image.height;y++){
+    checkBudget();
+    for(let x=0;x<image.width;x++){
       const rx=left?y:image.height-1-y,ry=left?image.width-1-x:x;
       const src=(y*image.width+x)*4,dst=(ry*image.height+rx)*4;
       for(let k=0;k<4;k++)data[dst+k]=image.data[src+k];
     }
-    const fitted=fitMat({data,width:image.height,height:image.width},{...options,playerSide:'bottom'});
-    const restore=(corners:NonNullable<MatFitResult['corners']>)=>{
-      const order=left?[3,0,1,2]:[1,2,3,0];
-      return order.map(i=>left?{x:1-corners[i].y,y:corners[i].x}:{x:corners[i].y,y:1-corners[i].x}) as NonNullable<MatFitResult['corners']>;
-    };
-    const orientation=(o:FieldOrientation):FieldOrientation=>({...o,playerSide:o.playerSide==='bottom'?options.playerSide!:left?'right':'left'});
-    fitted.orientation=orientation(fitted.orientation);
-    if(fitted.corners)fitted.corners=restore(fitted.corners);
-    if(fitted.flipped)fitted.flipped={corners:restore(fitted.flipped.corners),orientation:orientation(fitted.flipped.orientation)};
-    return fitted;
   }
-  const {strength,angle,w,h,tone}=ridges(image,workingWidth);
-  if(percentile(strength,.99)<.001)return emptyResult(options,'no-zones');
-  const theta=estimateTilt(strength,angle,w),rects:Rect[]=[];
+  const fitted=fitMatWithinBudget({data,width:image.height,height:image.width},{...options,playerSide:'bottom'},checkBudget);
+  const restore=(corners:NonNullable<MatFitResult['corners']>)=>{
+    const order=left?[3,0,1,2]:[1,2,3,0];
+    return order.map(i=>left?{x:1-corners[i].y,y:corners[i].x}:{x:corners[i].y,y:1-corners[i].x}) as NonNullable<MatFitResult['corners']>;
+  };
+  const orientation=(o:FieldOrientation):FieldOrientation=>({...o,playerSide:o.playerSide==='bottom'?options.playerSide!:left?'right':'left'});
+  fitted.orientation=orientation(fitted.orientation);
+  if(fitted.corners)fitted.corners=restore(fitted.corners);
+  if(fitted.flipped)fitted.flipped={corners:restore(fitted.flipped.corners),orientation:orientation(fitted.flipped.orientation)};
+  return fitted;
+}
+
+function fitMatAtScale(image:RGBAImage,options:MatFitOptions,workingWidth:number,checkBudget:CheckBudget):MatFitResult {
+  const {strength,angle,w,h,tone}=ridges(image,workingWidth,checkBudget);
+  if(percentile(strength,.99,checkBudget)<.001)return emptyResult(options,'no-zones');
+  const theta=estimateTilt(strength,angle,w,checkBudget),rects:Rect[]=[];
   for(const delta of [-6,-4,-2,0,2,4,6]){
-    const [bh,bv]=lineMasks(strength,angle,w,h,theta+delta);rects.push(...search(bh,bv,w,h,theta+delta));
+    checkBudget();
+    const [bh,bv]=lineMasks(strength,angle,w,h,theta+delta,checkBudget);
+    rects.push(...search(bh,bv,w,h,theta+delta,checkBudget));
   }
   const sparseCandidates:Rect[][]=[];
-  const filtered=filter(rects,workingWidth===832?sparseCandidates:undefined);
-  const d=recoverOuterFrames(filtered,strength,angle,w,h,tone);
-  const result=d.length>=3?fitLattice(d,lattice(d),w,h,options):emptyResult(options,'too-few-zones');
+  const filtered=filter(rects,checkBudget,workingWidth===PREVIEW_WIDTH?sparseCandidates:undefined);
+  const d=recoverOuterFrames(filtered,strength,angle,w,h,tone,checkBudget);
+  const result=d.length>=3?fitLattice(d,lattice(d,checkBudget),w,h,options,checkBudget):emptyResult(options,'too-few-zones');
   result.flags.zonesFound=d.length;
-  if(result.corners||workingWidth!==832)return result;
-  return fitStaggeredMat(rects,tone,w,h,theta,options)??fitSparseLattice(sparseCandidates,tone,w,h,theta,options)??result;
+  // Staggered and sparse layouts can have fewer aligned boxes than a full
+  // lattice. Below four, there is too little aligned evidence for a preview.
+  if(result.corners||workingWidth!==PREVIEW_WIDTH||d.length<MIN_SPARSE_BOXES)return result;
+  return fitStaggeredMat(rects,tone,w,h,theta,options,checkBudget)
+    ??fitSparseLattice(sparseCandidates,tone,w,h,theta,options,checkBudget)
+    ??result;
 }
-/** Normalize camera pixels before detection. Thin printed strokes and wider
- * occupied outlines need different ridge scales; each must pass every fit gate.
- * These sizes bound the ridge and rectangle search cost. */
-export function fitMat(image:RGBAImage,options:MatFitOptions={}):MatFitResult {
+
+function fitMatWithinBudget(image:RGBAImage,options:MatFitOptions,checkBudget:CheckBudget):MatFitResult {
   let preview:MatFitResult|undefined,refusal:MatFitResult|undefined;
-  for(const width of [832,768,512,480,448,416]){
-    const result=fitMatAtScale(image,options,width);
-    if(result.reason==='invalid-frame'||options.playerSide==='left'||options.playerSide==='right')return result;
-    if(result.corners){
+  try{
+    if(options.playerSide==='left'||options.playerSide==='right')return fitSideMat(image,options,checkBudget);
+    checkBudget();
+    const first=fitMatAtScale(image,options,768,checkBudget);
+    if(first.confidence==='high')return first;
+    refusal=first;
+    checkBudget();
+    const coarse=fitMatAtScale(image,options,512,checkBudget);
+    if(coarse.confidence==='high')return coarse;
+    // 768 and 512 win most often in the fixture matrix. When 512 finds
+    // an otherwise convincing lattice with an uncertain width and 768 also
+    // found two rows, try nearby scales before the finer 832 pass.
+    const widths=coarse.reason==='show-whole-mat-width'&&first.metrics.rows===2
+      ?[480,448,416,PREVIEW_WIDTH,768]
+      :[PREVIEW_WIDTH,768,480,448,416];
+    for(const width of widths){
+      checkBudget();
+      const result=fitMatAtScale(image,options,width,checkBudget);
       if(result.confidence==='high')return result;
-      preview??=result;
-    }else refusal??=result;
+      if(result.corners)preview??=result;
+      else if(width===PREVIEW_WIDTH)refusal=result;
+    }
+  }catch(error){
+    // An interrupted pass has not finished checking its geometry and ambiguity.
+    if(error!==fitTimedOut)throw error;
+    return preview??refusal??emptyResult(options,'time-budget-exceeded');
   }
   return preview??refusal!;
+}
+
+/** Fit raw camera pixels before drawing any grid or labels. A single deadline
+ * covers camera rotation, the full scale search and any preview passes. */
+export function fitMat(image:RGBAImage,options:MatFitOptions={}):MatFitResult {
+  const deadline=performance.now()+FIT_BUDGET_MS;
+  if(!Number.isInteger(image.width)||!Number.isInteger(image.height)||image.width<128||image.height<128||image.width*image.height>16_000_000||image.data.length!==image.width*image.height*4)return emptyResult(options,'invalid-frame');
+  if(Math.max(image.width/image.height,image.height/image.width)>6)return emptyResult(options,'invalid-frame');
+  return fitMatWithinBudget(image,options,()=>{
+    if(performance.now()>=deadline)throw fitTimedOut;
+  });
 }
 /** A preview requires a resolved column window, even for a sparse fit. */
 export function matFitCalibration(result:MatFitResult):FieldCalibration|undefined {

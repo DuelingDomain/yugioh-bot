@@ -214,3 +214,18 @@ test('quarter-turn camera priors retain named zones and flag side uncertainty',a
   }
  }
 });
+
+test('returns a failure when the fit budget expires while reading the frame',t=>{
+ const width=128,height=128;
+ let expired=false;
+ const data=new Proxy(new Uint8ClampedArray(width*height*4).fill(128),{
+   get(pixels,key){
+     if(key==='0')expired=true;
+     return Reflect.get(pixels,key,pixels);
+   },
+ });
+ t.mock.method(performance,'now',()=>expired?10_000:0);
+ const result=fitMat({width,height,data},{playerSide:'top'});
+ assert.equal(result.corners,null);
+ assert.equal(result.reason,'time-budget-exceeded');
+});
