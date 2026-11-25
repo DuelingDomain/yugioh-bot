@@ -71,14 +71,12 @@ import s from "./remote-ui.module.css";
 import matchStyles from "./match-ui.module.css";
 
 const WEBCAM_ONLY_KEY = "dd-remote-webcam-only";
-/** The detection mode a stored Webcam only choice was made in. */
-const WEBCAM_ONLY_MODE_KEY = "dd-remote-webcam-only-mode";
 import {publicTrackedTwin, trackedRereadTarget} from '@/lib/remote/field-track-cache';
 import { AutoFieldWatcher } from "../field-watcher";
 import { isTournamentTable, stateMode, seatBoardOff } from "@/lib/remote/tournament-detection";
 import {manualFieldZoneWarning,projectFieldZone,tokenInCell,becomesTrapMonster,equipSourceOnField,fieldZoneCheck} from '@/lib/remote/field-legality';
 import {fieldOrientation,fieldZoneAt,fieldZoneLocation,mapFieldZone,onMat,type FieldFormat} from '@yugidraft/vision';
-import {useCardDetection,resolveWebcamOnly,type DetectionMode,useZoneGrid,useTapToIdentify,tapToIdentifyNow,currentZoneGrid,setFieldDeveloper,runFieldScan,useFieldWatcherError} from '@/lib/remote/zone-grid';
+import {useCardDetection,resolveWebcamOnly,useZoneGrid,useTapToIdentify,tapToIdentifyNow,currentZoneGrid,setFieldDeveloper,runFieldScan,useFieldWatcherError} from '@/lib/remote/zone-grid';
 import {distinctFieldQuads,fieldReadingPlaceholder,rememberFieldObservation} from '@/lib/remote/field-proposals';
 import {SUMMON_WINDOW_MS} from '@/lib/remote/field-summons';
 import { useCardMenu } from "./card-menu";
@@ -476,33 +474,16 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
   const [rv, setRv] = useState<Record<number, ZoneKey>>({}); const [selected, setSelected] = useState<{ seat: number; ref: string } | null>(null);
   const [effectOrigin,setEffectOrigin]=useState<string|null>(null);
   const [picking, setPicking] = useState<{ seat: number; ref: string } | null>(null);
-  // Webcam only: the virtual fields (beta) are hidden and the camera feeds get the space. The default follows my detection mode: hidden in Tap to identify (the board does not follow the camera), shown with Auto-detect.
-  // A choice in either direction is remembered in this browser with the mode it was made in. It wins while the mode stays the same; a mode change applies the new default once.
-  const detection = useCardDetection(); const detectMode: DetectionMode | null = detection ? (detection.autoDetect ? "auto" : "tap") : null;
-  const [choice, setChoice] = useState<{ hidden: boolean | null; mode: string | null }>({ hidden: null, mode: null });
-  useLayoutEffect(() => { try { const stored = localStorage.getItem(WEBCAM_ONLY_KEY); setChoice({ hidden: stored === null ? null : stored !== "0", mode: localStorage.getItem(WEBCAM_ONLY_MODE_KEY) }); } catch { /* storage blocked: the default */ } }, []);
-  // The last known mode bridges a camera change, when the watcher reloads its settings and the mode is unknown for a moment.
-  const [knownMode, setKnownMode] = useState<DetectionMode | null>(null);
-  useEffect(() => {
-    if (!detectMode) return;
-    setKnownMode(detectMode);
-    // A choice made in the other mode is dropped; the new mode's default applies. A change of nothing leaves the keys alone.
-    if (choice.hidden === null || choice.mode === detectMode) return;
-    // An old choice with no stored mode belongs to the mode we are in now.
-    if (choice.mode === null) {
-      setChoice({ hidden: choice.hidden, mode: detectMode });
-      try { localStorage.setItem(WEBCAM_ONLY_MODE_KEY, detectMode); } catch { /* storage blocked */ }
-      return;
-    }
-    setChoice({ hidden: null, mode: null });
-    try { localStorage.removeItem(WEBCAM_ONLY_KEY); localStorage.removeItem(WEBCAM_ONLY_MODE_KEY); } catch { /* storage blocked */ }
-  }, [detectMode, choice]);
-  const shownMode = detectMode ?? knownMode;
-  const webcamOnly = resolveWebcamOnly(choice, shownMode);
+  // Webcam only: the virtual fields (beta) are hidden by default, so the camera feeds get the space. The toggle or W turns the board on;
+  // the choice, either way, is remembered in this browser. A seat that needs the board (see `needsBoard`) keeps it.
+  const detection = useCardDetection();
+  const [choice, setChoice] = useState<boolean | null>(null);
+  useLayoutEffect(() => { try { const stored = localStorage.getItem(WEBCAM_ONLY_KEY); setChoice(stored === null ? null : stored !== "0"); localStorage.removeItem("dd-remote-webcam-only-mode"); } catch { /* storage blocked: the default */ } }, []);
+  const webcamOnly = resolveWebcamOnly(choice);
   const setWebcamOnly = useCallback((next: boolean) => {
-    setChoice({ hidden: next, mode: shownMode });
-    try { localStorage.setItem(WEBCAM_ONLY_KEY, next ? "1" : "0"); if (shownMode) localStorage.setItem(WEBCAM_ONLY_MODE_KEY, shownMode); else localStorage.removeItem(WEBCAM_ONLY_MODE_KEY); } catch { /* storage blocked: not remembered */ }
-  }, [shownMode]);
+    setChoice(next);
+    try { localStorage.setItem(WEBCAM_ONLY_KEY, next ? "1" : "0"); } catch { /* storage blocked: not remembered */ }
+  }, []);
   // A seat in Tap mode has its board off for everyone: the camera does not keep the board up to date.
   // Another player: any of the signals (see `seatBoardOff`). My own seat: my own switch, and only with my camera on, so a player with no camera keeps the board.
   const subscribeTap = useCallback((listener: () => void) => { const a = hub.subscribeFieldBacks(listener), b = hub.subscribePeerVision(listener); return () => { a(); b(); }; }, [hub.subscribeFieldBacks, hub.subscribePeerVision]);

@@ -121,9 +121,9 @@ function SpectatorFeed({ seat, name, video, online, stopped, frozen, onCard, for
 
 function SpectatorTable({ room }: { room: RemoteRoom }) {
   const layers = useLayers();
-  const [webcamOnly, setWebcamOnlyState] = useState(false);
+  const [webcamOnly, setWebcamOnlyState] = useState(true);
   const [gridOn, setGridOn] = useState(true);
-  useEffect(() => { try { setWebcamOnlyState(localStorage.getItem(SPECTATOR_WEBCAM_KEY) === "1"); } catch { /* storage blocked: both views */ } setGridOn(readGridPref(false)); }, []);
+  useEffect(() => { try { setWebcamOnlyState(localStorage.getItem(SPECTATOR_WEBCAM_KEY) !== "0"); } catch { /* storage blocked: the default, cameras only */ } setGridOn(readGridPref(false)); }, []);
   const setWebcamOnly = useCallback((next: boolean) => { setWebcamOnlyState(next); try { localStorage.setItem(SPECTATOR_WEBCAM_KEY, next ? "1" : "0"); } catch { /* not remembered */ } }, []);
   const toggleGrid = () => { const next = !gridOn; setGridOn(next); writeGridPref(false, next); };
   // W switches between Both and Webcam only, as for the players.
@@ -300,7 +300,7 @@ function SpectatorTable({ room }: { room: RemoteRoom }) {
           ? <button type="button" className={v.retry} data-testid="spectator-video-retry" onClick={() => video?.retry()}>Try again</button> : null}</p> : null}
         <LpStrip players={players} turnSeat={turnSeat} lp={lp} onJump={seat => document.querySelector(`[data-testid="seat-${seat}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" })} />
         {seatIds.map(seat => {
-          const boardOff = tapSeats.split(",").includes(String(seat)), wc = webcamOnly || boardOff;
+          const boardOff = tapSeats.split(",").includes(String(seat)), wc = (webcamOnly && !room.seats.find(item => item.seat === seat)?.bot) || boardOff;
           const twin = state.seats[seat]?.twin ?? [];
           const field = twin.filter(card => ["monster", "extra-monster", "spell-trap", "field", "pendulum"].includes(card.zone));
           const shown = field.filter(card => card.faceUp !== false && cardCode(card)); const hiddenCount = field.filter(card => card.faceUp === false).length;

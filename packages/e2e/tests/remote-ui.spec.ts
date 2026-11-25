@@ -9,7 +9,7 @@ import Database from "better-sqlite3";
 import { io } from "socket.io-client";
 
 // The default view follows the detection mode (Auto shows the virtual field, Tap to identify hides it). These tests use the board, so a browser with no saved choice starts in Both view.
-const bothView = (context: BrowserContext) => context.addInitScript(() => { if (localStorage.getItem("dd-remote-webcam-only") === null) localStorage.setItem("dd-remote-webcam-only", "0"); });
+const bothView = (context: BrowserContext) => context.addInitScript(() => { for (const key of ["dd-remote-webcam-only", "dd-remote-spectator-webcam-only"]) if (localStorage.getItem(key) === null) localStorage.setItem(key, "0"); });
 test.beforeEach(async ({ context }) => { await bothView(context); });
 
 const SHOTS = process.env.E2E_SHOTS ?? "";
@@ -820,7 +820,7 @@ test.describe("remote duels screen, moving cards by hand", () => {
     await expect(page.getByTestId("carry-hint")).toHaveCount(0); expect(find(await room(), "dm").slot).toBe(4);
   });
 
-  test("a new browser starts with the board on (Auto detection) and the zone grid off, a bot seat keeps its board, and a choice stays", async ({ browser }) => {
+  test("a new browser starts with the virtual board off and the zone grid off, and a choice stays", async ({ browser }) => {
     test.setTimeout(120_000);
     const url = process.env.E2E_REMOTE_UI_URL!;
     const fresh = await browser.newContext({ baseURL: url, viewport: { width: 1920, height: 1080 }, permissions: ["camera", "microphone"] });
@@ -828,9 +828,9 @@ test.describe("remote duels screen, moving cards by hand", () => {
       await authenticatePlayer(fresh.request, { userId: 101 }, process.env.E2E_AUTH_SECRET!, url);
       const slug = await soloTable(fresh.request, 2); const page = await fresh.newPage(); await fakeCamera(page, "16:9");
       await page.goto(`/duels/remote/${slug}`);
-      // The default follows the detection mode: Auto shows the board, Tap to identify hides it (resolveWebcamOnly).
-      await expect(page.getByTestId("fwrap-0")).toBeVisible(); await expect(page.getByTestId("fwrap-1")).toBeVisible();
-      await expect(page.getByTestId("field-toggle-0")).toContainText("Hide virtual field"); await expect(page.getByTestId("field-toggle-0")).toContainText("Beta");
+      // The board is off until the player turns it on, in every detection mode (resolveWebcamOnly).
+      await expect(page.getByTestId("remote-table")).toBeVisible(); await expect(page.getByTestId("fwrap-0")).toBeHidden(); await expect(page.getByTestId("fwrap-1")).toBeHidden();
+      await expect(page.getByTestId("field-toggle-0")).toContainText("Show virtual field"); await expect(page.getByTestId("field-toggle-0")).toContainText("Beta");
       // The grid shows only while the zones need calibration. Saved zones leave a clean camera.
       await page.getByTestId("camera-on-feed").click();
       await expect.poll(() => page.locator('[data-testid="feed-0"] video').evaluate((v: HTMLVideoElement) => v.videoWidth), { timeout: 30_000 }).toBeGreaterThan(0);
@@ -839,10 +839,10 @@ test.describe("remote duels screen, moving cards by hand", () => {
       const dialog = page.getByRole("dialog", { name: "Calibrate field zones", exact: true }); await expect(dialog).toBeVisible();
       await dialog.getByTestId("camera-my-view").click(); await dialog.getByRole("button", { name: "Save calibration", exact: true }).click(); await expect(dialog).toBeHidden();
       await expect(grid).toHaveAttribute("data-calibrated", "true"); await page.getByTestId("feed-box-0").hover(); await expect(page.getByTestId("zone-grid-toggle").first()).toHaveAttribute("aria-pressed", "true");
+      await page.keyboard.press("w"); await expect(page.getByTestId("fwrap-0")).toBeVisible();
+      await page.reload(); await expect(page.getByTestId("remote-table")).toBeVisible(); await expect(page.getByTestId("fwrap-0")).toBeVisible();
       await page.keyboard.press("w"); await expect(page.getByTestId("fwrap-0")).toBeHidden();
       await page.reload(); await expect(page.getByTestId("remote-table")).toBeVisible(); await expect(page.getByTestId("fwrap-0")).toBeHidden();
-      await page.keyboard.press("w"); await expect(page.getByTestId("fwrap-0")).toBeVisible();
-      await page.reload(); await expect(page.getByTestId("fwrap-0")).toBeVisible();
     } finally { await fresh.close(); }
   });
 
