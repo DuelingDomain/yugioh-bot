@@ -88,7 +88,7 @@ function copyOf(canvas: HTMLCanvasElement) {
   copy.getContext("2d")?.drawImage(canvas, 0, 0); return copy;
 }
 
-export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLive, onAbort, onPoint, onMiss, onSearch, onSelect, onAdd, onReset, onReadBoard, holdSelection, extra, onZoneCard, onPick, hoverTip, silentHover, onCardMenu, below, emptyText, emptyAction, prereadScope, announcedMode, tournament = false, openZones }: {
+export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLive, onAbort, onPoint, onMiss, onSearch, onSelect, onAdd, onReset, onReadBoard, holdSelection, extra, onZoneCard, onPick, hoverTip, silentHover, onHoverEnd, onCardMenu, below, emptyText, emptyAction, prereadScope, announcedMode, tournament = false, openZones }: {
   seat: number; name: string; you: boolean; health: Health; marks: FeedMark[]; reticles: FeedReticle[];
   /** A click landed on the live feed, before the card is found. Returns the id of this read. No popup opens yet. */
   onBegin: (seat: number, start: FeedStart) => number | void;
@@ -117,6 +117,8 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
   onPick?: (seat: number, x: number, y: number) => boolean;
   /** The board is shown: hoverTip only tracks the card under the pointer (for E) and shows no label. */
   silentHover?: boolean;
+  /** The pointer left the camera picture (also onto this feed's toolbar): no card is under it. */
+  onHoverEnd?: (seat: number) => void;
   /** The name line for the card under the pointer, from the outlines or from the zone. */
   hoverTip?: (seat: number, x: number, y: number) => { label: string; detail?: string; /** A key hint under the name, e.g. "Activate" for E. Hidden on small cameras. */ hint?: string } | null;
   /** Right click (or a long press) on the camera. The table opens the card actions for the card under the point, if it knows one. The event goes on to the table menu. */
@@ -449,7 +451,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
   }
   const calmHover = useCallback(() => { setTip(null); if (dwell.current) { clearTimeout(dwell.current); dwell.current = null; } }, []);
   function leave() {
-    setHovered(false); setHover(-1); setTip(null); if (dwell.current) { clearTimeout(dwell.current); dwell.current = null; }
+    onHoverEnd?.(seat); setHovered(false); setHover(-1); setTip(null); if (dwell.current) { clearTimeout(dwell.current); dwell.current = null; }
     if (frozenRef.current && !frozenRef.current.pinned) unfreeze("Live feed.");
   }
   function key(event: ReactKeyboardEvent<HTMLDivElement>) {
@@ -536,8 +538,9 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
       if (detail.tool === "freeze") { if (frozenRef.current) unfreeze("Live feed."); else void freeze(true); return; }
       if (!onReadBoard) return;
       if (frozenRef.current?.status === "ready") { void readAll(); return; }
-      if (!frozenRef.current) void freeze(true);
       readAfter.current = true;
+      // A freeze that gives no frozen frame (no picture yet, or it failed) must not leave the read waiting for the next freeze.
+      if (!frozenRef.current) void freeze(true).then(() => { if (!frozenRef.current || frozenRef.current.status === "error") readAfter.current = false; });
     }
     window.addEventListener(FEED_TOOL_EVENT, onTool); return () => window.removeEventListener(FEED_TOOL_EVENT, onTool);
   }, [seat, freeze, unfreeze, readAll, onReadBoard]);
@@ -564,7 +567,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
   return <div className={s.feedcol} data-testid={`feed-col-${seat}`} style={{ "--vr": ratio } as CSSProperties}><div className={s.cams} ref={wrap} tabIndex={source ? 0 : -1} role="group" onKeyDown={key} onPointerEnter={() => setHovered(true)} onPointerLeave={leave}
     aria-label={`${name}'s field camera. ${you ? "Your" : "Their"} view. Click a card to read it. Press F to freeze the frame and outline every card. Then Tab moves between cards and Enter opens one.`}
     data-testid={`feed-box-${seat}`} data-frozen={isFrozen ? frozen.status : "live"}>
-    <div className={`${s.fcam} ${isFrozen ? s.fcamFrozen : ""}`} ref={cam} onClick={click} onPointerMove={move}
+    <div className={`${s.fcam} ${isFrozen ? s.fcamFrozen : ""}`} ref={cam} onClick={click} onPointerMove={move} onPointerLeave={() => onHoverEnd?.(seat)}
       onPointerDown={event=>{lastPointer.current=event.pointerType;phonePointerHandled.current=false;if(closingPress.current||event.button!==0||!event.isPrimary||frozenRef.current||(event.target as HTMLElement).closest("button")||!hub.phones.some(phone=>phone.seat===seat&&phone.paired))return;const p=point(event.clientX,event.clientY);if(p){phonePointerHandled.current=true;if(dwell.current){clearTimeout(dwell.current);dwell.current=null;}wrap.current?.focus({preventScroll:true});void liveClick(p);}}}
       onPointerCancel={()=>{phonePointerHandled.current=false;}}
       onContextMenu={event => {

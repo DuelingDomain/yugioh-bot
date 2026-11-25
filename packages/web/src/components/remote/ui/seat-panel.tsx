@@ -65,6 +65,7 @@ export type SeatPanelProps = {
   /** The virtual field is hidden (the default). The camera feed takes its space. */ webcamOnly?: boolean;
   /** This player is in Tap mode, so the board is off for everyone: the seat shows its camera like Webcam only, plus a note. My own seat shows no note: the strip under my camera says it and has the Turn on button. */ boardOff?: Record<string, never>;
   /** A camera click on a card the table knows (both views). Webcam only also uses the camera for hover info and piles. Right click or long press opens the card actions (always). Same shapes as on the feed. */
+  onHoverEnd?: ComponentProps<typeof Feed>["onHoverEnd"];
   onZoneCard?: ComponentProps<typeof Feed>["onZoneCard"]; onCamPick?: ComponentProps<typeof Feed>["onPick"]; hoverTip?: ComponentProps<typeof Feed>["hoverTip"]; onCardMenu?: ComponentProps<typeof Feed>["onCardMenu"];
   /** Revealed in hand: cards added by effects or returned from the field, the hand count and (own seat) the add chip. */
   hand?: HandProps;
@@ -112,7 +113,9 @@ export function SeatPanel(p: SeatPanelProps) {
   const reduced = usePrefersReducedMotion(); const [typing, setTyping] = useState(false); const lpField = useRef<HTMLInputElement>(null);
   const startTyping = (prefill = "") => { setInput(prefill); setTyping(true); };
   // A click on the opponent's LP or on the hint: with an attacker picked it declares the direct attack, else the LP box opens with the attacker's ATK.
-  const onDirect = () => { if (p.pickPlate) p.onPlate(); else if (p.canLp) startTyping(p.direct?.atk ? String(p.direct.atk) : ""); };
+  const onDirect = () => { if (p.pickPlate) p.onPlate(); else if (p.canLp) startTyping(p.direct?.atk ? `-${p.direct.atk}` : ""); };
+  // An attacker is picked (any table, also a solo one or outside the Battle Phase), or it is my Battle Phase: the field says how to attack directly.
+  const directive = !!p.direct || p.pickPlate;
   const [badLp, setBadLp] = useState(false);
   const stopTyping = () => { setTyping(false); setInput(""); setBadLp(false); };
   useEffect(() => { if (typing) lpField.current?.focus(); }, [typing]);
@@ -153,11 +156,11 @@ export function SeatPanel(p: SeatPanelProps) {
     {p.focus?.tile ? <button type="button" className={s.tileTap} aria-label={`Show ${p.name}`} onClick={p.focus.onPick} /> : null}
     {p.onDock ? <NotifyDock seat={p.seat} onSlot={p.onDock} view={`${compact ? "webcam" : "both"}:${fieldView ? "field" : "camera"}`} /> : null}
     <div className={s.sbody}>
-      <Feed seat={p.seat} name={p.name} you={p.you} health={p.health} marks={p.marks} reticles={p.reticles} onBegin={p.onBegin} readLive={p.readLive} onAbort={p.onAbort} onMiss={p.onMiss} onSearch={p.onSearch} onPoint={p.onPoint} onSelect={p.onSelect} holdSelection={p.holdSelection} onAdd={p.onAdd} onReset={p.onReset} onReadBoard={p.onReadBoard} onZoneCard={p.onZoneCard} onPick={compact ? p.onCamPick : undefined} openZones={compact ? openZones : undefined} hoverTip={p.hoverTip} silentHover={!p.webcamOnly} onCardMenu={p.onCardMenu} emptyText={p.emptyFeedText} emptyAction={p.emptyFeedAction} tournament={p.tournamentTable} prereadScope={compact && p.live ? p.prereadScope : undefined} announcedMode={p.detectionMode === "unknown" ? undefined : p.detectionMode}
+      <Feed seat={p.seat} name={p.name} you={p.you} health={p.health} marks={p.marks} reticles={p.reticles} onBegin={p.onBegin} readLive={p.readLive} onAbort={p.onAbort} onMiss={p.onMiss} onSearch={p.onSearch} onPoint={p.onPoint} onSelect={p.onSelect} holdSelection={p.holdSelection} onAdd={p.onAdd} onReset={p.onReset} onReadBoard={p.onReadBoard} onZoneCard={p.onZoneCard} onPick={compact ? p.onCamPick : undefined} openZones={compact ? openZones : undefined} hoverTip={p.hoverTip} onHoverEnd={p.onHoverEnd} silentHover={!p.webcamOnly} onCardMenu={p.onCardMenu} emptyText={p.emptyFeedText} emptyAction={p.emptyFeedAction} tournament={p.tournamentTable} prereadScope={compact && p.live ? p.prereadScope : undefined} announcedMode={p.detectionMode === "unknown" ? undefined : p.detectionMode}
         extra={<>
           <CameraToolsMenu seat={p.seat} name={p.name} you={p.you} scan={scan} advice={advice} warn={p.health.q === "bad"} onToken={p.onToken} onRescan={p.you ? undefined : p.onRescan} onSettings={p.onSettings} />
           {fieldView ? <button type="button" className={s.swapcam} tabIndex={-1} aria-label="Camera view: show the camera large again" data-testid={`swap-cam-${p.seat}`} onClick={() => setFieldView(false)} /> : null}
-          {p.direct ? <button type="button" className={s.directHint} onClick={onDirect} data-testid={`direct-hint-${p.seat}`} aria-label={`Attack ${p.name} directly`}><Icon name="bolt" />Click webcam or LP to attack directly</button> : null}
+          {directive ? <button type="button" className={s.directHint} onClick={onDirect} data-testid={`direct-hint-${p.seat}`} aria-label={`Attack ${p.name} directly`}><Icon name="bolt" />{p.pickPlate ? "Attack directly" : "Click webcam or LP to attack directly"}</button> : null}
           {targeting ? cardList : null}
           {compact && missingPiles.length ? <div className={s.wcoffmat} role="status" data-testid={`wc-off-mat-${p.seat}`}>{`${missingPiles.map(zone => zone === "DECK" ? "Deck" : "Extra Deck").join(" and ")} not on the mat`}</div> : null}
           {compact && p.hand ? <HandStrip seat={p.seat} name={p.name} hand={{ ...p.hand, overlay: true }} /> : null}
@@ -191,7 +194,7 @@ export function SeatPanel(p: SeatPanelProps) {
             {typing ? <input ref={lpField} className={s.lpin} inputMode="numeric" placeholder={`${MINUS}/+ amount`} aria-label={`Custom LP change for ${p.name}. A plus sign adds. A number alone takes away. Press Enter.`}
               value={input} aria-invalid={badLp || undefined} aria-describedby={badLp ? `lp-bad-${p.seat}` : undefined} onChange={event => { setInput(event.target.value); setBadLp(false); }} onBlur={stopTyping}
               onKeyDown={event => { event.stopPropagation(); if (event.key === "Escape") { stopTyping(); return; } if (event.key !== "Enter") return; const value = parseLpInput(input); if (value === null) { setBadLp(true); return; } p.onLp(value); stopTyping(); }} />
-              : <button type="button" className={`${s.lpn} ${low ? s.low : ""} ${delta < 0 ? s.loss : delta > 0 ? s.gain : ""}`} data-lp-seat={p.seat} disabled={!p.canLp} title={p.direct ? "Attack directly" : "Click to type an amount"} aria-label={`Type an LP change for ${p.name}. Life points ${p.lp}`} onClick={p.direct ? onDirect : () => startTyping()}>
+              : <button type="button" className={`${s.lpn} ${low ? s.low : ""} ${delta < 0 ? s.loss : delta > 0 ? s.gain : ""}`} data-lp-seat={p.seat} disabled={!p.canLp} title={directive ? "Attack directly" : "Click to type an amount"} aria-label={`Type an LP change for ${p.name}. Life points ${p.lp}`} onClick={directive ? onDirect : () => startTyping()}>
                 <LifePoints value={p.lp} reducedMotion={reduced} showChange={false} />
                 <span className={s.lpt} aria-hidden="true" data-testid={`lp-value-${p.seat}`}>{p.lp}</span>
               </button>}

@@ -46,7 +46,7 @@ import { SeatPanel } from "./seat-panel";
 import type { RescanResult } from "@/lib/remote/video-protocol";
 import { RemoteFx } from "./remote-fx";
 import { HandActivation } from "./hand-activation";
-import { useLayers } from "./use-layers";
+import { isPushedLayer, useLayers } from "./use-layers";
 import { remoteApi, serverNow } from "./api";
 import { useRemoteRoom, type RoomController } from "./use-remote-room";
 import { useVoice, type MicState } from "./use-voice";
@@ -163,7 +163,13 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
   const voiceRecognition = room.voiceEnabled === true && room.mySeat >= 0;
   const sayItsName = "";
   const hub = useVideoHub();
-  const layers = useLayers();
+  // A pick or a prompt (chip, attack target, E row) owns Escape even while the pushed drawer is open.
+  const escapeBusy = useRef(false);
+  const layers = useLayers(() => escapeBusy.current);
+  // On a wide screen the table drawer pushes the table aside and does not block it (keys, hand search, the E row).
+  const [wideScreen, setWideScreen] = useState(false);
+  useEffect(() => { const query = window.matchMedia("(min-width: 1100px)"); const sync = () => setWideScreen(query.matches); sync(); query.addEventListener("change", sync); return () => query.removeEventListener("change", sync); }, []);
+  const tableBlocked = !!layers.layer && !(layers.layer === "log" && wideScreen);
   const state = room.state; const mySeat = room.mySeat; const solo = room.solo;
   const match = matchOf(room); const inMatchBreak = match.phase !== "duel";
   const live = room.status === "active" && !state.ended && !inMatchBreak;
@@ -328,6 +334,8 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     if(updated&&warning)toast(warning,5000);
     // An activated card that takes control (card logic) asks which card it took. After the card popup closes, so the picker stays open.
     if(updated&&proposal.type==='effect.activated'&&proposal.source.cardId){const wanted=controlOffer(proposal.source.cardId),seat=proposal.actorSeat;if(wanted)setTimeout(()=>controlOfferRef.current?.(seat,wanted),0);}
+    // After a table action the old selection is spent (a read of the cameras keeps it).
+    if(updated&&proposal.type!=='cards.identified'){setSelected(null);camHover.current=null;}
     return updated;
   },[ctl.action,toast]);
   /** `tokenOnly`: an empty Main Monster Zone of another player's field. Its menu has just "Add token", and the view stays as it is. */
@@ -1159,10 +1167,17 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     queueSignal(() => { if (R.current.room.status === "active") void act({ type: "chain.ok", actorSeat: me }); });
   }, [act, queueSignal]);
   /** The card under the pointer on a webcam (set by the hover label). The E key uses it when the pointer is over that camera. */
-  const camHover = useRef<{ seat: number; ref: string } | null>(null);
+  const camHover = useRef<{ seat: number; ref: string; at: number } | null>(null);
+  /** The pointer left the card or the camera (toolbar, ledge, "..." menu of the same feed): no card is under it any more. */
+  const clearCamHover = useCallback(() => { camHover.current = null; }, []);
+  /** A spoken "effect" may use the hovered card only when the pointer was on it a moment ago. */
+  const CAM_HOVER_VOICE_MS = 1500;
+  const freshCamHover = () => { const hover = camHover.current; return hover && Date.now() - hover.at < CAM_HOVER_VOICE_MS ? { seat: hover.seat, ref: hover.ref } : null; };
+  // A selection or a hover from before a new turn or an action must not decide what a bare "effect" or E means.
+  useEffect(() => { setSelected(null); camHover.current = null; }, [state.turn, state.turnSeat]);
   /** The E key: activate the card I mean. Under the pointer or focused first, then my newest placement of the last 10 s, else a numbered row. */
   const [activateRow, setActivateRow] = useState<{ seat: number; cards: TwinCard[] } | null>(null);
-  useEffect(() => { if (activateRow && (!live || layers.layer)) setActivateRow(null); }, [activateRow, live, layers.layer]);
+  useEffect(() => { if (activateRow && (!live || tableBlocked)) setActivateRow(null); }, [activateRow, live, tableBlocked]);
   const sendActivation = useCallback((seat: number, card: TwinCard) => {
     const cardId = cardCode(card); if (!cardId) return;
     setActivateRow(null);
@@ -1207,7 +1222,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
   }, [sendActivation, toast]);
   /** The card a bare spoken "effect" means: the open card menu, else the selected card, else the card under the pointer on a webcam. Mine, face up, on the field, named. */
   const voicePick = useRef<{ seat: number; ref: string } | null>(null);
-  voicePick.current = subject?.ref ? { seat: subject.seat, ref: subject.ref } : selected ?? camHover.current;
+  voicePick.current = subject?.ref ? { seat: subject.seat, ref: subject.ref } : selected ?? freshCamHover();
   const voiceSelected = useCallback(() => {
     const { room: now, state: current } = R.current; const pick = voicePick.current; if (!pick || now.spectator) return undefined;
     if (!(now.solo || pick.seat === now.mySeat)) return undefined;
@@ -1286,14 +1301,15 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
   // Thinking, OK and E need a live duel; E also works before a card is placed.
   const think = signalShown ? thinkNow : null; const ok = signalShown ? okNow : null;
   const activate = live && (solo || mySeat >= 0) && !room.spectator ? activateNow : null;
-  const latest = useRef({ chip, cancelChip, doUndo, picking, ptt, toggleView, think, ok, activate, activateRow, pickFromRow }); latest.current = { chip, cancelChip, doUndo, picking, ptt, toggleView, think, ok, activate, activateRow, pickFromRow };
+  const latest = useRef({ chip, cancelChip, doUndo, picking, ptt, toggleView, think, ok, activate, activateRow, pickFromRow }); latest.current = { chip, cancelChip, doUndo, picking, ptt, toggleView, think, ok, activate, activateRow, pickFromRow }; escapeBusy.current = !!(chip || picking || activateRow);
   useEffect(() => {
     function down(event: KeyboardEvent) {
       const L = latest.current;
       if ((event.ctrlKey || event.metaKey) && (event.key === "z" || event.key === "Z") && !typing(event.target)) { event.preventDefault(); void L.doUndo(); return; }
       if (typing(event.target) || event.ctrlKey || event.metaKey || event.altKey) return;
       if ((event.key === "v" || event.key === "V") && L.ptt && !event.repeat) { setHeld(true); return; }
-      if (R.current.layer) return;
+      // The table drawer that pushes the table (wide screens) does not block the table keys. Every other layer does.
+      if (R.current.layer && !(R.current.layer === "log" && isPushedLayer("log"))) return;
       // T thinks, Space says OK, E activates. A modal dialog, a focused control or a held key keeps its own behavior.
       const modal = !!document.querySelector('[role="alertdialog"],[role="dialog"][aria-modal="true"]');
       if (L.activateRow) {
@@ -1383,8 +1399,8 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
   useEffect(() => { if (!suggestion) return; const timer = setTimeout(() => setSuggestion(null), 30_000); return () => clearTimeout(timer); }, [suggestion]);
   const dismissSuggestion = useCallback((card: HandSuggestion) => { setDismissedSearch(old => new Set([...old, card.id])); setSuggestion(null); }, [setDismissedSearch]);
   // One chip at a time (a solo table has a chip for each bot seat), and none while a popover, drawer or tray is open.
-  const chipSeat = layers.layer ? undefined : state.seats.map(item => item.seat).find(seat => live && (solo || seat === mySeat) && openSearch(state, seat, dismissedSearch, searchFresh));
-  const suggestSeat = !layers.layer && chipSeat === undefined && suggestion && !dismissedSearch.has(suggestion.id) && live && (solo || suggestion.actorSeat === mySeat) &&
+  const chipSeat = tableBlocked ? undefined : state.seats.map(item => item.seat).find(seat => live && (solo || seat === mySeat) && openSearch(state, seat, dismissedSearch, searchFresh));
+  const suggestSeat = !tableBlocked && chipSeat === undefined && suggestion && !dismissedSearch.has(suggestion.id) && live && (solo || suggestion.actorSeat === mySeat) &&
     !state.seats[suggestion.actorSeat]?.knownHand?.some(card => card.cardId === suggestion.cardId) ? suggestion.actorSeat : undefined;
   const handOf = (seat: number): HandProps | undefined => {
     const own = live && (solo || seat === mySeat);
@@ -1599,6 +1615,14 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
       ? { key: "reader", name: "Card reader", health: { q: "warn" as const, label: "CPU reader", detail: "The GPU failed, so cards are read on the CPU. This is slower." }, tag: "Weak" }
       : { key: "reader", name: "Card reader", health: { q: "off" as const, label: "CPU reader", detail: "This browser reads cards on the CPU. It is a little slower." }, tag: "Info" }] : []),
   ];
+  // Summary chip in the top bar (opens the Info tab): the worst state across the human feeds and the extra rows.
+  const humans = healthRows.filter(row => !room.seats.find(item => item.seat === row.seat)?.bot);
+  const weakFeeds = humans.filter(row => row.health.q === "bad" || row.health.q === "warn").length;
+  const counted = extras.filter(item => item.health.q === "bad" || item.health.q === "warn");
+  const allQ = [...humans.map(row => row.health.q), ...counted.map(item => item.health.q)];
+  const worstQ = allQ.includes("bad") ? "bad" : allQ.includes("warn") ? "warn" : humans.every(row => row.health.q === "off") ? "off" : "good";
+  const healthIssues = [...(weakFeeds ? [`${weakFeeds} feed${weakFeeds === 1 ? "" : "s"} weak`] : []), ...counted.map(item => item.health.label)];
+  const healthSummary = healthIssues.length ? `${healthIssues[0]}${healthIssues.length > 1 ? ` +${healthIssues.length - 1}` : ""}` : worstQ === "off" ? "Cameras off" : "All feeds ok";
   const format = room.format ?? state.deckChecks?.format ?? normalizeRemoteFormat();
   const formatLabel = REMOTE_FORMATS.find(item => item.value === format.id)?.label ?? format.id;
   const mode = seatCount === 2 ? "1v1" : String(seatCount);
@@ -1637,7 +1661,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
   const hoverTip = (seat: number, x: number, y: number): { label: string; detail?: string; hint?: string } | null => {
     camHover.current = null;
     if (tapOwnSeat && seat === mySeat) return null;
-    const under = cardAtPoint(seat, x, y); if (under) camHover.current = { seat, ref: under.ref };
+    const under = cardAtPoint(seat, x, y); if (under) camHover.current = { seat, ref: under.ref, at: Date.now() };
     // The "E Activate" hint shows on my own face-up named card on the field.
     const hint = under && (solo || seat === mySeat) && under.faceUp !== false && cardCode(under) && onField(under) ? "Activate" : undefined;
     const tracked = hub.trackedAt(seat, x, y);
@@ -1721,7 +1745,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     <AutoFieldWatcher dock={seatDocks[mySeat] ?? null} room={room} transaction={ctl.transaction} diagnosticsAllowed={feedbackPref?.isAdmin===true && feedbackPref.collectionEnabled} />
     <a className={s.skip} href="#stage">Skip to the table</a>
     <div className={s.shell}>
-      <TopBar crumb={`Table ${room.slug.slice(0, 8)}`} startedAt={room.startedAt} endedAt={room.endedAt} tournament={tournament ? { name: tournament.tournamentName, href: `/tournament/${encodeURIComponent(tournament.tournamentSlug)}` } : null} chip={`${formatLabel} · ${solo ? "Solo test" : `${seatCount} players`}${room.spectatorCount ? ` · ${room.spectatorCount} watching` : ""}`} adminWatchers={(room.adminWatchers ?? []).map(watcher => watcher.name)} cardOpen={layers.layer === "insp"} logOpen={layers.layer === "log"} logDot={unread}
+      <TopBar crumb={`Table ${room.slug.slice(0, 8)}`} startedAt={room.startedAt} endedAt={room.endedAt} tournament={tournament ? { name: tournament.tournamentName, href: `/tournament/${encodeURIComponent(tournament.tournamentSlug)}` } : null} chip={`${formatLabel} · ${solo ? "Solo test" : `${seatCount} players`}${room.spectatorCount ? ` · ${room.spectatorCount} watching` : ""}`} adminWatchers={(room.adminWatchers ?? []).map(watcher => watcher.name)} cardOpen={layers.layer === "insp"} logOpen={layers.layer === "log"} logDot={unread} health={{ q: worstQ, text: healthSummary }} healthOpen={layers.layer === "log" && drawerTab === "info"} onHealth={el => openDrawer("info", el)}
         onCard={el => layers.toggle("insp", el)} onLog={el => layers.layer === "log" ? layers.close("log") : openDrawer("log", el)}
         webcamOnly={webcamOnly} onView={multi ? undefined : setWebcamOnly} />
       <AdminWatchStrip names={(room.adminWatchers ?? []).map(watcher => watcher.name)} />
@@ -1759,7 +1783,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
             twin={twin} deckRegistered={!!(registration?.deckRegistered??registration?.deck)} deckListSizes={deck?{deck:deck.main.length,extra:deck.extra.length}:undefined} info={info} extraZones={extraZones} facing={facing(seat)} boardSeats={state.seats} owners={state.seats.map(item => ({ seat: item.seat, name: name(item.seat), color: COLORS[item.seat] }))} rv={rv[seat] ?? "m1"} onRv={key => setRv(old => ({ ...old, [seat]: key }))} picking={!!picking && seat !== picking.seat}
             selectedRef={picking?.seat === seat ? picking.ref : selected?.seat === seat ? selected.ref : undefined} targetRef={attack?.targetSeat === seat ? attack.targetCardRef : undefined} freshRef={fresh}
             warnRefs={warnRefs(seat)} twinCounts={twinCounts(seat)} pickPlate={plate} direct={direct} tournamentTable={isTournamentTable(room)} detectionMode={seat !== mySeat ? stateMode(room.state, seat) ?? "unknown" : undefined} viewScope={String(seatCount)} webcamOnly={webcamOnly && !needsBoard(seat)} onDock={onSeatDock} boardOff={boardOff(seat) ? {} : undefined}
-            onZoneCard={onZoneCard} onCamPick={onCamPick} hoverTip={hoverTip} onCardMenu={onCardMenu}
+            onZoneCard={onZoneCard} onCamPick={onCamPick} hoverTip={hoverTip} onHoverEnd={clearCamHover} onCardMenu={onCardMenu}
             tokenSlots={tokens.placing && !state.seats[seat]?.eliminated ? tokens.openSlots(seat) : control.giveSlots(seat)} onActivate={(key, card) => { if (tokens.placeAt(seat, key, card) || control.giveAt(seat, key, card)) return; if (picking && card && seat !== picking.seat && (card.zone === "monster" || card.zone === "extra-monster")) void declare(seat, card.ref); else if (!picking && (solo || seat === mySeat) && !isPile(key)) openZonePicker(seat,key); else if (!picking && !card && (/^m[1-5]$/.test(key) || control.canGive && /^s[1-5]$/.test(key))) openZonePicker(seat,key,undefined,true,false,true); else if (card) openSubject(card); }}
             onAttack={(_key, card) => startAttack(seat, card)} onInspect={card => openSubject(card)} onPile={(zone, opener) => openPile(seat, zone, opener)} onDeck={(solo || seat === mySeat) && surrenderable(seat) ? el => { setDeckAt({ seat, rect: el.getBoundingClientRect() }); layers.toggle("deck", el); } : undefined} live={live} drag={fieldDrag(seat)} onPlate={() => { if (plate) void declare(seat); }}
             onLp={delta => void changeLp(seat, delta)} canLp={live} deckWarning={deckFlag(room, seat)?.message} onDeckFlag={el => { setFlagSeat(seat); layers.toggle("flag", el); }}

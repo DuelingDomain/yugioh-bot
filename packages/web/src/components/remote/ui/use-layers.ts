@@ -11,11 +11,15 @@ const FIRST = '[data-autofocus],li[role=option],input[type=text]';
 /** A sticky layer (the table drawer) does not trap Tab or close on an outside press when the page is wide enough to push the table. */
 const pushed = (root: HTMLElement | null) => !!root && root.dataset.sticky === "true" && window.matchMedia("(min-width: 1100px)").matches;
 
+/** True while the open layer is a sticky drawer that pushes the table. It does not block the table keys. */
+export const isPushedLayer = (id: LayerId | null) => !!id && pushed(document.querySelector<HTMLElement>(`[data-layer="${id}"]`));
+
 /**
  * Focus goes into the layer when it opens, Tab stays inside, Esc closes, a press outside closes
  * (a press on a camera feed keeps a card popup open, because that click starts the next read), and focus returns to whatever opened it.
+ * `keepEscape` says a pick or a prompt on the table owns Escape while a pushed drawer is open.
  */
-export function useLayers() {
+export function useLayers(keepEscape?: () => boolean) {
   const [layer, setLayer] = useState<LayerId | null>(null);
   const opener = useRef<HTMLElement | null>(null);
   const layerRef = useRef<LayerId | null>(null); layerRef.current = layer;
@@ -46,6 +50,8 @@ export function useLayers() {
     });
     function key(event: KeyboardEvent) {
       const root = document.querySelector<HTMLElement>(`[data-layer="${layerRef.current}"]`); if (!root) return;
+      // A pushed drawer leaves Escape to a pick or a prompt that is active on the table.
+      if (event.key === "Escape" && pushed(root) && keepEscape?.()) return;
       if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); if (root.dataset.modal !== "true") close(); return; }
       if (event.key !== "Tab") return;
       if (pushed(root)) return;
