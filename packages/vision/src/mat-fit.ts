@@ -6,7 +6,7 @@ import {quadMap} from './geometry';
 export interface MatFitOptions {
   playerSide?:PlayerSide;
   mirrored?:boolean;
-  /** Time from the start of the fit, checked only after the first scale completes. */
+  /** Minimum time budget from the start of the fit. Defaults to 1100 ms. */
   budgetMs?:number;
 }
 export interface MatFitResult {
@@ -773,7 +773,7 @@ function fitLattice(d:Rect[],lat:Lattice,w:number,h:number,options:MatFitOptions
 
 // A side camera sees the seven columns vertically. Normalize its raw pixels,
 // then restore image-clockwise corners and the player's original side.
-function fitSideMat(image:RGBAImage,options:MatFitOptions,checkBudget:CheckBudget):MatFitResult {
+function fitSideMat(image:RGBAImage,options:MatFitOptions,start:number):MatFitResult {
   const left=options.playerSide==='left',data=new Uint8ClampedArray(image.data.length);
   for(let y=0;y<image.height;y++){
     for(let x=0;x<image.width;x++){
@@ -782,7 +782,7 @@ function fitSideMat(image:RGBAImage,options:MatFitOptions,checkBudget:CheckBudge
       for(let k=0;k<4;k++)data[dst+k]=image.data[src+k];
     }
   }
-  const fitted=fitMatWithinBudget({data,width:image.height,height:image.width},{...options,playerSide:'bottom'},checkBudget);
+  const fitted=fitMatWithinBudget({data,width:image.height,height:image.width},{...options,playerSide:'bottom'},start);
   const restore=(corners:NonNullable<MatFitResult['corners']>)=>{
     const order=left?[3,0,1,2]:[1,2,3,0];
     return order.map(i=>left?{x:1-corners[i].y,y:corners[i].x}:{x:corners[i].y,y:1-corners[i].x}) as NonNullable<MatFitResult['corners']>;
@@ -815,18 +815,22 @@ function fitMatAtScale(image:RGBAImage,options:MatFitOptions,workingWidth:number
     ??result;
 }
 
-function fitMatWithinBudget(image:RGBAImage,options:MatFitOptions,checkBudget:CheckBudget):MatFitResult {
-  if(options.playerSide==='left'||options.playerSide==='right')return fitSideMat(image,options,checkBudget);
-  let preview:MatFitResult|undefined,refusal:MatFitResult|undefined;
-  const fitScale=(width:number,scaleBudget=checkBudget)=>{
-    scaleBudget();
-    const result=fitMatAtScale(image,options,width,scaleBudget);
+function fitMatWithinBudget(image:RGBAImage,options:MatFitOptions,start:number):MatFitResult {
+  if(options.playerSide==='left'||options.playerSide==='right')return fitSideMat(image,options,start);
+  const first=fitMatAtScale(image,options,768,()=>{});
+  if(first.confidence==='high')return first;
+  const firstScaleMs=performance.now()-start;
+  const deadline=start+Math.max(options.budgetMs??FIT_BUDGET_MS,firstScaleMs*3);
+  const checkBudget=()=>{
+    if(performance.now()>=deadline)throw fitTimedOut;
+  };
+  let preview=first.corners?first:undefined;
+  const fitScale=(width:number)=>{
+    checkBudget();
+    const result=fitMatAtScale(image,options,width,checkBudget);
     if(result.corners)preview??=result;
-    else refusal??=result;
     return result;
   };
-  const first=fitScale(768,()=>{});
-  if(first.confidence==='high')return first;
   try{
     const coarse=fitScale(512);
     if(coarse.confidence==='high')return coarse;
@@ -844,18 +848,16 @@ function fitMatWithinBudget(image:RGBAImage,options:MatFitOptions,checkBudget:Ch
     // An interrupted pass has not finished checking its geometry and ambiguity.
     if(error!==fitTimedOut)throw error;
   }
-  return preview??refusal!;
+  return preview??first;
 }
 
-/** Fit raw camera pixels before drawing any grid or labels. The first scale
- * completes even if rotation and fitting use up the deadline. */
+/** Fit raw camera pixels before drawing any grid or labels. The unarmed first
+ * scale, including camera rotation, sets the deadline for subsequent passes. */
 export function fitMat(image:RGBAImage,options:MatFitOptions={}):MatFitResult {
-  const deadline=performance.now()+(options.budgetMs??FIT_BUDGET_MS);
+  const start=performance.now();
   if(!Number.isInteger(image.width)||!Number.isInteger(image.height)||image.width<128||image.height<128||image.width*image.height>16_000_000||image.data.length!==image.width*image.height*4)return emptyResult(options,'invalid-frame');
   if(Math.max(image.width/image.height,image.height/image.width)>6)return emptyResult(options,'invalid-frame');
-  return fitMatWithinBudget(image,options,()=>{
-    if(performance.now()>=deadline)throw fitTimedOut;
-  });
+  return fitMatWithinBudget(image,options,start);
 }
 /** A preview requires a resolved column window, even for a sparse fit. */
 export function matFitCalibration(result:MatFitResult):FieldCalibration|undefined {

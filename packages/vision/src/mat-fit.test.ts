@@ -217,10 +217,14 @@ test('quarter-turn camera priors retain named zones and flag side uncertainty',a
  }
 });
 
-test('returns the first scale result when the fit budget has already expired',async t=>{
+test('scales the deadline with the first pass and keeps its result when the budget expires',async t=>{
   const easy=await frame(),pale=await frame('raging-tempest.png');
-  let clockRead=0;
-  t.mock.method(performance,'now',()=>clockRead++===0?0:10_000);
+  const start=10_000,firstScaleMs=600;
+  let clockRead=0,elapsed=firstScaleMs*3;
+  t.mock.method(performance,'now',()=>{
+    const read=clockRead++;
+    return start+(read===0?0:read===1?firstScaleMs:elapsed);
+  });
 
   const fit=fitMat(easy,{playerSide:'top'});
   assert.ok(fit.corners,JSON.stringify(fit));
@@ -235,4 +239,10 @@ test('returns the first scale result when the fit budget has already expired',as
   clockRead=0;
   const needsPreviewPass=fitMat(pale,{playerSide:'top'});
   assert.equal(needsPreviewPass.corners,null,JSON.stringify(needsPreviewPass));
+
+  clockRead=0;
+  elapsed--;
+  const preview=fitMat(pale,{playerSide:'top'});
+  assert.ok(preview.corners,JSON.stringify(preview));
+  assert.equal(preview.confidence,'low');
 });
