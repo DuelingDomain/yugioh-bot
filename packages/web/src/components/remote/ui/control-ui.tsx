@@ -22,7 +22,7 @@ type Position = "attack" | "defense";
 type View =
   | { step: "card"; seat: number; offer: ControlOffer }
   | { step: "place"; taker: number; from: number; card: TwinCard; revive: boolean; give?: boolean; position?: Position; row?: Row }
-  | { step: "hand"; seat: number }
+  | { step: "hand"; seat: number; /** An empty zone of an opponent's field that was clicked: the chosen card goes straight there. */ target?: { seat: number; key: ZoneKey } }
   | { step: "equip"; seat: number; card: TwinCard };
 
 /** A card that is known not to be a monster (a Spell or Trap in a Graveyard). An unread card is not excluded. */
@@ -95,10 +95,8 @@ export function useControlChange({ act, room, live, extraZones, layers, info, na
     const cells = cellsFor(target.twin, extraZones);
     return ROWS[giving.row].filter(key => !cells[key]?.card);
   };
-  const giveAt = (seat: number, key: ZoneKey, card: TwinCard | undefined): boolean => {
-    if (!giving || card || !giveSlots(seat)?.includes(key)) return false;
-    if (givingNow.current) return true;
-    const sent = giving, slot = Number(key[1]);
+  /** Sends the given card (or the card from the hand) into slot `slot` of an opponent's field. One give at a time. */
+  const sendGiven = (sent: Give, seat: number, slot: number) => {
     givingNow.current = true;
     const done = (updated: RemoteRoom | null) => { givingNow.current = false; if (updated) setGiving(now => now === sent ? null : now); };
     const failed = () => { givingNow.current = false; };
@@ -106,6 +104,22 @@ export function useControlChange({ act, room, live, extraZones, layers, info, na
     else if (sent.draft) void act({ type: "twin.place", actorSeat: sent.seat, seat, zone: sent.row, give: true, card: { ref: crypto.randomUUID(), cardId: sent.draft.cardId, name: sent.name, slot, faceUp: sent.draft.faceUp,
       position: sent.row === "monster" && !sent.draft.faceUp ? "defense" : sent.draft.position } }).then(done).catch(failed);
     else givingNow.current = false;
+  };
+  const giveAt = (seat: number, key: ZoneKey, card: TwinCard | undefined): boolean => {
+    if (!giving || card || !giveSlots(seat)?.includes(key)) return false;
+    if (givingNow.current) return true;
+    sendGiven(giving, seat, Number(key[1]));
+    return true;
+  };
+  /** A free zone on a living opponent's field. */
+  const giveFreeZone = (seat: number, key: ZoneKey) => { const target = state.seats[seat]; return !!target && !target.eliminated && seat !== mySeat && !cellsFor(target.twin, extraZones)[key]?.card; };
+  /** "Give a card from my hand here": opens the hand search with the clicked empty zone as the target. */
+  const giveHere = (seat: number, key: ZoneKey) => { if (canGive && giveFreeZone(seat, key)) open({ step: "hand", seat: mySeat, target: { seat, key } }); };
+  /** A suggestion chip: my card on the field goes to the opponent (control change), or one from the hand (a Kaiju) is given by its catalog id. Both then wait for the zone click. */
+  const giveCard = (id: number, name: string, card?: TwinCard, row: Row = "monster") => {
+    if (card) return give(card);
+    if (!canGive) return false;
+    setGiving({ seat: mySeat, row, name, draft: { cardId: id, position: "attack", faceUp: true } });
     return true;
   };
   const giveTrigger = (seat: number): ReactNode => canGive && seat === mySeat
@@ -183,7 +197,13 @@ export function useControlChange({ act, room, live, extraZones, layers, info, na
     heading = "Give a card to an opponent";
     body = <GiveHand onClose={close} onChoose={(card, draft) => {
       const row: Row = /spell|trap/i.test(card.type) ? "spell-trap" : "monster";
-      close(); setGiving({ seat: view.seat, row, name: card.name, draft: { cardId: card.id, ...draft } });
+      const sent: Give = { seat: view.seat, row, name: card.name, draft: { cardId: card.id, ...draft } };
+      close();
+      // Pre-targeted from an empty zone: the card goes there at once when its row fits and the zone is still free. Otherwise the usual "click a zone" step starts.
+      const target = view.target;
+      if (target && ROWS[row].includes(target.key as never) && !givingNow.current && giveFreeZone(target.seat, target.key)) { sendGiven(sent, target.seat, Number(target.key[1])); return; }
+      if (target) toast(ROWS[row].includes(target.key as never) ? "That zone is taken now. Click another free zone." : `${card.name} goes in a ${row === "monster" ? "Monster" : "Spell & Trap"} Zone. Click one.`);
+      setGiving(sent);
     }} />;
   } else if (view?.step === "equip") {
     const card = view.card;
@@ -208,7 +228,7 @@ export function useControlChange({ act, room, live, extraZones, layers, info, na
     <span className={t.barText} role="status">Click a free {giving.row === "monster" ? "Monster" : "Spell & Trap"} Zone on an opponent's field for <b>{giving.name}</b>. It stays yours there. Move its paper card off your zones.</span>
     <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} onClick={() => setGiving(null)} data-testid="give-cancel">Cancel <kbd>Esc</kbd></button>
   </div> : null;
-  return { offer, take, giveBack, askEquip, node: <>{node}{bar}</>, may, give, giveSlots, giveAt, giveTrigger, giving: !!giving && canGive, canGive };
+  return { offer, take, giveBack, askEquip, node: <>{node}{bar}</>, may, give, giveSlots, giveAt, giveHere, giveCard, giveTrigger, giving: !!giving && canGive, canGive };
 }
 
 /** Search the catalog for the card in the hand, then ask how it lands. The zone is the next click. */
