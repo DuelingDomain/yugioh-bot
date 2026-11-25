@@ -1142,6 +1142,8 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     setThink(me, false);
     queueSignal(() => { if (R.current.room.status === "active") void act({ type: "chain.ok", actorSeat: me }); });
   }, [act, queueSignal]);
+  /** The card under the pointer on a webcam (set by the hover label). The E key uses it when the pointer is over that camera. */
+  const camHover = useRef<{ seat: number; ref: string } | null>(null);
   /** The E key: activate the card I mean. Under the pointer or focused first, then my newest placement of the last 10 s, else a numbered row. */
   const [activateRow, setActivateRow] = useState<{ seat: number; cards: TwinCard[] } | null>(null);
   useEffect(() => { if (activateRow && (!live || layers.layer)) setActivateRow(null); }, [activateRow, live, layers.layer]);
@@ -1170,7 +1172,9 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
       return card ? { kind: "card", seat, card } as const : undefined;
     };
     let hovered: Element | undefined; try { hovered = [...document.querySelectorAll(":hover")].pop(); } catch { /* no :hover support */ }
-    const pointed = classify(hovered) ?? classify(document.activeElement);
+    const column = hovered?.closest<HTMLElement>('[data-testid^="feed-col-"]'); const cam = camHover.current;
+    const camCard = column && cam && column.dataset.testid === `feed-col-${cam.seat}` ? current.seats[cam.seat]?.twin.find(item => item.ref === cam.ref) : undefined;
+    const pointed = classify(hovered) ?? (cam && camCard ? { kind: "card", seat: cam.seat, card: camCard } as const : undefined) ?? classify(document.activeElement);
     if (pointed) {
       if (pointed.kind === "hand") { toast("E works on field cards. Activate a card from hand with its panel."); return; }
       if (!own(pointed.seat)) { toast("That is not your card."); return; }
@@ -1612,14 +1616,18 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
   const statLine = (id: number | undefined) => { const facts = info(id); return facts && isMonsterInfo(facts) ? `ATK ${facts.atk ?? "?"}${facts.def !== undefined && facts.def !== null ? ` / DEF ${facts.def}` : ""}` : facts?.type; };
   const pileCount = (seat: number, zone: PileZone) => (state.seats[seat]?.twin ?? []).filter(card => card.zone === zone).length;
   /** Webcam only: the name under the pointer. Outlined cards first, then the card the table holds in that zone. A hidden card shows as a Set card. */
-  const hoverTip = (seat: number, x: number, y: number) => {
+  const hoverTip = (seat: number, x: number, y: number): { label: string; detail?: string; hint?: string } | null => {
+    camHover.current = null;
     if (tapOwnSeat && seat === mySeat) return null;
+    const under = cardAtPoint(seat, x, y); if (under) camHover.current = { seat, ref: under.ref };
+    // The "E Activate" hint shows on my own face-up named card on the field.
+    const hint = under && (solo || seat === mySeat) && under.faceUp !== false && cardCode(under) && onField(under) ? "Activate" : undefined;
     const tracked = hub.trackedAt(seat, x, y);
-    if (tracked) return { label: tracked.name ?? info(tracked.cardId)?.name ?? "Card", detail: statLine(tracked.cardId) };
+    if (tracked) return { label: tracked.name ?? info(tracked.cardId)?.name ?? "Card", detail: statLine(tracked.cardId), hint };
     const card = twinAtPoint(seat, x, y);
     if (!card) { const pile = pileAt(zoneAtPoint(seat, x, y)); return pile ? { label: pile === "graveyard" ? "Graveyard" : "Banished", detail: `${pileCount(seat, pile)} cards` } : null; }
     const id = cardCode(card);
-    if (id) return { label: cardName(card, info(id)), detail: card.faceUp ? statLine(id) : "Set" };
+    if (id) return { label: cardName(card, info(id)), detail: card.faceUp ? statLine(id) : "Set", hint };
     return card.faceUp ? null : { label: "Set card" };
   };
   /** The webcam card menu (a click, a right click or a long press on a card of a camera feed). It points at the pointer and keeps the read context for Read again. */

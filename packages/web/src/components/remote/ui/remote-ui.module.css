@@ -1016,6 +1016,7 @@
 /* Hover peek, covered guard and board read */
 .qcov{stroke-dasharray:3 4;stroke:var(--warn);fill:rgb(240 178 79/.06)}
 .peek2{position:absolute;z-index:6;display:flex;align-items:center;gap:9px;max-width:min(360px,90%);padding:8px 13px;border-radius:9px;background:rgb(7 4 14/.97);border:2px solid var(--gold);color:var(--ink);pointer-events:none;font:700 16px/1.2 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;box-shadow:0 8px 24px rgb(0 0 0/.65),0 0 0 3px rgb(7 4 14/.6)}
+.peekKey{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;color:var(--ink2)}.peekKey kbd{padding:1px 5px;font:700 11px/1.2 inherit;border:1px solid var(--line2);border-radius:4px;color:var(--ink)}
 .peek2 b{font-weight:800;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .peek2 em{font-style:normal;font-size:11.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--gold-ink)}
 .peek2Wait b{color:var(--ink2);font-weight:600}

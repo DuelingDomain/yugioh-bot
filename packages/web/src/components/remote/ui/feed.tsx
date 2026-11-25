@@ -118,7 +118,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
   /** Webcam only, while the table waits for an attack target: a click on a card there picks it. It answers true when it took the click. */
   onPick?: (seat: number, x: number, y: number) => boolean;
   /** Webcam only: the name line for the card under the pointer, from the outlines or from the zone. */
-  hoverTip?: (seat: number, x: number, y: number) => { label: string; detail?: string } | null;
+  hoverTip?: (seat: number, x: number, y: number) => { label: string; detail?: string; /** A key hint under the name, e.g. "Activate" for E. Hidden on small cameras. */ hint?: string } | null;
   /** Right click (or a long press) on the camera. The table opens the card actions for the card under the point, if it knows one. The event goes on to the table menu. */
   onCardMenu?: (seat: number, at: { x: number; y: number }, mouse: boolean, where: { anchor: Rect; feed: Rect }) => void;
   /** A strip under the video box (camera controls). It never covers the video. */
@@ -161,7 +161,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
   },[]);
   // Webcam only: the name line that follows the pointer over a card.
   // The text changes state; the position follows the pointer through the element, so a move does not render the whole feed.
-  const [tip, setTip] = useState<{ left: number; top: number; label: string; detail?: string; flip: boolean } | null>(null);
+  const [tip, setTip] = useState<{ left: number; top: number; label: string; detail?: string; hint?: string; wide: boolean; flip: boolean } | null>(null);
   const tipBox = useRef<HTMLDivElement>(null);
   const setFrozenHealth = hub.setFrozen;
 
@@ -443,7 +443,8 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
       const found = hoverTip(seat, p.x, p.y); const area = cam.current?.getBoundingClientRect();
       if (found && area) {
         const left = event.clientX - area.left + 14; const y = event.clientY - area.top; const top = y + 16 > area.height - 56 ? y - 54 : y + 16; const flip = left > area.width - 300;
-        setTip(old => old && old.label === found.label && old.detail === found.detail && old.flip === flip ? old : { left, top, flip, ...found });
+        const wide = area.width >= 560;
+        setTip(old => old && old.label === found.label && old.detail === found.detail && old.hint === found.hint && old.wide === wide && old.flip === flip ? old : { left, top, flip, wide, ...found });
         if (tipBox.current) { tipBox.current.style.left = `${left}px`; tipBox.current.style.top = `${top}px`; }
       } else setTip(null);
     }
@@ -591,7 +592,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
       {frozen ? <div className={s.still} style={boxStyle} data-testid="frozen-frame"><div className={s.stillCanvas} ref={holder} /><i className={s.stillScan} hidden={frozen.status !== "detecting"} /></div> : null}
       <div className={s.grain} />
       {tip && !frozen ? <div className={s.peek2} ref={tipBox} data-testid="hover-tip" style={{ left: tip.left, top: tip.top, transform: tip.flip ? "translateX(calc(-100% - 28px))" : undefined }} aria-hidden="true">
-        <b>{tip.label}</b>{tip.detail ? <em>{tip.detail}</em> : null}</div> : null}
+        <b>{tip.label}</b>{tip.detail ? <em>{tip.detail}</em> : null}{tip.hint && tip.wide ? <span className={s.peekKey} data-testid="hover-tip-key"><kbd>E</kbd>{tip.hint}</span> : null}</div> : null}
       {source && !frozen ? <ZoneGridOverlay seat={seat} box={box} visible={gridOn && !tapSeat} onControlsEnter={calmHover} /> : null}
       {source && !frozen ? <HubFeedCards seat={seat} frame={box ? boxStyle : null} /> : null}
       {source && !frozen && you && debugOn ? <FieldDebugOverlay box={box} /> : null}
