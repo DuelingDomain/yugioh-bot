@@ -5,6 +5,7 @@ import { hitTestQuad } from './scene';
 import type { DetectedQuad, Point } from './types';
 
 const REST_MS = 120;
+const SCENE_NOISE_CELLS = 2;
 const sameLook = (a?: number[], b?: number[]) => fieldAppearanceDistance(a, b) < .006;
 const handFree = (frame: FieldAnalysis, card: DetectedQuad) =>
   (frame.touched?.(card) ?? 0) <= .035 && frame.edgeGrip?.(card) !== 'grip';
@@ -23,6 +24,7 @@ type Track = {
 /** Browser-local names for current face-up field tracks. Each new front gets one speculative read. */
 export function createTapPreread(calibration: FieldCalibration, format: FieldFormat) {
   let tracks: Track[] = [];
+  let sceneStillSince: number | undefined;
   const currentFront = (track: Track, frame: FieldAnalysis) => {
     if (!track.ready || frame.motion(track.card) > .025 || !handFree(frame, track.card)) return false;
     const look = frame.appearance?.(track.card);
@@ -64,7 +66,12 @@ export function createTapPreread(calibration: FieldCalibration, format: FieldFor
         track.stillSince = same ? track.stillSince ?? at : undefined;
         track.ready = track.stillSince !== undefined && at - track.stillSince >= REST_MS;
       }
-      return changed;
+      const { scene } = frame;
+      // The first frame differs from the empty reference. Wait for stillness before
+      // discovery, then wait for a change from the last successfully scanned frame.
+      sceneStillSince = scene && scene.moving <= SCENE_NOISE_CELLS ? sceneStillSince ?? at : undefined;
+      return sceneStillSince !== undefined && at - sceneStillSince >= REST_MS &&
+        (changed || (scene?.sinceMark ?? 0) > SCENE_NOISE_CELLS);
     },
     next: (tracked = (_card: DetectedQuad) => false) => tracks.find(track => track.ready && !track.attempted && !tracked(track.card)),
     currentFront,

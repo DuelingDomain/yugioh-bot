@@ -2294,7 +2294,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
         // Same waits as the re-sync removal step: a departure in flight, a zone the camera only half sees, a proof that is still inside its wait.
         skipCard:card=>{const zone=knownZone(card),proofAt=zone?fieldEmptyProofs(snap)?.[zone]:undefined;return recentFieldDeparture(card,serverNow())||[...pendingDepartures.current.values()].some(({origin})=>origin.ref===card.ref)||!!zone&&!!snap.blindZones?.includes(zone)||proofAt!==undefined&&now<proofAt+DEPARTURE_WAIT_MS;},
         lastMotionAt:snap.lastMotionAt,handZones:snap.handZones,fieldActive:snap.fieldActive,scanAllowed:now-autoScanAt.current>=20_000,
-        busy:!live()||readerBusy()||syncHoldRef.current||scanTimer.current!==undefined||resyncing.current||calibrationBusy.current||!autoIdle.current||pointerHeld.current});
+        busy:!live()||readerBusy(false)||syncHoldRef.current||scanTimer.current!==undefined||resyncing.current||calibrationBusy.current||!autoIdle.current||pointerHeld.current});
       if(result.verdict!=='wait')quietHint.current=result.verdict==='hint'?result.reason??null:null;
       if(result.verdict==='fix'&&now-autoScanAt.current>=20_000&&scanFieldRef.current('quiet')){autoScanAt.current=now;quiet.scanned();quietHint.current=null;}
     },2000);

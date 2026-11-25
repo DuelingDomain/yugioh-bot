@@ -21,6 +21,7 @@ import { saveFieldClip, useFieldClipReady } from "@/lib/remote/clip-capture";
 import s from "./remote-ui.module.css";
 import { isTypingTarget } from "@/lib/typing-target";
 import { isThemedListOpen } from "@/components/ui/themed-select";
+import type { TournamentMode } from "@/lib/remote/tournament-detection";
 import { watchTapFeed } from "./tap-preread";
 
 /** A card the table has identified on a feed. Normalized to the video frame (0..1). `quad` is set when it came from an outline. */
@@ -87,7 +88,7 @@ function copyOf(canvas: HTMLCanvasElement) {
   copy.getContext("2d")?.drawImage(canvas, 0, 0); return copy;
 }
 
-export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLive, onAbort, onPoint, onMiss, onSearch, onSelect, onAdd, onReset, onReadBoard, holdSelection, extra, onZoneCard, onPick, hoverTip, onCardMenu, below, emptyText, emptyAction, prereadScope, tournament = false }: {
+export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLive, onAbort, onPoint, onMiss, onSearch, onSelect, onAdd, onReset, onReadBoard, holdSelection, extra, onZoneCard, onPick, hoverTip, onCardMenu, below, emptyText, emptyAction, prereadScope, announcedMode, tournament = false }: {
   seat: number; name: string; you: boolean; health: Health; marks: FeedMark[]; reticles: FeedReticle[];
   /** A click landed on the live feed, before the card is found. Returns the id of this read. No popup opens yet. */
   onBegin: (seat: number, start: FeedStart) => number | void;
@@ -121,6 +122,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
   /** A tournament table: the Auto-detect off strip then gives no reason from this computer's own choice. */
   tournament?: boolean;
   prereadScope?: string;
+  announcedMode?: TournamentMode;
 }) {
   const hub = useVideoHub();
   const backs = useFieldBacks(seat);
@@ -214,9 +216,11 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
   // The own feed has an always-on native-resolution ring (shared with remote reads), so it needs no hover ring.
   // Tap to identify has no watcher to feed: the ring stops, and the own feed keeps frames only under the pointer, like other feeds.
   const tapOwn = useTapToIdentify(seat) && you;
-  const tapTable = useTapToIdentify(zoneGrid.ownSeat ?? seat);
   const preread = useRef<ReturnType<typeof watchTapFeed> | null>(null);
-  const prereadEnabled = (tapTable || tapSeat) && !!prereadScope && health.label !== "Frozen" && health.label !== "Camera muted";
+  // The track stream can still say Tap while Auto rebuilds the board. Use the announced modes here.
+  const opponentTap = announcedMode !== "auto" && peerVision?.detect !== "auto" &&
+    (announcedMode === "tap" || peerVision?.detect === "tap");
+  const prereadEnabled = (you ? tapOwn : opponentTap) && !!prereadScope && health.label !== "Frozen" && health.label !== "Camera muted";
   const { peek, trackedAt, trackedCalibration } = hub;
   useEffect(() => {
     const element = video.current;

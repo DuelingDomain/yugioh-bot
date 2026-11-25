@@ -1,15 +1,43 @@
 import { createFieldAnalyzer, createTapPreread, fieldCenter, type FieldCalibration, type FieldFormat } from "@yugidraft/vision";
 import { visionPaceFactor } from "@/lib/remote/send-health-store";
-import { detectCards, readerBusy, type PeekAnswer, type ReadCard } from "./recognizer";
+import { detectCards, readerBusy, runUntilAbort, type PeekAnswer, type ReadCard } from "./recognizer";
 import type { Pt } from "./quads";
 
-const SAMPLE_MS = 120;
-const DETECT_GAP_MS = 240;
-const IDLE_SCAN_MS = 1800;
+const SAMPLE_GAP_MS = 250;
+const ACTIVE_SAMPLE_MS = 400;
+const IDLE_SAMPLE_MS = 1200;
+const JOB_GAP_MS = 850;
+const JOB_LIMIT_MS = 3000;
 const RETRY_MS = 2000;
-const PEEK_LIMIT_MS = 1800;
-// One speculative job across both feeds. Live requests keep their existing worker queues.
-let backgroundBusy = false;
+
+// All feeds share one sampler and one inference budget. Advance round-robin after each sample.
+type Feed = { nextAt: number; tick(at: number): Promise<boolean> };
+const feeds = new Set<Feed>();
+let timer: ReturnType<typeof setTimeout> | undefined;
+let ticking = false;
+
+function schedule(delay = 0) {
+  if (timer === undefined && !ticking && feeds.size) timer = setTimeout(run, delay);
+}
+
+async function run() {
+  timer = undefined;
+  ticking = true;
+  const at = performance.now();
+  const feed = [...feeds].find(feed => feed.nextAt <= at);
+  let delay = Math.min(...[...feeds].map(feed => feed.nextAt)) - at;
+  try {
+    if (!feed) return;
+    feeds.delete(feed);
+    feeds.add(feed);
+    delay = SAMPLE_GAP_MS * visionPaceFactor();
+    if (await feed.tick(at)) delay = JOB_GAP_MS * visionPaceFactor();
+  } catch { /* A failed sample can retry on the next turn. */ }
+  finally {
+    ticking = false;
+    schedule(Math.max(0, delay));
+  }
+}
 
 export function watchTapFeed(options: {
   video: HTMLVideoElement;
@@ -25,8 +53,8 @@ export function watchTapFeed(options: {
   const canvas = document.createElement("canvas");
   const context = canvas.getContext("2d", { willReadFrequently: true });
   let tracker: ReturnType<typeof createTapPreread> | undefined;
-  let scope = "", lastVideoTime = -1, lastSample = -Infinity, scannedAt = -Infinity, retryAt = -Infinity;
-  let timer: ReturnType<typeof setTimeout>;
+  let scope = "", lastVideoTime = -1, lastSample = -Infinity, retryAt = -Infinity;
+  const feed: Feed = { nextAt: 0, tick };
 
   function syncCalibration() {
     const calibration = options.calibration();
@@ -37,7 +65,8 @@ export function watchTapFeed(options: {
       tracker = key && calibration ? createTapPreread(calibration, options.format) : undefined;
       analyze.reset();
       lastVideoTime = -1;
-      scannedAt = -Infinity;
+      lastSample = -Infinity;
+      retryAt = -Infinity;
     }
     return calibration;
   }
@@ -51,62 +80,61 @@ export function watchTapFeed(options: {
     return analyze(context.getImageData(0, 0, width, height), at, calibration?.corners);
   }
 
-  async function tick() {
-    const at = performance.now(), calibration = syncCalibration(), current = tracker;
-    if (!current || document.hidden || video.currentTime === lastVideoTime) return;
+  async function tick(at: number) {
+    const pace = visionPaceFactor();
+    feed.nextAt = at + IDLE_SAMPLE_MS * pace;
+    if (document.hidden) return false;
+    const calibration = syncCalibration(), current = tracker;
+    if (!current || video.currentTime === lastVideoTime) return false;
     const pixels = sample(at, calibration);
-    if (!pixels) return;
+    if (!pixels) return false;
     lastSample = at;
     lastVideoTime = video.currentTime;
-    const changed = current.sample(pixels, at);
-    if (backgroundBusy || readerBusy() || at < retryAt) return;
-
+    const scan = current.sample(pixels, at);
     const next = current.next(card => options.tracked(fieldCenter(card)));
-    const sinceScan = (at - scannedAt) / visionPaceFactor();
-    const scan = sinceScan >= IDLE_SCAN_MS || sinceScan >= DETECT_GAP_MS && (changed || (pixels.scene?.sinceMark ?? 0) > 2);
-    if (!next && !scan) return;
+    if (next || scan || (pixels.scene?.sinceMark ?? 0) > 2) feed.nextAt = at + ACTIVE_SAMPLE_MS * pace;
+    if ((!next && !scan) || readerBusy() || at < retryAt) return false;
     const frame = options.capture();
-    if (!frame) return;
-    backgroundBusy = true;
+    if (!frame) return false;
+    const signal = AbortSignal.any([stop.signal, AbortSignal.timeout(JOB_LIMIT_MS)]);
     try {
-      if (next) {
-        const signal = AbortSignal.any([stop.signal, AbortSignal.timeout(PEEK_LIMIT_MS)]);
-        const answer = await options.peek(frame, next.card, signal);
-        const latestCalibration = syncCalibration();
-        if (stop.signal.aborted || document.hidden || current !== tracker) return;
-        if (answer.status !== "ready") { retryAt = performance.now() + RETRY_MS; return; }
-        const latest = sample(performance.now(), latestCalibration);
-        if (!latest || !current.currentFront(next, latest)) return;
-        const { peek } = answer;
-        const identity = peek.tier === "sure" && !peek.faceDown && !peek.covered && peek.cardId
-          ? { cardId: peek.cardId, name: peek.name ?? `Card ${peek.cardId}` } : undefined;
-        current.finish(next, identity);
-      } else {
-        scannedAt = at;
-        const bitmap = await createImageBitmap(frame);
-        if (stop.signal.aborted || document.hidden) { bitmap.close(); return; }
-        const found = await detectCards(bitmap, { shadowPass: false }, true);
-        syncCalibration();
-        if (stop.signal.aborted || document.hidden || current !== tracker) return;
-        if (found.status !== "ready") { retryAt = performance.now() + RETRY_MS; return; }
-        pixels.scene?.mark();
-        current.sample(pixels, at, found.cards);
-      }
+      await runUntilAbort(signal, async () => {
+        if (next) {
+          const answer = await options.peek(frame, next.card, signal);
+          signal.throwIfAborted();
+          const latestCalibration = syncCalibration();
+          if (document.hidden || current !== tracker) return;
+          if (answer.status !== "ready") { retryAt = performance.now() + RETRY_MS; return; }
+          const latest = sample(performance.now(), latestCalibration);
+          if (!latest || !current.currentFront(next, latest)) return;
+          const { peek } = answer;
+          const identity = peek.tier === "sure" && !peek.faceDown && !peek.covered && peek.cardId
+            ? { cardId: peek.cardId, name: peek.name ?? `Card ${peek.cardId}` } : undefined;
+          current.finish(next, identity);
+        } else {
+          const bitmap = await createImageBitmap(frame);
+          if (signal.aborted || document.hidden || readerBusy()) { bitmap.close(); return; }
+          const found = await detectCards(bitmap, { shadowPass: false }, signal);
+          signal.throwIfAborted();
+          syncCalibration();
+          if (document.hidden || current !== tracker) return;
+          if (found.status !== "ready") { retryAt = performance.now() + RETRY_MS; return; }
+          pixels.scene?.mark();
+          current.sample(pixels, at, found.cards);
+        }
+      });
     } catch {
       retryAt = performance.now() + RETRY_MS;
-    } finally { backgroundBusy = false; }
+    }
+    return true;
   }
 
-  const loop = async () => {
-    const at = performance.now();
-    try { await tick(); } catch { /* The next visible sample can retry a failed capture. */ }
-    if (!stop.signal.aborted) timer = setTimeout(loop, Math.max(0, SAMPLE_MS - (performance.now() - at)));
-  };
   const visibility = () => {
     if (document.hidden) { scope = ""; tracker = undefined; }
   };
   document.addEventListener("visibilitychange", visibility);
-  void loop();
+  feeds.add(feed);
+  schedule();
 
   return {
     hit(point: Pt) {
@@ -121,7 +149,8 @@ export function watchTapFeed(options: {
     },
     stop() {
       stop.abort();
-      clearTimeout(timer);
+      feeds.delete(feed);
+      if (!feeds.size) { clearTimeout(timer); timer = undefined; }
       document.removeEventListener("visibilitychange", visibility);
     },
   };

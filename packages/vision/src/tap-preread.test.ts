@@ -45,4 +45,15 @@ test('Tap prereads only settled public fronts and drops a cached name when the c
   tracker.sample(clean, 900);
   assert.equal(tracker.next()?.identity, undefined);
   assert.notEqual(tracker.next(), front);
+
+  const discovery = createTapPreread(calibration, 'normal');
+  const scene = (moving: number, sinceMark: number) => ({ ...clean, scene: { moving, sinceMark, mark() {} } });
+  assert.equal(discovery.sample(scene(20, 20), 0), false);
+  assert.equal(discovery.sample(scene(1, 20), 350), false);
+  assert.equal(discovery.sample(scene(0, 20), 700), true);
+  assert.equal(discovery.sample(scene(0, 0), 3000), false);
+  assert.equal(discovery.sample(scene(15, 15), 3350), false);
+  assert.equal(discovery.sample(scene(10, 16), 3700), false);
+  assert.equal(discovery.sample(scene(0, 16), 4050), false);
+  assert.equal(discovery.sample(scene(0, 16), 4400), true);
 });

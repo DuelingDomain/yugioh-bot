@@ -66,7 +66,7 @@ export type SeatPanelProps = {
   onZoneCard?: ComponentProps<typeof Feed>["onZoneCard"]; onCamPick?: ComponentProps<typeof Feed>["onPick"]; hoverTip?: ComponentProps<typeof Feed>["hoverTip"]; onCardMenu?: ComponentProps<typeof Feed>["onCardMenu"];
   /** Revealed in hand: cards added by effects or returned from the field, the hand count and (own seat) the add chip. */
   hand?: HandProps;
-  /** Tournament table: the mode this player announced, shown to the opponent. */ detectionMode?: TournamentMode | "unknown";
+  /** The mode this player announced. Tournament tables show it to the opponent. */ detectionMode?: TournamentMode | "unknown";
   /** Opponent seats only: asks that player's Auto-detect to Scan field again. Absent for my seat, bots and spectators. */ onRescan?: () => Promise<string>;
   /** A tournament table. */ tournamentTable?: boolean;
   deckWarning?: string; onDeckFlag?: (button: HTMLElement) => void; cameraControl?: ReactNode | ((tool: ReactNode) => ReactNode); emptyFeedText: string; emptyFeedAction?: ReactNode; turnIn: boolean;
@@ -138,7 +138,7 @@ export function SeatPanel(p: SeatPanelProps) {
         </> : null}
       </span> : null}
       {compact && p.pickPlate ? <button type="button" className={`${s.btn} ${s.go} ${s.sm} ${s.wcdirect}`} data-testid={`wc-direct-${p.seat}`} onClick={p.onPlate} aria-label={`Attack ${p.name} directly`}>Attack directly</button> : null}
-      {p.detectionMode ? <DetectionBadge seat={p.seat} name={p.name} mode={p.detectionMode === "unknown" ? undefined : p.detectionMode} /> : null}
+      {p.tournamentTable && p.detectionMode ? <DetectionBadge seat={p.seat} name={p.name} mode={p.detectionMode === "unknown" ? undefined : p.detectionMode} /> : null}
       <span className={`${s.tag} ${s.turnt}`}>TURN</span><span className={`${s.tag} ${s.nextt}`}>NEXT</span>
       {p.eliminated ? <span className={s.tag}>OUT</span> : null}
       <span className={s.micI}><Icon name="mic" /></span><span className={s.sp} />
@@ -161,7 +161,7 @@ export function SeatPanel(p: SeatPanelProps) {
     </header>
     {p.onDock ? <NotifyDock seat={p.seat} onSlot={p.onDock} view={`${compact ? "webcam" : "both"}:${fieldView ? "field" : "camera"}`} /> : null}
     <div className={s.sbody}>
-      <Feed seat={p.seat} name={p.name} you={p.you} health={p.health} marks={p.marks} reticles={p.reticles} onBegin={p.onBegin} readLive={p.readLive} onAbort={p.onAbort} onMiss={p.onMiss} onSearch={p.onSearch} onPoint={p.onPoint} onSelect={p.onSelect} holdSelection={p.holdSelection} onAdd={p.onAdd} onReset={p.onReset} onReadBoard={p.onReadBoard} onZoneCard={p.onZoneCard} onPick={compact ? p.onCamPick : undefined} hoverTip={p.webcamOnly ? p.hoverTip : undefined} onCardMenu={p.onCardMenu} emptyText={p.emptyFeedText} emptyAction={p.emptyFeedAction} tournament={p.tournamentTable} prereadScope={compact && p.live ? p.prereadScope : undefined}
+      <Feed seat={p.seat} name={p.name} you={p.you} health={p.health} marks={p.marks} reticles={p.reticles} onBegin={p.onBegin} readLive={p.readLive} onAbort={p.onAbort} onMiss={p.onMiss} onSearch={p.onSearch} onPoint={p.onPoint} onSelect={p.onSelect} holdSelection={p.holdSelection} onAdd={p.onAdd} onReset={p.onReset} onReadBoard={p.onReadBoard} onZoneCard={p.onZoneCard} onPick={compact ? p.onCamPick : undefined} hoverTip={p.webcamOnly ? p.hoverTip : undefined} onCardMenu={p.onCardMenu} emptyText={p.emptyFeedText} emptyAction={p.emptyFeedAction} tournament={p.tournamentTable} prereadScope={compact && p.live ? p.prereadScope : undefined} announcedMode={p.detectionMode === "unknown" ? undefined : p.detectionMode}
         below={typeof p.cameraControl === "function" ? p.cameraControl(inTools ? scanButton : null) : p.cameraControl}
         extra={<>
           {fieldView ? <button type="button" className={s.swapcam} tabIndex={-1} aria-label="Camera view: show the camera large again" data-testid={`swap-cam-${p.seat}`} onClick={() => setFieldView(false)} /> : null}
