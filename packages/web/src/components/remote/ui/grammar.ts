@@ -35,6 +35,8 @@ export type GrammarContext = {
   /** Actual card names from the table and registered decks, most recent first. */
   cardNames?: readonly string[];
   now?: number;
+  /** My selected face-up card on the field: a bare "effect" activates it. */
+  selected?: { seat: number; ref: string; cardId: number };
   lookupCard?: (code: number) => { name: string; type?: string } | undefined;
 };
 

@@ -64,6 +64,8 @@ async function fakeCamera(page: Page, shape: "16:9" | "4:3" | "" = "") {
     navigator.mediaDevices.enumerateDevices = async () => [];
   }, [FRAME, shape === "4:3" ? [960, 720] : [1280, 720]] as [string, number[]]);
 }
+/** Camera off now sits in the camera settings panel, behind the webcam "..." menu: press it through the page. */
+const cameraOff = async (page: Page) => { await openDrawer(page, "settings"); await page.getByTestId("camera-off").evaluate((b: HTMLElement) => b.click()); };
 const shot = async (page: Page, name: string) => { if (SHOTS) await page.screenshot({ path: `${SHOTS}/${name}.png` }); };
 
 async function soloTable(api: APIRequestContext, seatCount: 2 | 3 | 4, registeredDeck=false, bestOf: 1 | 3 = 1) {
@@ -81,15 +83,17 @@ async function soloTable(api: APIRequestContext, seatCount: 2 | 3 | 4, registere
 }
 
 test.describe("remote duels screen, solo", () => {
-  test.beforeEach(async ({ context }) => { await authenticatePlayer(context.request, { userId: 101 }, process.env.E2E_AUTH_SECRET!, "http://localhost:3310"); });
+  test.beforeEach(async ({ context }) => { await authenticatePlayer(context.request, { userId: 101 }, process.env.E2E_AUTH_SECRET!, (process.env.E2E_REMOTE_UI_URL ?? "http://localhost:3310")); });
 
-  test("Scan field button in the camera tool row and the S key", async ({ page, context }) => {
+  test("Scan field now sits in the webcam ... menu and the S key runs it", async ({ page, context }) => {
     test.setTimeout(120_000);
     const slug = await soloTable(context.request, 2);
     await fakeCamera(page);
     await page.goto(`/duels/remote/${slug}`);
     const scan = page.getByTestId("field-scan");
-    await expect(scan).toBeVisible(); await expect(scan).toHaveAttribute("aria-disabled", "true"); await expect(scan).toContainText("Camera off");
+    await page.getByTestId("camera-tools-0").click();
+    await expect(scan).toBeVisible(); await expect(scan).toHaveAttribute("aria-disabled", "true"); await expect(scan).toContainText("Turn the camera on");
+    await page.keyboard.press("Escape");
     await page.getByTestId("camera-on-feed").click();
     await expect(scan).toHaveAttribute("aria-disabled", "false", { timeout: 30_000 });
     await scan.evaluate(button => { const w = window as unknown as { __scanSeen: boolean }; w.__scanSeen = false; new MutationObserver(() => { if (button.textContent?.includes("Scanning")) w.__scanSeen = true; }).observe(button, { childList: true, subtree: true, characterData: true }); });
@@ -98,7 +102,7 @@ test.describe("remote duels screen, solo", () => {
     await expect(scan).toContainText("Scan field");
   });
 
-  test("Scan field is the primary camera action: first, in view at every size, glows with a reason when the camera and the board differ, runs by itself only when the player is idle, and reports its time", async ({ page, context }) => {
+  test("Scan field now in the ... menu: in view at every size, shows a reason when the camera and the board differ, runs by itself only when the player is idle, and reports its time", async ({ page, context }) => {
     test.setTimeout(120_000);
     await page.setViewportSize({ width: 1366, height: 768 });
     await fakeCamera(page, "16:9");
@@ -121,15 +125,13 @@ test.describe("remote duels screen, solo", () => {
     await page.waitForFunction(() => (window as unknown as { __e2eField?: { live: () => boolean } }).__e2eField?.live());
     const scan = page.getByTestId("field-scan"), chip = page.getByTestId("field-watcher-status"), state = (key: string) => page.evaluate(k => (window as unknown as { __scan: Record<string, number> }).__scan[k], key);
     await expect(scan).toHaveAttribute("aria-disabled", "false", { timeout: 30_000 });
-    // Large enough to find, fully in view, bold and neutral (no gold), with the S hotkey shown, at laptop, 1080p and 1440p sizes.
+    // The menu row is fully in view, with the S hotkey shown, at laptop, 1080p and 1440p sizes.
     for (const [width, height] of [[1366, 768], [1920, 1080], [2560, 1440]]) {
       await page.setViewportSize({ width, height });
+      await page.getByTestId("camera-tools-0").click();
       await expect(scan).toBeInViewport({ ratio: 1 });
-      const facts = await scan.evaluate(button => {
-        const a = button.getBoundingClientRect(), kbd = button.querySelector("kbd");
-        return { height: a.height, solid: getComputedStyle(button).backgroundImage !== "none", key: kbd?.textContent, noGold: !/232,\s*185,\s*79/.test(getComputedStyle(button).borderColor) };
-      });
-      expect(facts, `${width}x${height}`).toMatchObject({ solid: true, key: "S", noGold: true }); expect(facts.height).toBeGreaterThanOrEqual(28);
+      await expect(scan.locator("kbd")).toHaveText("S");
+      await page.keyboard.press("Escape");
     }
     await expect(scan).not.toHaveAttribute("data-need", ""); await expect(chip).toHaveText("Watching field");
     // The camera sees 2 cards the board lacks. While a pointer button is held (a drag) nothing scans by itself: the button glows and says why.
@@ -137,7 +139,7 @@ test.describe("remote duels screen, solo", () => {
     await page.mouse.move(5, 5); await page.mouse.down();
     await expect(scan).toHaveAttribute("data-need", "", { timeout: 10_000 });
     await expect(chip).toHaveText("Camera sees 2 cards not on the board · Scan field");
-    await expect(scan).toHaveAttribute("aria-label", "Scan field. Camera sees 2 cards not on the board");
+    await expect(scan).toContainText("Camera sees 2 cards not on the board");
     await page.waitForTimeout(2500); expect(await state("scans")).toBe(0);
     // Idle again: one gentle scan starts by itself. It cannot fix this difference here, so the reason stays for the player.
     await page.mouse.up();
@@ -567,7 +569,7 @@ test.describe("remote duels screen, solo", () => {
           const m = await page.evaluate(() => {
             const rect = (id: string) => { const r = document.querySelector(`[data-testid="${id}"]`)?.getBoundingClientRect(); return r ? { x: r.left, y: r.top, w: r.width, h: r.height } : null; };
             const v = document.querySelector('[data-testid="feed-0"] video') as HTMLVideoElement;
-            return { box: rect("feed-box-0"), row: rect("camera-row"), field: rect("field-0"), vw: v.videoWidth, vh: v.videoHeight };
+            return { box: rect("feed-box-0"), row: rect("camera-tools-0"), field: rect("field-0"), vw: v.videoWidth, vh: v.videoHeight };
           });
           expect(m.box && m.row).toBeTruthy();
           // The empty feed filled the same box as the live one.
@@ -584,19 +586,16 @@ test.describe("remote duels screen, solo", () => {
           }
           // No bars: the box has the video's shape (2% tolerance for rounding).
           expect(Math.abs(m.box!.w / m.box!.h - m.vw / m.vh) / (m.vw / m.vh)).toBeLessThan(0.02);
-          // Controls: one row under the video, inside the window, not over the box.
-          expect(m.row!.y).toBeGreaterThanOrEqual(m.box!.y + m.box!.h - 1);
+          // The one "..." button is inside the window.
           expect(m.row!.x).toBeGreaterThanOrEqual(-1); expect(m.row!.x + m.row!.w).toBeLessThanOrEqual(width + 1);
-          expect(m.row!.y + m.row!.h).toBeLessThanOrEqual(height + 1);
-          const clipped = await page.getByTestId("camera-row").evaluate(row => [...row.querySelectorAll("button,select")].some(b => { const r = b.getBoundingClientRect(); const o = row.getBoundingClientRect(); return r.width > 0 && (r.right > o.right + 1 || r.left < o.left - 1); })); // the closed Settings panel keeps hidden controls in the row
-          expect(clipped).toBe(false);
-          // Scan field sits in free space: not over the board's zones, the camera row buttons or the Hand -/+ buttons.
+          expect(m.row!.y).toBeGreaterThanOrEqual(-1); expect(m.row!.y + m.row!.h).toBeLessThanOrEqual(height + 1);
+          // The "..." button sits in free space: not over the board's zones or the Hand -/+ buttons.
           const clashes = await page.evaluate(() => {
             const seat = document.querySelector('[data-testid="seat-0"]')!;
             const box = (e: Element | null | undefined) => e?.getBoundingClientRect();
             const hit = (a: DOMRect, b: DOMRect) => b.width > 0 && a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
-            const movers = [["Scan field", seat.querySelector('button[aria-keyshortcuts="S"]')]] as const;
-            const others = [["board", document.querySelector('[data-testid="field-0"]')?.closest('[class*="holo"]')], ...[...seat.querySelectorAll('[data-testid="camera-row"] button, [data-testid="camera-row"] select')].map(e => ["camera row", e] as const),
+            const movers = [["Camera tools", seat.querySelector('[data-testid="camera-tools-0"]')]] as const;
+            const others = [["board", document.querySelector('[data-testid="field-0"]')?.closest('[class*="holo"]')],
               ...[...seat.querySelectorAll('[data-testid="hand-count-0"] button')].map(e => ["Hand -/+", e] as const)] as const;
             const out: string[] = [];
             for (const [n, e] of movers) { const a = box(e); if (!a) { out.push(`${n} missing`); continue; } for (const [k, o] of others) { const b = box(o); if (b && hit(a, b)) out.push(`${n} over ${k}`); } }
@@ -892,7 +891,7 @@ test.describe("remote duels screen, moving cards by hand", () => {
       await expect(page.getByTestId(`fwrap-${other}`)).toBeHidden();
       await page.getByTestId(`wc-cards-${turn}`).getByRole("button").first().focus(); await page.keyboard.press("Enter");
       await page.getByRole("button", { name: "Attack from here" }).click();
-      const targets = page.getByTestId(`wc-cards-${other}`); await expect(targets).toBeVisible(); await expect(targets).toHaveAttribute("data-targets", "true"); await expect(page.getByTestId(`wc-direct-${other}`)).toBeVisible();
+      const targets = page.getByTestId(`wc-cards-${other}`); await expect(targets).toBeVisible(); await expect(targets).toHaveAttribute("data-targets", "true"); await expect(page.getByTestId(`direct-hint-${other}`)).toBeVisible();
       await shot(page, "wc-attack-targets");
       if (SHOTS) for (const [w, h] of [[1366, 768], [390, 844]]) { await page.setViewportSize({ width: w, height: h }); await page.waitForTimeout(500); await shot(page, `wc-attack-targets-${w}`); }
       await page.setViewportSize({ width: 1920, height: 1080 });
@@ -907,7 +906,7 @@ test.describe("remote duels screen, moving cards by hand", () => {
     } finally { await alice.close(); await bob.close(); }
   });
 
-  test("Rescan sits on the opponent's seat only, and shows what the other side answered", async ({ browser }) => {
+  test("Ask to scan again sits in the opponent's ... menu only, and shows what the other side answered", async ({ browser }) => {
     test.setTimeout(240_000);
     const url = process.env.E2E_REMOTE_UI_URL!;
     const options = { baseURL: url, viewport: { width: 1920, height: 1080 }, permissions: ["camera", "microphone"] };
@@ -917,10 +916,11 @@ test.describe("remote duels screen, moving cards by hand", () => {
       const slug = await startTwoPlayerTable(alice.request, bob.request);
       const page = await alice.newPage(); await page.goto(`/duels/remote/${slug}`);
       const rescan = page.getByTestId("field-rescan-1");
+      await page.getByTestId("camera-tools-1").click();
       await expect(rescan).toBeVisible(); await expect(page.getByTestId("field-rescan-0")).toHaveCount(0);
       await rescan.click();
       // Bob has no camera on, so he answers "off", or nothing arrives in time. Either way the button says so.
-      await expect(rescan.getByRole("status")).toHaveText(/Their Auto-detect is off|Could not reach them/);
+      await expect(rescan).toContainText(/Their Auto-detect is off|Could not reach them/);
       if (SHOTS) for (const [w, h] of [[1366, 768], [390, 844]]) { await page.setViewportSize({ width: w, height: h }); await page.waitForTimeout(300); await shot(page, `rescan-button-${w}`); }
     } finally { await alice.close(); await bob.close(); }
   });
@@ -1079,6 +1079,9 @@ test.describe("remote duels screen, moving cards by hand", () => {
     expect(placed.status(), await placed.text()).toBe(200);
     await page.goto(`/duels/remote/${slug}`);
     const choice = page.getByRole("radiogroup", { name: "Camera source" });
+    // The camera choice sits in the settings panel, behind the webcam "..." menu. A click outside closes it, so each step opens it again when needed.
+    const openRow = async () => { if (await choice.isVisible()) return; await page.getByTestId("camera-tools-0").click(); await page.getByTestId("camera-settings").first().click(); await expect(choice).toBeVisible(); };
+    await openRow();
     await expect(choice.getByRole("radio")).toHaveCount(3);
     await expect(choice.getByRole("radio", { name: "Use webcam" })).toBeVisible();
     await expect(choice.getByRole("radio", { name: "Use phone as camera" })).toBeVisible();
@@ -1087,6 +1090,7 @@ test.describe("remote duels screen, moving cards by hand", () => {
     await expect(page.getByText(`No camera (manual). Use ${(process.env.REMOTE_VOICE_USERS ?? "").split(",").some(id => id.trim() === "101") ? "voice, " : ""}typing`)).toBeVisible();
     await page.getByTestId("camera-on-feed").click();
     await expect(page.getByTestId("feed-0").locator("video")).toBeVisible();
+    await openRow();
     await expect(choice.getByRole("radio", { name: "Use webcam" })).toHaveAttribute("aria-checked", "true");
     await expect(manual).toHaveAttribute("aria-checked", "false");
     // The row's own webcam choice also leaves manual mode.
@@ -1227,7 +1231,7 @@ test.describe("remote duels screen, two players on LiveKit", () => {
     const alice = await browser.newContext(); const bob = await browser.newContext();
     await Promise.all([bothView(alice), bothView(bob)]);
     try {
-      for (const [context, userId] of [[alice, 101], [bob, 102]] as const) await authenticatePlayer(context.request, { userId }, process.env.E2E_AUTH_SECRET!, "http://localhost:3310");
+      for (const [context, userId] of [[alice, 101], [bob, 102]] as const) await authenticatePlayer(context.request, { userId }, process.env.E2E_AUTH_SECRET!, (process.env.E2E_REMOTE_UI_URL ?? "http://localhost:3310"));
       const slug = await startTwoPlayerTable(alice.request, bob.request);
       const a = await alice.newPage(); const b = await bob.newPage();
       // Only Alice's camera shows cards. Bob's page needs a camera to join the table, nothing more.
@@ -1890,7 +1894,7 @@ test('field watcher owner: one card completes the full physical lifecycle',async
   await check('monster',3,true);await expect(page.getByTestId('field-watcher-prompt')).toHaveCount(0);
   if(process.env.E2E_SCENARIO_COVER!=='0'){
     await page.evaluate(()=>((window as any).fieldTest).cover(true));
-    await page.getByRole('button',{name:'Camera off',exact:true}).click();
+    await cameraOff(page);
     await page.getByTestId('camera-on-feed').click();
     await expect(page.getByTestId('field-watcher-status')).toContainText('Watching field');
     await page.waitForTimeout(6500);await check('monster',3,true);
@@ -1951,14 +1955,14 @@ test('field watcher owner: one card completes the full physical lifecycle',async
   await place(1080,50);await check('extra',undefined,false);
   await place(720);await check('monster',2,true);
   await page.evaluate(()=>((window as any).fieldTest).clear());await check('hand',undefined,true);
-  await page.getByRole('button',{name:'Camera off',exact:true}).click();
+  await cameraOff(page);
   await page.waitForTimeout(2700);await place(550);
   await page.getByTestId('camera-on-feed').click();
   await check('monster',3,true);
   await page.evaluate(()=>((window as any).fieldTest).clear());await check('hand',undefined,true);
   // Restart with an expired field departure and an ordinary hand copy of X.
   // The inferred hand reservation must not replace the recorded field owner.
-  await page.getByRole('button',{name:'Camera off',exact:true}).click();
+  await cameraOff(page);
   const beforeRestart=await room();
   const handCopy=await context.request.post(`${path}/actions`,{data:{baseSeq:beforeRestart.lastSeq,action:{type:'twin.place',actorSeat:0,seat:0,zone:'hand',anotherCopy:true,card:{ref:'ordinary-hand-copy',cardId,name,faceUp:false,position:'attack'},idempotencyKey:crypto.randomUUID()}}});
   expect(handCopy.ok()).toBe(true);
@@ -1971,7 +1975,7 @@ test('field watcher owner: one card completes the full physical lifecycle',async
   await expect(page.getByTestId('field-watcher-prompt')).toHaveCount(0);
   expect(writes.every(write=>write.status===200)).toBe(true);expect(errors).toEqual([]);
   console.log(JSON.stringify({scenario:'owner lifecycle',backend:process.env.E2E_RECOGNITION_MODE??'cpu',writes:writes.map(w=>w.action.type)}));
-  await page.getByRole('button',{name:'Camera off',exact:true}).click();
+  await cameraOff(page);
 });
 async function appearingCamera(page:Page,cardFile=AUTO_CARD,guided=false) {
   const data=readFileSync(cardFile).toString('base64');
@@ -2102,12 +2106,12 @@ test('field watcher automatic: tap to identify reads every camera on a click, ru
     const recalled=calls(a,'detect').then(n=>n+1);await clickCard(a);
     await expect(a.getByTestId('card-last-read')).toContainText('Last read here, may have changed',{timeout:30_000});await expect(a.getByTestId('card-read-again')).toBeVisible();await expect(a.getByTestId('card-popover')).toHaveAttribute('aria-label',seenCard);
     expect(await calls(a,'detect')).toBe(await recalled);
-    await expect(a.getByTestId('card-popover').getByRole('button',{name:'Wrong card?'})).toBeVisible();await expect(a.getByTestId('pin-inspector')).toHaveCount(0);
+    await expect(a.getByTestId('card-popover').getByRole('button',{name:'Wrong card?'})).toHaveCount(0);await expect(a.getByTestId('pin-inspector')).toHaveCount(0);
     await expect(b.getByTestId('card-last-read')).toHaveCount(0);await a.waitForTimeout(1000);
     expect(actionPosts).toEqual([]);const after=await room();expect(after.state.seats[0].twin).toHaveLength(0);expect(after.events.filter((e:any)=>e.action.type==='card.identified')).toHaveLength(identifiedBefore);
     await a.evaluate(async()=>{const camera=(window as any).fieldTest;await camera.texture(false);camera.back('');});
     // Read board on a tap seat places nothing.
-    await a.keyboard.press('Escape');await a.getByTestId('feed-box-0').hover();await a.getByTestId('feed-box-0').getByTestId('freeze-feed').click();await a.getByTestId('feed-box-0').getByTestId('read-board').click();await expect(a.getByTestId('feed-box-0').getByTestId('read-board')).toBeEnabled({timeout:60_000});await a.waitForTimeout(1000);
+    await a.keyboard.press('Escape');await a.getByTestId('camera-tools-0').click();await a.getByTestId('camera-freeze-0').click();await a.getByTestId('feed-box-0').getByTestId('read-board').click();await expect(a.getByTestId('feed-box-0').getByTestId('read-board')).toBeEnabled({timeout:60_000});await a.waitForTimeout(1000);
     expect((await room()).state.seats[0].twin).toHaveLength(0);await a.getByTestId('feed-box-0').getByTestId('resume-live').click();
     // Back to Auto-detect with a manual card: the hold survives a reload and the board does not change.
     const seen=await room();
@@ -2372,7 +2376,7 @@ test('field watcher automatic: Set backs, deck stacks, and revealed Sets keep fa
     mkdirSync(process.env.E2E_LATENCY_REPORT,{recursive:true});
     writeFileSync(`${process.env.E2E_LATENCY_REPORT}/timings-${test.info().repeatEachIndex}.json`,JSON.stringify({backend,runtime,setTiming,flipTiming,resetTiming,revealAgainTiming,whiteResetTiming,revealAfterPlaceholderTiming,recoveryTiming,writes,stages:await page.evaluate(()=>(window as any).fieldTimings)},null,2));
   }
-  await page.getByRole('button',{name:'Camera off',exact:true}).click();
+  await cameraOff(page);
   // Manual same-slot setting uses twin.move and retains the same public knowledge.
   for(const [index,action] of [{type:'twin.move',zone:'hand',faceUp:false},{type:'twin.move',zone:'deck',faceUp:false},{type:'twin.move',zone:'monster',slot:3,faceUp:true},{type:'twin.move',zone:'monster',slot:3,faceUp:false}].entries()) {
     const latest=await room();

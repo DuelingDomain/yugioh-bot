@@ -50,6 +50,10 @@ export type FeedPoint = { anchor: Rect; feed: Rect; frames?: HTMLCanvasElement[]
 type Box = { left: number; top: number; width: number; height: number };
 type Frozen = { capturedAt:number;pinned: boolean; status: "detecting" | "ready" | "unavailable" | "error"; cards: FeedCard[]; cached:RemoteFieldCard[]; note: string; ms: number; canvas: HTMLCanvasElement; pending: Pt | null };
 
+/** The camera "..." menu sends Freeze and Read board to the feed of its seat with this window event. */
+export const FEED_TOOL_EVENT = "dd-feed-tool";
+export const feedTool = (seat: number, tool: "freeze" | "read") => window.dispatchEvent(new CustomEvent(FEED_TOOL_EVENT, { detail: { seat, tool } }));
+
 const DEFAULT_RATIO = 16 / 9; const MIN_RATIO = 1; const MAX_RATIO = 2.4; // shape limits of the feed box
 const CARD_H = 0.34; // card height as a share of the frame height
 const CARD_ASPECT = 0.686;
@@ -84,7 +88,7 @@ function copyOf(canvas: HTMLCanvasElement) {
   copy.getContext("2d")?.drawImage(canvas, 0, 0); return copy;
 }
 
-export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLive, onAbort, onPoint, onMiss, onSearch, onSelect, onAdd, onReset, onReadBoard, holdSelection, extra, onZoneCard, onPick, hoverTip, onCardMenu, below, emptyText, emptyAction, prereadScope, announcedMode, tournament = false, openZones }: {
+export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLive, onAbort, onPoint, onMiss, onSearch, onSelect, onAdd, onReset, onReadBoard, holdSelection, extra, onZoneCard, onPick, hoverTip, silentHover, onCardMenu, below, emptyText, emptyAction, prereadScope, announcedMode, tournament = false, openZones }: {
   seat: number; name: string; you: boolean; health: Health; marks: FeedMark[]; reticles: FeedReticle[];
   /** A click landed on the live feed, before the card is found. Returns the id of this read. No popup opens yet. */
   onBegin: (seat: number, start: FeedStart) => number | void;
@@ -111,10 +115,12 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
   onZoneCard?: (seat: number, at: { x: number; y: number; anchor: Rect; feed: Rect }) => boolean;
   /** Webcam only, while the table waits for an attack target: a click on a card there picks it. It answers true when it took the click. */
   onPick?: (seat: number, x: number, y: number) => boolean;
-  /** Webcam only: the name line for the card under the pointer, from the outlines or from the zone. */
-  hoverTip?: (seat: number, x: number, y: number) => { label: string; detail?: string } | null;
+  /** The board is shown: hoverTip only tracks the card under the pointer (for E) and shows no label. */
+  silentHover?: boolean;
+  /** The name line for the card under the pointer, from the outlines or from the zone. */
+  hoverTip?: (seat: number, x: number, y: number) => { label: string; detail?: string; /** A key hint under the name, e.g. "Activate" for E. Hidden on small cameras. */ hint?: string } | null;
   /** Right click (or a long press) on the camera. The table opens the card actions for the card under the point, if it knows one. The event goes on to the table menu. */
-  onCardMenu?: (seat: number, at: { x: number; y: number }, mouse: boolean) => void;
+  onCardMenu?: (seat: number, at: { x: number; y: number }, mouse: boolean, where: { anchor: Rect; feed: Rect }) => void;
   /** A strip under the video box (camera controls). It never covers the video. */
   below?: ReactNode; emptyText: string; emptyAction?: ReactNode;
   /** A tournament table: the Auto-detect off strip then gives no reason from this computer's own choice. */
@@ -156,7 +162,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
   },[]);
   // Webcam only: the name line that follows the pointer over a card.
   // The text changes state; the position follows the pointer through the element, so a move does not render the whole feed.
-  const [tip, setTip] = useState<{ left: number; top: number; label: string; detail?: string; flip: boolean } | null>(null);
+  const [tip, setTip] = useState<{ left: number; top: number; label: string; detail?: string; hint?: string; wide: boolean; flip: boolean } | null>(null);
   const tipBox = useRef<HTMLDivElement>(null);
   const setFrozenHealth = hub.setFrozen;
 
@@ -263,8 +269,9 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
     flashTimer.current = setTimeout(() => setFlash(null), FLASH_MS);
   }, []);
 
+  const readAfter = useRef(false);
   const unfreeze = useCallback((message = "") => {
-    run.current++; boardRun.current?.abort(); boardRun.current = null; setBoard(null); setPeekLabel(null); peekCache.current.clear(); if (dwell.current) clearTimeout(dwell.current);
+    readAfter.current = false; run.current++; boardRun.current?.abort(); boardRun.current = null; setBoard(null); setPeekLabel(null); peekCache.current.clear(); if (dwell.current) clearTimeout(dwell.current);
     setFrozenState(null); setActive(-1); setHover(-1); setSelected(null); if (message) setSay(message);
   }, []);
   useEffect(() => { if (!source) unfreeze(); }, [source, unfreeze]);
@@ -422,9 +429,10 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
     const f = frozenRef.current;
     if (hoverTip && !f && p && event.pointerType === "mouse") {
       const found = hoverTip(seat, p.x, p.y); const area = cam.current?.getBoundingClientRect();
-      if (found && area) {
+      if (silentHover) { /* no label while the board is shown */ } else if (found && area) {
         const left = event.clientX - area.left + 14; const y = event.clientY - area.top; const top = y + 16 > area.height - 56 ? y - 54 : y + 16; const flip = left > area.width - 300;
-        setTip(old => old && old.label === found.label && old.detail === found.detail && old.flip === flip ? old : { left, top, flip, ...found });
+        const wide = area.width >= 560;
+        setTip(old => old && old.label === found.label && old.detail === found.detail && old.hint === found.hint && old.wide === wide && old.flip === flip ? old : { left, top, flip, wide, ...found });
         if (tipBox.current) { tipBox.current.style.left = `${left}px`; tipBox.current.style.top = `${top}px`; }
       } else setTip(null);
     }
@@ -519,6 +527,25 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
     document.addEventListener("keydown", onKey); return () => document.removeEventListener("keydown", onKey);
   }, [hovered, freeze, unfreeze]);
 
+  // The "..." menu of this camera asks for Freeze and Read board here. Read board freezes first, then reads once the outlines are ready.
+  useEffect(() => {
+    function onTool(event: Event) {
+      const detail = (event as CustomEvent<{ seat: number; tool: "freeze" | "read" }>).detail;
+      if (!detail || detail.seat !== seat) return;
+      wrap.current?.focus({ preventScroll: true });
+      if (detail.tool === "freeze") { if (frozenRef.current) unfreeze("Live feed."); else void freeze(true); return; }
+      if (!onReadBoard) return;
+      if (frozenRef.current?.status === "ready") { void readAll(); return; }
+      if (!frozenRef.current) void freeze(true);
+      readAfter.current = true;
+    }
+    window.addEventListener(FEED_TOOL_EVENT, onTool); return () => window.removeEventListener(FEED_TOOL_EVENT, onTool);
+  }, [seat, freeze, unfreeze, readAll, onReadBoard]);
+  useEffect(() => {
+    if (!readAfter.current || !frozen || frozen.status === "detecting") return;
+    readAfter.current = false; if (frozen.status === "ready" && frozen.cards.length) void readAll();
+  }, [frozen, readAll]);
+
   const boxStyle: CSSProperties = box ? { left: box.left, top: box.top, width: box.width, height: box.height } : { display: "none" };
   const rect = (x: number, y: number, quad?: Pt[]) => {
     if (!box) return { display: "none" } as const;
@@ -542,7 +569,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
       onPointerCancel={()=>{phonePointerHandled.current=false;}}
       onContextMenu={event => {
         if (!onCardMenu || !source || event.shiftKey) return;
-        const p = point(event.clientX, event.clientY); if (p) onCardMenu(seat, p, lastPointer.current === "mouse");
+        const p = point(event.clientX, event.clientY); if (p) onCardMenu(seat, p, lastPointer.current === "mouse", { anchor: { left: event.clientX - 14, right: event.clientX + 14, top: event.clientY - 14, bottom: event.clientY + 14 }, feed: feedRect() });
       }}
       data-testid={`feed-${seat}`} data-remote-seat={seat}
       style={{ cursor: !source ? "default" : hover >= 0 ? "pointer" : "crosshair" }}>
@@ -552,7 +579,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
       {frozen ? <div className={s.still} style={boxStyle} data-testid="frozen-frame"><div className={s.stillCanvas} ref={holder} /><i className={s.stillScan} hidden={frozen.status !== "detecting"} /></div> : null}
       <div className={s.grain} />
       {tip && !frozen ? <div className={s.peek2} ref={tipBox} data-testid="hover-tip" style={{ left: tip.left, top: tip.top, transform: tip.flip ? "translateX(calc(-100% - 28px))" : undefined }} aria-hidden="true">
-        <b>{tip.label}</b>{tip.detail ? <em>{tip.detail}</em> : null}</div> : null}
+        <b>{tip.label}</b>{tip.detail ? <em>{tip.detail}</em> : null}{tip.hint && tip.wide ? <span className={s.peekKey} data-testid="hover-tip-key"><kbd>E</kbd>{tip.hint}</span> : null}</div> : null}
       {source && !frozen ? <ZoneGridOverlay seat={seat} box={box} visible={(gridOn && !tapSeat) || !!openZones?.length} openZones={openZones} onControlsEnter={calmHover} /> : null}
       {source && !frozen ? <HubFeedCards seat={seat} frame={box ? boxStyle : null} /> : null}
       {source && !frozen && you && debugOn ? <FieldDebugOverlay box={box} /> : null}
@@ -607,9 +634,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
         {onReadBoard && frozen.status === "ready" && frozen.cards.length ? <button type="button" className={s.fzbtn} disabled={board?.state === "reading"} onClick={() => void readAll()} data-testid="read-board" aria-keyshortcuts="R">
           {board?.state === "reading" ? "Reading…" : "Read board"} <kbd>R</kbd></button> : null}
         <button type="button" className={s.fzbtn} onClick={() => unfreeze("Live feed.")} data-testid="resume-live">Resume live <kbd>Esc</kbd></button>
-      </> : <>
-        <button type="button" className={s.fzbtn} onClick={() => void freeze(true)} data-testid="freeze-feed" aria-keyshortcuts="F">Freeze <kbd>F</kbd></button>
-      </>}
+      </> : null}
       <span className={s.watcherControlsSlot} data-field-watcher-controls />
     </div> : null}
     <div className={s.sr} aria-live="polite" role="status">{say}</div>

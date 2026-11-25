@@ -15,16 +15,18 @@ import type { QuickMove } from './quick-moves';
 import s from './remote-ui.module.css';
 
 
-/** One menu row: icon, plain label, and a chevron when the tap opens a next step. */
-function Row({ icon, next, primary, children, ...rest }: { icon: IconName; next?: boolean; primary?: boolean; children: string } & Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'children' | 'className' | 'type'>) {
-  return <button type="button" className={`${s.zaRow} ${primary ? s.zaPrimary : ''}`} {...rest}><Icon name={icon} /><span>{children}</span>{next ? <Icon name="chev" className={s.zaNext} /> : null}</button>;
+/** One menu row: icon, plain label (with a short line under it when `sub` is set), a key hint, and a chevron when the tap opens a next step. */
+export function Row({ icon, next, primary, sub, hint, children, ...rest }: { icon: IconName; next?: boolean; primary?: boolean; sub?: string; hint?: string; children: string } & Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'children' | 'className' | 'type'>) {
+  return <button type="button" className={`${s.zaRow} ${primary ? s.zaPrimary : ''}`} {...rest}><Icon name={icon} />
+    <span>{children}{sub ? <small className={s.zaSub}>{sub}</small> : null}</span>
+    {hint ? <kbd className={s.zaKey} aria-hidden="true">{hint}</kbd> : null}{next ? <Icon name="chev" className={s.zaNext} /> : null}</button>;
 }
 
 export function ZoneActions({ tokenOnly, room, seat, zone, at, deck, targetRef, startPicker=false, initialFaceUp, busy, error, onPick, onAction, onSet, onToken, onGive, onDetails, onClose, quick = [] }: {
   room: RemoteRoom; seat: number; zone: ZoneKey; at: PopAt; deck: number[]; targetRef?: string; initialFaceUp?: boolean;
   busy: boolean; error: string; startPicker?: boolean; onPick(pick: ZonePick): void; onAction(action: ZoneCardAction): void;
   onSet(): void; onToken(): void; /** An empty zone of another player's field: the menu only offers a token and a card from my hand. */ tokenOnly?: boolean; /** Give a card from my hand to this zone (the opponent's field only). */ onGive?: () => void; onDetails(card: TwinCard): void; onClose(): void;
-  /** The important card moves (give control, position, send, remove proxy), same set as the Tap-mode card popup. */ quick?: QuickMove[];
+  /** The important card moves (give control, position, send, remove proxy). The webcam card menu offers the same moves except the battle position. */ quick?: QuickMove[];
 }) {
   const twins = room.state.seats[seat].twin;
   const card = cellsFor(twins, hasExtraZones(room.format?.id))[zone]?.card;
@@ -101,7 +103,7 @@ export function ZoneActions({ tokenOnly, room, seat, zone, at, deck, targetRef, 
           {set ? <Row icon="cardback" disabled={busy} onClick={onSet}>Set a card here</Row> : null}
         </>}
         {!tokenOnly && card && sends.length ? <div className={s.zaSend} role="group" aria-label="Send the card to"><span>Send to</span>
-          {sends.map(m => <button type="button" key={m.id} className={`${s.btn} ${s.sm} ${s.q}`} disabled={busy} onClick={() => go(m)} data-testid={`zone-${m.id}`}>{m.label.replace('To ', '')}</button>)}</div> : null}
+          {sends.map(m => <button type="button" key={m.id} className={`${s.btn} ${s.sm} ${s.q}`} disabled={busy} onClick={() => go(m)} data-testid={`zone-${m.id}`}>{m.id === 'grave' ? 'GY' : m.id === 'hand' ? 'Hand' : m.label}</button>)}</div> : null}
         {!tokenOnly && move('remove') ? <Row icon="x" disabled={busy} onClick={() => go(move('remove')!)} data-testid="zone-remove-proxy">{move('remove')!.label}</Row> : null}
         {!tokenOnly || /^m[1-5]$/.test(zone) ? <Row icon="coin" next primary={tokenOnly} data-autofocus={tokenOnly ? "" : undefined} disabled={busy} onClick={onToken} data-testid="zone-token">{!card && /^m[1-5]$/.test(zone) ? 'Add token here' : 'Add token'}</Row> : null}
         {tokenOnly && onGive ? <Row icon="hand" next primary={!/^m[1-5]$/.test(zone)} data-autofocus={/^m[1-5]$/.test(zone) ? undefined : ""} disabled={busy} onClick={() => { onClose(); onGive(); }} data-testid="zone-give-hand">Give a card from my hand here</Row> : null}

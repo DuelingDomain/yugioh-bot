@@ -1,11 +1,12 @@
 'use client';
 
-import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import type { useCameraLock } from '@/lib/remote/use-camera-lock';
 import { useZoneGrid } from '@/lib/remote/zone-grid';
 import { FieldOrientationSettings } from '../field-orientation';
 import { CardDetectionSetting, RecognitionSetting, VideoRateSetting, SetCardSettings } from './recognition-setting';
 import { useVideoHub } from './video-hub';
+import { Row } from './zone-actions';
 import s from './camera-lock-control.module.css';
 
 export function CameraLockControl({ lock }: { lock: ReturnType<typeof useCameraLock> }) {
@@ -24,12 +25,13 @@ export function CameraLockControl({ lock }: { lock: ReturnType<typeof useCameraL
 }
 
 /** The "Settings" menu under my own camera. The browser popover stays above clipped feed containers and closes with Escape. */
-export function CameraSettingsMore({ lock }: { lock?: ReturnType<typeof useCameraLock> }) {
+export function CameraSettingsMore({ lock, row, children }: { lock?: ReturnType<typeof useCameraLock>;
+  /** The trigger is a row of the camera "..." menu instead of the Settings button. `children` (the camera choice row) then show first in the panel. */ row?: boolean; children?: ReactNode }) {
   const id = useId();
   const grid = useZoneGrid(), hub = useVideoHub();
   // With no camera there is no image to judge: a click here would save a confirmed side and "Is this right?" would never show.
   const hasCamera = grid.ownSeat !== null && !!hub.sourceFor(grid.ownSeat);
-  const trigger = useRef<HTMLButtonElement>(null), panel = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLElement>(null), panel = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
   const place = useCallback(() => {
     const box = trigger.current?.getBoundingClientRect(), node = panel.current;
@@ -43,8 +45,10 @@ export function CameraSettingsMore({ lock }: { lock?: ReturnType<typeof useCamer
     return () => { window.removeEventListener('resize', place); window.removeEventListener('scroll', place, true); };
   }, [open, place]);
   return <>
-    <button type="button" ref={trigger} className={s.more} popoverTarget={id} aria-label="Camera settings" data-testid="camera-settings">Settings</button>
+    {row ? <div ref={node => { trigger.current = node; }}><Row icon="sliders" popoverTarget={id} aria-haspopup="dialog" data-testid="camera-settings">Camera and detection settings</Row></div>
+      : <button type="button" ref={node => { trigger.current = node; }} className={s.more} popoverTarget={id} aria-label="Camera settings" data-testid="camera-settings">Settings</button>}
     <div id={id} ref={panel} popover="auto" className={s.menu} onToggle={event => { setOpen(event.newState === 'open'); if (event.newState === 'open') place(); }}>
+      {children}
       <CardDetectionSetting />
       <RecognitionSetting />
       <VideoRateSetting />

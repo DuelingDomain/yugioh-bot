@@ -1014,6 +1014,8 @@
 .fctl{position:absolute;left:8px;bottom:8px;z-index:7;display:flex;flex-wrap:wrap;gap:6px;align-items:center;max-width:calc(100% - 16px);opacity:0;transition:opacity .15s;pointer-events:none}
 .cams:hover .fctl,.cams:focus-within .fctl,.fctlOn{opacity:1;pointer-events:auto}
 @media (hover:none){.fctl{opacity:1;pointer-events:auto}}
+/* Narrow feeds: the hint and the hover-freeze mode would cover the whole picture, so only the buttons stay. */
+@media (max-width:480px){.fctl .gridHint,.fctl .fzhover{display:none}}
 .fzchip{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 9px;border-radius:6px;background:rgb(7 4 14/.9);border:1px solid var(--gold);color:var(--gold-ink);font:700 11.5px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;letter-spacing:.04em}
 .fzchip .ic{width:13px;height:13px}
 /* A note that may need two lines on a small camera box. */
@@ -1056,6 +1058,7 @@
 /* Hover peek, covered guard and board read */
 .qcov{stroke-dasharray:3 4;stroke:var(--warn);fill:rgb(240 178 79/.06)}
 .peek2{position:absolute;z-index:6;display:flex;align-items:center;gap:9px;max-width:min(360px,90%);padding:8px 13px;border-radius:9px;background:rgb(7 4 14/.97);border:2px solid var(--gold);color:var(--ink);pointer-events:none;font:700 16px/1.2 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;box-shadow:0 8px 24px rgb(0 0 0/.65),0 0 0 3px rgb(7 4 14/.6)}
+.peekKey{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;color:var(--ink2)}.peekKey kbd{padding:1px 5px;font:700 11px/1.2 inherit;border:1px solid var(--line2);border-radius:4px;color:var(--ink)}
 .peek2 b{font-weight:800;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .peek2 em{font-style:normal;font-size:11.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--gold-ink)}
 .peek2Wait b{color:var(--ink2);font-weight:600}
@@ -1163,7 +1166,12 @@
 .idle b{font-variant-numeric:tabular-nums}
 @media (max-width:700px){.idle{top:56px;flex-wrap:wrap}}
 /* A phone seat header: the name stays readable. The seat border and the rail show the turn, the dock has Undo. */
-.wcdirect{flex:none}
+/* My Battle Phase: the opponent webcam gets a thin red outline and one hint. A click on the hint or on their LP attacks directly. */
+.seat[data-direct] .cams{border-color:var(--loss);box-shadow:0 0 0 1px var(--loss)}
+.directHint{position:absolute;left:8px;bottom:8px;z-index:5;display:inline-flex;align-items:center;gap:6px;max-width:calc(100% - 16px);min-height:28px;padding:0 10px;border-radius:6px;border:1px solid var(--loss);background:rgb(7 4 14/.86);color:var(--ink);font-weight:600;font-size:12.5px;cursor:pointer}
+.directHint .ic{width:14px;height:14px;color:var(--loss);flex:none}
+.directHint:hover{background:rgb(40 8 14/.92)}.directHint:focus-visible{outline:2px solid var(--gold);outline-offset:1px}
+@media(max-width:720px){.directHint{min-height:36px}}
 @media (max-width:480px){.sh{gap:5px}.sh .nm{min-width:64px}.sh:has(.wcdirect) .vhide{display:none}.sh .sundo,.sh .tag.turnt,.sh .tag.nextt{display:none}.seat.turn .sh .tag.turnt,.seat.next .sh .tag.nextt{display:none}.wcpiles button{padding:0 5px}}
 
 /* ============ deck warning layer ============ */
@@ -1552,10 +1560,29 @@
 .zmBody{display:flex;flex-direction:column;gap:10px;min-height:0;flex:1 1 auto;overflow:auto;overscroll-behavior:contain;margin:0 -4px;padding:2px 4px}
 .zmBody>*{flex:none}
 .zaList{display:flex;flex-direction:column;gap:6px}
+/* The one "..." button on a webcam, and its menu. It replaces the old camera tool row. */
+.toolsBtn{position:absolute;right:8px;top:8px;z-index:5;display:inline-grid;place-items:center;width:30px;height:28px;padding:0;border-radius:6px;border:1px solid var(--line2);background:rgb(7 4 14/.82);color:var(--ink2);cursor:pointer}
+.toolsBtn:hover,.toolsBtn[aria-expanded=true]{border-color:var(--gold);color:var(--gold-ink)}
+.toolsBtn:focus-visible{outline:2px solid var(--gold);outline-offset:1px}
+.toolsBtn .ic{width:18px;height:18px}
+.toolsBtn[data-warn]::after{content:"";position:absolute;top:3px;right:3px;width:7px;height:7px;border-radius:50%;background:var(--warn);box-shadow:0 0 0 2px rgb(5 3 11/.8)}
+.cams:has(.toolsBtn) .feedTagRow{right:46px}
+.toolsMenu{position:fixed;inset:auto;margin:0;width:min(300px,calc(100vw - 16px));max-height:calc(100dvh - 16px);overflow:auto;padding:6px;border:1px solid var(--line2);border-radius:12px;background:var(--p0);color:var(--ink);box-shadow:0 12px 36px #0008}
+.toolsMenu:popover-open{display:flex;flex-direction:column;gap:4px}
+.toolsMenu:not(:popover-open){display:none}
+.toolsMenu .zaRow[aria-disabled=true]{opacity:.55;cursor:default}
+.toolsMenu .zaRow[data-need]{border-color:rgb(232 185 79/.55)}
+.toolsSep{height:1px;margin:2px 4px;background:var(--line)}
+.camselPanel{flex-wrap:wrap;justify-content:flex-start}
+@media(max-width:720px){.toolsBtn{width:40px;height:40px}.toolsMenu .zaRow{min-height:48px}}
 .zaRow{display:flex;align-items:center;gap:10px;width:100%;min-height:40px;padding:6px 12px;text-align:left;border:1px solid var(--line2);border-radius:6px;background:var(--p2);color:var(--ink);font-weight:600;font-size:14px;line-height:1.25}
 .zaSend{display:flex;align-items:center;gap:6px;min-height:36px;padding:2px 8px 2px 12px;border:1px solid var(--line2);border-radius:6px;background:var(--p2)}
 .zaSend>span{flex:1 1 auto;font-weight:600;font-size:14px;color:var(--ink)}
 .zaRow>span{flex:1 1 auto;min-width:0}
+.zaSub{display:block;margin-top:2px;font-weight:500;font-size:12px;line-height:1.3;color:var(--ink3)}
+.zaKey{flex:none;min-width:22px;padding:2px 6px;text-align:center;font:700 11px/1.2 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;color:var(--ink2);border:1px solid var(--line2);border-radius:4px;background:var(--p1)}
+.zaTip{margin:0;font-size:12px;line-height:1.4;color:var(--ink3)}.zaTip kbd{padding:1px 5px;font:700 11px/1.2 inherit;border:1px solid var(--line2);border-radius:4px;color:var(--ink2)}
+.cmArt{width:36px;height:52px;flex:none;border-radius:3px;object-fit:cover;background:var(--p2)}
 .zaRow .ic{width:18px;height:18px;color:var(--ink2)}
 .zaRow .zaNext{width:16px;height:16px;color:var(--ink3)}
 .zaRow:hover:not(:disabled){border-color:var(--pen)}
