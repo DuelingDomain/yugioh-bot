@@ -144,17 +144,16 @@ export function RemoteTableScreen({ slug, tournament = null, watchAsAdmin = fals
   return <VideoHubProvider room={room}>{room.status === "lobby" ? <RemoteLobbyRoom ctl={ctl} room={room} voiceRecognition={room.voiceEnabled === true} tournament={tournament} /> : <Table ctl={ctl} room={room} tournament={tournament} />}<PhoneScanReview ctl={ctl} room={room} /></VideoHubProvider>;
 }
 
-/** One row under the video: phone pairing, no-camera mode, camera choice and camera off. Icons with labels; the labels drop out when the row is narrow. */
-function CameraControl({room}: {room:RemoteRoom}) {
+/** The camera and detection settings row of a camera "..." menu. For my own camera the panel also holds phone pairing, camera choice and camera off, so the table has no tool row under the video. */
+function CameraControl({room, mine}: {room:RemoteRoom; mine:boolean}) {
   const hub = useVideoHub();
   const leave = hub.phones.some(p => p.seat===room.mySeat) ? "Leave table video" : "Camera off";
-  return <div className={s.camsel} data-testid="camera-row"><PhonePairing room={room} />
+  return <CameraSettingsMore row lock={hub.cameraLock}>{mine ? <div className={`${s.camsel} ${s.camselPanel}`} data-testid="camera-row"><PhonePairing room={room} />
     {hub.cameraOn && hub.devices.length > 1 ? <ThemedSelect variant="menu" label="Choose camera" placeholder="Choose camera" value={hub.cameraId} testId="camera-choice"
       choices={hub.devices.map(device => ({ value: device.deviceId, label: device.label || "Camera" }))} onChange={id => void hub.selectCamera(id)} /> : null}
     {hub.sendFailed ? <button type="button" className={`${s.btn} ${s.sm} ${s.go}`} data-testid="retry-video" onClick={() => hub.retryVideo()}>Retry video</button> : null}
-    <CameraSettingsMore lock={hub.cameraLock} />
     {hub.cameraOn ? <button type="button" className={`${s.btn} ${s.sm} ${s.q} ${s.cbtn}`} aria-label={leave} title={leave} onClick={() => { rememberCameraWanted(room.slug, false); void hub.disableCamera(); }}><Icon name="camoff" /><span data-lbl>{leave}</span></button> : null}
-  </div>;
+  </div> : null}</CameraSettingsMore>;
 }
 
 /** One plain sentence on why a table ended. */
@@ -1732,7 +1731,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
             onAttack={(_key, card) => startAttack(seat, card)} onInspect={card => openSubject(card)} onPile={(zone, opener) => openPile(seat, zone, opener)} onDeck={(solo || seat === mySeat) && surrenderable(seat) ? el => { setDeckAt({ seat, rect: el.getBoundingClientRect() }); layers.toggle("deck", el); } : undefined} live={live} drag={fieldDrag(seat)} onPlate={() => { if (plate) void declare(seat); }}
             onLp={delta => void changeLp(seat, delta)} canLp={live} deckWarning={deckFlag(room, seat)?.message} onDeckFlag={el => { setFlagSeat(seat); layers.toggle("flag", el); }}
             hand={handOf(seat)} thinkingSince={thinking.get(seat)}
-            cameraControl={seat === mySeat ? scan => <div className={s.camtools}><CameraControl room={room} /><div className={s.toolrow}>{scan}</div></div> : undefined}
+            cameraControl={<CameraControl room={room} mine={seat === mySeat} />} onToken={live && mySeat >= 0 ? () => void tokens.create(seat) : undefined}
             track={<PhaseTrack seat={seat} name={name(seat)} turn={seat === turnShown} phase={state.phase} canAct={live && myTurn && !state.attack} onPick={phaseAsk.pick} />} turnIn={turnIn && seat === turnShown}
             emptyFeedAction={seat === mySeat && !hub.cameraOn ? <button type="button" className={`${s.btn} ${s.sm} ${s.go}`} disabled={hub.starting} onClick={event => { event.stopPropagation(); void (hub.manual(seat) ? hub.useWebcam() : hub.enableCamera()); }} data-testid="camera-on-feed">{hub.starting ? "Starting…" : "Turn camera on"}</button> : undefined}
             emptyFeedText={hub.manual(seat) ? `No camera (manual). Use ${voiceRecognition ? "voice, " : ""}typing and your board twin.` : hub.health(seat).label === "Scan mode" ? "Scan mode · follow the board twin and log." : bot ? "Test opponent. No camera." : seat === mySeat ? "Your camera is off." : `Waiting for ${name(seat)}'s camera.`} />;

@@ -1510,6 +1510,21 @@
 .zmBody{display:flex;flex-direction:column;gap:10px;min-height:0;flex:1 1 auto;overflow:auto;overscroll-behavior:contain;margin:0 -4px;padding:2px 4px}
 .zmBody>*{flex:none}
 .zaList{display:flex;flex-direction:column;gap:6px}
+/* The one "..." button on a webcam, and its menu. It replaces the old camera tool row. */
+.toolsBtn{position:absolute;right:8px;top:8px;z-index:5;display:inline-grid;place-items:center;width:30px;height:28px;padding:0;border-radius:6px;border:1px solid var(--line2);background:rgb(7 4 14/.82);color:var(--ink2);cursor:pointer}
+.toolsBtn:hover,.toolsBtn[aria-expanded=true]{border-color:var(--gold);color:var(--gold-ink)}
+.toolsBtn:focus-visible{outline:2px solid var(--gold);outline-offset:1px}
+.toolsBtn .ic{width:18px;height:18px}
+.toolsBtn[data-warn]::after{content:"";position:absolute;top:3px;right:3px;width:7px;height:7px;border-radius:50%;background:var(--warn);box-shadow:0 0 0 2px rgb(5 3 11/.8)}
+.cams:has(.toolsBtn) .feedTagRow{right:46px}
+.toolsMenu{position:fixed;inset:auto;margin:0;width:min(300px,calc(100vw - 16px));max-height:calc(100dvh - 16px);overflow:auto;padding:6px;border:1px solid var(--line2);border-radius:12px;background:var(--p0);color:var(--ink);box-shadow:0 12px 36px #0008}
+.toolsMenu:popover-open{display:flex;flex-direction:column;gap:4px}
+.toolsMenu:not(:popover-open){display:none}
+.toolsMenu .zaRow[aria-disabled=true]{opacity:.55;cursor:default}
+.toolsMenu .zaRow[data-need]{border-color:rgb(232 185 79/.55)}
+.toolsSep{height:1px;margin:2px 4px;background:var(--line)}
+.camselPanel{flex-wrap:wrap;justify-content:flex-start}
+@media(max-width:720px){.toolsBtn{width:40px;height:40px}.toolsMenu .zaRow{min-height:48px}}
 .zaRow{display:flex;align-items:center;gap:10px;width:100%;min-height:40px;padding:6px 12px;text-align:left;border:1px solid var(--line2);border-radius:6px;background:var(--p2);color:var(--ink);font-weight:600;font-size:14px;line-height:1.25}
 .zaSend{display:flex;align-items:center;gap:6px;min-height:36px;padding:2px 8px 2px 12px;border:1px solid var(--line2);border-radius:6px;background:var(--p2)}
 .zaSend>span{flex:1 1 auto;font-weight:600;font-size:14px;color:var(--ink)}

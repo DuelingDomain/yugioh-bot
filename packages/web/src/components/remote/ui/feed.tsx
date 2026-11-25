@@ -51,6 +51,10 @@ export type FeedPoint = { anchor: Rect; feed: Rect; frames?: HTMLCanvasElement[]
 type Box = { left: number; top: number; width: number; height: number };
 type Frozen = { capturedAt:number;pinned: boolean; status: "detecting" | "ready" | "unavailable" | "error"; cards: FeedCard[]; cached:RemoteFieldCard[]; note: string; ms: number; canvas: HTMLCanvasElement; pending: Pt | null };
 
+/** The camera "..." menu sends Freeze and Read board to the feed of its seat with this window event. */
+export const FEED_TOOL_EVENT = "dd-feed-tool";
+export const feedTool = (seat: number, tool: "freeze" | "read") => window.dispatchEvent(new CustomEvent(FEED_TOOL_EVENT, { detail: { seat, tool } }));
+
 const DEFAULT_RATIO = 16 / 9; const MIN_RATIO = 1; const MAX_RATIO = 2.4; // shape limits of the feed box
 const CARD_H = 0.34; // card height as a share of the frame height
 const CARD_ASPECT = 0.686;
@@ -277,8 +281,9 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
     flashTimer.current = setTimeout(() => setFlash(null), FLASH_MS);
   }, []);
 
+  const readAfter = useRef(false);
   const unfreeze = useCallback((message = "") => {
-    run.current++; boardRun.current?.abort(); boardRun.current = null; setBoard(null); setPeekLabel(null); peekCache.current.clear(); if (dwell.current) clearTimeout(dwell.current);
+    readAfter.current = false; run.current++; boardRun.current?.abort(); boardRun.current = null; setBoard(null); setPeekLabel(null); peekCache.current.clear(); if (dwell.current) clearTimeout(dwell.current);
     setFrozenState(null); setActive(-1); setHover(-1); setSelected(null); if (message) setSay(message);
   }, []);
   useEffect(() => { if (!source) unfreeze(); }, [source, unfreeze]);
@@ -532,6 +537,25 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
     }
     document.addEventListener("keydown", onKey); return () => document.removeEventListener("keydown", onKey);
   }, [hovered, freeze, unfreeze]);
+
+  // The "..." menu of this camera asks for Freeze and Read board here. Read board freezes first, then reads once the outlines are ready.
+  useEffect(() => {
+    function onTool(event: Event) {
+      const detail = (event as CustomEvent<{ seat: number; tool: "freeze" | "read" }>).detail;
+      if (!detail || detail.seat !== seat) return;
+      wrap.current?.focus({ preventScroll: true });
+      if (detail.tool === "freeze") { if (frozenRef.current) unfreeze("Live feed."); else void freeze(true); return; }
+      if (!onReadBoard) return;
+      if (frozenRef.current?.status === "ready") { void readAll(); return; }
+      if (!frozenRef.current) void freeze(true);
+      readAfter.current = true;
+    }
+    window.addEventListener(FEED_TOOL_EVENT, onTool); return () => window.removeEventListener(FEED_TOOL_EVENT, onTool);
+  }, [seat, freeze, unfreeze, readAll, onReadBoard]);
+  useEffect(() => {
+    if (!readAfter.current || !frozen || frozen.status === "detecting") return;
+    readAfter.current = false; if (frozen.status === "ready" && frozen.cards.length) void readAll();
+  }, [frozen, readAll]);
 
   const toggleAuto = () => { const on = !auto; setAuto(on); try { localStorage.setItem(AUTO_KEY, on ? "1" : "0"); } catch { /* storage may be blocked */ } };
   const boxStyle: CSSProperties = box ? { left: box.left, top: box.top, width: box.width, height: box.height } : { display: "none" };

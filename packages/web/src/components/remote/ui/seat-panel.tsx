@@ -1,9 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type ComponentProps, type ReactNode } from "react";
-import { CircleHelp, Hand, Pencil, RefreshCw, ScanLine } from "lucide-react";
+import { CircleHelp, Hand, Pencil, ScanLine } from "lucide-react";
 import { useFieldScan, useMissingPiles, useTapToIdentify } from "@/lib/remote/zone-grid";
 import { useScanAdvice } from "@/lib/remote/scan-advice";
+import { CameraToolsMenu } from "./camera-tools-menu";
 import { Feed, type BoardReading, type FeedHit, type FeedMark, type FeedPoint, type FeedReticle, type FeedStart } from "./feed";
 import { HoloField, type FieldDrag } from "./holo-field";
 import { Icon } from "./icons";
@@ -68,7 +69,7 @@ export type SeatPanelProps = {
   /** The mode this player announced. Tournament tables show it to the opponent. */ detectionMode?: TournamentMode | "unknown";
   /** Opponent seats only: asks that player's Auto-detect to Scan field again. Absent for my seat, bots and spectators. */ onRescan?: () => Promise<string>;
   /** A tournament table. */ tournamentTable?: boolean;
-  deckWarning?: string; onDeckFlag?: (button: HTMLElement) => void; cameraControl?: ReactNode | ((tool: ReactNode) => ReactNode); emptyFeedText: string; emptyFeedAction?: ReactNode; turnIn: boolean;
+  deckWarning?: string; onDeckFlag?: (button: HTMLElement) => void; cameraControl?: ReactNode; /** Opens the token dialog for this seat's field (the camera "..." menu). */ onToken?: () => void; emptyFeedText: string; emptyFeedAction?: ReactNode; turnIn: boolean;
 };
 
 /** Camera first (default) or enlarged field, per viewer and seat. Remembered in this browser only. */
@@ -89,8 +90,6 @@ export function SeatPanel(p: SeatPanelProps) {
   const compact = !!p.webcamOnly || !!p.boardOff;
   const fieldView = fieldViewPref && !compact;
   const scan = useFieldScan(p.seat), missingPiles = useMissingPiles(p.seat), advice = useScanAdvice(p.seat);
-  const [rescanNote, setRescanNote] = useState("");
-  useEffect(() => { if (!rescanNote) return; const timer = setTimeout(() => setRescanNote(""), 4000); return () => clearTimeout(timer); }, [rescanNote]);
   // The Scan button goes in Tap to identify; its space stays, so the camera does not move.
   const tapHere = useTapToIdentify(p.seat);
   // Webcam only, while this seat can be attacked: the list of its monsters is on the feed, because a feed without a camera or outlines cannot be clicked.
@@ -103,9 +102,7 @@ export function SeatPanel(p: SeatPanelProps) {
     {listed.map(({ key, card }) => <li key={card.ref}><button type="button" onClick={() => { if (targeting) p.onActivate(key, card); else p.onInspect(card); }}>{`${ZN[key]}: ${cardName(card, p.info(cardCode(card)))}`}</button></li>)}
   </ul> : null;
   // The field never zooms by itself: only the Enlarge field button (and the small camera) changes the view.
-  // My Scan field button sits in the tool row under the camera, so the virtual field is centred and the button never covers a zone.
-  // Only the large-field view keeps it beside the field.
-  const inTools = typeof p.cameraControl === "function" && !fieldView;
+  // Scan field is in the camera "..." menu. It also sits beside the virtual board, but only while the board is shown.
   // The primary action of my camera tools. While the camera and the board disagree it glows and says why (the reason is also the tooltip and the screen reader text).
   const need = scan && scan.ready && !scan.scanning ? advice.reason : null;
   const scanButton = scan ? <button type="button" className={s.scanbtn} aria-disabled={scan.scanning || !scan.ready} aria-keyshortcuts="S" aria-label={scan.scanning ? "Scanning field" : scan.ready ? (need ? `Scan field. ${need}` : "Scan field") : "Scan field, camera off"}
@@ -147,9 +144,6 @@ export function SeatPanel(p: SeatPanelProps) {
       <span className={`${s.tag} ${s.turnt}`}>TURN</span><span className={`${s.tag} ${s.nextt}`}>NEXT</span>
       {p.eliminated ? <span className={s.tag}>OUT</span> : null}
       <span className={s.micI}><Icon name="mic" /></span><span className={s.sp} />
-      {p.onRescan && !scan ? <button type="button" className={`${s.vtog} ${s.rescan}`} data-testid={`field-rescan-${p.seat}`} data-sent={rescanNote || undefined} aria-label={`Rescan ${p.name}'s field${rescanNote ? `. ${rescanNote}` : ""}`}
-        title={rescanNote || "Ask this player's Auto-detect to scan their field again"} onClick={() => { if (!rescanNote) void p.onRescan?.().then(setRescanNote); }}>
-        <RefreshCw size={13} strokeWidth={1.8} aria-hidden="true" /><span className={s.rslabel}>Rescan</span><span className={s.sr} role="status">{rescanNote}</span></button> : null}
       {p.onToggleView ? <button type="button" className={`${s.vtog} ${s.vhide}`} data-testid={`field-toggle-${p.seat}`} onClick={p.onToggleView} aria-keyshortcuts="W"
         title={p.webcamOnly ? "Show the virtual fields (beta) (W). Card recognition does not need them." : "Hide the virtual fields (beta). The camera takes the screen (W)"}>
         <span>{p.webcamOnly ? "Show" : "Hide"} <span className={s.vlong}>virtual </span>field</span> <span className={s.vbeta}>Beta</span> <kbd>W</kbd></button> : null}
@@ -163,8 +157,8 @@ export function SeatPanel(p: SeatPanelProps) {
     {p.onDock ? <NotifyDock seat={p.seat} onSlot={p.onDock} view={`${compact ? "webcam" : "both"}:${fieldView ? "field" : "camera"}`} /> : null}
     <div className={s.sbody}>
       <Feed seat={p.seat} name={p.name} you={p.you} health={p.health} marks={p.marks} reticles={p.reticles} onBegin={p.onBegin} readLive={p.readLive} onAbort={p.onAbort} onMiss={p.onMiss} onSearch={p.onSearch} onPoint={p.onPoint} onSelect={p.onSelect} holdSelection={p.holdSelection} onAdd={p.onAdd} onReset={p.onReset} onReadBoard={p.onReadBoard} onZoneCard={p.onZoneCard} onPick={compact ? p.onCamPick : undefined} hoverTip={p.webcamOnly ? p.hoverTip : undefined} onCardMenu={p.onCardMenu} emptyText={p.emptyFeedText} emptyAction={p.emptyFeedAction} tournament={p.tournamentTable} prereadScope={compact && p.live ? p.prereadScope : undefined} announcedMode={p.detectionMode === "unknown" ? undefined : p.detectionMode}
-        below={typeof p.cameraControl === "function" ? p.cameraControl(inTools ? scanButton : null) : p.cameraControl}
         extra={<>
+          <CameraToolsMenu seat={p.seat} name={p.name} you={p.you} scan={scan} advice={advice} warn={p.health.q === "bad"} onToken={p.onToken} onRescan={p.you ? undefined : p.onRescan} settings={p.cameraControl} />
           {fieldView ? <button type="button" className={s.swapcam} tabIndex={-1} aria-label="Camera view: show the camera large again" data-testid={`swap-cam-${p.seat}`} onClick={() => setFieldView(false)} /> : null}
           {targeting ? cardList : null}
           {compact && missingPiles.length ? <div className={s.wcoffmat} role="status" data-testid={`wc-off-mat-${p.seat}`}>{`${missingPiles.map(zone => zone === "DECK" ? "Deck" : "Extra Deck").join(" and ")} not on the mat`}</div> : null}
@@ -180,8 +174,8 @@ export function SeatPanel(p: SeatPanelProps) {
         {p.boardOff && !p.you ? <TapBoardNote /> : null}
         {targeting ? null : cardList}
         <div className={s.fboard}>
-        {inTools ? null : scan ? scanButton : tapHere ? <span className={s.scanbtn} style={{ visibility: "hidden" }} aria-hidden="true"><ScanLine size={15} strokeWidth={1.8} /><span>Scan field</span></span> : null}
-        <div className={s.fwrap} data-rail={!inTools && (scan || tapHere) ? "" : undefined} data-testid={`fwrap-${p.seat}`}>
+        {compact ? null : scan ? scanButton : tapHere ? <span className={s.scanbtn} style={{ visibility: "hidden" }} aria-hidden="true"><ScanLine size={15} strokeWidth={1.8} /><span>Scan field</span></span> : null}
+        <div className={s.fwrap} data-rail={!compact && (scan || tapHere) ? "" : undefined} data-testid={`fwrap-${p.seat}`}>
           <div className={s.holo}>
             <i className={`${s.corner} ${s.a}`} /><i className={`${s.corner} ${s.b}`} /><i className={`${s.corner} ${s.c}`} /><i className={`${s.corner} ${s.d}`} />
             <button type="button" ref={p.plateRef} className={`${s.fplate} ${p.pickPlate ? s.pick : ""}`} tabIndex={p.pickPlate ? 0 : -1} data-plate={p.seat} onClick={p.onPlate}
