@@ -1738,6 +1738,16 @@
   .app[data-drawer] .shell{width:calc(100% - var(--tdr-w));margin-left:var(--tdr-w)}
   .app[data-drawer] .drawer.tdr{top:0}
 }
+/* The pushed drawer leaves the bar about 340 px less room, so a laptop window gets the same short bar as a small window. */
+@media (min-width:1100px) and (max-width:1560px){
+  .app[data-drawer] .bar{gap:8px;padding:0 8px}
+  .app[data-drawer] .bturn{padding-right:8px;gap:8px}.app[data-drawer] .bturn .tn b{max-width:96px;font-size:16px}
+  .app[data-drawer] .bar .dk.undo{flex:0 1 auto;min-width:0}.app[data-drawer] .bar .ubtn{flex:0 1 auto;min-width:0;padding:0 10px}.app[data-drawer] .bar .ubtn .ul{max-width:96px;font-size:14px}
+  .app[data-drawer] .bsig{flex:1 1 auto;min-width:150px}
+  .app[data-drawer] .bar .pass{padding:0 12px;font-size:14px}.app[data-drawer] .bar .pass>span:last-child{display:none}
+  .app[data-drawer] .bar .pback{padding:0 10px}
+  .app[data-drawer] .bvbtn .bvl,.app[data-drawer] .bmore{display:none}
+}
 @media (max-width:900px){
   .drawer.tdr{top:var(--hdr);left:0;right:0;width:auto;max-width:none;bottom:0;border-right:0}
   .tdr .flt{gap:6px;padding:10px 12px 6px}
