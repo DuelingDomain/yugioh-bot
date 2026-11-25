@@ -770,6 +770,23 @@ it('hides a known Set moved to a different mat cell that projects to the same sl
   expect(fixture.room().state.seats[0].twin[0]).not.toHaveProperty('knownFaceDown');
  }finally{fixture.dispose();}
 });
+it('replaces a known Set on a sure read of a different card after Best match clears',async()=>{
+ const entry=zoneEntries[0],old={ref:'known-set',zone:'spell-trap',slot:4,cardId:83764718,name:'Monster Reborn',faceUp:false,position:'attack'};
+ const fixture=await typedWatcherFixture(entry,'S4',[old],'moved');
+ try{
+  Object.assign(fixture.track,{restSince:performance.now(),bestMatch:true});
+  await fixture.emit({type:'placed'});
+  expect(fixture.post).not.toHaveBeenCalled();
+
+  fixture.track.bestMatch=undefined;
+  await fixture.emit({type:'placed',result:{...result,tier:'sure',candidates:[{cardId:entry.cardId,score:.99}]}});
+  await waitFor(()=>expect(fixture.post).toHaveBeenCalledTimes(2));
+  const [departure,placement]=fixture.post.mock.calls.map(([proposal])=>proposal);
+  expect(departure).toMatchObject({type:'twin.move',cardRef:old.ref,zone:'hand'});
+  expect(placement).toMatchObject({type:'twin.place',zone:'spell-trap',card:{cardId:entry.passcode,slot:4,faceUp:true}});
+  expect(placement.card.ref).not.toBe(old.ref);
+ }finally{fixture.dispose();}
+});
 it.each([
  ['graveyard',undefined],['hand',undefined],['deck',undefined],['extra',undefined],['banished',undefined],
  ['spell-trap',3],['spell-trap',undefined],
@@ -1488,24 +1505,23 @@ describe('typed watcher zone projection',()=>{
    await waitFor(()=>expect(fixture.post).toHaveBeenCalledOnce());
    const proposal=fixture.post.mock.calls[0][0];
    expect(proposal).toMatchObject({type:'twin.move',cardRef:old.ref,zone:'spell-trap',slot:4,faceUp:false});
-   expect(proposal.setRef).toBeDefined();
-   expect(proposal.setRef).not.toBe(old.ref);
+   expect(proposal.setRef).toBeUndefined();
    expect(state.fieldWatch.watch.forget).not.toHaveBeenCalledWith(old.ref);
-   expect(fixture.room().state.seats[0].twin).toEqual([expect.objectContaining({ref:proposal.setRef,faceUp:false,cardId:old.cardId})]);
+   expect(fixture.room().state.seats[0].twin).toEqual([expect.objectContaining({ref:old.ref,faceUp:false,cardId:old.cardId})]);
    const {projectRemoteSnapshot,remoteUndoHistory}=await import('@yugidraft/shared/remote');
    const {shortUndoLabel}=await import('../src/components/remote/ui/undo-ui');
    const room=fixture.room();
    const projected=projectRemoteSnapshot({table:{...room,seats:[]},state:room.state,events:room.events},new Set([1]));
    expect(projected.state.seats[0].handCount).toBe(4);
-   expect(projected.state.seats[0].twin).toEqual([expect.objectContaining({ref:proposal.setRef,faceUp:false})]);
+   expect(projected.state.seats[0].twin).toEqual([expect.objectContaining({ref:old.ref,faceUp:false})]);
    expect(projected.state.seats[0].twin[0].cardId).toBeUndefined();
-   expect(projected.events[0].action).toMatchObject({type:'twin.place',card:{ref:proposal.setRef,faceUp:false}});
-   expect(JSON.stringify(projected.events)).not.toContain(old.ref);
+   expect(projected.events[0].action).toMatchObject({type:'twin.move',cardRef:old.ref,faceUp:false});
    const [entry]=remoteUndoHistory(room.state,0);
-   expect(entry.cards).toEqual(expect.arrayContaining([`0:${old.ref}`,`0:${proposal.setRef}`]));
+   expect(entry.cards).toEqual([`0:${old.ref}`]);
 
    await act(async()=>{await fixture.post({type:'undo',actorSeat:0,targetActionId:entry.actionId});});
    expect(fixture.room().state.seats[0].twin).toEqual([expect.objectContaining({ref:old.ref,zone:'hand'})]);
+   expect(fixture.room().state.seats[0].handCount).toBe(5);
    // The same back still rests there in a fresh full pass after the return window.
    Object.assign(fixture.track,{visible:true,firstSeen:now-5000});
    watch.getSnapshot=()=>{fixture.track.lastSeen=now;return {...watch.snapshot,lastFullAt:now};};

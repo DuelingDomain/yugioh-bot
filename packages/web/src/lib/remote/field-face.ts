@@ -16,6 +16,8 @@ export interface FieldFaceInput {
   at:number; seat:number; tracks:readonly FieldTrack[]; twins:readonly TwinCard[];
   /** The board ref a track is bound to. Only that card can be flipped: never another card in the same zone. */
   refOf:(track:FieldTrack)=>string;
+  /** The board card's physical cell, including any camera-to-board zone projection. */
+  zoneOf:(card:TwinCard)=>FieldTrack['zone']|undefined;
   /** Cards this check leaves alone for now (a reading placeholder, a stack that waits for a summon). */
   skip?:(ref:string)=>boolean;
   identity:(track:FieldTrack)=>{cardId:number;name?:string}|undefined;
@@ -47,12 +49,15 @@ export function createFieldFaceCheck() {
     /** A write failed: wait, and stop after three until the faces agree or Scan field runs. */
     failed(ref:string,at:number){const count=(fails.get(ref)?.count??0)+1;fails.set(ref,{count,until:count>=MAX_FAILS?Infinity:at+2000*count});},
     clear(){holds.clear();seen.clear();flips.clear();fails.clear();pairs.clear();locks.clear();},
-    due({at,seat,tracks,twins,refOf,skip,identity,freshZoom,scan=false}:FieldFaceInput):FieldFaceFix[] {
+    due({at,seat,tracks,twins,refOf,zoneOf,skip,identity,freshZoom,scan=false}:FieldFaceInput):FieldFaceFix[] {
       const fixes:FieldFaceFix[]=[];
       for(const track of tracks){
         if(!fieldFaceWitness(track,at))continue;
         const card=twins.find(c=>c.ref===refOf(track)&&FIELD_ZONES.has(c.zone));
         if(!card||skip?.(card.ref))continue;
+        // A front in another cell goes through the placement/move handler.
+        const zone=track.faceDown?undefined:zoneOf(card);
+        if(zone!==undefined&&track.zone!==zone){seen.delete(card.ref);continue;}
         const lock=locks.get(card.ref);
         if(lock&&(scan||lock.face===track.faceDown&&at-lock.since>=FIELD_FACE_CALM_MS)){locks.delete(card.ref);pairs.delete(card.ref);flips.delete(card.ref);}
         else if(lock&&lock.face!==track.faceDown){lock.face=track.faceDown;lock.since=at;}
