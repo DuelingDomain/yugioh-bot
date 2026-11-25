@@ -48,6 +48,10 @@
 .crumbLink b{color:inherit}
 .adminBadge,.adminPill{font:700 10px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;letter-spacing:.12em;text-transform:uppercase;border:1px solid var(--gold);background:rgb(232 185 79/.14);border-radius:999px;padding:4px 8px;color:var(--gold-ink);min-width:0;max-width:40vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .adminStrip{display:none}
+/* The duel clock: big bold digits in a bright pill. The turn clock is small plain text in the bottom bar, so the two never look alike. */
+.dtimer{display:inline-flex;align-items:center;gap:8px;flex:none;height:34px;padding:0 14px;border-radius:999px;border:1.5px solid var(--ink2);background:#0b0716;color:#fff;box-shadow:0 0 0 3px rgb(255 255 255/.06)}
+.dtimer svg{width:17px;height:17px;color:var(--ink2)}
+.dtimer b{font:800 22px/1 var(--font-duel-display),Oxanium,sans-serif;letter-spacing:.04em;font-variant-numeric:tabular-nums}
 .cchip{font:700 10px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;letter-spacing:.14em;text-transform:uppercase;border:1px solid var(--line2);border-radius:999px;padding:4px 8px;color:var(--gold-ink);white-space:nowrap}
 .seg{display:inline-flex;border:1px solid var(--line2);border-radius:6px;overflow:hidden;background:var(--p0)}
 .seg button{white-space:nowrap;background:none;border:0;padding:6px 13px;font-weight:600;font-size:13px;color:var(--ink3);border-right:1px solid var(--line)}
@@ -325,7 +329,10 @@
 .lp{display:grid;gap:6px;padding:2px 2px 0}
 .lpmain{display:flex;align-items:center;gap:8px;position:relative;min-width:0}
 .lpl{font:700 11px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;letter-spacing:.18em;color:var(--ink3);align-self:flex-end;padding-bottom:6px}
-.lpn{font-weight:600;font-size:clamp(46px,9cqw,96px);line-height:.95;letter-spacing:.01em;transition:color .5s}
+.lpn{position:relative;display:inline-flex;align-items:center;padding:0 4px;margin:0 -4px;border:0;border-radius:8px;background:none;color:inherit;cursor:text;--lp-size:clamp(46px,9cqw,96px);transition:background .2s}
+.lpn:not(:disabled):hover{background:rgb(255 255 255/.07)}.lpn:disabled{cursor:default}
+.lpn:focus-visible{outline:2px solid var(--gold-ink);outline-offset:2px}
+.lpt{position:absolute;inset:0;opacity:0;pointer-events:none;overflow:hidden;font:inherit}
 .lpn.loss{color:var(--loss)}.lpn.gain{color:var(--gold-ink)}.lpn.low{color:var(--loss)}
 .lpd{font:600 20px/1 var(--font-duel-display),Oxanium,sans-serif;opacity:0;color:var(--loss);transition:opacity .4s}.lpd.show{opacity:1}.lpd.gain{color:var(--gold-ink)}
 .lpin{margin-left:auto;width:100px;height:30px;border:1px solid var(--line2);border-radius:6px;background:rgb(0 0 0/.3);padding:0 8px;font:600 13px var(--font-duel-display),Oxanium,sans-serif;min-width:0}
@@ -358,25 +365,25 @@
 @container seat (max-width:520px){.seat.mine:not([data-view="field"]) .fwrap{--fmin:.27;--fmax:.27}}
 @container seat (min-width:800px){.seat[data-view="field"] .fboard{flex-direction:row}.seat[data-view="field"] .fwrap[data-rail]{--scanw:172px;--scanh:0px}}
 .toolrow .scanbtn{height:28px;padding:0 10px;font-size:13px}
-/* Scan field is the primary action of my camera tools: a solid gold button, first in the row. It glows and its reason shows in the status chip while the camera and the board disagree. */
-.scanbtn{flex:none;display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 12px;border-radius:8px;border:1px solid var(--gold);background:linear-gradient(180deg,#f0c866,var(--gold));color:#1b1204;font:800 13px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;white-space:nowrap;box-shadow:0 0 0 1px rgb(0 0 0/.35),0 1px 8px rgb(232 185 79/.3)}
-.scanbtn:hover:not([aria-disabled="true"]){background:linear-gradient(180deg,#f8d67e,#eebd52);box-shadow:0 0 0 1px rgb(0 0 0/.35),0 2px 12px rgb(232 185 79/.5)}
+/* Scan field is the primary action of my camera tools: a bold neutral button (light fill, no gold) with its hotkey shown. It pulses white and says why while the camera and the board disagree. */
+.scanbtn{flex:none;display:inline-flex;align-items:center;gap:7px;height:34px;padding:0 10px 0 12px;border-radius:8px;border:1.5px solid #fff;background:linear-gradient(180deg,#f4f1fb,#cfc8e0);color:#14102a;font:800 14px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;white-space:nowrap;box-shadow:0 0 0 1px rgb(0 0 0/.4),0 1px 8px rgb(255 255 255/.18)}
+.scanbtn:hover:not([aria-disabled="true"]){background:linear-gradient(180deg,#fff,#ddd7ec);box-shadow:0 0 0 1px rgb(0 0 0/.4),0 2px 12px rgb(255 255 255/.4)}
 .scanbtn[aria-disabled="true"]{opacity:.55;cursor:default;box-shadow:none}
-.scanbtn small{font:700 10.5px/1 var(--font-duel-ui),system-ui,sans-serif;color:#3a2a0a}
-.scanbtn:focus-visible{outline:2px solid #fff;outline-offset:2px}
+.scanbtn small{font:700 10.5px/1 var(--font-duel-ui),system-ui,sans-serif;color:#3b3558}
+.scanbtn:focus-visible{outline:2px solid var(--gold-ink);outline-offset:2px}
 .scanbtn svg{flex:none}
-.scanbtn kbd{padding:1px 5px;border:1px solid rgb(27 18 4/.45);border-radius:4px;font:800 10px/1.3 var(--font-duel-ui),system-ui,sans-serif;color:#3a2a0a;background:rgb(27 18 4/.1)}
+.scanbtn kbd{min-width:20px;padding:3px 6px;border:1px solid #14102a;border-radius:5px;font:800 12px/1 var(--font-duel-ui),system-ui,sans-serif;color:#f4f1fb;background:#14102a;text-align:center}
 .scanbtn[data-need]{animation:scanNeed 1.6s ease-in-out infinite}
-@keyframes scanNeed{0%,100%{box-shadow:0 0 0 1px rgb(0 0 0/.35),0 0 0 0 rgb(232 185 79/.7),0 1px 8px rgb(232 185 79/.4)}55%{box-shadow:0 0 0 1px rgb(0 0 0/.35),0 0 0 7px rgb(232 185 79/0),0 1px 14px rgb(232 185 79/.7)}}
+@keyframes scanNeed{0%,100%{box-shadow:0 0 0 1px rgb(0 0 0/.4),0 0 0 0 rgb(255 255 255/.7)}55%{box-shadow:0 0 0 1px rgb(0 0 0/.4),0 0 0 7px rgb(255 255 255/0)}}
 .field{--gp:4px}
 .lp{position:relative;display:flex;align-items:center;gap:8px;flex:none;min-height:0;padding:2px 2px 5px}
 .lpmain{display:contents}
 .lpl{order:0;padding-bottom:0;align-self:center}
-.lpn{order:1;font-size:clamp(28px,min(4cqw,6cqh),40px);line-height:1}
+.lpn{order:1;--lp-size:clamp(28px,min(4cqw,6cqh),40px)}
 .lpd{order:2;font-size:14px}
 .lpbtn{order:3;flex:1 1 auto;min-width:0;display:flex;gap:4px}
 .lpbtn button{flex:1 1 0;min-width:0;height:30px;font-size:13px;max-height:none}
-.lpin{order:4;margin:0;flex:0 0 auto;width:84px;height:30px;font-size:13px}
+.lpin{order:1;margin:0;flex:0 0 auto;width:120px;height:34px;font-size:16px;border-color:var(--gold)}
 .lpbar{position:absolute;left:2px;right:2px;bottom:0;height:3px}
 .thinkrow{order:-1;flex:none;display:flex;align-items:center}
 @container seat (max-width:420px){
@@ -393,7 +400,7 @@
 }
 @container seat (min-aspect-ratio:1.55) and (max-height:330px){
   .sh{min-height:30px;padding:4px 10px}.sh .nm{font-size:16px}
-  .lpn{font-size:30px}
+  .lpn{--lp-size:30px}
   .lpin{height:26px;width:84px}
   .lpbtn button{height:26px;font-size:12px}
   .fwrap{--fh:calc(100cqh - 144px - var(--scanh,0px))}
@@ -795,8 +802,8 @@
   .seat[data-wc] .fside{align-self:stretch;max-height:100%;min-height:0;justify-content:flex-start}
   .seat[data-wc] .lp{flex:none}
   .seat[data-wc] .lp{flex-direction:column;flex-wrap:nowrap;align-items:stretch;gap:6px}
-  .seat[data-wc] .lpn{font-size:34px}
-  .seat[data-wc] .lpin{width:100%;margin:0;order:4}
+  .seat[data-wc] .lpn{--lp-size:34px}
+  .seat[data-wc] .lpin{width:100%;margin:0;order:1}
   .seat[data-wc] .lpbtn{flex-basis:auto;order:3;display:grid;grid-template-columns:1fr 1fr}
   .seat[data-wc] .lpbtn button{height:28px}
 }
@@ -838,6 +845,7 @@
   .top .leaveGrp{order:9;flex:1 0 100%}
   .tb.leaveBtn{flex:1;justify-content:center;height:38px}
   .crumb,.cchip,.logo b,.tb .lbl{display:none}
+  .dtimer{height:30px;padding:0 10px;gap:6px}.dtimer b{font-size:18px}
   /* The phone header is full: the badge moves to its own row under it, in the page flow, so it covers nothing. */
   .adminBadge{display:none}
   .adminStrip{display:flex;justify-content:center;padding:6px 10px 0}
@@ -869,9 +877,9 @@
   .fwrap{--gf:.2;width:auto;align-self:stretch;height:150px;order:2}
   .app[data-mode] .fwrap:has([data-rows]){height:215px}
   .lp{display:grid;padding:0 2px}
-  .lpmain{display:flex;gap:10px}.lpn{font-size:46px}
+  .lpmain{display:flex;gap:10px}.lpn{--lp-size:46px}
   .lpl{display:none}
-  .lpin{display:none}
+  .lpin{width:110px;height:34px}
   .lpbar{display:none}
   .lpbtn{position:absolute;right:10px;top:4px;display:flex;gap:4px}
   .lpbtn button{flex:none;width:46px;height:44px;font-size:13px}
@@ -1384,7 +1392,7 @@
   .htop .hmore{display:none}
   .htray{min-height:66px;gap:2px}.htop{gap:0}
   .seat[data-wc] .fside{gap:4px}.seat[data-wc] .lp{gap:4px}
-  .seat[data-wc] .lpbtn button,.seat[data-wc] .lpin{height:22px}.seat[data-wc] .lpn{font-size:28px}
+  .seat[data-wc] .lpbtn button,.seat[data-wc] .lpin{height:22px}.seat[data-wc] .lpn{--lp-size:28px}
   .htop .hcount button{width:20px;height:20px}
 }
 /* Phone: the seat's life points lead, so the tray leads right above them. */

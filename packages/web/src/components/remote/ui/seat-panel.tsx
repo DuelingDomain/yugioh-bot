@@ -15,6 +15,8 @@ import { HandStrip, type HandProps } from "./hand-ui";
 import { TapBoardNote } from "./tap-mode-banner";
 import { modeLabel, modeShort, type TournamentMode } from "@/lib/remote/tournament-detection";
 import { ThinkingChip } from "./think";
+import { LifePoints } from "@/components/duel/life-points";
+import { usePrefersReducedMotion } from "@/lib/motion";
 import s from "./remote-ui.module.css";
 
 export const LP_STEPS: { delta: number; kind: string }[] = [
@@ -112,6 +114,11 @@ export function SeatPanel(p: SeatPanelProps) {
           <ScanLine size={16} strokeWidth={2} aria-hidden="true" /><span>{scan.scanning ? "Scanning…" : "Scan field"}</span>
           {scan.ready ? <kbd aria-hidden="true">S</kbd> : <small>Camera off</small>}</button> : null;
   const previous = useRef(p.lp); const [delta, setDelta] = useState(0); const [input, setInput] = useState("");
+  // Click the LP number to type an amount. Enter applies it, Escape or leaving the box cancels.
+  const reduced = usePrefersReducedMotion(); const [typing, setTyping] = useState(false); const lpField = useRef<HTMLInputElement>(null);
+  const startTyping = () => { setInput(""); setTyping(true); };
+  const stopTyping = () => { setTyping(false); setInput(""); };
+  useEffect(() => { if (typing) lpField.current?.focus(); }, [typing]);
   useEffect(() => {
     if (previous.current === p.lp) return;
     setDelta(p.lp - previous.current); previous.current = p.lp;
@@ -189,11 +196,14 @@ export function SeatPanel(p: SeatPanelProps) {
           {p.thinkingSince !== undefined ? <div className={s.thinkrow}><ThinkingChip since={p.thinkingSince} seat={p.seat} who={p.name} /></div> : null}
           <div className={s.lpmain}>
             <span className={s.lpl}>LP</span>
-            <span className={`${s.lpn} ${s.num} ${low ? s.low : ""} ${delta < 0 ? s.loss : delta > 0 ? s.gain : ""}`} data-testid={`lp-value-${p.seat}`} data-lp-seat={p.seat}>{p.lp}</span>
+            {typing ? <input ref={lpField} className={s.lpin} inputMode="numeric" placeholder={`${MINUS}/+ amount`} aria-label={`Custom LP change for ${p.name}. A plus sign adds. A number alone takes away. Press Enter.`}
+              value={input} onChange={event => setInput(event.target.value)} onBlur={stopTyping}
+              onKeyDown={event => { event.stopPropagation(); if (event.key === "Escape") { stopTyping(); return; } if (event.key !== "Enter") return; const value = parseLpInput(input); if (value !== null) p.onLp(value); stopTyping(); }} />
+              : <button type="button" className={`${s.lpn} ${low ? s.low : ""} ${delta < 0 ? s.loss : delta > 0 ? s.gain : ""}`} data-lp-seat={p.seat} disabled={!p.canLp} title="Click to type an amount" aria-label={`Type an LP change for ${p.name}`} onClick={startTyping}>
+                <LifePoints value={p.lp} reducedMotion={reduced} showChange={false} />
+                <span className={s.lpt} aria-hidden="true" data-testid={`lp-value-${p.seat}`}>{p.lp}</span>
+              </button>}
             <span className={`${s.lpd} ${s.num} ${delta ? s.show : ""} ${delta > 0 ? s.gain : ""}`} aria-hidden="true">{delta ? sg(delta) : ""}</span>
-            <input className={s.lpin} inputMode="numeric" placeholder={`${MINUS}/+ amount`} aria-label={`Custom LP change for ${p.name}. A plus sign adds. A number alone takes away. Press Enter.`}
-              value={input} disabled={!p.canLp} onChange={event => setInput(event.target.value)}
-              onKeyDown={event => { if (event.key !== "Enter") return; const value = parseLpInput(input); if (value === null) return; p.onLp(value); setInput(""); }} />
           </div>
           <div className={`${s.lpbar} ${low ? s.low : ""}`}><i style={{ width: `${width}%` }} /></div>
           <div className={s.lpbtn}>
