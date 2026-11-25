@@ -1,9 +1,27 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { serverNow } from "./api";
 import { Icon } from "./icons";
 import { PHASES, PHASE_LONG, PHASE_SHORT, phaseIndex } from "./model";
 import s from "./remote-ui.module.css";
+
+/** How long the duel has run: m:ss, and h:mm:ss from one hour. */
+export function formatDuelTime(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000)), h = Math.floor(total / 3600), m = Math.floor(total / 60) % 60, sec = total % 60;
+  const two = (n: number) => String(n).padStart(2, "0");
+  return h > 0 ? `${h}:${two(m)}:${two(sec)}` : `${two(Math.floor(total / 60))}:${two(sec)}`;
+}
+
+/** The duel clock at the top of the table. It counts up from the start and stops when the duel ends. */
+export function DuelTimer({ startedAt, endedAt }: { startedAt: number | null; endedAt?: number | null }) {
+  const [now, setNow] = useState(() => serverNow());
+  const running = startedAt !== null && !endedAt;
+  useEffect(() => { if (!running) return; setNow(serverNow()); const id = window.setInterval(() => setNow(serverNow()), 1000); return () => window.clearInterval(id); }, [running]);
+  if (startedAt === null) return null;
+  const text = formatDuelTime((endedAt ?? now) - startedAt);
+  return <span className={s.dtimer} role="timer" aria-label={`Duel time ${text}`} title="How long this duel has been going" data-testid="duel-timer"><Icon name="clock" /><b>{text}</b></span>;
+}
 
 export type Player = { seat: number; name: string; color: string; eliminated: boolean };
 
@@ -12,8 +30,8 @@ export function AdminWatchStrip({ names }: { names: string[] }) {
   return names.length ? <div className={s.adminStrip}><span className={s.adminPill} role="status" data-testid="admin-watching-strip">Admin watching · {names.join(", ")}</span></div> : null;
 }
 
-export function TopBar({ crumb, tournament = null, chip, adminWatchers = [], health, healthOpen, cardOpen, logOpen, logDot, onHealth, onCard, onLog, onSurrender, surrenderOpen, onQuit, webcamOnly, onView }: {
-  crumb: string; /** A tournament table: its name and page. The logo goes there too, so a phone has the way back. */ tournament?: { name: string; href: string } | null; chip: string; /** Names of the admins who watch now. The players see them as "Admin watching". */ adminWatchers?: string[]; health: { q: "good" | "warn" | "bad" | "off"; text: string }; healthOpen: boolean; cardOpen: boolean; logOpen: boolean; logDot: boolean;
+export function TopBar({ crumb, tournament = null, chip, startedAt = null, endedAt = null, adminWatchers = [], health, healthOpen, cardOpen, logOpen, logDot, onHealth, onCard, onLog, onSurrender, surrenderOpen, onQuit, webcamOnly, onView }: {
+  crumb: string; /** When the duel started, in ms. Null before it starts. */ startedAt?: number | null; endedAt?: number | null; /** A tournament table: its name and page. The logo goes there too, so a phone has the way back. */ tournament?: { name: string; href: string } | null; chip: string; /** Names of the admins who watch now. The players see them as "Admin watching". */ adminWatchers?: string[]; health: { q: "good" | "warn" | "bad" | "off"; text: string }; healthOpen: boolean; cardOpen: boolean; logOpen: boolean; logDot: boolean;
   onHealth: (el: HTMLElement) => void; onCard: (el: HTMLElement) => void; onLog: (el: HTMLElement) => void;
   /** Set while I am a living player in a live game: shows the Surrender button. */ onSurrender?: (el: HTMLElement) => void; surrenderOpen?: boolean;
   /** Set while I am a seated player in a live match: shows the Quit match button. */ onQuit?: (el: HTMLElement) => void;
@@ -25,6 +43,7 @@ export function TopBar({ crumb, tournament = null, chip, adminWatchers = [], hea
     <a className={s.logo} href={tournament?.href ?? "/duels"} aria-label={tournament ? `Leave the table and return to ${tournament.name}` : "Leave the table and return to the Remote Duels lobby"}><span className={s.gem} /><b>Dueling Domain</b></a>
     <span className={s.crumb}>{tournament ? <><a className={s.crumbLink} href={tournament.href} data-testid="table-tournament-link"><b>{tournament.name}</b></a> · </> : null}<b>Remote Duel</b> · {crumb}</span>
     <span className={s.cchip}>{chip}</span>
+    <DuelTimer startedAt={startedAt} endedAt={endedAt} />
     {adminWatchers.length ? <span className={s.adminBadge} role="status" data-testid="admin-watching-badge" title="An admin can see this table as a spectator. Hidden cards stay hidden.">Admin watching · {adminWatchers.join(", ")}</span> : null}
     <span className={s.sp} />
     {onSurrender || onQuit ? <div className={s.leaveGrp} role="group" aria-label="Leave the game or the match" data-testid="leave-group">

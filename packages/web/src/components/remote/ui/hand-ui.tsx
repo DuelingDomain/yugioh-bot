@@ -14,6 +14,8 @@ export type HandProps = {
   /** Only the owner seat changes the count. */
   onCount?: (count: number) => void;
   onInspect: (card: KnownHandCard) => void;
+  /** Own seat, live, with an opponent: starts "Give a card from my hand to an opponent's field" (a Kaiju, Lava Golem). */
+  give?: { active: boolean; onGive: () => void };
   /** Own seat only: the open search (one-tap chip). */
   search?: { by: HandBy; candidates: HandCandidate[]; onPick: (card: HandCandidate) => void; onOther: () => void; onDismiss: () => void };
   /** Own seat only: a camera read without a search (local suggestion). */
@@ -88,12 +90,14 @@ function HandPreview({ card, box }: { card: KnownHandCard; box: DOMRect }) {
 }
 
 /** The public hand count. Only the owner seat gets the minus and plus buttons. */
-export function HandCount({ seat, hand: { count, onCount } }: { seat: number; hand: HandProps }) {
-  if (count === undefined && !onCount) return null;
+export function HandCount({ seat, hand: { count, onCount, give } }: { seat: number; hand: HandProps }) {
+  if (count === undefined && !onCount && !give) return null;
   return <span className={s.hcount} data-testid={`hand-count-${seat}`}>
     {onCount ? <button type="button" onClick={() => onCount(-1)} aria-label="Hand minus one" disabled={count === 0}>{"−"}</button> : null}
     <span>Hand: <b className={s.num}>{count ?? "?"}</b></span>
     {onCount ? <button type="button" onClick={() => onCount(1)} aria-label="Hand plus one">+</button> : null}
+    {give ? <button type="button" className={s.hgive} aria-pressed={give.active} data-testid={`give-open-${seat}`} onClick={give.onGive}
+      title="Give a card from your hand to an opponent's field (a Kaiju, Lava Golem). It shows there as your proxy.">Give card</button> : null}
   </span>;
 }
 

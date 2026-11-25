@@ -15,6 +15,8 @@ import { HandStrip, type HandProps } from "./hand-ui";
 import { TapBoardNote } from "./tap-mode-banner";
 import { modeLabel, modeShort, type TournamentMode } from "@/lib/remote/tournament-detection";
 import { ThinkingChip } from "./think";
+import { LifePoints } from "@/components/duel/life-points";
+import { usePrefersReducedMotion } from "@/lib/motion";
 import s from "./remote-ui.module.css";
 
 export const LP_STEPS: { delta: number; kind: string }[] = [
@@ -34,8 +36,6 @@ export function DetectionBadge({ seat, name, mode }: { seat: number; name: strin
   return <span className={`${s.tag} ${s.dmode} ${mode === "auto" ? "" : s.tap}`} data-testid={`detection-mode-${seat}`} role="img" aria-label={`${name} detection: ${modeLabel(mode)}`} title={`${name} detection: ${modeLabel(mode)}`}>
     <Glyph size={11} strokeWidth={2} aria-hidden />{modeShort(mode)}</span>;
 }
-
-export type SeatUndo = { label: string; enabled: boolean; reason?: string; onUndo: () => void };
 
 export type SeatPanelProps = {
   /** Called with this seat's notification slot (a portal target) when it mounts and unmounts. Not rendered in webcam only. */
@@ -57,8 +57,7 @@ export type SeatPanelProps = {
   onPlate: () => void; onLp: (delta: number) => void; canLp: boolean;
   /** Server time this player started Thinking (the T key). Shown in the status area under the field. */ thinkingSince?: number;
   /** Names the table shape (2, 3 or 4 seats) so the remembered view is per viewer, seat and shape. */ viewScope?: string;
-  /** Undo on the player's own seat. Same action as the dock Undo. Set only for the viewer's seat. */
-  undo?: SeatUndo;
+  /** This player's phase boxes (`PhaseTrack`). They sit between the camera and the virtual field, in every view. */ track?: ReactNode;
   /** The virtual field is hidden (the default). The camera feed takes its space. */ webcamOnly?: boolean;
   /** Switches Both and Webcam only (shortcut W). */ onToggleView?: () => void;
   /** This player is in Tap mode, so the board is off for everyone: the seat shows its camera like Webcam only, plus a note. My own seat shows no note: the strip under my camera says it and has the Turn on button. */ boardOff?: Record<string, never>;
@@ -115,6 +114,12 @@ export function SeatPanel(p: SeatPanelProps) {
           <ScanLine size={16} strokeWidth={2} aria-hidden="true" /><span>{scan.scanning ? "Scanning…" : "Scan field"}</span>
           {scan.ready ? <kbd aria-hidden="true">S</kbd> : <small>Camera off</small>}</button> : null;
   const previous = useRef(p.lp); const [delta, setDelta] = useState(0); const [input, setInput] = useState("");
+  // Click the LP number to type an amount. Enter applies it, Escape or leaving the box cancels.
+  const reduced = usePrefersReducedMotion(); const [typing, setTyping] = useState(false); const lpField = useRef<HTMLInputElement>(null);
+  const startTyping = () => { setInput(""); setTyping(true); };
+  const [badLp, setBadLp] = useState(false);
+  const stopTyping = () => { setTyping(false); setInput(""); setBadLp(false); };
+  useEffect(() => { if (typing) lpField.current?.focus(); }, [typing]);
   useEffect(() => {
     if (previous.current === p.lp) return;
     setDelta(p.lp - previous.current); previous.current = p.lp;
@@ -142,10 +147,6 @@ export function SeatPanel(p: SeatPanelProps) {
       <span className={`${s.tag} ${s.turnt}`}>TURN</span><span className={`${s.tag} ${s.nextt}`}>NEXT</span>
       {p.eliminated ? <span className={s.tag}>OUT</span> : null}
       <span className={s.micI}><Icon name="mic" /></span><span className={s.sp} />
-      {p.undo ? <button type="button" className={s.sundo} disabled={!p.undo.enabled} onClick={p.undo.onUndo} data-testid="seat-undo"
-        aria-label={p.undo.enabled ? `Undo: ${p.undo.label}. ${p.undo.reason ? p.undo.reason + ". " : ""}Shortcut Ctrl Z` : "Nothing to undo"}
-        title={p.undo.enabled ? (p.undo.reason ?? "Undo your last action (Ctrl+Z)") : "Nothing to undo"}>
-        <Icon name="undo" /><span className={s.sul} data-testid="seat-undo-label">{p.undo.enabled ? `Undo: ${p.undo.label}` : "Nothing to undo"}</span></button> : null}
       {p.onRescan && !scan ? <button type="button" className={`${s.vtog} ${s.rescan}`} data-testid={`field-rescan-${p.seat}`} data-sent={rescanNote || undefined} aria-label={`Rescan ${p.name}'s field${rescanNote ? `. ${rescanNote}` : ""}`}
         title={rescanNote || "Ask this player's Auto-detect to scan their field again"} onClick={() => { if (!rescanNote) void p.onRescan?.().then(setRescanNote); }}>
         <RefreshCw size={13} strokeWidth={1.8} aria-hidden="true" /><span className={s.rslabel}>Rescan</span><span className={s.sr} role="status">{rescanNote}</span></button> : null}
@@ -175,6 +176,7 @@ export function SeatPanel(p: SeatPanelProps) {
           </div>
         </>} />
       <div className={s.fside}>
+        {p.track}
         {p.boardOff && !p.you ? <TapBoardNote /> : null}
         {targeting ? null : cardList}
         <div className={s.fboard}>
@@ -195,11 +197,15 @@ export function SeatPanel(p: SeatPanelProps) {
           {p.thinkingSince !== undefined ? <div className={s.thinkrow}><ThinkingChip since={p.thinkingSince} seat={p.seat} who={p.name} /></div> : null}
           <div className={s.lpmain}>
             <span className={s.lpl}>LP</span>
-            <span className={`${s.lpn} ${s.num} ${low ? s.low : ""} ${delta < 0 ? s.loss : delta > 0 ? s.gain : ""}`} data-testid={`lp-value-${p.seat}`} data-lp-seat={p.seat}>{p.lp}</span>
+            {typing ? <input ref={lpField} className={s.lpin} inputMode="numeric" placeholder={`${MINUS}/+ amount`} aria-label={`Custom LP change for ${p.name}. A plus sign adds. A number alone takes away. Press Enter.`}
+              value={input} aria-invalid={badLp || undefined} aria-describedby={badLp ? `lp-bad-${p.seat}` : undefined} onChange={event => { setInput(event.target.value); setBadLp(false); }} onBlur={stopTyping}
+              onKeyDown={event => { event.stopPropagation(); if (event.key === "Escape") { stopTyping(); return; } if (event.key !== "Enter") return; const value = parseLpInput(input); if (value === null) { setBadLp(true); return; } p.onLp(value); stopTyping(); }} />
+              : <button type="button" className={`${s.lpn} ${low ? s.low : ""} ${delta < 0 ? s.loss : delta > 0 ? s.gain : ""}`} data-lp-seat={p.seat} disabled={!p.canLp} title="Click to type an amount" aria-label={`Type an LP change for ${p.name}. Life points ${p.lp}`} onClick={startTyping}>
+                <LifePoints value={p.lp} reducedMotion={reduced} showChange={false} />
+                <span className={s.lpt} aria-hidden="true" data-testid={`lp-value-${p.seat}`}>{p.lp}</span>
+              </button>}
+            {typing && badLp ? <span className={s.lpbad} id={`lp-bad-${p.seat}`} role="alert" data-testid={`lp-bad-${p.seat}`}>Type a number, like 500 or +500</span> : null}
             <span className={`${s.lpd} ${s.num} ${delta ? s.show : ""} ${delta > 0 ? s.gain : ""}`} aria-hidden="true">{delta ? sg(delta) : ""}</span>
-            <input className={s.lpin} inputMode="numeric" placeholder={`${MINUS}/+ amount`} aria-label={`Custom LP change for ${p.name}. A plus sign adds. A number alone takes away. Press Enter.`}
-              value={input} disabled={!p.canLp} onChange={event => setInput(event.target.value)}
-              onKeyDown={event => { if (event.key !== "Enter") return; const value = parseLpInput(input); if (value === null) return; p.onLp(value); setInput(""); }} />
           </div>
           <div className={`${s.lpbar} ${low ? s.low : ""}`}><i style={{ width: `${width}%` }} /></div>
           <div className={s.lpbtn}>

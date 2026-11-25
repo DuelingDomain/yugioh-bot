@@ -48,6 +48,10 @@
 .crumbLink b{color:inherit}
 .adminBadge,.adminPill{font:700 10px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;letter-spacing:.12em;text-transform:uppercase;border:1px solid var(--gold);background:rgb(232 185 79/.14);border-radius:999px;padding:4px 8px;color:var(--gold-ink);min-width:0;max-width:40vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .adminStrip{display:none}
+/* The duel clock: big bold digits in a bright pill. The turn clock is small plain text in the bottom bar, so the two never look alike. */
+.dtimer{display:inline-flex;align-items:center;gap:8px;flex:none;height:34px;padding:0 14px;border-radius:999px;border:1.5px solid var(--ink2);background:#0b0716;color:#fff;box-shadow:0 0 0 3px rgb(255 255 255/.06)}
+.dtimer svg{width:17px;height:17px;color:var(--ink2)}
+.dtimer b{font:800 22px/1 var(--font-duel-display),Oxanium,sans-serif;letter-spacing:.04em;font-variant-numeric:tabular-nums}
 .cchip{font:700 10px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;letter-spacing:.14em;text-transform:uppercase;border:1px solid var(--line2);border-radius:999px;padding:4px 8px;color:var(--gold-ink);white-space:nowrap}
 .seg{display:inline-flex;border:1px solid var(--line2);border-radius:6px;overflow:hidden;background:var(--p0)}
 .seg button{white-space:nowrap;background:none;border:0;padding:6px 13px;font-weight:600;font-size:13px;color:var(--ink3);border-right:1px solid var(--line)}
@@ -87,13 +91,13 @@
 .rail{position:relative;display:flex;align-items:center;gap:16px;min-width:0;min-height:var(--rail);margin:0 var(--gap) var(--gap);padding:7px 14px 7px 12px;border:1px solid var(--line2);border-radius:12px;background:linear-gradient(180deg,#1a1130,#0f0a1f);box-shadow:0 -12px 32px rgb(0 0 0/.38);transition:border-color .3s,box-shadow .3s,background .3s}
 .rail.mine{border-color:var(--gold);background:linear-gradient(90deg,rgb(232 185 79/.2),transparent 42%),linear-gradient(180deg,#22152f,#0f0a1f);box-shadow:0 0 0 1px rgb(232 185 79/.3),0 0 0 5px rgb(232 185 79/.07),0 -12px 40px rgb(232 185 79/.16)}
 .tbox{display:flex;align-items:center;gap:12px;min-width:0;flex:none;padding-right:16px;border-right:1px solid var(--line)}
-.tbox .pip{width:16px;height:16px;border-radius:4px}
-.tbox .tn{display:flex;flex-direction:column;gap:5px;min-width:0}
-.tbox .tn b{display:block;max-width:260px;overflow:hidden;text-overflow:ellipsis;font:700 21px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;white-space:nowrap}
-.rail.mine .tbox .tn b{color:var(--gold-ink)}
-.tbox .tcap{display:flex;align-items:center;gap:8px;min-height:15px}
-.tbox .tm{font:600 12px/1 var(--font-duel-display),Oxanium,sans-serif;letter-spacing:.1em;text-transform:uppercase;color:var(--ink3)}
-.tbox .you{font:800 11px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;letter-spacing:.16em;text-transform:uppercase;padding:3px 7px 2px;border-radius:4px;background:var(--gold);color:#1b1204;box-shadow:0 0 14px rgb(232 185 79/.6);animation:youpulse 2s ease-in-out infinite}
+:is(.tbox,.bturn) .pip{width:16px;height:16px;border-radius:4px}
+:is(.tbox,.bturn) .tn{display:flex;flex-direction:column;gap:5px;min-width:0}
+:is(.tbox,.bturn) .tn b{display:block;max-width:260px;overflow:hidden;text-overflow:ellipsis;font:700 21px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;white-space:nowrap}
+.rail.mine .tbox .tn b,.bar.mine .bturn .tn b{color:var(--gold-ink)}
+:is(.tbox,.bturn) .tcap{display:flex;align-items:center;gap:8px;min-height:15px}
+:is(.tbox,.bturn) .tm{font:600 12px/1 var(--font-duel-display),Oxanium,sans-serif;letter-spacing:.1em;text-transform:uppercase;color:var(--ink3)}
+:is(.tbox,.bturn) .you{font:800 11px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;letter-spacing:.16em;text-transform:uppercase;padding:3px 7px 2px;border-radius:4px;background:var(--gold);color:#1b1204;box-shadow:0 0 14px rgb(232 185 79/.6);animation:youpulse 2s ease-in-out infinite}
 @keyframes youpulse{50%{box-shadow:0 0 22px rgb(232 185 79/.95)}}
 @media (prefers-reduced-motion:reduce){.tbox .you{animation:none}}
 .order{display:flex;align-items:center;gap:4px;min-width:0;max-width:28vw;overflow:hidden}
@@ -325,11 +329,16 @@
 .lp{display:grid;gap:6px;padding:2px 2px 0}
 .lpmain{display:flex;align-items:center;gap:8px;position:relative;min-width:0}
 .lpl{font:700 11px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;letter-spacing:.18em;color:var(--ink3);align-self:flex-end;padding-bottom:6px}
-.lpn{font-weight:600;font-size:clamp(46px,9cqw,96px);line-height:.95;letter-spacing:.01em;transition:color .5s}
+.lpn{position:relative;display:inline-flex;align-items:center;padding:0 4px;margin:0 -4px;border:0;border-radius:8px;background:none;color:inherit;cursor:text;--lp-size:clamp(46px,9cqw,96px);transition:background .2s}
+.lpn:not(:disabled):hover{background:rgb(255 255 255/.07)}.lpn:disabled{cursor:default}
+.lpn:focus-visible{outline:2px solid var(--gold-ink);outline-offset:2px}
+.lpt{position:absolute;inset:0;opacity:0;pointer-events:none;overflow:hidden;font:inherit}
 .lpn.loss{color:var(--loss)}.lpn.gain{color:var(--gold-ink)}.lpn.low{color:var(--loss)}
 .lpd{font:600 20px/1 var(--font-duel-display),Oxanium,sans-serif;opacity:0;color:var(--loss);transition:opacity .4s}.lpd.show{opacity:1}.lpd.gain{color:var(--gold-ink)}
 .lpin{margin-left:auto;width:100px;height:30px;border:1px solid var(--line2);border-radius:6px;background:rgb(0 0 0/.3);padding:0 8px;font:600 13px var(--font-duel-display),Oxanium,sans-serif;min-width:0}
 .lpin::placeholder{color:var(--ink3);opacity:1}
+.lpin[aria-invalid="true"]{border-color:var(--bad,#ff6b6b)}
+.lpbad{font:600 11px var(--font-duel-display),Oxanium,sans-serif;color:var(--bad,#ff8a8a);white-space:nowrap}
 .lpbar{height:5px;border-radius:3px;background:var(--p3);overflow:hidden}.lpbar i{display:block;height:100%;background:linear-gradient(90deg,var(--pen-deep),var(--pen));transition:width .6s var(--ease)}
 .lpbar.low i{background:linear-gradient(90deg,var(--lossd),var(--loss))}
 .lpbtn{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:5px}
@@ -342,7 +351,7 @@
 .fside{flex:0 0 auto;min-height:0;align-items:stretch}
 /* Zone columns sit a half card apart (--gf), so a card in Defense lies on its side at full size inside its own column and never covers
    the next zone. A narrow screen keeps a small gap and shrinks the turned card instead (--dfit = (1 + --gf) / 1.458, at most 1). */
-.fwrap{--gp:4px;--gf:.5;--dfit:min(1,calc((1 + var(--gf)) / 1.458));--fr:3;--scanh:0px;--fh:max(calc(100cqh * var(--fmin,.3)),min(calc(100cqh * var(--fmax,.47)),calc(100cqh - 163px - var(--scanh,0px) - (100cqw - 16px) * .5625)));--fw:calc(100cqw - 16px - var(--scanw,0px));
+.fwrap{--gp:4px;--gf:.5;--dfit:min(1,calc((1 + var(--gf)) / 1.458));--fr:3;--scanh:0px;--fh:max(calc(100cqh * var(--fmin,.3)),min(calc(100cqh * var(--fmax,.47)),calc(100cqh - 195px - var(--scanh,0px) - (100cqw - 16px) * .5625)));--fw:calc(100cqw - 16px - var(--scanw,0px));
   --fcw:max(24px,min((var(--fw) - 18px) / (7 + 6 * var(--gf)),(var(--fh) - 18px - (var(--fr) - 1) * var(--gp)) / (var(--fr) * 1.458)));
   flex:none;min-height:0;align-self:center;
   width:calc((7 + 6 * var(--gf)) * var(--fcw) + 18px);height:calc(var(--fr) * 1.458 * var(--fcw) + (var(--fr) - 1) * var(--gp) + 18px)}
@@ -358,25 +367,26 @@
 @container seat (max-width:520px){.seat.mine:not([data-view="field"]) .fwrap{--fmin:.27;--fmax:.27}}
 @container seat (min-width:800px){.seat[data-view="field"] .fboard{flex-direction:row}.seat[data-view="field"] .fwrap[data-rail]{--scanw:172px;--scanh:0px}}
 .toolrow .scanbtn{height:28px;padding:0 10px;font-size:13px}
-/* Scan field is the primary action of my camera tools: a solid gold button, first in the row. It glows and its reason shows in the status chip while the camera and the board disagree. */
-.scanbtn{flex:none;display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 12px;border-radius:8px;border:1px solid var(--gold);background:linear-gradient(180deg,#f0c866,var(--gold));color:#1b1204;font:800 13px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;white-space:nowrap;box-shadow:0 0 0 1px rgb(0 0 0/.35),0 1px 8px rgb(232 185 79/.3)}
-.scanbtn:hover:not([aria-disabled="true"]){background:linear-gradient(180deg,#f8d67e,#eebd52);box-shadow:0 0 0 1px rgb(0 0 0/.35),0 2px 12px rgb(232 185 79/.5)}
-.scanbtn[aria-disabled="true"]{opacity:.55;cursor:default;box-shadow:none}
-.scanbtn small{font:700 10.5px/1 var(--font-duel-ui),system-ui,sans-serif;color:#3a2a0a}
-.scanbtn:focus-visible{outline:2px solid #fff;outline-offset:2px}
+/* Scan field is the primary action of my camera tools: a bold neutral button (light fill, no gold) with its hotkey shown. It pulses white and says why while the camera and the board disagree. */
+.app button.scanbtn,.scanbtn{flex:none;display:inline-flex;align-items:center;gap:7px;height:34px;padding:0 10px 0 12px;border-radius:8px;border:1.5px solid #fff;background:linear-gradient(180deg,#f4f1fb,#cfc8e0);color:#14102a;font:800 14px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;white-space:nowrap;box-shadow:0 0 0 1px rgb(0 0 0/.4),0 1px 8px rgb(255 255 255/.18)}
+.scanbtn:hover:not([aria-disabled="true"]){background:linear-gradient(180deg,#fff,#ddd7ec);box-shadow:0 0 0 1px rgb(0 0 0/.4),0 2px 12px rgb(255 255 255/.4)}
+.app button.scanbtn[aria-disabled="true"]{cursor:default;box-shadow:none;border-color:var(--line2);background:var(--p2);color:var(--ink2)}
+.scanbtn[aria-disabled="true"] small{color:var(--ink3)}
+.scanbtn small{font:700 10.5px/1 var(--font-duel-ui),system-ui,sans-serif;color:#3b3558}
+.scanbtn:focus-visible{outline:2px solid var(--gold-ink);outline-offset:2px}
 .scanbtn svg{flex:none}
-.scanbtn kbd{padding:1px 5px;border:1px solid rgb(27 18 4/.45);border-radius:4px;font:800 10px/1.3 var(--font-duel-ui),system-ui,sans-serif;color:#3a2a0a;background:rgb(27 18 4/.1)}
+.scanbtn kbd{min-width:20px;padding:3px 6px;border:1px solid #14102a;border-radius:5px;font:800 12px/1 var(--font-duel-ui),system-ui,sans-serif;color:#f4f1fb;background:#14102a;text-align:center}
 .scanbtn[data-need]{animation:scanNeed 1.6s ease-in-out infinite}
-@keyframes scanNeed{0%,100%{box-shadow:0 0 0 1px rgb(0 0 0/.35),0 0 0 0 rgb(232 185 79/.7),0 1px 8px rgb(232 185 79/.4)}55%{box-shadow:0 0 0 1px rgb(0 0 0/.35),0 0 0 7px rgb(232 185 79/0),0 1px 14px rgb(232 185 79/.7)}}
+@keyframes scanNeed{0%,100%{box-shadow:0 0 0 1px rgb(0 0 0/.4),0 0 0 0 rgb(255 255 255/.7)}55%{box-shadow:0 0 0 1px rgb(0 0 0/.4),0 0 0 7px rgb(255 255 255/0)}}
 .field{--gp:4px}
 .lp{position:relative;display:flex;align-items:center;gap:8px;flex:none;min-height:0;padding:2px 2px 5px}
 .lpmain{display:contents}
 .lpl{order:0;padding-bottom:0;align-self:center}
-.lpn{order:1;font-size:clamp(28px,min(4cqw,6cqh),40px);line-height:1}
+.lpn{order:1;--lp-size:clamp(28px,min(4cqw,6cqh),40px)}
 .lpd{order:2;font-size:14px}
 .lpbtn{order:3;flex:1 1 auto;min-width:0;display:flex;gap:4px}
 .lpbtn button{flex:1 1 0;min-width:0;height:30px;font-size:13px;max-height:none}
-.lpin{order:4;margin:0;flex:0 0 auto;width:84px;height:30px;font-size:13px}
+.lpin{order:1;margin:0;flex:0 0 auto;width:120px;height:34px;font-size:16px;border-color:var(--gold)}
 .lpbar{position:absolute;left:2px;right:2px;bottom:0;height:3px}
 .thinkrow{order:-1;flex:none;display:flex;align-items:center}
 @container seat (max-width:420px){
@@ -387,16 +397,16 @@
   .feedcol{--cellw:calc((100cqw - 26px) * .63);flex:none;min-height:0}
   .camsel [data-lbl]{display:none}.camsel > button{width:32px;padding:0;justify-content:center}.camsel select{flex-basis:100px}
   .fside{flex:none;min-height:0;justify-content:center}
-  .fwrap{--fw:calc((100cqw - 26px) * .37);--fh:calc(100cqh - 128px - var(--scanh,0px))}
+  .fwrap{--fw:calc((100cqw - 26px) * .37);--fh:calc(100cqh - 160px - var(--scanh,0px))}
   .fwrap[data-rail]{--scanw:0px;--scanh:52px}.fboard{flex-direction:column}
   .lp{flex-wrap:wrap}.lpbtn{flex-basis:100%;order:5}.lpin{margin-left:auto}
 }
 @container seat (min-aspect-ratio:1.55) and (max-height:330px){
   .sh{min-height:30px;padding:4px 10px}.sh .nm{font-size:16px}
-  .lpn{font-size:30px}
+  .lpn{--lp-size:30px}
   .lpin{height:26px;width:84px}
   .lpbtn button{height:26px;font-size:12px}
-  .fwrap{--fh:calc(100cqh - 112px - var(--scanh,0px))}
+  .fwrap{--fh:calc(100cqh - 144px - var(--scanh,0px))}
   /* Too short for a button row: an icon-only button sits in the empty top-left corner of the board (the top right holds the Banished zone). */
   .fwrap[data-rail]{--scanh:0px}.fboard{position:relative}
   .scanbtn{position:absolute;top:8px;left:8px;right:auto;z-index:2;width:26px;height:26px;padding:0;justify-content:center}.scanbtn span,.scanbtn kbd,.scanbtn small{display:none}
@@ -408,18 +418,14 @@
 /* A short seat with the camera and the board together (a 1366 x 768 laptop: about 670 x 580 px each). The camera keeps a third of the seat
    and the board is the strip under it. Token joins the camera tool row (right end) with Scan field / Rescan, and --fh leaves the camera everything
    the board does not need. The board still has 7 columns and 3 rows. */
-@container seat (max-aspect-ratio:1.55) and (max-height:640px) and (min-width:520px) and (max-width:799px) {
+@container seat (max-aspect-ratio:1.55) and (max-height:720px) and (min-width:520px) and (max-width:799px) {
   .seat:not([data-view="field"]):not([data-wc]) :is(.sbody,.fside){gap:4px}
   .seat:not([data-view="field"]):not([data-wc]) .feedcol{gap:4px}
   /* --frest is the height the camera, its two control rows, the hand row and LP keep; the board takes the rest (3 rows of cards). The camera is the biggest feed and does not shrink. */
-  .seat:not([data-view="field"]):not([data-wc]) .fwrap{--frest:440px;--fh:clamp(112px,calc(100cqh - var(--frest)),calc((100cqw - 120px) / 2.2))}
+  .seat:not([data-view="field"]):not([data-wc]) .fwrap{--frest:510px;--fh:clamp(112px,calc(100cqh - var(--frest)),calc((100cqw - 120px) / 2.2))}
 }
 
 /* ============ dock: voice + undo ============ */
-.dock{display:grid;grid-template-columns:minmax(360px,.9fr) minmax(0,2fr) minmax(300px,.8fr);gap:var(--gap);padding:0 var(--gap) var(--gap);min-height:0}
-.dock.nomic{grid-template-columns:minmax(0,2fr) minmax(300px,.8fr)}
-/* "My field" is a phone-width control (the field scrolls below the camera there). On a wide screen it is not a dock cell: a fourth grid child pushes mic, voice and undo one column over. */
-.dock>.myfield{display:none}
 .signals{display:flex;gap:6px;min-width:0}
 .signals>button{flex:1 1 0;min-width:0;max-width:220px;white-space:nowrap}
 .dk{display:flex;align-items:center;gap:12px;min-width:0;min-height:0;overflow:hidden;border:1px solid var(--line);border-radius:10px;background:linear-gradient(180deg,var(--p1),var(--p0));padding:8px 12px}
@@ -514,6 +520,88 @@
 @media (max-height:850px) and (min-width:901px){
   .vox.sopen>.samples{grid-column:1/3;grid-row:1}
   .vox.sopen>.tr,.vox.sopen>.voiceTools{display:none}
+}
+
+/* ============ bottom bar: the one slim bar ============ */
+/* Left: whose turn it is, Undo. Centre: Think and OK. Right: mic and its voice popover, Back, Pass turn. The phases are boxes under each camera (.ptrack). */
+.app:has(.bar){--rail:0px;--dock:70px}
+@media (max-width:1500px),(max-height:900px){.app:has(.bar){--dock:62px}}
+@media (max-height:800px) and (min-width:901px){.app:has(.bar){--dock:58px}}
+.shell:has(>.bar){grid-template-rows:var(--hdr) minmax(0,1fr) var(--dock)}
+.bar{position:relative;z-index:5;display:flex;align-items:center;gap:14px;min-width:0;height:calc(var(--dock) - var(--gap));margin:0 var(--gap) var(--gap);padding:0 12px;border:1px solid var(--line2);border-radius:12px;background:linear-gradient(180deg,#1a1130,#0f0a1f);box-shadow:0 -12px 32px rgb(0 0 0/.38);transition:border-color .3s,box-shadow .3s}
+.bar.mine{border-color:var(--gold);background:linear-gradient(90deg,rgb(232 185 79/.2),transparent 42%),linear-gradient(180deg,#22152f,#0f0a1f);box-shadow:0 0 0 1px rgb(232 185 79/.3),0 0 0 5px rgb(232 185 79/.07),0 -12px 40px rgb(232 185 79/.16)}
+.bturn{display:flex;align-items:center;gap:10px;flex:none;min-width:0;padding-right:14px;border-right:1px solid var(--line)}
+.bturn .pip{width:14px;height:14px;border-radius:4px}
+.bturn .tn{display:flex;flex-direction:column;gap:4px;min-width:0}
+.bturn .tn b{max-width:180px;font-size:19px}
+.bar .dk.undo{flex:none;gap:6px;padding:0;border:0;background:none;overflow:visible;height:38px}
+.bar .ubtn{height:38px;padding:0 12px;gap:8px;border-width:1.5px;flex:none}
+.bar .ubtn .ic{width:18px;height:18px}
+.bar .ubtn .ul{font-size:15px;max-width:min(24vw,300px)}
+.bar .ubtn .usub{display:none}
+.bar .hbtn{height:38px;width:38px}
+.bsig{flex:1 1 0;min-width:0;display:flex;align-items:center;justify-content:center;gap:8px}
+.bsig:empty{display:none}
+.bar .myfield{display:none}
+.bvoice{position:relative;display:flex;align-items:center;gap:6px;flex:none}
+.bmic{position:relative;flex:none;width:40px;height:40px;border-radius:50%;border:2px solid var(--line2);background:radial-gradient(circle at 35% 30%,var(--p3),var(--p0));color:var(--ink2);display:grid;place-items:center;transition:.25s var(--ease)}
+.bmic .ic{width:20px;height:20px}
+.bmic.listen{border-color:var(--gold);color:#1b1204;background:radial-gradient(circle at 35% 30%,var(--gold-ink),var(--gold));box-shadow:0 0 0 4px rgb(232 185 79/.16),0 0 20px rgb(232 185 79/.45)}
+.bmic.muted{border-color:var(--lossd);color:var(--loss)}
+.bvbtn{display:inline-flex;align-items:center;gap:8px;height:36px;padding:0 10px;border:1px solid var(--line2);border-radius:8px;background:var(--p0);color:var(--ink2);font:700 13px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;white-space:nowrap}
+.bvbtn:hover,.bvbtn[aria-expanded=true]{border-color:var(--gold);color:var(--gold-ink)}
+.bvbtn .meter{height:14px}
+.bvoice:has(.bmic.listen) .meter i{background:var(--gold);opacity:1}
+.bvoff{flex:none;font:700 11px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;letter-spacing:.1em;text-transform:uppercase;color:var(--ink3);border:1px dashed var(--line2);border-radius:999px;padding:5px 9px;white-space:nowrap}
+/* The voice details (mic status, what was heard, sample commands, a command waiting for Enter) float above the bar. A pending command opens it by itself. */
+.vpop{position:absolute;z-index:60;right:0;bottom:calc(100% + 14px);width:min(600px,calc(100vw - 24px));display:flex;flex-direction:column;gap:8px;padding:10px;border:1px solid var(--line2);border-radius:12px;background:#140d27;box-shadow:0 14px 40px rgb(0 0 0/.65)}
+.bar .pass,.bar .pback{height:38px}
+.bar .pconfirm{bottom:calc(100% + 10px)}
+
+/* ---- each player's phase boxes, between the camera and the virtual field ---- */
+.ptrack{display:flex;gap:4px;list-style:none;margin:0;padding:0;flex:none;min-width:0;order:-1}
+.ptrack{container:ptrack/inline-size}
+.ptrack li{flex:1 1 0;min-width:0}
+.pabbr{display:none}
+@container ptrack (max-width:320px){.pfull{display:none}.pabbr{display:inline}}
+.pbox{display:flex;align-items:center;justify-content:center;width:100%;height:28px;padding:0 3px;border:1px solid var(--line);border-radius:7px;background:var(--p0);color:var(--ink3);font:600 12.5px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:background .25s,color .25s,border-color .25s,box-shadow .25s}
+.ptrack:not(.pton) .pbox{opacity:.55;cursor:default}
+.pton .pbox{border-color:var(--line2);color:var(--ink2)}
+.pton .pbox.done{color:var(--ink3);border-color:var(--pen-deep)}
+.pton .pbox:not([aria-disabled]):not(.on):hover{border-color:var(--pen);color:var(--ink)}
+.pbox[aria-disabled]{cursor:default}
+.pton .pbox.on{background:var(--gold);border-color:var(--gold-ink);color:#1b1204;font-weight:800;box-shadow:0 0 0 3px rgb(232 185 79/.16),0 0 16px rgb(232 185 79/.45)}
+.pbox:focus-visible{outline:2px solid var(--gold-ink);outline-offset:1px}
+@container seat (max-width:470px){.pbox{font-size:11px;padding:0 1px;border-radius:6px}.ptrack{gap:3px}}
+@container seat (max-height:330px){.pbox{height:22px}}
+@container seat (min-aspect-ratio:1.55){.seat[data-wc] .ptrack{display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}}
+
+/* Small windows and iPad landscape: the bar stays one row. The turn name and the Undo label shorten, the next player's name goes, and Think and OK keep a floor. */
+@media (min-width:901px) and (max-width:1100px){
+  .bar{gap:8px;padding:0 8px}
+  .bturn{padding-right:8px;gap:8px}.bturn .tn b{max-width:96px;font-size:16px}
+  .bar .dk.undo{flex:0 1 auto;min-width:0}.bar .ubtn{flex:0 1 auto;min-width:0;padding:0 10px}.bar .ubtn .ul{max-width:96px;font-size:14px}
+  .bsig{flex:1 1 auto;min-width:150px}
+  .bar .pass{padding:0 12px;font-size:14px}.bar .pass>span:last-child{display:none}
+  .bar .pback{padding:0 10px}
+  .bvbtn .bvl{display:none}
+}
+
+@media (max-width:900px){
+  .bar{position:fixed;left:0;right:0;bottom:0;z-index:36;height:auto;margin:0;display:grid;grid-template-columns:minmax(0,1fr) auto auto;grid-template-areas:"turn back pass" "undo undo voice" "sig sig sig";gap:6px 8px;align-items:center;padding:8px 10px calc(8px + env(safe-area-inset-bottom));border-radius:14px 14px 0 0;border-width:1px 0 0}
+  .bar>.bturn{grid-area:turn;padding-right:0;border-right:0;gap:9px}.bturn .pip{width:12px;height:12px}.bturn .tn b{max-width:none;font-size:17px}
+  .bar>.undo{grid-area:undo;min-width:0}
+  .bar .ubtn{flex:1;min-width:0}.bar .ubtn .ul{max-width:none;font-size:14px}
+  .bar>.bsig{grid-area:sig;justify-content:center}
+  .bar .myfield{display:inline-flex}
+  .bar>.bvoice,.bar>.bvoff{grid-area:voice;justify-self:end}
+  .bvbtn .bvl{display:none}
+  .bar>.pback{grid-area:back;height:38px;padding:0 10px;font-size:12px}
+  .bar>.pass{grid-area:pass;height:38px;padding:0 12px;font-size:13px}.bar>.pass>span:last-child{display:none}
+  .vpop{position:fixed;left:8px;right:8px;bottom:calc(var(--dockh,128px) + 8px);width:auto;max-height:60dvh;overflow:auto}
+  .vpop .mctl,.vpop .msub{display:flex}
+  .bar .pconfirm{left:0;right:0;transform:none;white-space:normal;flex-wrap:wrap}
+  .ptrack{order:1}
 }
 
 /* ============ drawers ============ */
@@ -680,10 +768,10 @@
 @container seat (min-aspect-ratio:1.55){
   .seat[data-view="field"] .sbody{grid-template-columns:minmax(0,1fr) minmax(0,1.7fr)}
   .seat[data-view="field"] .feedcol{--cellw:calc((100cqw - 26px) * .37)}
-  .seat[data-view="field"] .fwrap{--fw:calc((100cqw - 26px) * .63);--fh:calc(100cqh - 128px - var(--scanh,0px))}
+  .seat[data-view="field"] .fwrap{--fw:calc((100cqw - 26px) * .63);--fh:calc(100cqh - 160px - var(--scanh,0px))}
 }
 @container seat (min-aspect-ratio:1.55) and (max-height:330px){
-  .seat[data-view="field"] .fwrap{--fh:calc(100cqh - 112px - var(--scanh,0px))}
+  .seat[data-view="field"] .fwrap{--fh:calc(100cqh - 144px - var(--scanh,0px))}
 }
 @media (max-width:900px){
   .seat[data-view="field"] .feedcol{flex:none}
@@ -723,7 +811,7 @@
 @container seat (max-aspect-ratio:1.55){
   .seat[data-wc] .sbody{justify-content:center}
   .seat[data-wc] .feedcol{flex:0 1 auto;width:100%}
-  .seat[data-wc] .feedcol>.cams{flex:none;width:min(100%,calc((100cqh - 256px) * var(--vr)));max-height:none}
+  .seat[data-wc] .feedcol>.cams{flex:none;width:min(100%,calc((100cqh - 288px) * var(--vr)));max-height:none}
 }
 @container seat (min-aspect-ratio:1.55){
   .seat[data-wc] .sbody{grid-template-columns:minmax(0,1fr) 128px;grid-template-rows:minmax(0,1fr)}
@@ -731,8 +819,8 @@
   .seat[data-wc] .fside{align-self:stretch;max-height:100%;min-height:0;justify-content:flex-start}
   .seat[data-wc] .lp{flex:none}
   .seat[data-wc] .lp{flex-direction:column;flex-wrap:nowrap;align-items:stretch;gap:6px}
-  .seat[data-wc] .lpn{font-size:34px}
-  .seat[data-wc] .lpin{width:100%;margin:0;order:4}
+  .seat[data-wc] .lpn{--lp-size:34px}
+  .seat[data-wc] .lpin{width:100%;margin:0;order:1}
   .seat[data-wc] .lpbtn{flex-basis:auto;order:3;display:grid;grid-template-columns:1fr 1fr}
   .seat[data-wc] .lpbtn button{height:28px}
 }
@@ -765,7 +853,7 @@
   .seatDock{--dock-anchor:bottom;top:auto;bottom:12px;width:min(280px,calc(100% - 20px));max-height:46%;justify-content:flex-end}
   .pop.big.show.docked{grid-template-columns:72px minmax(0,1fr);--aw:72px}
   .app{overflow-x:hidden;overflow-y:auto}
-  .app{--hdr:50px;--dock:0px;--gap:10px;--bar:64px}
+  .app,.app:has(.bar){--hdr:50px;--dock:0px;--gap:10px;--bar:64px}
   .shell{display:block;height:auto;padding-bottom:var(--dockh,128px)}
   .top{position:sticky;top:0;gap:8px;padding:0 10px;height:var(--hdr)}
   /* The phone header is full: Surrender and Quit match get their own full-width row in it, so they stay in view and large. */
@@ -774,6 +862,7 @@
   .top .leaveGrp{order:9;flex:1 0 100%}
   .tb.leaveBtn{flex:1;justify-content:center;height:38px}
   .crumb,.cchip,.logo b,.tb .lbl{display:none}
+  .dtimer{height:30px;padding:0 10px;gap:6px}.dtimer b{font-size:18px}
   /* The phone header is full: the badge moves to its own row under it, in the page flow, so it covers nothing. */
   .adminBadge{display:none}
   .adminStrip{display:flex;justify-content:center;padding:6px 10px 0}
@@ -805,9 +894,9 @@
   .fwrap{--gf:.2;width:auto;align-self:stretch;height:150px;order:2}
   .app[data-mode] .fwrap:has([data-rows]){height:215px}
   .lp{display:grid;padding:0 2px}
-  .lpmain{display:flex;gap:10px}.lpn{font-size:46px}
+  .lpmain{display:flex;gap:10px}.lpn{--lp-size:46px}
   .lpl{display:none}
-  .lpin{display:none}
+  .lpin{width:110px;height:34px}
   .lpbar{display:none}
   .lpbtn{position:absolute;right:10px;top:4px;display:flex;gap:4px}
   .lpbtn button{flex:none;width:46px;height:44px;font-size:13px}
@@ -833,20 +922,13 @@
   .lpstrip button.on{border-color:var(--gold);background:var(--gold-soft);box-shadow:0 0 18px rgb(232 185 79/.25)}
   .lpstrip small{font-weight:700;font-size:11px;color:var(--ink2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;display:flex;align-items:center;gap:5px}
   .lpstrip b{font:600 20px/1 var(--font-duel-display),Oxanium,sans-serif}
-  .dock{position:fixed;left:0;right:0;bottom:0;z-index:36;display:grid;grid-template-columns:.8fr 1.2fr;grid-template-areas:"vox vox" "mic undo";gap:6px 10px;padding:8px 10px calc(8px + env(safe-area-inset-bottom));background:#120b22;border-top:1px solid var(--line2);border-radius:14px 14px 0 0}
-  .dock.nomic{grid-template-columns:minmax(0,1fr);grid-template-areas:"vox" "undo"}
-  .dock .mic,.dock .undo{border:0;background:none;padding:0}
-  .dock>.myfield{display:inline-flex;grid-area:3/1/4/-1;justify-content:center}
-  .vox{grid-area:vox;border:0;background:none;padding:0}
   .vox .tr{display:flex;flex-wrap:wrap;gap:4px 8px;font-size:12px}
   .vox .tr q{min-width:120px}.vox .tr .res{white-space:normal}
   .vox .samples,.vox .trybtn{display:none}
   .vox .prop{padding:6px 8px 6px 10px}.vox .prop .pt{white-space:normal;font-size:14px}.vox .prop .ps{display:none}
-  .mic{grid-area:mic;min-width:0}
-  .undo{grid-area:undo;min-width:0;height:48px}
   .micb{width:44px;height:44px}
   /* The mic column is 132 px wide at 360: the label gives way (ellipsis) before the cell overflows. */
-  .dock .mic{gap:8px}.mic .mrow{gap:6px}.mic .mlab{min-width:0;overflow:hidden;text-overflow:ellipsis;font-size:13px;letter-spacing:.06em}.mic .meter{flex:none}
+  .mic .mrow{gap:6px}.mic .mlab{min-width:0;overflow:hidden;text-overflow:ellipsis;font-size:13px;letter-spacing:.06em}.mic .meter{flex:none}
   .ubtn .usub,.ubtn kbd{display:none}.ubtn .ul{font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.ubtn{padding:0 9px;gap:7px}.ubtn .ic{width:20px;height:20px}.undo{gap:6px}.hbtn{width:34px;flex:none}
   .logd,.insp{width:min(94vw,392px)}
   .peek{top:calc(var(--hdr) + 6px);left:10px;right:10px;max-width:none}
@@ -1298,6 +1380,8 @@
 .hcount{flex:none;display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--ink2)}
 .hcount button{width:22px;height:22px;border:1px solid var(--line);border-radius:6px;background:var(--p1);color:var(--ink);cursor:pointer;line-height:1}
 .hcount button:disabled{opacity:.4;cursor:default}
+.hcount .hgive{width:auto;height:22px;margin-left:6px;padding:0 9px;font:700 12px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;color:var(--ink2)}
+.hcount .hgive:hover,.hcount .hgive[aria-pressed=true]{border-color:var(--gold);color:var(--gold-ink)}
 /* Webcam only: the revealed cards are one compact row right above life points, never over the feed. More cards than fit scroll in the row. */
 .htray{flex:none;display:flex;flex-direction:column;gap:4px;min-width:0;height:58px}
 .htop{display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0;height:22px;flex:none}
@@ -1327,7 +1411,7 @@
   .htop .hmore{display:none}
   .htray{min-height:66px;gap:2px}.htop{gap:0}
   .seat[data-wc] .fside{gap:4px}.seat[data-wc] .lp{gap:4px}
-  .seat[data-wc] .lpbtn button,.seat[data-wc] .lpin{height:22px}.seat[data-wc] .lpn{font-size:28px}
+  .seat[data-wc] .lpbtn button,.seat[data-wc] .lpin{height:22px}.seat[data-wc] .lpn{--lp-size:28px}
   .htop .hcount button{width:20px;height:20px}
 }
 /* Phone: the seat's life points lead, so the tray leads right above them. */

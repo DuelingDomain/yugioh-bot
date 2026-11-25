@@ -7,13 +7,15 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, use
 import { REMOTE_FORMATS, REMOTE_HAND_SUGGESTION_EVENT, type RemoteHandSuggestionEvent, matchCardsByName, previousYgoPhase, normalizeRemoteFormat, remoteRecognitionRef, remoteRecognitionRefs, type RemoteActionProposal, type RemoteEvent, type RemoteRoom, type RemoteUndoEntry } from "@yugidraft/shared/remote";
 import { cardInfo, isLinkInfo, isMonsterInfo, loadCards, searchCards, useCardInfo } from "./catalog";
 import { EffectControls, EffectPicker } from "./effect-controls";
-import { Rail, LpStrip, TopBar, AdminWatchStrip, type Player } from "./chrome";
+import { LpStrip, TopBar, AdminWatchStrip, type Player } from "./chrome";
+import { BottomBar } from "./bottom-bar";
+import { PhaseTrack, usePhaseAsk } from "./phase-track";
 import { CardPopover, InspectorBody, type CardActions, type CardEdit, type CardSource, type Subject } from "./card-view";
 import { ActivateRow, OkBanner, ThinkingCallout, useOkHold } from "./think";
 import { activatable, aliveSeats, chainOf, maySignal, onField, recentlyPlaced, thinkingSeats } from "./think-model";
 /** The client sends Thinking and OK this far apart: a little over the server rule of one a second. */
 const SIGNAL_GAP_MS = 1050;
-import { MicSection, UndoSection, VoxSection, type Proposal } from "./dock";
+import { MicSection, VoxSection, type Proposal } from "./dock";
 import { describeEvent, undoLabel, type LogKind } from "./describe";
 import { ownUndoEntries, phaseBackAction, shortUndoLabel } from "./undo-ui";
 import { DeckFlagPopover } from "./deck-flag";
@@ -370,6 +372,8 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
   const setPhase = (phase: string) => { if (live && myTurn && phase !== state.phase) void act({ type: "phase.set", actorSeat: turnActor, phase }); };
   const phaseBack = (phase: string) => { if (live && myTurn) void act(phaseBackAction(turnActor, phase)); };
   const passTurn = () => { if (live && myTurn) void act({ type: "turn.end", actorSeat: turnActor }); };
+  // Going back to an earlier phase asks first. One question serves every phase box and the Back button.
+  const phaseAsk = usePhaseAsk(state.phase, state.turn, turnShown, setPhase);
   // ---- match: result, declare, side decking ----
   const router = useRouter();
   const matchSeat = mySeat >= 0 ? mySeat : 0;
@@ -937,7 +941,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
 
   // ---- arrow ----
   // On a phone the voice dock is fixed, and the phase rail sticks right above it: the rail reads the dock's real height.
-  const appRef = useRef<HTMLDivElement>(null); const dockRef = useRef<HTMLElement>(null);
+  const appRef = useRef<HTMLDivElement>(null); const dockRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const app = appRef.current; const dock = dockRef.current; if (!app || !dock) return;
     const measure = () => app.style.setProperty("--dockh", `${Math.ceil(dock.getBoundingClientRect().height)}px`);
@@ -1356,6 +1360,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     return {
       cards: knownHandOf(state, seat), count: handCountOf(state, seat), onInspect: card => openKnown(seat, card),
       ...(own ? { onCount: (delta: number) => void act(handCount(solo ? seat : mySeat, delta)) } : {}),
+      ...(control.canGive && seat === mySeat ? { give: { active: control.giving, onGive: control.giveFromHand } } : {}),
       ...(suggestion && seat === suggestSeat ? { suggest: {
         card: suggestion, onDismiss: () => dismissSuggestion(suggestion),
         onAdd: (source: HandSource) => { dismissSuggestion(suggestion); void act(handAdd(seat, { cardId: suggestion.cardId, name: suggestion.name }, source)); },
@@ -1659,7 +1664,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     <AutoFieldWatcher dock={seatDocks[mySeat] ?? null} room={room} transaction={ctl.transaction} diagnosticsAllowed={feedbackPref?.isAdmin===true && feedbackPref.collectionEnabled} />
     <a className={s.skip} href="#stage">Skip to the table</a>
     <div className={s.shell}>
-      <TopBar crumb={`Table ${room.slug.slice(0, 8)}`} tournament={tournament ? { name: tournament.tournamentName, href: `/tournament/${encodeURIComponent(tournament.tournamentSlug)}` } : null} chip={`${formatLabel} · ${solo ? "Solo test" : `${seatCount} players`}${room.spectatorCount ? ` · ${room.spectatorCount} watching` : ""}`} adminWatchers={(room.adminWatchers ?? []).map(watcher => watcher.name)} health={{ q: worst, text: healthText }}
+      <TopBar crumb={`Table ${room.slug.slice(0, 8)}`} startedAt={room.startedAt} endedAt={room.endedAt} tournament={tournament ? { name: tournament.tournamentName, href: `/tournament/${encodeURIComponent(tournament.tournamentSlug)}` } : null} chip={`${formatLabel} · ${solo ? "Solo test" : `${seatCount} players`}${room.spectatorCount ? ` · ${room.spectatorCount} watching` : ""}`} adminWatchers={(room.adminWatchers ?? []).map(watcher => watcher.name)} health={{ q: worst, text: healthText }}
         healthOpen={layers.layer === "health"} cardOpen={layers.layer === "insp"} logOpen={layers.layer === "log"} logDot={unread}
         onHealth={el => layers.toggle("health", el)} onCard={el => layers.toggle("insp", el)} onLog={el => layers.toggle("log", el)}
         onSurrender={canSurrender ? el => openLeave("game", el) : undefined} surrenderOpen={layers.layer === "surrender" && leaveMode === "game"}
@@ -1704,28 +1709,29 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
             onAttack={(_key, card) => startAttack(seat, card)} onInspect={card => openSubject(card)} onPile={(zone, opener) => openPile(seat, zone, opener)} onDeck={(solo || seat === mySeat) && surrenderable(seat) ? el => { setDeckAt({ seat, rect: el.getBoundingClientRect() }); layers.toggle("deck", el); } : undefined} live={live} drag={fieldDrag(seat)} onPlate={() => { if (plate) void declare(seat); }}
             onLp={delta => void changeLp(seat, delta)} canLp={live} deckWarning={deckFlag(room, seat)?.message} onDeckFlag={el => { setFlagSeat(seat); layers.toggle("flag", el); }}
             hand={handOf(seat)} thinkingSince={thinking.get(seat)}
-            cameraControl={seat === mySeat ? scan => <div className={s.camtools}><CameraControl room={room} /><div className={s.toolrow}>{scan}{tokens.trigger(seat)}{control.giveTrigger(seat)}</div></div> : () => <div className={s.toolrow}>{tokens.trigger(seat)}</div>}
-            undo={seat === mySeat ? { label: undoShort, enabled: canUndo, reason: newestUndo?.reason, onUndo: () => void doUndo() } : undefined} turnIn={turnIn && seat === turnShown}
+            cameraControl={seat === mySeat ? scan => <div className={s.camtools}><CameraControl room={room} /><div className={s.toolrow}>{scan}</div></div> : undefined}
+            track={<PhaseTrack seat={seat} name={name(seat)} turn={seat === turnShown} phase={state.phase} canAct={live && myTurn && !state.attack} onPick={phaseAsk.pick} />} turnIn={turnIn && seat === turnShown}
             emptyFeedAction={seat === mySeat && !hub.cameraOn ? <button type="button" className={`${s.btn} ${s.sm} ${s.go}`} disabled={hub.starting} onClick={event => { event.stopPropagation(); void (hub.manual(seat) ? hub.useWebcam() : hub.enableCamera()); }} data-testid="camera-on-feed">{hub.starting ? "Starting…" : "Turn camera on"}</button> : undefined}
             emptyFeedText={hub.manual(seat) ? `No camera (manual). Use ${voiceRecognition ? "voice, " : ""}typing and your board twin.` : hub.health(seat).label === "Scan mode" ? "Scan mode · follow the board twin and log." : bot ? "Test opponent. No camera." : seat === mySeat ? "Your camera is off." : `Waiting for ${name(seat)}'s camera.`} />;
         })}
       </main>
-      <Rail players={players} turnSeat={turnShown} turn={state.turn} phase={state.phase} canAct={live && myTurn && !state.attack} nextSeat={nextSeat} passHot={state.phase === "end"} mine={!solo && mySeat === turnShown}
-        onPhase={setPhase} onPhaseBack={phaseBack} onPass={passTurn} turnIn={turnIn} backTo={previousYgoPhase(state)} />
-      <footer ref={dockRef} className={`${s.dock} ${micSection ? "" : s.nomic}`} aria-label={micSection ? "Voice and undo" : "Commands and undo"}>
-        {live && mySeat >= 0 ? <button type="button" className={`${s.btn} ${s.sm} ${s.q} ${s.myfield}`} onClick={() => { setWebcamOnly(false); document.querySelector(`[data-testid="field-${mySeat}"]`)?.scrollIntoView?.({ block: 'center' }); }}>My field</button> : null}
-        {signalShown ? <div className={s.signals}>
-          <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} aria-pressed={thinkOn} onClick={event => { thinkNow(); event.currentTarget.blur(); }} title="Thinking: tell the table you are deciding. Press again to cancel. No time limit." data-testid="think-button">{thinkOn ? "Thinking…" : "Think"} <kbd>T</kbd></button>
-          <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} onClick={event => { okNow(); event.currentTarget.blur(); }} title="OK: no response" data-testid="ok-button">OK <kbd>Space</kbd></button>
-        </div> : null}
-        {micSection ? <MicSection recognition={voiceRecognition} chat={solo || !REMOTE_TABLE_TALK ? "none" : hub.cameraOn ? "on" : hub.starting ? "connecting" : "off"} state={micState} level={voice.level} speaking={voice.speaking} muted={muted} ptt={ptt} held={held} service={voice.service} error={voice.micError}
-          onMute={() => setMuted(v => !v)} onPtt={() => { setPtt(v => !v); setHeld(false); }} offTurn={!myTurn} /> : null}
-        <VoxSection recognition={voiceRecognition} transcript={shownTranscript} proposal={chip} samples={voiceRecognition ? [...voiceCommands] : []} onConfirm={() => { chip?.run(); setProposal(null); }} onCancel={cancelChip}
-          onSample={text => apply(interpret(text, voiceContext()), text, `sample-${Date.now()}`)}>
-          {voiceRecognition ? <VoiceControls method={voice.method} onMethod={method => { setProposal(null); voice.pickMethod(method); }} logging={room.voiceDiagnosticsEnabled === true && !muted && live} last={diagnostics.last} recentIds={diagnostics.recentIds} onMark={diagnostics.mark} /> : null}
-        </VoxSection>
-        <UndoSection spokenUndo={false} recognition={voiceRecognition} label={undoText} enabled={canUndo} reason={newestUndo?.reason} flash={flash} histOpen={layers.layer === "hist"} onUndo={() => void doUndo()} onHist={el => layers.toggle("hist", el)} />
-      </footer>
+      <BottomBar players={players} turnSeat={turnShown} turn={state.turn} phase={state.phase} canAct={live && myTurn && !state.attack} nextSeat={nextSeat} passHot={state.phase === "end"} mine={!solo && mySeat === turnShown} turnIn={turnIn}
+        backTo={previousYgoPhase(state)} ask={phaseAsk.ask} onAsk={phaseAsk.setAsk} onAskYes={id => { phaseAsk.setAsk(null); phaseBack(id); }} onAskNo={() => phaseAsk.setAsk(null)} onPass={passTurn} dockRef={dockRef}
+        undo={{ spokenUndo: false, recognition: voiceRecognition, label: undoText, enabled: canUndo, reason: newestUndo?.reason, flash, histOpen: layers.layer === "hist", onUndo: () => void doUndo(), onHist: el => layers.toggle("hist", el) }}
+        center={<>
+          {live && mySeat >= 0 ? <button type="button" className={`${s.btn} ${s.sm} ${s.q} ${s.myfield}`} onClick={() => { setWebcamOnly(false); document.querySelector(`[data-testid="field-${mySeat}"]`)?.scrollIntoView?.({ block: 'center' }); }}>My field</button> : null}
+          {signalShown ? <div className={s.signals}>
+            <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} aria-pressed={thinkOn} onClick={event => { thinkNow(); event.currentTarget.blur(); }} title="Thinking: tell the table you are deciding. Press again to cancel. No time limit." data-testid="think-button">{thinkOn ? "Thinking…" : "Think"} <kbd>T</kbd></button>
+            <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} onClick={event => { okNow(); event.currentTarget.blur(); }} title="OK: no response" data-testid="ok-button">OK <kbd>Space</kbd></button>
+          </div> : null}</>}
+        voiceOff={!voiceRecognition}
+        voice={micSection ? { state: micState, muted, onMute: () => setMuted(v => !v), level: voice.level, recognition: voiceRecognition, proposal: !!chip, details: <>
+          <MicSection testId="mic-detail" recognition={voiceRecognition} chat={solo || !REMOTE_TABLE_TALK ? "none" : hub.cameraOn ? "on" : hub.starting ? "connecting" : "off"} state={micState} level={voice.level} speaking={voice.speaking} muted={muted} ptt={ptt} held={held} service={voice.service} error={voice.micError}
+            onMute={() => setMuted(v => !v)} onPtt={() => { setPtt(v => !v); setHeld(false); }} offTurn={!myTurn} />
+          <VoxSection recognition={voiceRecognition} transcript={shownTranscript} proposal={chip} samples={voiceRecognition ? [...voiceCommands] : []} onConfirm={() => { chip?.run(); setProposal(null); }} onCancel={cancelChip}
+            onSample={text => apply(interpret(text, voiceContext()), text, `sample-${Date.now()}`)}>
+            {voiceRecognition ? <VoiceControls method={voice.method} onMethod={method => { setProposal(null); voice.pickMethod(method); }} logging={room.voiceDiagnosticsEnabled === true && !muted && live} last={diagnostics.last} recentIds={diagnostics.recentIds} onMark={diagnostics.mark} /> : null}
+          </VoxSection></> } : null} />
     </div>
 
     <IdleBanner closesAt={room.status === "active" && room.idleWarningAt !== null ? room.lastEventAt + REMOTE_IDLE_CLOSE_MS : null} now={serverNow()} onStay={() => void remoteApi(`/${room.slug}/activity`, {}).catch(() => {})} />

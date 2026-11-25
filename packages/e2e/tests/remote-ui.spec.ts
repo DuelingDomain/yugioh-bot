@@ -102,15 +102,15 @@ test.describe("remote duels screen, solo", () => {
     await page.waitForFunction(() => (window as unknown as { __e2eField?: { live: () => boolean } }).__e2eField?.live());
     const scan = page.getByTestId("field-scan"), chip = page.getByTestId("field-watcher-status"), state = (key: string) => page.evaluate(k => (window as unknown as { __scan: Record<string, number> }).__scan[k], key);
     await expect(scan).toHaveAttribute("aria-disabled", "false", { timeout: 30_000 });
-    // First in the camera tools, solid and large enough to find, fully in view and clear of the Token button at laptop, 1080p and 1440p sizes.
+    // Large enough to find, fully in view, bold and neutral (no gold), with the S hotkey shown, at laptop, 1080p and 1440p sizes.
     for (const [width, height] of [[1366, 768], [1920, 1080], [2560, 1440]]) {
       await page.setViewportSize({ width, height });
       await expect(scan).toBeInViewport({ ratio: 1 });
       const facts = await scan.evaluate(button => {
-        const token = document.querySelector('[data-testid="token-open-0"]'), a = button.getBoundingClientRect(), b = token?.getBoundingClientRect();
-        return { first: !token || !!(button.compareDocumentPosition(token) & Node.DOCUMENT_POSITION_FOLLOWING), height: a.height, clear: !b || a.right <= b.left + 1 || a.bottom <= b.top + 1 || b.right <= a.left + 1 || b.bottom <= a.top + 1, solid: getComputedStyle(button).backgroundImage !== "none" };
+        const a = button.getBoundingClientRect(), kbd = button.querySelector("kbd");
+        return { height: a.height, solid: getComputedStyle(button).backgroundImage !== "none", key: kbd?.textContent, noGold: !/232,\s*185,\s*79/.test(getComputedStyle(button).borderColor) };
       });
-      expect(facts, `${width}x${height}`).toMatchObject({ first: true, clear: true, solid: true }); expect(facts.height).toBeGreaterThanOrEqual(28);
+      expect(facts, `${width}x${height}`).toMatchObject({ solid: true, key: "S", noGold: true }); expect(facts.height).toBeGreaterThanOrEqual(28);
     }
     await expect(scan).not.toHaveAttribute("data-need", ""); await expect(chip).toHaveText("Watching field");
     // The camera sees 2 cards the board lacks. While a pointer button is held (a drag) nothing scans by itself: the button glows and says why.
@@ -141,9 +141,10 @@ test.describe("remote duels screen, solo", () => {
     await expect(page.getByTestId("remote-table")).toBeVisible();
     await expect(page.getByTestId("remote-table")).toHaveAttribute("data-mode", "1v1");
     await shot(page, "1v1-1920-initial");
-    // The turn and phase bar sits under the player panels, at the bottom of the table.
-    const [seatBox, phaseBox] = await Promise.all([page.getByTestId("seat-0").boundingBox(), page.getByTestId("phase-main1").boundingBox()]);
-    expect(phaseBox!.y).toBeGreaterThan(seatBox!.y + seatBox!.height);
+    // The turn player's phase boxes sit in the player's panel under the camera. The one slim bar (turn, Undo, Pass turn) sits at the bottom of the table.
+    const [feedBox, phaseBox, railBox, seatBox] = await Promise.all([page.getByTestId("feed-box-0").boundingBox(), page.getByTestId("phase-main1").boundingBox(), page.getByTestId("rail").boundingBox(), page.getByTestId("seat-0").boundingBox()]);
+    expect(phaseBox!.y).toBeGreaterThanOrEqual(feedBox!.y + feedBox!.height - 1);
+    expect(railBox!.y).toBeGreaterThan(seatBox!.y + seatBox!.height - 1);
     await page.getByTestId("phase-main1").click();
     await expect(page.getByTestId("phase-main1")).toHaveAttribute("aria-current", "step");
     await expect(page.getByTestId("banner")).toBeVisible();
@@ -572,12 +573,12 @@ test.describe("remote duels screen, solo", () => {
           expect(m.row!.y + m.row!.h).toBeLessThanOrEqual(height + 1);
           const clipped = await page.getByTestId("camera-row").evaluate(row => [...row.querySelectorAll("button,select")].some(b => { const r = b.getBoundingClientRect(); const o = row.getBoundingClientRect(); return r.width > 0 && (r.right > o.right + 1 || r.left < o.left - 1); })); // the closed Settings panel keeps hidden controls in the row
           expect(clipped).toBe(false);
-          // Scan field and Token sit in free space: not over the board's zones, the camera row buttons or the Hand -/+ buttons.
+          // Scan field sits in free space: not over the board's zones, the camera row buttons or the Hand -/+ buttons.
           const clashes = await page.evaluate(() => {
             const seat = document.querySelector('[data-testid="seat-0"]')!;
             const box = (e: Element | null | undefined) => e?.getBoundingClientRect();
             const hit = (a: DOMRect, b: DOMRect) => b.width > 0 && a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
-            const movers = [["Scan field", seat.querySelector('button[aria-keyshortcuts="S"]')], ["Token", seat.querySelector('[data-testid="token-open-0"]')]] as const;
+            const movers = [["Scan field", seat.querySelector('button[aria-keyshortcuts="S"]')]] as const;
             const others = [["board", document.querySelector('[data-testid="field-0"]')?.closest('[class*="holo"]')], ...[...seat.querySelectorAll('[data-testid="camera-row"] button, [data-testid="camera-row"] select')].map(e => ["camera row", e] as const),
               ...[...seat.querySelectorAll('[data-testid="hand-count-0"] button')].map(e => ["Hand -/+", e] as const)] as const;
             const out: string[] = [];
@@ -1042,7 +1043,7 @@ test.describe("remote duels screen, moving cards by hand", () => {
     await expect(page.getByTestId("field-0")).toBeVisible();
     const [f, m1, m5, gy, ex, s1, s5, deck, e1, m2] = await Promise.all(["f", "m1", "m5", "gy", "ex", "s1", "s5", "deck", "e1", "m2"].map(zone => box(0, zone)));
     expect(f.x).toBeLessThan(m1.x); expect(gy.x).toBeGreaterThan(m5.x); expect(Math.abs(f.y - gy.y)).toBeLessThan(3);
-    expect(ex.x).toBeLessThan(s1.x); expect(deck.x).toBeGreaterThan(s5.x); expect(ex.y).toBeGreaterThan(f.y); expect(Math.abs(ex.x - f.x)).toBeLessThan(3); expect(Math.abs(deck.x - gy.x)).toBeLessThan(3);
+    expect(ex.x).toBeLessThan(s1.x); expect(deck.x).toBeGreaterThan(s5.x); expect(ex.y).toBeGreaterThan(f.y); expect(Math.abs(ex.x - f.x)).toBeLessThan(5); expect(Math.abs(deck.x - gy.x)).toBeLessThan(5); // the tilted board is a little larger now that the bottom bar is slimmer
     expect(e1.y).toBeLessThan(m2.y); expect(Math.abs(e1.x - m2.x)).toBeLessThan(3);
     // The other seat is turned: its Graveyard is on the left and its Field Zone on the right, its Deck on top.
     const [ogy, of, odeck] = await Promise.all(["gy", "f", "deck"].map(zone => box(1, zone)));
@@ -1082,6 +1083,7 @@ test.describe("remote duels screen, moving cards by hand", () => {
     const slug = await soloTable(context.request, 2); await seed(context, slug);
     await page.goto(`/duels/remote/${slug}`);
     await expect(page.getByTestId("mic")).toHaveAttribute("data-mic", "muted");
+    await page.getByTestId("voice-open").click();
     await page.getByRole("button", { name: "Try saying…" }).click();
     await expect(page.getByRole("button", { name: "end turn", exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "monster zone two", exact: true })).toHaveCount(0);
