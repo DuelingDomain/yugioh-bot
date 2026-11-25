@@ -179,7 +179,12 @@ test.describe("remote duels screen, solo", () => {
       await page.goto(`/duels/remote/${slug}`);
       await expect(page.getByTestId("remote-table")).toHaveAttribute("data-mode", mode);
       for (let seat = 0; seat < count; seat++) await expect(page.getByTestId(`seat-${seat}`)).toBeVisible();
-      await shot(page, `${mode}way-1920`);
+      // Only the webcams show: no board and no W view switch (the board logic runs hidden).
+      await expect(page.getByTestId("table-view")).toHaveCount(0);
+      // The seat with a camera shows no board. Test bots have no camera, so their seats show a small board instead.
+      await expect(page.locator('[data-testid^="seat-"][data-nocam]')).toHaveCount(count - 1);
+      await expect(page.getByTestId("remote-table")).toHaveAttribute("data-wc", "1");
+      for (const [w, h] of SHOTS ? [[1920, 1080], [1366, 768], [360, 740]] : [[1920, 1080]]) { await page.setViewportSize({ width: w, height: h }); await page.waitForTimeout(300); await shot(page, `${mode}way-${w}`); }
     }
   });
 

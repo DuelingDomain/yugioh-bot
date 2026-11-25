@@ -18,6 +18,7 @@ import { ThinkingChip } from "./think";
 import { LifePoints } from "@/components/duel/life-points";
 import { usePrefersReducedMotion } from "@/lib/motion";
 import s from "./remote-ui.module.css";
+import type { SeatFocus } from "./seat-focus";
 
 export const LP_STEPS: { delta: number; kind: string }[] = [
   { delta: -1000, kind: `${s.m} ${s.x}` }, { delta: -500, kind: s.m }, { delta: -100, kind: s.m }, { delta: 100, kind: s.p }, { delta: 500, kind: `${s.p} ${s.x}` },
@@ -68,6 +69,7 @@ export type SeatPanelProps = {
   /** The mode this player announced. Tournament tables show it to the opponent. */ detectionMode?: TournamentMode | "unknown";
   /** Opponent seats only: asks that player's Auto-detect to Scan field again. Absent for my seat, bots and spectators. */ onRescan?: () => Promise<string>;
   /** A tournament table. */ tournamentTable?: boolean;
+  /** Multi-seat tables: this seat is the large one (3-way desktop) or a tile (phone focus view), and how a click makes it the large one. */ focus?: SeatFocus;
   deckWarning?: string; onDeckFlag?: (button: HTMLElement) => void; cameraControl?: ReactNode | ((tool: ReactNode) => ReactNode); emptyFeedText: string; emptyFeedAction?: ReactNode; turnIn: boolean;
 };
 
@@ -132,9 +134,9 @@ export function SeatPanel(p: SeatPanelProps) {
   const low = p.lp < 2500; const width = Math.min(100, Math.max(0, (p.lp / Math.max(1, p.startingLp)) * 100));
   const label = (value: number) => `${p.name} ${value < 0 ? "minus" : "plus"} ${Math.abs(value)}`;
   const classes = [s.seat, s[`s${p.index}`], p.turn ? s.turn : "", p.you ? s.mine : "", p.turn && p.turnIn ? s.turnIn : "", p.next ? s.next : "", p.speaking ? s.speak : "", p.frozen ? s.frozen : "", p.eliminated ? s.out : ""].filter(Boolean).join(" ");
-  return <section className={classes} aria-label={`${p.name}'s seat`} style={{ "--c": p.color } as React.CSSProperties} data-testid={`seat-${p.seat}`} data-turn={p.turn || undefined} data-view={fieldView ? "field" : "camera"} data-wc={compact || undefined} data-swapping={swapping || undefined}>
+  return <section className={classes} aria-label={`${p.name}'s seat`} style={{ "--c": p.color } as React.CSSProperties} data-testid={`seat-${p.seat}`} data-turn={p.turn || undefined} data-view={fieldView ? "field" : "camera"} data-wc={compact || undefined} data-nocam={(!compact && !!p.focus) || undefined} data-big={p.focus?.big || undefined} data-tile={p.focus?.tile || undefined} data-swapping={swapping || undefined}>
     <header className={s.sh}>
-      <span className={s.pip} /><h2 className={s.nm} style={{ margin: 0 }}>{p.name}</h2>
+      <span className={s.pip} /><h2 className={s.nm} style={{ margin: 0 }} data-pick={p.focus && !p.focus.big ? "" : undefined} onClick={p.focus && !p.focus.big ? p.focus.onPick : undefined}>{p.name}</h2>
       {p.you ? <span className={`${s.tag} ${s.you}`}>YOU</span> : null}
       {compact && p.onPile ? <span className={s.wcpiles} role="group" aria-label="Piles" data-testid={`wc-piles-${p.seat}`}>
         <button type="button" onClick={event => p.onPile?.("graveyard", event.currentTarget)} aria-label={`${p.name} Graveyard: ${gy} cards. Open`}>GY <b className={s.num}>{gy}</b></button>
@@ -162,6 +164,7 @@ export function SeatPanel(p: SeatPanelProps) {
         <span className={s.sig}><i /><i /><i /><i /></span><i className={s.hlt}>{p.health.label}</i>
       </button>
     </header>
+    {p.focus?.tile ? <button type="button" className={s.tileTap} aria-label={`Show ${p.name}`} onClick={p.focus.onPick} /> : null}
     {p.onDock ? <NotifyDock seat={p.seat} onSlot={p.onDock} view={`${compact ? "webcam" : "both"}:${fieldView ? "field" : "camera"}`} /> : null}
     <div className={s.sbody}>
       <Feed seat={p.seat} name={p.name} you={p.you} health={p.health} marks={p.marks} reticles={p.reticles} onBegin={p.onBegin} readLive={p.readLive} onAbort={p.onAbort} onMiss={p.onMiss} onSearch={p.onSearch} onPoint={p.onPoint} onSelect={p.onSelect} holdSelection={p.holdSelection} onAdd={p.onAdd} onReset={p.onReset} onReadBoard={p.onReadBoard} onZoneCard={p.onZoneCard} onPick={compact ? p.onCamPick : undefined} openZones={compact ? openZones : undefined} hoverTip={p.webcamOnly ? p.hoverTip : undefined} onCardMenu={p.onCardMenu} emptyText={p.emptyFeedText} emptyAction={p.emptyFeedAction} tournament={p.tournamentTable} prereadScope={compact && p.live ? p.prereadScope : undefined} announcedMode={p.detectionMode === "unknown" ? undefined : p.detectionMode}
