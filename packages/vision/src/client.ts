@@ -57,6 +57,10 @@ export interface RecognizerConfig {
   /** ONNX Runtime WASM threads per worker (default: see chooseWorkerLayout). */
   threads?: number;
 }
+type BackgroundFrameOptions = {
+  /** Discard cancelled or late results at the job boundary while keeping the worker warm. */
+  background?: boolean;
+};
 export interface Recognizer {
   /** Actual providers and fallback reasons from the last worker response. */
   readonly backendStatus?: BackendStatus;
@@ -73,9 +77,9 @@ export interface Recognizer {
   prepare(opts?:PrepareOptions):Promise<{backend:'webgpu'|'wasm'}>;
   /** ImageBitmaps transfer to the worker and are consumed. ImageData is copied. Up to 12 frames. */
   recognize(frames: ImageBitmap[] | ImageData[], opts?: RecognizeOptions): Promise<RecognitionResult>;
-  detectCards(frame: ImageBitmap | ImageData, opts?:DetectOptions): Promise<DetectedQuad[]>;
+  detectCards(frame: ImageBitmap | ImageData, opts?: DetectOptions & BackgroundFrameOptions, signal?: AbortSignal): Promise<DetectedQuad[]>;
   /** Local name/tier only, without a crop, AI request or correction history. Same-frame outlines only. */
-  peek(frame: ImageBitmap | ImageData, opts: PeekOptions): Promise<PeekResult>;
+  peek(frame: ImageBitmap | ImageData, opts: PeekOptions & BackgroundFrameOptions): Promise<PeekResult>;
   /** Reads at most 60 outlined cards sequentially. Abort terminates the active worker; next use reinitializes. */
   readAll(frame: ImageBitmap | ImageData, opts?: ReadAllOptions): Promise<BoardResult>;
   askAI(result: RecognitionResult, options?: { explicitRequest?: boolean; signal?: AbortSignal }): Promise<AIReading>;
@@ -120,6 +124,8 @@ interface Lane {
 }
 class HybridWorkerFailed extends Error {}
 const HYBRID_WORKER_WAIT_MS = 15_000;
+const BACKGROUND_INFERENCE_MS = 3_000;
+const BACKGROUND_WORKER_HANG_MS = 60_000;
 export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
   if (config.game !== undefined && config.game !== 'yugioh') throw new Error(`Unsupported game: ${config.game}`);
   const profile = config.profile ?? yugioh;
@@ -128,6 +134,7 @@ export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
   let detectorTimingsMs:Record<string,number>|undefined;
   let prepared:Promise<{backend:'webgpu'|'wasm'}>|undefined;
   let selectedReader=config.reader, readerNote:string|undefined, lastPrepare:PrepareOptions|undefined;
+  let restorePrepare = false;
   let layout: Promise<{ split: boolean; threads?: number; readThreads?: number }> | undefined;
   const single: Lane = { role: 'both', inFlight: false, pending: new Map() };
   let scene = single, read = single;
@@ -151,7 +158,8 @@ export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
     backendStatus={backend:backendStatus?.backend??'wasm',models:[],readerNote};
     config.onBackendChange?.(backendStatus);
   }
-  function request(lane: Lane, message: object, transfers: Transferable[] = []): Promise<unknown> {
+  function request(lane: Lane, message: object, transfers: Transferable[] = [], signal?: AbortSignal): Promise<unknown> {
+    signal?.throwIfAborted();
     const id = ++serial;
     const hybrid=selectedReader==='hybrid'&&lane.role!=='scene';
     const timer=hybrid?setTimeout(()=>fallbackReader(lane),HYBRID_WORKER_WAIT_MS):undefined;
@@ -167,8 +175,8 @@ export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
       clearTimeout(timer);
       const initialized=await startLane(lane,threadsOf(lane));
       if('type' in message&&message.type==='init')return initialized;
-      if(lastPrepare&&'type' in message&&message.type!=='init'&&message.type!=='prepare')await request(lane,{type:'prepare',opts:lastPrepare});
-      return await request(lane,message,transfers);
+      if(lastPrepare&&'type' in message&&message.type!=='init'&&message.type!=='prepare')await request(lane,{type:'prepare',opts:lastPrepare},[],signal);
+      return await request(lane,message,transfers,signal);
     }).finally(()=>clearTimeout(timer));
   }
   function reset(lane: Lane) {
@@ -189,9 +197,12 @@ export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
         }
         if (error) value.reject(new Error(error)); else value.resolve(result);
       };
-      worker.onerror = event => { if(selectedReader==='hybrid'&&lane.role!=='scene'){fallbackReader(lane);return;}failAll(lane, new Error(event.message || 'Recognition worker failed')); reset(lane); useOneWorker(lane); };
-      worker.onmessageerror = () => {if(selectedReader==='hybrid'&&lane.role!=='scene')fallbackReader(lane);else failAll(lane, new Error('Recognition worker message failed'));};
-      lane.initial = request(lane, { type: 'init', profile, backend: config.backend ?? 'auto', runtimeBase: config.runtimeBase ?? '/dev/vision-lab/assets/ort/', role: lane.role, threads, ...(selectedReader==='hybrid'&&lane.role!=='scene'?{reader:'hybrid'}:{}) }).catch(error => { reset(lane); useOneWorker(lane); throw error; });
+      worker.onerror = event => { if(lane.worker!==worker)return;if(selectedReader==='hybrid'&&lane.role!=='scene'){fallbackReader(lane);return;}failAll(lane, new Error(event.message || 'Recognition worker failed')); reset(lane); useOneWorker(lane); };
+      worker.onmessageerror = () => {if(lane.worker!==worker)return;if(selectedReader==='hybrid'&&lane.role!=='scene')fallbackReader(lane);else failAll(lane, new Error('Recognition worker message failed'));};
+      lane.initial = request(lane, { type: 'init', profile, backend: config.backend ?? 'auto', runtimeBase: config.runtimeBase ?? '/dev/vision-lab/assets/ort/', role: lane.role, threads, ...(selectedReader==='hybrid'&&lane.role!=='scene'?{reader:'hybrid'}:{}) }).catch(error => {
+        if (lane.worker === worker) { reset(lane); useOneWorker(lane); }
+        throw error;
+      });
     }
     return lane.initial;
   }
@@ -218,24 +229,74 @@ export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
   let sceneThreads: number | undefined, readThreads: number | undefined, singleThreads: number | undefined;
   const threadsOf = (lane: Lane) => config.threads ?? (lane.role === 'scene' ? sceneThreads : lane.role === 'read' ? readThreads : singleThreads);
   async function initialize(which: 'scene' | 'read') { const lane = await laneFor(which); return startLane(lane, threadsOf(lane)); }
-  async function boardRequest(type: 'peek' | 'readAll', frame: ImageBitmap | ImageData, opts: PeekOptions | ReadAllOptions) {
+  async function restoreReadOptions(lane: Lane, signal?: AbortSignal) {
+    if (!restorePrepare || !lastPrepare) return;
+    await request(lane, { type: 'prepare', opts: lastPrepare }, [], signal);
+    signal?.throwIfAborted();
+    restorePrepare = false;
+  }
+  async function frameRequest(lane: Lane, type: 'detect' | 'peek' | 'readAll', frame: ImageBitmap | ImageData, opts: object, signal?: AbortSignal, background = false) {
+    signal?.throwIfAborted();
+    if (lane.inFlight && (type !== 'detect' || lane === read)) throw new Error('Recognition is already in progress');
+    const stopLane = (error: DOMException) => {
+      if (lane === read && lastPrepare) restorePrepare = true;
+      reset(lane);
+      failAll(lane, error);
+    };
+    const abort = () => {
+      stopLane(new DOMException('Recognition aborted', 'AbortError'));
+      lane.inFlight = false;
+    };
+    let watchdog: ReturnType<typeof setTimeout> | undefined;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const watchWorker = () => {
+      clearTimeout(watchdog);
+      watchdog = setTimeout(() => stopLane(new DOMException('Recognition worker stopped responding', 'TimeoutError')), BACKGROUND_WORKER_HANG_MS);
+    };
+    lane.inFlight = true;
+    if (background) watchWorker();
+    else signal?.addEventListener('abort', abort, { once: true });
+    try {
+      await startLane(lane, threadsOf(lane));
+      if (disposed) throw new Error('Recognizer is disposed');
+      signal?.throwIfAborted();
+      if (type !== 'detect') await restoreReadOptions(lane, signal);
+      let inferenceSignal = signal;
+      if (background) {
+        // The detector is ready after init. A peek also needs the index and embedder before its budget starts.
+        if (type === 'peek') await prepare();
+        signal?.throwIfAborted();
+        watchWorker();
+        const limit = new AbortController();
+        timeout = setTimeout(() => limit.abort(new DOMException('Background inference timed out', 'TimeoutError')), BACKGROUND_INFERENCE_MS);
+        inferenceSignal = signal ? AbortSignal.any([signal, limit.signal]) : limit.signal;
+      }
+      const begin = performance.now();
+      const result = await request(lane, { type, frame, opts }, typeof ImageBitmap !== 'undefined' && frame instanceof ImageBitmap ? [frame] : [], inferenceSignal).catch(error => {
+        if (background) inferenceSignal?.throwIfAborted();
+        throw error;
+      });
+      if (background) inferenceSignal?.throwIfAborted();
+      if (type === 'detect' && detectorTimingsMs) {
+        detectorTimingsMs.roundTrip = performance.now() - begin;
+        detectorTimingsMs.transfer = Math.max(0, detectorTimingsMs.roundTrip - (detectorTimingsMs.worker ?? 0) - (detectorTimingsMs.queue ?? 0));
+      }
+      return result;
+    } finally {
+      if (background) { clearTimeout(timeout); clearTimeout(watchdog); }
+      else signal?.removeEventListener('abort', abort);
+      if (background || !signal?.aborted) lane.inFlight = false;
+    }
+  }
+  async function boardRequest(type: 'peek' | 'readAll', frame: ImageBitmap | ImageData, opts: (PeekOptions | ReadAllOptions) & BackgroundFrameOptions) {
     if(disposed) throw new Error('Recognizer is disposed');
     opts.signal?.throwIfAborted();
     const lane = await laneFor('read');
-    if(lane.inFlight) throw new Error('Recognition is already in progress');
     if(frame.width<3 || frame.height<3 || frame.width*frame.height>16_000_000) throw new Error('Invalid frame');
     if(opts.cards) validateBoard(opts.cards);
     if('card' in opts) validateOptions({card:opts.card});
-    const {signal,...workerOptions}=opts;
-    // Abort ends only the read worker; a split scene worker keeps serving outlines.
-    const abort=()=>{reset(lane);failAll(lane,new DOMException('Recognition aborted','AbortError'));};
-    lane.inFlight=true;
-    signal?.addEventListener('abort',abort,{once:true});
-    try {
-      await startLane(lane, threadsOf(lane)); signal?.throwIfAborted();
-      if(disposed) throw new Error('Recognizer is disposed');
-      return await request(lane,{type,frame,opts:workerOptions},typeof ImageBitmap!=='undefined' && frame instanceof ImageBitmap?[frame]:[]);
-    } finally {signal?.removeEventListener('abort',abort);lane.inFlight=false;}
+    const {signal,background,...workerOptions}=opts;
+    return await frameRequest(lane, type, frame, workerOptions, signal, background);
   }
   // Both table-open warmup and camera startup need the full recognition pipeline.
   // The worker's init now loads only the detector so outlines can survive index failures.
@@ -244,7 +305,7 @@ export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
     if(opts)lastPrepare=opts;
     // A split scene worker loads (and warms) its detector alongside the read worker.
     const warmScene=()=>{if(scene!==read)void initialize('scene').catch(()=>undefined);};
-    if(opts)return initialize('read').then(async()=>{if(disposed)throw new Error('Recognizer is disposed');warmScene();return await request(read,{type:'prepare',opts}) as {backend:'webgpu'|'wasm'};});
+    if(opts)return initialize('read').then(async()=>{if(disposed)throw new Error('Recognizer is disposed');warmScene();const info=await request(read,{type:'prepare',opts}) as {backend:'webgpu'|'wasm'};restorePrepare=false;return info;});
     prepared??=initialize('read').then(async()=>{if(disposed)throw new Error('Recognizer is disposed');warmScene();return await request(read,{type:'prepare'}) as {backend:'webgpu'|'wasm'};}).catch(error=>{prepared=undefined;throw error;});
     // Readiness is cached, but an inference may since have moved either model to WASM.
     return prepared.then(info => ({ backend: backendStatus?.backend ?? info.backend }));
@@ -273,6 +334,7 @@ export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
       try {
         await startLane(lane, threadsOf(lane));
         if (disposed) throw new Error('Recognizer is disposed');
+        await restoreReadOptions(lane);
         const transfers:Transferable[] = frames.flatMap(f => typeof ImageBitmap !== 'undefined' && f instanceof ImageBitmap ? [f] as Transferable[] : opts.transferFrames ? [(f as ImageData).data.buffer as ArrayBuffer] : []);
         const start=performance.now();
         const result=await request(lane, { type: 'recognize', frames, opts }, [...new Set(transfers)]) as RecognitionResult;
@@ -283,7 +345,8 @@ export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
         if(result.timingsMs){result.timingsMs.roundTrip=performance.now()-start;result.timingsMs.transfer=Math.max(0,result.timingsMs.roundTrip-(result.timingsMs.worker??0)-(result.timingsMs.queue??0));}return result;
       } finally { lane.inFlight = false; }
     },
-    async detectCards(frame, opts = {}) {
+    async detectCards(frame, opts = {}, signal) {
+      signal?.throwIfAborted();
       validateOptions({region:opts.region});
       if(opts.keep!==undefined&&(!Array.isArray(opts.keep)||opts.keep.length>60||opts.keep.some(q=>!Array.isArray(q)||q.length!==4||q.some(p=>!Number.isFinite(p?.x)||!Number.isFinite(p?.y)))))throw new Error('keep must be at most 60 four-point outlines');
       if(opts.piles!==undefined&&(!Array.isArray(opts.piles)||opts.piles.length>4||opts.piles.some(q=>!Array.isArray(q)||q.length!==4||q.some(p=>!Number.isFinite(p?.x)||!Number.isFinite(p?.y)))))throw new Error('piles must be at most 4 four-point cells');
@@ -291,14 +354,8 @@ export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
       if(disposed) throw new Error('Recognizer is disposed');
       if(frame.width<3 || frame.height<3 || frame.width*frame.height>16_000_000) throw new Error('Invalid frame');
       const lane = await laneFor('scene');
-      // A split detector worker queues its passes itself; one shared worker keeps the single-job guard.
-      if(lane.inFlight && lane === read) throw new Error('Recognition is already in progress');
-      lane.inFlight=true;
-      try { await startLane(lane, threadsOf(lane)); if(disposed) throw new Error('Recognizer is disposed');
-        const begin=performance.now(),result=await request(lane,{type:'detect',frame,opts},typeof ImageBitmap!=='undefined' && frame instanceof ImageBitmap?[frame]:[]) as DetectedQuad[];
-        if(detectorTimingsMs){detectorTimingsMs.roundTrip=performance.now()-begin;detectorTimingsMs.transfer=Math.max(0,detectorTimingsMs.roundTrip-(detectorTimingsMs.worker??0)-(detectorTimingsMs.queue??0));}
-        return result; }
-      finally {lane.inFlight=false;}
+      const {background, ...workerOptions} = opts;
+      return await frameRequest(lane, 'detect', frame, workerOptions, signal, background) as DetectedQuad[];
     },
     async askAI(result, options={}) {
       if(disposed) throw new Error('Recognizer is disposed');

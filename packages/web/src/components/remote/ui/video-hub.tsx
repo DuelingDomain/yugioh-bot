@@ -92,7 +92,7 @@ type Hub = {
   /** Saves a confirmed card as a training sample (only when this person opted in). Never throws. */
   recordFeedback(token: number, passcode: number, source: FeedbackSource): Promise<{ ok: boolean; note: string }>;
   /** Names one outlined card of a frozen frame. Local only. */
-  peek(seat: number, frame: HTMLCanvasElement, card: ReadCard, cards: ReadCard[], signal: AbortSignal): Promise<PeekAnswer>;
+  peek(seat: number, frame: HTMLCanvasElement, card: ReadCard, cards: ReadCard[], signal: AbortSignal, background?: boolean): Promise<PeekAnswer>;
   /** Reads all outlined cards of a frozen frame. Local only. */
   readBoard(seat: number, frame: HTMLCanvasElement, cards: ReadCard[], signal: AbortSignal): Promise<BoardAnswer>;
 };
@@ -184,7 +184,7 @@ export function VideoHubProvider({ room, children }: { room: RemoteRoom; childre
       slug: room.slug, guildId: room.guildId, seat: mySeat, members: JSON.parse(members),
       onPhoneScan: setPhoneScan, onPhonePresence: () => { void roster.mutate(); }, onRescan: from => rescanHandler.current?.(from) ?? "off",
       readPhone: (canvas,point,signal) => readCard(null,point,recognitionPriorsFor(roomRef.current,mySeat),signal,undefined,[canvas]),
-      ownerBusy: readerBusy,
+      ownerBusy: () => readerBusy(false),
       recognize: e2eRecognize() ?? makeRecognizeRawFeed(
         async ids => { await loadCards(ids); return new Map(ids.flatMap(id => { const info = cardInfo(id); return info ? [[id, info.name] as const] : []; })); }, () => recognitionPriorsFor(roomRef.current,mySeat)),
     });
@@ -350,7 +350,7 @@ export function VideoHubProvider({ room, children }: { room: RemoteRoom; childre
   }, [mySeat, localOnly, controller]);
 
   const priorsOf = useCallback((seat: number) => recognitionPriorsFor(roomRef.current, seat), []);
-  const peek = useCallback((seat: number, frame: HTMLCanvasElement, card: ReadCard, cards: ReadCard[], signal: AbortSignal) => peekCard(frame, card, cards, priorsOf(seat), signal), [priorsOf]);
+  const peek = useCallback((seat: number, frame: HTMLCanvasElement, card: ReadCard, cards: ReadCard[], signal: AbortSignal, background?: boolean) => peekCard(frame, card, cards, priorsOf(seat), signal, background), [priorsOf]);
   const board = useCallback((seat: number, frame: HTMLCanvasElement, cards: ReadCard[], signal: AbortSignal) => readBoard(frame, cards, priorsOf(seat), signal), [priorsOf]);
 
   const value = useMemo<Hub>(() => ({

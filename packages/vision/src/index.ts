@@ -55,6 +55,9 @@ export type {SetGuards,SetEvidence,SetDecision,SetCardMemory} from './set-card-e
 export {pickZoneTier} from './zone-events';
 export type {GrayFrame,ZoneTier,TierProbe} from './zone-events';
 export {createZoneInstant} from './zone-instant';
+export {createTapPreread} from './tap-preread';
+export {createFieldAnalyzer} from './field-motion';
+export {fieldCenter} from './field-zones';
 export type {ZoneInstant,ZoneInstantOptions,ZoneInstantRead,ZoneInstantStats} from './zone-instant';
 export {ZONE_PREVIEW_TOPIC,ZONE_PREVIEW_TTL_MS,previewForZone,encodePreview,decodePreview,createPreviewBoard} from './zone-peer';
 export type {ZonePreview,PreviewKind} from './zone-peer';

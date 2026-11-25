@@ -41,9 +41,9 @@ type VisionRecognizer = {
   warmup(): Promise<void>;
   prepare(opts?:import("@yugidraft/vision").PrepareOptions):Promise<{ backend: EngineBackend }>;
   recognize(frames: ImageBitmap[], opts?: object): Promise<RawResult>;
-  peek(frame: ImageBitmap, opts: { card: ReadCard; cards?: ReadCard[]; priors?: object; signal?: AbortSignal }): Promise<RawPeek>;
+  peek(frame: ImageBitmap, opts: { card: ReadCard; cards?: ReadCard[]; priors?: object; signal?: AbortSignal; background?: boolean }): Promise<RawPeek>;
   readAll(frame: ImageBitmap, opts: { cards?: ReadCard[]; priors?: object; signal?: AbortSignal }): Promise<RawBoard>;
-  detectCards(frame: ImageBitmap, opts?:import("@yugidraft/vision").DetectOptions): Promise<ReadCard[]>;
+  detectCards(frame: ImageBitmap, opts?: import("@yugidraft/vision").DetectOptions & { background?: boolean }, signal?: AbortSignal): Promise<ReadCard[]>;
   askAI(result: RawResult, options?: { explicitRequest?: boolean; signal?: AbortSignal }): Promise<AIReading>;
   recordFeedback(result: RawResult, chosenCardId: string, source: FeedbackSource): Promise<unknown>;
   dispose(): void;
@@ -83,7 +83,7 @@ export function prewarmRecognizer(): Promise<void> {
   warming ??= (async () => {
     const started = performance.now();
     let ready = false;let reason:string|undefined;
-    try { const vision = await loadRecognizer(); if(vision) { await vision.warmup(); ready = true; } }
+    try { const vision = await loadRecognizer(); if(vision) { await enqueue(() => vision.warmup()); ready = true; } }
     catch(error) { reason=error instanceof Error?error.message:"Initialization failed"; }
     window.dispatchEvent(new CustomEvent("remote-recognizer-warmup", {detail:{ms:performance.now()-started,ready,...(reason?{reason}:{})}}));
     if(!ready && epoch===recognizerEpoch)warming = null;
@@ -163,20 +163,28 @@ const priorsFor = (found: Meta, priors: Priors, voice = true): RecognitionPriors
 const toQuad = (card: ReadCard): ReadCard => ({ quad: card.quad, kind: card.kind, confidence: card.confidence, partial: card.partial, ...(card.covered ? { covered: true } : {}) });
 
 export type Peek = { cardId?: number; name: string | null; tier: "sure" | "not sure" | "low match"; faceDown: boolean; covered: boolean };
-export type PeekAnswer = { status: "ready"; peek: Peek } | { status: "unavailable" | "error"; note: string };
+export type PeekAnswer = { status: "ready"; peek: Peek } | { status: "unavailable" | "error"; note: string; timedOut?: boolean };
 /** Names one outlined card of a frozen frame, locally. No crop leaves this browser and no AI is asked. */
-export function peekCard(frame: HTMLCanvasElement, card: ReadCard, cards: ReadCard[], priors: Priors, signal: AbortSignal): Promise<PeekAnswer> {
-  return enqueue(async () => {
+export function peekCard(frame: HTMLCanvasElement, card: ReadCard, cards: ReadCard[], priors: Priors, signal: AbortSignal, background = false): Promise<PeekAnswer> {
+  const job = async (signal: AbortSignal): Promise<PeekAnswer> => {
     const vision = await loadRecognizer(); const found = await loadMeta();
     if (!vision || !found) return { status: "unavailable" as const, note: "The card reader is not installed here." };
     try {
       signal.throwIfAborted();
       const bitmap = await createImageBitmap(frame);
-      const answer = await vision.peek(bitmap, { card: toQuad(card), cards: cards.map(toQuad), priors: priorsFor(found, priors), signal });
-      const entry = answer.cardId ? found.entries.find(e => e.cardId === answer.cardId) : undefined;
-      return { status: "ready" as const, peek: { cardId: entry?.passcode, name: answer.name ?? entry?.name ?? null, tier: answer.tier, faceDown: answer.faceDown, covered: answer.covered } };
-    } catch (error) { return { status: "error" as const, note: error instanceof Error ? error.message : "Peek failed" }; }
-  });
+      try {
+        signal.throwIfAborted();
+        const answer = await vision.peek(bitmap, { card: toQuad(card), cards: cards.map(toQuad), priors: priorsFor(found, priors, !background), signal, background });
+        signal.throwIfAborted();
+        const entry = answer.cardId ? found.entries.find(e => e.cardId === answer.cardId) : undefined;
+        return { status: "ready" as const, peek: { cardId: entry?.passcode, name: answer.name ?? entry?.name ?? null, tier: answer.tier, faceDown: answer.faceDown, covered: answer.covered } };
+      } finally { bitmap.close(); }
+    } catch (error) {
+      const timedOut = background && error instanceof DOMException && error.name === "TimeoutError";
+      return { status: "error", timedOut, note: error instanceof Error ? error.message : "Peek failed" };
+    }
+  };
+  return background ? enqueueBackground(job, signal).catch(() => ({ status: "error", note: "Cancelled." })) : enqueue(() => job(signal));
 }
 
 export type BoardRead = Peek & { index: number; side: "near" | "far"; quad: { x: number; y: number }[]; error?: string };
@@ -227,7 +235,7 @@ async function sampleFrames(track: MediaStreamTrack, signal: AbortSignal): Promi
   finally { element.pause(); element.srcObject = null; }
 }
 
-/** Jobs wait here; the reader runs one at a time. A `high` job (the instant zone read) goes before queued ordinary jobs but never interrupts the running one. */
+/** Jobs wait here. A `high` job (the instant zone read) goes before queued ordinary jobs. */
 const waiting: { high: boolean; run: () => Promise<unknown> }[] = [];
 let working = false;
 function pump() {
@@ -238,22 +246,50 @@ function pump() {
   void next.run().finally(() => { working = false; pump(); });
 }
 let pendingJobs = 0;
+let pendingBackgroundJobs = 0;
+let backgroundRead: AbortController | undefined;
 /** Outline (detector) jobs among `pendingJobs`: a new resting card waits only for these, never for a queued read. */
 let pendingDetectJobs = 0;
 /** The reader handles one job at a time (reads and outlines share it). Later jobs wait their turn. */
-function enqueue<T>(job: () => Promise<T>, spectator = false, high = false): Promise<T> {
-  // Any job that is not a spectator's read is the owner's: it never waits behind a running or queued spectator read.
-  if (!spectator) abortSpectatorReads();
+function enqueue<T>(job: () => Promise<T>, spectator = false, high = false, background = false): Promise<T> {
+  if (!background) {
+    backgroundRead?.abort();
+    if (!spectator) abortSpectatorReads();
+  }
   pendingJobs++;
+  if (background) pendingBackgroundJobs++;
   return new Promise<T>((resolve, reject) => {
     const item = { high, run: () => Promise.resolve().then(job).then(resolve, reject) };
     if (high) { const at = waiting.findIndex(w => !w.high); waiting.splice(at < 0 ? waiting.length : at, 0, item); }
     else waiting.push(item);
     pump();
-  }).finally(() => { pendingJobs--; });
+  }).finally(() => { pendingJobs--; if (background) pendingBackgroundJobs--; });
 }
 /** True while the reader has a job running or queued (the owner's reads and the field watcher). */
-export const readerBusy = () => pendingJobs > 0;
+export const readerBusy = (includeBackground = true) => pendingJobs > (includeBackground ? 0 : pendingBackgroundJobs);
+
+/** Also releases the caller when setup or frame capture is still pending at cancellation. */
+export async function runUntilAbort<T>(signal: AbortSignal, job: () => Promise<T>): Promise<T> {
+  signal.throwIfAborted();
+  let abort: () => void = () => undefined;
+  try {
+    return await new Promise<T>((resolve, reject) => {
+      abort = () => reject(signal.reason);
+      signal.addEventListener("abort", abort, { once: true });
+      Promise.resolve().then(() => { signal.throwIfAborted(); return job(); }).then(resolve, reject);
+    });
+  } finally { signal.removeEventListener("abort", abort); }
+}
+
+function enqueueBackground<T>(job: (signal: AbortSignal) => Promise<T>, outer: AbortSignal): Promise<T> {
+  if (readerBusy() || outer.aborted) return Promise.reject(new DOMException("Cancelled.", "AbortError"));
+  const controller = backgroundRead = new AbortController();
+  const signal = AbortSignal.any([outer, controller.signal]);
+  // Foreground work aborts this result and takes the next slot once the worker reaches a job boundary.
+  return enqueue(() => { signal.throwIfAborted(); return job(signal); }, false, false, true)
+    .finally(() => { if (backgroundRead === controller) backgroundRead = undefined; });
+}
+
 const spectatorJobs = new Set<AbortController>();
 /** Stops every running or queued spectator read at once, so the owner's next job starts without waiting. */
 export function abortSpectatorReads() { for (const job of spectatorJobs) job.abort(); spectatorJobs.clear(); }
@@ -261,6 +297,7 @@ let sceneChain: Promise<unknown> = Promise.resolve();
 /** Outline passes of a split reader (its own detector worker) queue apart from reads; otherwise they share the reader queue. */
 function enqueueScene<T>(vision: VisionRecognizer, job: () => Promise<T>): Promise<T> {
   if (!vision.separateDetector) return enqueue(job);
+  backgroundRead?.abort();
   pendingJobs++;
   const run = sceneChain.then(job, job).finally(() => { pendingJobs--; });
   sceneChain = run.catch(() => undefined);
@@ -384,21 +421,29 @@ async function secondFrameAgrees(vision: VisionRecognizer, first: RawResult, poi
   } catch { return false; }
 }
 
-export type Detection = { status: "ready"; cards: DetectedQuad[]; ms: number } | { status: "unavailable" | "error"; cards: []; note: string };
+export type Detection = { status: "ready"; cards: DetectedQuad[]; ms: number } | { status: "unavailable" | "error"; cards: []; note: string; timedOut?: boolean };
 /** Finds every card in one frame. The bitmap is consumed. Without the card reader installed this answers "unavailable". */
-export async function detectCards(frame: ImageBitmap, opts?:import("@yugidraft/vision").DetectOptions): Promise<Detection> {
-  const reader = await loadRecognizer();
-  // A split reader's outline worker has its own queue (shared with the field watcher's passes).
-  const queue = <T,>(job: () => Promise<T>) => reader ? enqueueScene(reader, job) : enqueue(job);
-  return queue(async () => {
+export async function detectCards(frame: ImageBitmap, opts?:import("@yugidraft/vision").DetectOptions, backgroundSignal?: AbortSignal): Promise<Detection> {
+  const job = async (signal?: AbortSignal): Promise<Detection> => {
     const vision = await loadRecognizer(); const found = await loadMeta();
-    if (!vision || !found) { frame.close(); return { status: "unavailable" as const, cards: [] as [], note: "The card reader is not installed here." }; }
+    signal?.throwIfAborted();
+    if (!vision || !found) return { status: "unavailable", cards: [], note: "The card reader is not installed here." };
     const start = performance.now();
-    try {
-      const cards = await vision.detectCards(frame,opts);
-      return { status: "ready" as const, cards: cards.map(card => ({ ...card, refined: !card.partial })), ms: Math.round(performance.now() - start) };
-    } catch (error) { return { status: "error" as const, cards: [] as [], note: error instanceof Error ? error.message : "The card detector failed." }; }
-  });
+    const cards = await vision.detectCards(frame, signal ? { ...opts, background: true } : opts, signal);
+    signal?.throwIfAborted();
+    return { status: "ready", cards: cards.map(card => ({ ...card, refined: !card.partial })), ms: Math.round(performance.now() - start) };
+  };
+  try {
+    if (backgroundSignal) return await enqueueBackground(job, backgroundSignal);
+    backgroundRead?.abort();
+    const reader = await loadRecognizer();
+    // A split reader's outline worker has its own queue (shared with the field watcher's passes).
+    const detect = () => job();
+    return await (reader ? enqueueScene(reader, detect) : enqueue(detect));
+  } catch (error) {
+    const timedOut = !!backgroundSignal && error instanceof DOMException && error.name === "TimeoutError";
+    return { status: "error", timedOut, cards: [], note: error instanceof Error ? error.message : "The card detector failed." };
+  } finally { frame.close(); }
 }
 
 /** Adapter for RemoteVideo: the feed owner supplies its own scoped knowledge; only image matches leave it. */

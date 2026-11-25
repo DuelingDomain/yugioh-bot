@@ -14,13 +14,15 @@ import { PeerVisionChip } from "./peer-vision-chip";
 import { TapModeBanner, TapModeChip } from "./tap-mode-banner";
 import { ZoneGridOverlay, FieldDebugOverlay } from "./zone-grid";
 import { HubFeedCards } from "./feed-cards";
-import {fieldZoneLocation,mapFieldZone} from '@yugidraft/vision';
+import {fieldCenter,fieldZoneLocation,mapFieldZone} from '@yugidraft/vision';
 import { noteTapFrame } from "@/lib/remote/tap-memory";
 import { useTapToIdentify, useZoneGrid, readGridPref, writeGridPref, currentZoneGrid, useFieldDebugEnabled, setFieldDebugEnabled, useFieldDeveloper } from "@/lib/remote/zone-grid";
 import { saveFieldClip, useFieldClipReady } from "@/lib/remote/clip-capture";
 import s from "./remote-ui.module.css";
 import { isTypingTarget } from "@/lib/typing-target";
 import { isThemedListOpen } from "@/components/ui/themed-select";
+import type { TournamentMode } from "@/lib/remote/tournament-detection";
+import { watchTapFeed } from "./tap-preread";
 
 /** A card the table has identified on a feed. Normalized to the video frame (0..1). `quad` is set when it came from an outline. */
 export type FeedMark = { id: string; x: number; y: number; label: string; notInDecklist: boolean; show: boolean; cardCode?: number; quad?: Pt[];
@@ -39,6 +41,7 @@ export type FeedHit = {
   /** True for a click on the live feed. The table then drops the result if the person closed the popup meanwhile. */
   live?: boolean;
   cached?:RemoteFieldCard;
+  preread?: { cardId: number; name: string; invalidate(): void };
   copyWitnesses?:(matches:readonly TwinCard[])=>Promise<RemoteFieldCard[]>;capturedAt?:number;
   frozenFrame?:HTMLCanvasElement;
 };
@@ -85,7 +88,7 @@ function copyOf(canvas: HTMLCanvasElement) {
   copy.getContext("2d")?.drawImage(canvas, 0, 0); return copy;
 }
 
-export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLive, onAbort, onPoint, onMiss, onSearch, onSelect, onAdd, onReset, onReadBoard, holdSelection, extra, onZoneCard, onPick, hoverTip, onCardMenu, below, emptyText, emptyAction, tournament = false }: {
+export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLive, onAbort, onPoint, onMiss, onSearch, onSelect, onAdd, onReset, onReadBoard, holdSelection, extra, onZoneCard, onPick, hoverTip, onCardMenu, below, emptyText, emptyAction, prereadScope, announcedMode, tournament = false }: {
   seat: number; name: string; you: boolean; health: Health; marks: FeedMark[]; reticles: FeedReticle[];
   /** A click landed on the live feed, before the card is found. Returns the id of this read. No popup opens yet. */
   onBegin: (seat: number, start: FeedStart) => number | void;
@@ -118,6 +121,8 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
   below?: ReactNode; emptyText: string; emptyAction?: ReactNode;
   /** A tournament table: the Auto-detect off strip then gives no reason from this computer's own choice. */
   tournament?: boolean;
+  prereadScope?: string;
+  announcedMode?: TournamentMode;
 }) {
   const hub = useVideoHub();
   const backs = useFieldBacks(seat);
@@ -211,6 +216,27 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
   // The own feed has an always-on native-resolution ring (shared with remote reads), so it needs no hover ring.
   // Tap to identify has no watcher to feed: the ring stops, and the own feed keeps frames only under the pointer, like other feeds.
   const tapOwn = useTapToIdentify(seat) && you;
+  const preread = useRef<ReturnType<typeof watchTapFeed> | null>(null);
+  // The track stream can still say Tap while Auto rebuilds the board. Use the announced modes here.
+  const opponentTap = announcedMode !== "auto" && peerVision?.detect !== "auto" &&
+    (announcedMode === "tap" || peerVision?.detect === "tap");
+  const prereadEnabled = (you ? tapOwn : opponentTap) && !!prereadScope && health.label !== "Frozen" && health.label !== "Camera muted";
+  const { peek, trackedAt, trackedCalibration } = hub;
+  useEffect(() => {
+    const element = video.current;
+    if (!prereadEnabled || !source || !element || frozen) return;
+    const feed = watchTapFeed({
+      video: element, capture: grab, format: zoneGrid.format,
+      calibration: () => {
+        const grid = currentZoneGrid();
+        return you ? (grid.placed && grid.ownSeat === seat ? grid.calibration : undefined) : trackedCalibration?.(seat);
+      },
+      tracked: point => !!trackedAt(seat, point.x, point.y),
+      peek: (frame, card, signal) => peek(seat, frame, card, [], signal, true),
+    });
+    preread.current = feed;
+    return () => { preread.current = null; feed.stop(); };
+  }, [prereadEnabled, prereadScope, source, frozen, grab, seat, you, zoneGrid.format, peek, trackedAt, trackedCalibration]);
   useEffect(() => {
     const element = video.current; if (!you || !source || !element || tapOwn) return;
     attachOwnFeed(element); return () => detachOwnFeed(element);
@@ -342,14 +368,23 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
     if (hit) choose(hit, frozen.cards.length, frozen.cards.indexOf(hit)); else { onMiss(seat, p); showMiss(p); }
   }, [frozen, box, choose, onPoint, seat, around, feedRect]);
 
-  /**
-   * A click on the live feed (no freeze). The popup opens at once. Meanwhile the sharpest buffered frame is searched for the card
-   * under the click, a gold outline flashes on the video, and the reader gets that frame.
-   */
+  function selectPreread(p: Pt) {
+    const match = prereadEnabled ? preread.current?.hit(p) : undefined;
+    if (!match) return false;
+    ++run.current; setMiss(null);
+    const { card, identity, invalidate } = match;
+    const { x, y } = fieldCenter(card);
+    onSelect(seat, { x, y, quad: card.quad, kind: card.kind, confidence: card.confidence, refined: true, covered: false,
+      index: 0, count: 1, anchor: anchorOf(card.quad), feed: feedRect(), preread: { ...identity, invalidate } });
+    return true;
+  }
+
+  /** A cache miss searches the sharpest buffered frame for the card under the click. */
   async function liveClick(p: Pt) {
     if (!box) return;
     noteFrame();
     if(hub.phones.some(phone=>phone.seat===seat&&phone.paired)) {
+      if (selectPreread(p)) return;
       ++run.current;const feed=feedRect();
       onBegin(seat,{x:p.x,y:p.y,anchor:around(p),feed});setSay("Reading card.");
       onPoint(seat,p.x,p.y,{anchor:around(p),feed,live:true});return;
@@ -385,8 +420,10 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
       onSelect(seat,{x:p.x,y:p.y,quad:cached.quad,kind:'face-up',confidence:1,refined:true,covered:false,index:0,count:1,anchor:anchorOf(cached.quad),feed:feedRect(),cached});
       return;
     }
+    // A Tap seat's old virtual cells can still say Set after the paper card flips up.
+    if (!f && tapSeat && selectPreread(p)) return;
     if (!f && onZoneCard && onZoneCard(seat, { x: p.x, y: p.y, anchor: { left: event.clientX - 14, right: event.clientX + 14, top: event.clientY - 14, bottom: event.clientY + 14 }, feed: feedRect() })) { ++run.current; setMiss(null); return; }
-    if (!f) { void liveClick(p); return; }
+    if (!f) { if (tapSeat || !selectPreread(p)) void liveClick(p); return; }
     setFrozenState(old => old && { ...old, pinned: true });
     if (f.status === "detecting") { setFrozenState(old => old && { ...old, pending: p }); return; }
     const hit = hitTest(f.cards, p, { w: box.width, h: box.height });
