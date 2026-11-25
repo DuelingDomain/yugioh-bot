@@ -6,6 +6,8 @@ import {fileURLToPath} from 'node:url';
 import {fitMat, matFitCalibration} from './mat-fit';
 import {createFieldCalibration, fieldMatPoint, fieldZoneCells, mapFieldZone,fieldQuadEnvelope,fieldQuadPoint,moveFieldQuad,resizeFieldQuad,turnFieldQuad,pinchFieldQuad} from './field-zones';
 
+const FIXTURE_BUDGET_MS=10_000;
+
 async function frame(name='circuit-break-base.png') {
   const {data,info}=await sharp(fileURLToPath(new URL(`../fixtures/mat-fit/${name}`,import.meta.url))).ensureAlpha().raw().toBuffer({resolveWithObject:true});
   return {data:new Uint8ClampedArray(data),width:info.width,height:info.height} as ImageData;
@@ -36,7 +38,7 @@ test('camera widths and harmless edge crops preserve every named row and column'
         const w=width-crop.left-crop.right,h=scaled.info.height-crop.top-crop.bottom;
         const data=await sharp(scaled.data,{raw:{width,height:scaled.info.height,channels:4}})
           .extract({left:crop.left,top:crop.top,width:w,height:h}).raw().toBuffer();
-        const start=performance.now(),cpu=process.cpuUsage(),result=fitMat({data,width:w,height:h},{playerSide:'top'});
+        const start=performance.now(),cpu=process.cpuUsage(),result=fitMat({data,width:w,height:h},{playerSide:'top',budgetMs:FIXTURE_BUDGET_MS});
         const elapsed=performance.now()-start,used=process.cpuUsage(cpu),grid=matFitCalibration(result);
         assert.ok(grid,JSON.stringify(result));
         for(const [i,[x,y]] of points.entries()){
@@ -115,6 +117,37 @@ test('occupied production camera frame fits the correct printed rows',async()=>{
   assert.ok(result.metrics.meanErrorPitch<.1);assert.ok(result.metrics.maxErrorPitch<.2);
 });
 
+test('first fit previews the pale Raging Tempest mat with the correct side and columns',async()=>{
+  const image=await frame('raging-tempest.png');
+  const start=performance.now(),result=fitMat(image,{playerSide:'top',budgetMs:FIXTURE_BUDGET_MS}),elapsed=performance.now()-start;
+  const grid=matFitCalibration(result);
+  assert.ok(grid,JSON.stringify(result));
+  assert.deepEqual(result.orientation,{playerSide:'top',mirrored:false});
+  assert.equal(result.flags.colWindowAmbiguous,false);
+  assert.equal(result.flags.sideByPrior,false);
+  assert.equal(result.metrics.columnSpan,7);
+  assert.equal(result.confidence,'low');
+
+  // Camera pixels hand-marked from the exposed printed edges, including the
+  // visible portions around the piles. The older outer boxes are staggered.
+  const points=[
+    ['S5',249,171],['S4',345,170],['S1',628,171],['M3',439,287],
+    ['DECK',170,138],['EXTRA',713,135],['FIELD',733,326],
+  ] as const;
+  const cells=fieldZoneCells(),errors=points.map(([name,x,y])=>{
+    const cell=cells.find(c=>c.zone===name)!;
+    const p=fieldMatPoint({x:cell.x+cell.w/2,y:cell.y+cell.h/2},grid);
+    const nx=x/image.width,ny=y/image.height;
+    assert.equal(mapFieldZone({quad:[{x:nx-.005,y:ny-.005},{x:nx+.005,y:ny-.005},{x:nx+.005,y:ny+.005},{x:nx-.005,y:ny+.005}],confidence:1,partial:false,kind:'face-up'},grid).zone,name);
+    return Math.hypot(p.x*image.width-x,p.y*image.height-y);
+  });
+  const mean=(values:number[])=>values.reduce((sum,error)=>sum+error,0)/values.length;
+  const mainMean=mean(errors.slice(0,4)),allMean=mean(errors),max=Math.max(...errors);
+  console.log(`pale: zones=${result.flags.zonesFound} inliers=${result.metrics.inliers} main mean=${mainMean.toFixed(2)}px all mean=${allMean.toFixed(2)}px max=${max.toFixed(2)}px wall=${elapsed.toFixed(0)}ms`);
+  assert.ok(mainMean<10,`main-row mean error ${mainMean}px`);
+  assert.ok(allMean<20&&max<48,`overall error ${allMean}px mean, ${max}px max`);
+});
+
 // These retain real printed edges and move GT with the same known camera transform.
 test('rotated real-frame variants retain correct rows and sub-pitch accuracy',async()=>{
   const image=await frame();
@@ -133,13 +166,40 @@ test('rotated real-frame variants retain correct rows and sub-pitch accuracy',as
     assert.ok(mean<19);assert.ok(max<19);
   }
 });
-test('blurred printed zones, art-only and noisy cloth do not yield a saved fit',async()=>{
+test('blurred zones, art-only, noisy cloth and frames without a mat do not yield corners',async()=>{
   const image=await frame(),blurred=await sharp(image.data,{raw:{width:image.width,height:image.height,channels:4}}).blur(9).raw().toBuffer();
   const noise=new Uint8ClampedArray(640*360*4);let seed=17;
   for(let i=0;i<noise.length;i+=4){seed=(Math.imul(seed,1664525)+1013904223)|0;noise[i]=noise[i+1]=noise[i+2]=120+(seed>>>27);noise[i+3]=255;}
   const art=await sharp(image.data,{raw:{width:image.width,height:image.height,channels:4}}).extract({left:350,top:70,width:800,height:260}).raw().toBuffer();
-  for(const input of [{...image,data:blurred},{width:640,height:360,data:noise},{width:800,height:260,data:art}]){
-    const result=fitMat(input);assert.equal(matFitCalibration(result),undefined,JSON.stringify(result));
+  const width=960,height=540;
+  const tabletop=Buffer.from(`<svg width="${width}" height="${height}">
+    <defs><linearGradient id="wood"><stop stop-color="#b49472"/><stop offset="1" stop-color="#86664f"/></linearGradient></defs>
+    <rect width="100%" height="100%" fill="url(#wood)"/>
+    <path d="M0 150 L960 158 M0 388 L960 396" fill="none" stroke="#80614a" opacity=".4"/>
+  </svg>`);
+  const table=await sharp(tabletop).ensureAlpha().raw().toBuffer();
+  // Three dark rectangles can interpolate a seven-column lattice exactly.
+  const outlines=[[120,210],[240,210],[840,355]].map(([x,y])=>
+    `<rect x="${x-43}" y="${y-63}" width="86" height="126" fill="none" stroke="#222" stroke-width="3.5"/>`).join('');
+  const outlinedTable=await sharp(Buffer.from(`<svg width="${width}" height="${height}">
+    <rect width="100%" height="100%" fill="#aaa"/>${outlines}</svg>`)).ensureAlpha().raw().toBuffer();
+  const placements=[
+    ['91152256',74,160,-4],['55144522',203,160,0],['66788016',360,310,12],
+    ['14087893',480,140,-8],['44095762',630,280,3],['41420027',788,305,0],
+  ] as const;
+  const cards=await Promise.all(placements.map(async ([id,left,top,angle])=>({
+    input:await sharp(fileURLToPath(new URL(`../../../docs/design/duel-3d-mode/concept/assets/cards/${id}.jpg`,import.meta.url)))
+      .resize({width:86,height:126,fit:'fill'}).ensureAlpha().rotate(angle,{background:'#0000'}).png().toBuffer(),
+    left,top,
+  })));
+  const cardsOnly=await sharp(tabletop).composite(cards).ensureAlpha().raw().toBuffer();
+  const cases=[
+    ['blurred',{...image,data:blurred}],['noise',{width:640,height:360,data:noise}],['art',{width:800,height:260,data:art}],
+    ['plain table',{width,height,data:table}],['cards only',{width,height,data:cardsOnly}],
+    ['three dark outlines',{width,height,data:outlinedTable}],
+  ] as const;
+  for(const [name,input] of cases){
+    const result=fitMat(input,{budgetMs:FIXTURE_BUDGET_MS});assert.equal(result.corners,null,`${name}: ${JSON.stringify(result)}`);
   }
 });
 
@@ -147,7 +207,7 @@ test('quarter-turn camera priors retain named zones and flag side uncertainty',a
  const image=await frame(),base=fitMat(image,{playerSide:'bottom'});assert.ok(base.corners);
  for(const side of ['left','right'] as const){
   const rotated=await sharp(image.data,{raw:{width:image.width,height:image.height,channels:4}}).rotate(side==='left'?90:270).raw().toBuffer({resolveWithObject:true});
-  const result=fitMat({width:rotated.info.width,height:rotated.info.height,data:rotated.data},{playerSide:side});
+  const result=fitMat({width:rotated.info.width,height:rotated.info.height,data:rotated.data},{playerSide:side,budgetMs:0});
   const grid=matFitCalibration(result);assert.ok(grid,JSON.stringify(result));assert.equal(result.orientation.playerSide,side);assert.equal(result.flags.sideByPrior,true);assert.ok(result.flipped);
   const baseGrid=matFitCalibration(base)!;
   for(const cell of fieldZoneCells()){
@@ -155,4 +215,34 @@ test('quarter-turn camera priors retain named zones and flag side uncertainty',a
    assert.ok(Math.hypot(q.x-expected.x,q.y-expected.y)<.01,`${side} ${cell.zone}`);
   }
  }
+});
+
+test('scales the deadline with the first pass and keeps its result when the budget expires',async t=>{
+  const easy=await frame(),pale=await frame('raging-tempest.png');
+  const start=10_000,firstScaleMs=600;
+  let clockRead=0,elapsed=firstScaleMs*3;
+  t.mock.method(performance,'now',()=>{
+    const read=clockRead++;
+    return start+(read===0?0:read===1?firstScaleMs:elapsed);
+  });
+
+  const fit=fitMat(easy,{playerSide:'top'});
+  assert.ok(fit.corners,JSON.stringify(fit));
+  assert.equal(fit.confidence,'high');
+
+  clockRead=0;
+  const width=128,height=128,data=new Uint8ClampedArray(width*height*4).fill(128);
+  const blank=fitMat({width,height,data},{playerSide:'top'});
+  assert.equal(blank.corners,null);
+  assert.equal(blank.reason,'no-zones');
+
+  clockRead=0;
+  const needsPreviewPass=fitMat(pale,{playerSide:'top'});
+  assert.equal(needsPreviewPass.corners,null,JSON.stringify(needsPreviewPass));
+
+  clockRead=0;
+  elapsed--;
+  const preview=fitMat(pale,{playerSide:'top'});
+  assert.ok(preview.corners,JSON.stringify(preview));
+  assert.equal(preview.confidence,'low');
 });
