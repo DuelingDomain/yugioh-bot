@@ -62,9 +62,9 @@ test("two seated browsers exchange field video, detect stalled frames and reconn
     const beforeCancelledLeave = await frames(b, 0);
     await a.evaluate(() => window.dispatchEvent(new Event('beforeunload')));
     await expect.poll(() => video(b, 0).evaluateAll(nodes => nodes.length ? (nodes[0] as HTMLVideoElement).getVideoPlaybackQuality().totalVideoFrames : 0), { timeout: 5_000 }).toBeGreaterThan(beforeCancelledLeave + 15);
-    // The top health chip opens the same list.
-    await b.getByTestId("health-chip").click();
-    await expect(b.getByTestId("health-popover")).toContainText("E2E Alice");
+    // The Info tab of the drawer lists the same feeds.
+    await b.getByTestId("log-button").click(); await b.getByTestId("drawer-tab-info").click();
+    await expect(b.getByTestId("log-drawer")).toContainText("E2E Alice");
     await b.keyboard.press("Escape");
 
     // Alice's sender stops: Bob sees the frozen feed, then it recovers.

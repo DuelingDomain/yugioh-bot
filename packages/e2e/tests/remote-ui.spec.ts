@@ -23,6 +23,15 @@ async function postAction(request: APIRequestContext, path: string, action: Reco
 const cardDetails = async (page: Page, cell: Locator) => { await cell.click(); await page.getByRole("button", { name: "Card details" }).click(); };
 
 const SHOTS = process.env.E2E_SHOTS ?? "";
+
+/** Open the table drawer (right side) on a tab: Log, Settings, Info or Admin. */
+async function openDrawer(page: Page, tab: "log" | "settings" | "info" | "admin") {
+  const drawer = page.locator('[data-testid="log-drawer"]:not([aria-hidden="true"])');
+  if (!(await drawer.count())) await page.getByTestId("log-button").click();
+  await expect(drawer).toBeVisible();
+  await page.getByTestId(`drawer-tab-${tab}`).click();
+  await expect(drawer).toHaveAttribute("data-tab", tab);
+}
 // A still picture of two cards on a table, served as the camera. Chrome's fake-file camera is not reliable between tests.
 const FRAME = process.env.E2E_FAKE_FRAME ? readFileSync(process.env.E2E_FAKE_FRAME).toString("base64") : "";
 // Tests that need something this stack may not have are skipped with the reason, not left to fail.
@@ -245,7 +254,7 @@ test.describe("remote duels screen, solo", () => {
     await page.mouse.click(p.x, p.y);
     await expect(page.getByTestId("card-popover")).toBeVisible({ timeout: 90_000 });
     // The popup covers the row, so press the button through the page.
-    await page.getByTestId("camera-row").getByRole("button", { name: /Camera off/ }).evaluate((b: HTMLElement) => b.click());
+    await openDrawer(page, "settings"); await page.getByTestId("camera-off").evaluate((b: HTMLElement) => b.click());
     await expect(page.getByTestId("lock")).toHaveCount(0);
     await expect(page.getByTestId("reticle")).toHaveCount(0);
   });
@@ -288,15 +297,7 @@ test.describe("remote duels screen, solo", () => {
       if (SHOTS) {
         for (const [w, h] of [[1366, 768], [1024, 768], [390, 844], [375, 812], [360, 740]]) {
           await a.setViewportSize({ width: w, height: h }); await a.waitForTimeout(500);
-          await expect(a.getByTestId("surrender-button")).toBeVisible(); await shot(a, `surrender-1-button-${w}`);
-          // The flag sits fully inside the screen.
-          expect(await a.getByTestId("surrender-button").evaluate(el => el.getBoundingClientRect().right <= window.innerWidth)).toBe(true);
-          // The leave group sits inside the screen and covers no other header item.
-          expect(await a.getByTestId("leave-group").evaluate(el => {
-            const r = el.getBoundingClientRect(); const header = el.parentElement!;
-            const hit = Array.from(header.children).filter(c => c !== el && c.getBoundingClientRect().width > 0 && getComputedStyle(c).display !== "none").some(c => { const o = c.getBoundingClientRect(); return o.left < r.right - 0.5 && o.right > r.left + 0.5 && o.top < r.bottom - 0.5 && o.bottom > r.top + 0.5; });
-            return !hit && r.left >= 0 && r.right <= window.innerWidth;
-          })).toBe(true);
+          await openDrawer(a, "info"); await expect(a.getByTestId("surrender-button")).toBeVisible(); await shot(a, `surrender-1-button-${w}`);
           // During a game there is no way to leave the whole match: Surrender only loses this game.
           await expect(a.getByTestId("quit-button")).toHaveCount(0);
           await a.getByTestId("surrender-button").click(); await shot(a, `surrender-2-confirm-${w}`); await a.getByTestId("surrender-no").click();
@@ -305,7 +306,7 @@ test.describe("remote duels screen, solo", () => {
         await a.setViewportSize({ width: 1920, height: 1080 });
       }
       // Cancel keeps the game.
-      await a.getByTestId("surrender-button").click();
+      await openDrawer(a, "info"); await a.getByTestId("surrender-button").click();
       await expect(a.getByTestId("surrender-game")).toHaveText("Game 1 of 3");
       await shot(a, "surrender-2-confirm");
       await a.getByTestId("surrender-no").click();
@@ -477,22 +478,21 @@ test.describe("remote duels screen, solo", () => {
     for (const zone of ["M1", "S5", "EMZ1"]) await expect(dialog.locator(`polygon[data-zone="${zone}"]`)).toHaveCount(1);
     await dialog.getByRole("button", { name: "Cancel calibration" }).click();
     await expect(dialog).toBeHidden();
-    // The toggle starts on with a "Recommended" hint; off is remembered for this device.
-    const toggle = page.getByTestId("zone-grid-toggle").first();
-    await page.getByTestId("feed-box-0").hover();
-    await expect(toggle).toHaveAttribute("aria-pressed", "true");
-    await expect(page.getByTestId("zone-grid-hint")).toHaveText("Recommended — shows where your zones are");
+    // The switch (Settings, Detection) starts on; off is remembered for this device.
+    await openDrawer(page, "settings");
+    const toggle = page.getByTestId("zone-grid-toggle");
+    await expect(toggle).toHaveAttribute("aria-checked", "true");
     await toggle.click();
-    await expect(toggle).toHaveAttribute("aria-pressed", "false");
-    await expect(page.getByTestId("zone-grid-hint")).toHaveText("Zones off");
+    await expect(toggle).toHaveAttribute("aria-checked", "false");
     await toggle.click();
-    await expect(toggle).toHaveAttribute("aria-pressed", "true");
+    await expect(toggle).toHaveAttribute("aria-checked", "true");
+    await page.keyboard.press("Escape");
     await page.reload();
     // After a reload the camera may resume by itself, so the button is not always there to click.
     await page.getByTestId("camera-on-feed").click({ timeout: 4_000 }).catch(() => undefined);
     await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.videoWidth), { timeout: 30_000 }).toBeGreaterThan(0);
-    await page.getByTestId("feed-box-0").hover();
-    await expect(page.getByTestId("zone-grid-toggle").first()).toHaveAttribute("aria-pressed", "true");
+    await openDrawer(page, "settings");
+    await expect(page.getByTestId("zone-grid-toggle")).toHaveAttribute("aria-checked", "true"); await page.keyboard.press("Escape");
     await expect(grid).toBeVisible();
     await expect(page.locator('[data-testid="feed-1"] [data-testid="zone-grid"]')).toHaveCount(0);
   });
@@ -704,14 +704,12 @@ test.describe("remote lobby camera step", () => {
       const slug = await soloTable(context.request, seats); await page.goto(`/duels/remote/${slug}`);
       await page.getByTestId('camera-on-feed').click();
       for (const [width, height] of [[1920,1080],[2560,1440],[1366,768],[390,844]]) {
-        await page.setViewportSize({width,height}); await page.getByTestId('camera-settings').click();
+        await page.setViewportSize({width,height}); await openDrawer(page, 'settings');
         await expect(lock).toContainText('Camera lock not supported — auto kept');
         await expect(toggle).toContainText('On (not supported)');
         const picker = page.getByTestId('recognition-mode-trigger');
         await expect(picker).toBeVisible();
         const box = await picker.boundingBox(); expect(box!.width).toBeGreaterThan(100); expect(box!.height).toBeGreaterThan(28);
-        const more = await page.getByTestId('camera-settings').boundingBox(); expect(more!.width).toBeGreaterThan(40);
-        expect(await page.getByTestId('camera-settings').evaluate(el => getComputedStyle(el).paddingInlineStart)).toBe('9px');
         await shot(page, `camlock-more-${seats}-${width}`); await page.keyboard.press('Escape');
       }
     }
@@ -851,7 +849,7 @@ test.describe("remote duels screen, moving cards by hand", () => {
       await page.getByTestId("feed-box-0").hover(); await page.getByRole("button", { name: "Calibrate zones", exact: true }).first().click();
       const dialog = page.getByRole("dialog", { name: "Calibrate field zones", exact: true }); await expect(dialog).toBeVisible();
       await dialog.getByTestId("camera-my-view").click(); await dialog.getByRole("button", { name: "Save calibration", exact: true }).click(); await expect(dialog).toBeHidden();
-      await expect(grid).toHaveAttribute("data-calibrated", "true"); await page.getByTestId("feed-box-0").hover(); await expect(page.getByTestId("zone-grid-toggle").first()).toHaveAttribute("aria-pressed", "true");
+      await expect(grid).toHaveAttribute("data-calibrated", "true"); await openDrawer(page, "settings"); await expect(page.getByTestId("zone-grid-toggle")).toHaveAttribute("aria-checked", "true"); await page.keyboard.press("Escape");
       await page.keyboard.press("w"); await expect(page.getByTestId("fwrap-0")).toBeVisible();
       await page.reload(); await expect(page.getByTestId("remote-table")).toBeVisible(); await expect(page.getByTestId("fwrap-0")).toBeVisible();
       await page.keyboard.press("w"); await expect(page.getByTestId("fwrap-0")).toBeHidden();
@@ -946,8 +944,8 @@ test.describe("remote duels screen, moving cards by hand", () => {
     await page.locator('[data-testid="feed-0"]').getByTestId("orientation-confirm").click();
     await orientation.click(); await page.getByRole("option", { name: "Camera faces me" }).click(); await expect(orientation).not.toBeFocused();
     await expect(page.getByTestId("reticle")).toHaveCount(0); await expect(page.getByTestId("no-card")).toHaveCount(0);
-    await page.getByTestId("view-webcam").click();
-    await expect(page.getByTestId("view-webcam")).toHaveAttribute("aria-pressed", "true");
+    await openDrawer(page, "settings"); await page.getByTestId("view-board").click();
+    await expect(page.getByTestId("view-board")).toHaveAttribute("aria-checked", "false"); await page.keyboard.press("Escape");
     await expect(page.getByTestId("fwrap-0")).toBeHidden(); await expect(page.getByTestId("feed-box-0")).toBeVisible();
     // A bot seat has no camera to read, so it keeps its board and has no toggle.
     await expect(page.getByTestId("feed-box-1")).toBeVisible(); await expect(page.getByTestId("fwrap-1")).toBeVisible(); await expect(page.getByTestId("field-toggle-1")).toHaveCount(0);
@@ -974,7 +972,7 @@ test.describe("remote duels screen, moving cards by hand", () => {
     await expect(page.getByTestId("field-toggle-0")).toContainText("Show virtual field");
     await page.keyboard.press("w"); await expect(page.getByTestId("fwrap-0")).toBeVisible(); await expect(page.getByTestId("field-toggle-0")).toContainText("Hide virtual field");
     await page.getByTestId("field-toggle-0").click(); await expect(page.getByTestId("fwrap-0")).toBeHidden();
-    await page.getByTestId("view-both").click(); await expect(page.getByTestId("fwrap-0")).toBeVisible();
+    await openDrawer(page, "settings"); await page.getByTestId("view-board").click(); await page.keyboard.press("Escape"); await expect(page.getByTestId("fwrap-0")).toBeVisible();
     // Both view: notices dock beside the player's own field, can be dragged, and fold into a chip with a count.
     await page.keyboard.press("Control+z"); const mine = page.getByTestId("notify-dock-0");
     await expect(mine.getByTestId("toasts")).toContainText("Undid"); await expect(page.getByTestId("notify-dock-1")).toHaveAttribute("data-count", "0");
@@ -1096,6 +1094,7 @@ test.describe("remote duels screen, moving cards by hand", () => {
     await page.goto(`/duels/remote/${slug}`);
     await expect(page.getByTestId("mic")).toHaveAttribute("data-mic", "muted");
     await page.getByTestId("voice-open").click();
+    await expect(page.getByTestId("log-drawer")).toHaveAttribute("data-tab", "settings");
     await page.getByRole("button", { name: "Try saying…" }).click();
     await expect(page.getByRole("button", { name: "end turn", exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "monster zone two", exact: true })).toHaveCount(0);
@@ -1242,7 +1241,7 @@ test.describe("remote duels screen, two players on LiveKit", () => {
       await expect(b.getByTestId("popover-name")).toHaveText("Dark Magician");
       await b.keyboard.press("Escape");
       // Alice sees the result in her log: the identification travelled through the table, not only Bob's screen.
-      await a.getByTestId("log-button").click();
+      await openDrawer(a, "log");
       await expect(a.getByTestId("log-list")).toContainText("Dark Magician identified on E2E Alice", { timeout: 20_000 });
       await a.keyboard.press("Escape");
       await shot(a, "two-players-alice-log");
@@ -2059,10 +2058,10 @@ test('field watcher automatic: tap to identify reads every camera on a click, ru
     const settled=await boxes();await a.waitForTimeout(800);expect(await boxes()).toEqual(settled);
     await expect(a.getByLabel('Auto-detect cards',{exact:true})).not.toBeChecked();expect(await a.evaluate(()=>localStorage.getItem('dd-remote-tap-offer:v1'))).toBe('switch');
     // Bob changes the mode in the Settings menu; the checkbox follows.
-    await b.getByTestId('camera-settings').first().click();await pickSelect(b,'Card detection',{value:'tap'});await b.keyboard.press('Escape');await expect(b.getByLabel('Auto-detect cards',{exact:true})).not.toBeChecked();
+    await openDrawer(b,'settings');await pickSelect(b,'Card detection',{value:'tap'});await b.keyboard.press('Escape');await expect(b.getByLabel('Auto-detect cards',{exact:true})).not.toBeChecked();
     await expect.poll(()=>b.locator('[data-testid="feed-0"] video').evaluate((v:HTMLVideoElement)=>v.videoWidth),{timeout:40_000}).toBeGreaterThan(0);
     // Bob sees Alice's mode on her camera.
-    await expect(b.getByTestId('feed-tap-tag')).toHaveText('Tap mode — auto-detect off');await expect(b.locator('[data-testid="feed-0"]').locator('..').getByTestId('zone-grid-toggle')).toBeDisabled();
+    await expect(b.getByTestId('feed-tap-tag')).toHaveText('Tap mode — auto-detect off');
     // A normal table logs each mode switch with its reason too: Alice took the slow-computer offer, Bob chose it himself.
     await expect.poll(async()=>((await alice.request.get(`/api/remote/${slug}`).then(r=>r.json())).events as any[]).filter(e=>e.action.type==='detection.mode'&&e.action.mode==='tap').map(e=>`${e.action.actorSeat}:${e.action.reason}`).sort(),{timeout:15_000}).toEqual(['0:slow-offer','1:player']);
     await a.evaluate(()=>((window as any).fieldTest).appear());await a.waitForTimeout(1500);
@@ -2672,7 +2671,7 @@ test.describe("remote duels screen, Auto-detect off", () => {
       expect(box && video && box.y >= video.y + video.height - 1 && box.x >= 0 && box.x + box.width <= width && box.height <= 48, `${width}x${height} strip under video`).toBe(true);
     }
     // Adjust zones opens the same editor as the lobby, from the own feed.
-    await page.getByTestId("feed-box-0").hover(); await page.getByTestId("zone-grid-adjust").click();
+    await openDrawer(page, "settings"); await page.getByTestId("zone-grid-adjust").click();
     const dialog = page.getByRole("dialog", { name: "Calibrate field zones", exact: true }); await expect(dialog).toBeVisible();
     await dialog.getByRole("button", { name: "Cancel calibration" }).click(); await expect(dialog).toBeHidden();
     // Tap mode: a tap near the top of the feed is the only way to read a card, so it must reach the feed and start a read.
