@@ -20,7 +20,7 @@ export type BarVoice = {
  * The one bottom bar of the table. Left: whose turn it is and Undo. Centre: the Think and OK signals. Right: the mic with its voice popover, Back and Pass turn.
  * The phases are not here: each player has their own phase boxes between their camera and their virtual field.
  */
-export function BottomBar({ players, turnSeat, turn, phase, canAct, nextSeat, passHot, mine, turnIn, backTo, ask, onAsk, onAskYes, onAskNo, onPass, dockRef, undo, center, voice, voiceOff }: {
+export function BottomBar({ players, turnSeat, turn, phase, canAct, nextSeat, passHot, mine, turnIn, backTo, ask, onAsk, onAskYes, onAskNo, onPass, dockRef, undo, center, voice, voiceOff, settingsOpen, onSettings, onSurrender, onQuit }: {
   players: Player[]; turnSeat: number; turn: number; phase: string; canAct: boolean; nextSeat: number; passHot: boolean;
   /** The turn is mine (never true on a solo test table, where one person plays every seat). */ mine: boolean; turnIn: boolean;
   /** The phase before this one in this turn (`previousYgoPhase`), or null on the first phase. */ backTo: string | null;
@@ -28,6 +28,8 @@ export function BottomBar({ players, turnSeat, turn, phase, canAct, nextSeat, pa
   onPass: () => void; /** The table measures this bar (--dockh on a phone). */ dockRef?: React.Ref<HTMLDivElement>; undo: ComponentProps<typeof UndoSection>; center?: ReactNode;
   /** Null when there is no mic control (a spectator, or voice is not available at this table). */ voice: BarVoice | null;
   /** Voice commands are off for this player: the bar says so. */ voiceOff: boolean;
+  /** The drawer is open on its Settings tab. */ settingsOpen: boolean; /** Opens the drawer on its Settings tab. */ onSettings: (el: HTMLElement) => void;
+  /** Surrender and Quit match (the existing confirm flow, same gates). Each is undefined when the player may not use it. */ onSurrender?: (el: HTMLElement) => void; onQuit?: (el: HTMLElement) => void;
 }) {
   const current = players.find(p => p.seat === turnSeat); const next = players.find(p => p.seat === nextSeat);
   const [open, setOpen] = useState(false);
@@ -52,6 +54,13 @@ export function BottomBar({ players, turnSeat, turn, phase, canAct, nextSeat, pa
     </div>
     <UndoSection {...undo} />
     <div className={s.bsig}>{center}</div>
+    <div className={s.bmenu} role="group" aria-label="Table menu">
+      <button type="button" className={`${s.bmbtn} ${settingsOpen ? s.on : ""}`} aria-haspopup="dialog" aria-expanded={settingsOpen} data-layer-opener data-testid="settings-button" onClick={event => onSettings(event.currentTarget)}>
+        <Icon name="gear" /><span>Settings</span></button>
+      {onSurrender || onQuit ? <span className={s.bsep} aria-hidden="true" /> : null}
+      {onSurrender ? <button type="button" className={`${s.bmbtn} ${s.bleave}`} aria-haspopup="dialog" data-layer-opener data-testid="surrender-button" onClick={event => onSurrender(event.currentTarget)}><Icon name="flag" /><span>Surrender</span></button> : null}
+      {onQuit ? <button type="button" className={`${s.bmbtn} ${s.bleave}`} aria-haspopup="dialog" aria-label="Quit match" data-layer-opener data-testid="quit-button" onClick={event => onQuit(event.currentTarget)}><Icon name="x" /><span>Quit<span className={s.bmore}> match</span></span></button> : null}
+    </div>
     {voice ? <div className={s.bvoice} ref={voiceRef} data-testid="mic" data-mic={voice.state}>
       <button type="button" className={`${s.bmic} ${s[voice.state] ?? ""}`} aria-pressed={voice.muted} aria-label={micLabel} title={micLabel} data-testid="mic-button" onClick={voice.onMute}>
         <Icon name={voice.state === "muted" ? "micoff" : "mic"} /></button>

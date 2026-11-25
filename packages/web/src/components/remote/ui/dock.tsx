@@ -10,35 +10,6 @@ export type Proposal = { id: number; title: string; sub: string; confirmLabel: s
 
 const BARS = 9;
 
-/** recognition=false: no voice commands. The mute control then only drives voice chat, or nothing at a solo table (chat="none"). */
-export function MicSection({ testId = "mic", recognition = true, chat = "on", state, level, speaking, muted, ptt, held, service, error, onMute, onPtt, offTurn }: {
-  /** The root test id. The bottom bar owns "mic", so its popover copy takes another. */ testId?: string; recognition?: boolean; chat?: "none" | "off" | "connecting" | "on"; state: MicState; level: number; speaking: boolean; muted: boolean; ptt: boolean; held: boolean; service: string; error: string;
-  onMute: () => void; onPtt: () => void; offTurn: boolean;
-}) {
-  const noMute = !recognition && chat === "none";
-  const label = state === "muted" ? "Muted" : state === "off" ? (recognition || chat === "none" ? "Voice off" : "Voice chat") : ptt ? (held ? "Listening" : "Push to talk") : state === "listen" ? "Listening" : "Idle";
-  const sub = error ? error
-    : !recognition && state === "off" ? (chat === "on" ? "Talk to the table." : chat === "connecting" ? "Connecting to voice chat…" : chat === "off" ? "Turn camera on to talk." : "No voice chat at a solo table.")
-    : service === "closed" && state !== "muted" ? "Voice unavailable. Use the buttons and the keyboard."
-    : service === "connecting" ? "Loading voice models…"
-    : state === "muted" ? "Muted. Unmute to use voice commands."
-    : ptt ? "Hold V and speak."
-    : state === "listen" ? "Say a phase or end turn. Passing needs confirmation."
-    : offTurn ? "Waiting for your turn." : "Say a phase or end turn.";
-  return <section className={`${s.dk} ${s.mic} ${s[state] ?? ""}`} aria-label="Voice control" data-testid={testId} data-mic={state}>
-    <button type="button" className={s.micb} disabled={noMute} aria-label={muted ? "Unmute microphone" : "Mute microphone"} onClick={onMute}><Icon name={state === "muted" ? "micoff" : "mic"} /></button>
-    <div className={s.mstat}>
-      <span className={s.mrow}><span className={s.mlab} data-testid="mic-label">{label}</span>
-        <span className={s.meter} aria-hidden="true" style={recognition ? undefined : { visibility: "hidden" }}>{Array.from({ length: BARS }, (_, i) => <i key={i} style={{ height: state === "muted" || state === "off" ? 3 : Math.max(3, Math.round(level * 16 * (0.45 + 0.55 * Math.sin((i + 1) * 1.7 + (speaking ? 1 : 0)) ** 2))) }} />)}</span></span>
-      <span className={s.msub}>{sub}</span>
-    </div>
-    <div className={s.mctl}>
-      <button type="button" className={`${s.btn} ${s.q} ${s.mute}`} disabled={noMute} aria-pressed={muted} onClick={onMute}><Icon name={muted ? "micoff" : "mic"} />{muted ? "Unmute" : "Mute"}</button>
-      <button type="button" className={`${s.btn} ${s.q}`} aria-pressed={ptt} onClick={onPtt} title="Optional setting. Off by default." style={recognition ? undefined : { visibility: "hidden" }}>Push-to-talk: {ptt ? "on" : "off"}</button>
-    </div>
-  </section>;
-}
-
 export function VoxSection({ recognition = true, transcript, proposal, samples, onConfirm, onCancel, onSample, children }: {
   recognition?: boolean; transcript: Transcript; proposal: Proposal | null; samples: string[]; onConfirm: () => void; onCancel: () => void; onSample: (text: string) => void; children?: ReactNode;
 }) {

@@ -32,7 +32,6 @@ export type TableDrawerProps = {
   };
   info: {
     format: string; game: string; time: ReactNode; startingLp: number; /** Seats in turn order, with LP and the Turn / Next note. */ order: TableSeat[]; feeds: DrawerFeed[]; extras: DrawerExtra[];
-    onSurrender?: (el: HTMLElement) => void; onQuit?: (el: HTMLElement) => void;
     declare?: { choices: { seat: number | null; label: string }[]; waiting: string | null; onDeclare: (winnerSeat: number | null) => void };
     /** The feedback prompt that asks players once about the training set. */ extra?: ReactNode;
   };
@@ -136,10 +135,6 @@ function InfoTab({ p }: { p: TableDrawerProps["info"] }) {
         <button type="button" className={`${s.btn} ${s.sm}`} disabled={p.declare.waiting !== null} onClick={() => setChoosing(true)} data-testid="declare-result">Declare result</button>
         {p.declare.waiting ? <p className={d.hint} data-testid="declare-waiting">{p.declare.waiting}</p> : null}
       </div>}
-    </div> : null}
-    {p.onSurrender || p.onQuit ? <div className={d.leave} role="group" aria-label="Leave the game or the match" data-testid="leave-group">
-      {p.onSurrender ? <button type="button" className={`${s.tb} ${s.leaveBtn}`} aria-haspopup="dialog" data-layer-opener data-testid="surrender-button" onClick={event => p.onSurrender?.(event.currentTarget)}><Icon name="flag" /><span>Surrender</span></button> : null}
-      {p.onQuit ? <button type="button" className={`${s.tb} ${s.leaveBtn}`} aria-haspopup="dialog" data-layer-opener data-testid="quit-button" onClick={event => p.onQuit?.(event.currentTarget)}><Icon name="x" /><span>Quit match</span></button> : null}
     </div> : null}
   </>;
 }
