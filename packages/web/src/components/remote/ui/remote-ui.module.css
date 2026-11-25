@@ -366,9 +366,10 @@
 @container seat (min-width:800px){.seat[data-view="field"] .fboard{flex-direction:row}.seat[data-view="field"] .fwrap[data-rail]{--scanw:172px;--scanh:0px}}
 .toolrow .scanbtn{height:28px;padding:0 10px;font-size:13px}
 /* Scan field is the primary action of my camera tools: a bold neutral button (light fill, no gold) with its hotkey shown. It pulses white and says why while the camera and the board disagree. */
-.scanbtn{flex:none;display:inline-flex;align-items:center;gap:7px;height:34px;padding:0 10px 0 12px;border-radius:8px;border:1.5px solid #fff;background:linear-gradient(180deg,#f4f1fb,#cfc8e0);color:#14102a;font:800 14px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;white-space:nowrap;box-shadow:0 0 0 1px rgb(0 0 0/.4),0 1px 8px rgb(255 255 255/.18)}
+.app button.scanbtn,.scanbtn{flex:none;display:inline-flex;align-items:center;gap:7px;height:34px;padding:0 10px 0 12px;border-radius:8px;border:1.5px solid #fff;background:linear-gradient(180deg,#f4f1fb,#cfc8e0);color:#14102a;font:800 14px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;white-space:nowrap;box-shadow:0 0 0 1px rgb(0 0 0/.4),0 1px 8px rgb(255 255 255/.18)}
 .scanbtn:hover:not([aria-disabled="true"]){background:linear-gradient(180deg,#fff,#ddd7ec);box-shadow:0 0 0 1px rgb(0 0 0/.4),0 2px 12px rgb(255 255 255/.4)}
-.scanbtn[aria-disabled="true"]{opacity:.55;cursor:default;box-shadow:none}
+.app button.scanbtn[aria-disabled="true"]{cursor:default;box-shadow:none;border-color:var(--line2);background:var(--p2);color:var(--ink2)}
+.scanbtn[aria-disabled="true"] small{color:var(--ink3)}
 .scanbtn small{font:700 10.5px/1 var(--font-duel-ui),system-ui,sans-serif;color:#3b3558}
 .scanbtn:focus-visible{outline:2px solid var(--gold-ink);outline-offset:2px}
 .scanbtn svg{flex:none}
