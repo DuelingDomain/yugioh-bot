@@ -416,11 +416,11 @@
 /* A short seat with the camera and the board together (a 1366 x 768 laptop: about 670 x 580 px each). The camera keeps a third of the seat
    and the board is the strip under it. Token joins the camera tool row (right end) with Scan field / Rescan, and --fh leaves the camera everything
    the board does not need. The board still has 7 columns and 3 rows. */
-@container seat (max-aspect-ratio:1.55) and (max-height:640px) and (min-width:520px) and (max-width:799px) {
+@container seat (max-aspect-ratio:1.55) and (max-height:720px) and (min-width:520px) and (max-width:799px) {
   .seat:not([data-view="field"]):not([data-wc]) :is(.sbody,.fside){gap:4px}
   .seat:not([data-view="field"]):not([data-wc]) .feedcol{gap:4px}
   /* --frest is the height the camera, its two control rows, the hand row and LP keep; the board takes the rest (3 rows of cards). The camera is the biggest feed and does not shrink. */
-  .seat:not([data-view="field"]):not([data-wc]) .fwrap{--frest:472px;--fh:clamp(112px,calc(100cqh - var(--frest)),calc((100cqw - 120px) / 2.2))}
+  .seat:not([data-view="field"]):not([data-wc]) .fwrap{--frest:510px;--fh:clamp(112px,calc(100cqh - var(--frest)),calc((100cqw - 120px) / 2.2))}
 }
 
 /* ============ dock: voice + undo ============ */
