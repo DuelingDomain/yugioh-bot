@@ -20,6 +20,7 @@ interface Rect {edgeMin:number;printed?:boolean;score:number;cx:number;cy:number
 interface Lattice {theta:number;rows:number[];cols:number[];rspan:number;cspan:number;nr:number;nc:number;px:number;py:number}
 interface Hypothesis {side:'top'|'bottom';mirror:boolean;r0:number;c0:number;score:number}
 const rad=Math.PI/180;
+const MIN_SPARSE_BOXES=4;
 const median=(v:number[])=>{v.sort((a,b)=>a-b);return (v[(v.length-1)>>1]+v[v.length>>1])/2;};
 const mod=(a:number,b:number)=>((a%b)+b)%b;
 
@@ -200,7 +201,7 @@ function filter(rects:Rect[],sparseCandidates?:Rect[][]):Rect[] {
     if(count>support||count===support&&target.h>height){support=count;frames=connected;height=target.h;width=target.w;}
     if(sparseCandidates){
       const clear=candidates.filter(a=>a.score>=.66&&a.edgeMin>=.38);
-      if(clear.length>=3&&clear.length<=5&&Math.max(...clear.map(a=>a.cx))-Math.min(...clear.map(a=>a.cx))>6.7*target.w){
+      if(clear.length>=MIN_SPARSE_BOXES&&clear.length<=5&&Math.max(...clear.map(a=>a.cx))-Math.min(...clear.map(a=>a.cx))>6.7*target.w){
         sparseCandidates.push(clear);
       }
     }
@@ -388,9 +389,9 @@ function fitSparseLattice(groups:Rect[][],tone:Float32Array,w:number,h:number,th
       }
       return evidence.get(a);
     }).map(a=>({...a,printed:true}));
-    if(printed.length<3)continue;
-    // Three boxes can look like one slanted row. Their borders give a separate
-    // estimate of the row angle, so constrain the tilt search in the sparse case.
+    // Three centres can fit an affine transform exactly, even for unrelated rectangles.
+    if(printed.length<MIN_SPARSE_BOXES)continue;
+    // The borders give a separate estimate of the row angle when there are few centres.
     const lat=lattice(printed,theta);
     const boxWidth=median(printed.map(a=>a.w)),boxHeight=median(printed.map(a=>a.h));
     // Verify a one-column gap as well as the full span, so a shorter crop
@@ -499,9 +500,8 @@ function fitStaggeredMat(rects:Rect[],tone:Float32Array,w:number,h:number,theta:
           const errors=points.map((p,i)=>{const q=fitted(p);return Math.hypot(q.x-centers[i].x,q.y-centers[i].y)/px;});
           const mean=errors.reduce((a,b)=>a+b)/errors.length,max=Math.max(...errors);
           if(mean>=.065||max>=.13)continue;
-          const prior=.002*Number(side===options.playerSide)+.001*Number(mirror===(options.mirrored??false));
           const score=start.score+end.score+outer.score+between.score+
-            .6*piles.reduce((sum,a)=>sum+a.score,0)+.4*inner.reduce((sum,a)=>sum+a.score,0)-mean+prior;
+            .6*piles.reduce((sum,a)=>sum+a.score,0)+.4*inner.reduce((sum,a)=>sum+a.score,0)-mean;
           const columns=new Set(points.map(p=>Math.round(p.x))).size;
           candidates.push({map:fitted,side,mirror,score,count:matches.length,columns,mean,max});
         }
@@ -509,28 +509,43 @@ function fitStaggeredMat(rects:Rect[],tone:Float32Array,w:number,h:number,theta:
     }
   }
   candidates.sort((a,b)=>b.score-a.score);
-  const best=candidates[0];
+  let best=candidates[0],alternate:typeof best|undefined;
   if(!best)return;
   const distance=(a:Point,b:Point)=>Math.hypot(a.x-b.x,a.y-b.y);
   const pitch=distance(best.map(spell),best.map(oppositeSpell))/4;
-  // Competing offsets, rows or orientations require more evidence.
-  const competing=candidates.some(a=>best.score-a.score<.06&&(
-    a.side!==best.side||a.mirror!==best.mirror||
-    [spell,oppositeSpell,field].some(p=>distance(a.map(p),best.map(p))>.3*pitch)
-  ));
-  if(competing)return;
-  const corners=unitCorners.map(p=>{
-    let {x,y}=p;
-    if(best.side==='top'){x=1-x;y=1-y;}
-    if(best.mirror)x=1-x;
-    const q=best.map({x:(x-(.5-2*FIELD_ZONE_PITCH))/FIELD_ZONE_PITCH,y:2.5-3*y});
-    return {x:q.x/w,y:q.y/h};
-  }) as NonNullable<MatFitResult['corners']>;
-  const orientation={playerSide:best.side,mirrored:best.mirror};
-  try{createFieldCalibration(corners,orientation);}catch{return;}
+  const disagrees=(a:typeof best,b:typeof best)=>
+    [spell,oppositeSpell,field].some(p=>distance(a.map(p),b.map(p))>.3*pitch);
+  for(const candidate of candidates.slice(1)){
+    if(best.score-candidate.score>=.06)break;
+    if(candidate.mirror!==best.mirror)return;
+    if(candidate.side===best.side){
+      if(disagrees(candidate,best))return;
+      continue;
+    }
+    // Opposite sides exchange the two main rows and reverse their columns.
+    // Use the camera prior only if both fits cover the same observed grid.
+    const rowEnds=[spell,oppositeSpell,{...spell,y:1},{...oppositeSpell,y:1}];
+    if(rowEnds.some(p=>distance(best.map(p),candidate.map({x:oppositeSpell.x-p.x,y:1-p.y}))>.3*pitch))return;
+    if(alternate&&disagrees(candidate,alternate))return;
+    alternate??=candidate;
+  }
+  if(alternate?.side===(options.playerSide??'bottom'))[best,alternate]=[alternate,best];
+  const calibration=(candidate:typeof best)=>{
+    const corners=unitCorners.map(p=>{
+      let {x,y}=p;
+      if(candidate.side==='top'){x=1-x;y=1-y;}
+      if(candidate.mirror)x=1-x;
+      const q=candidate.map({x:(x-(.5-2*FIELD_ZONE_PITCH))/FIELD_ZONE_PITCH,y:2.5-3*y});
+      return {x:q.x/w,y:q.y/h};
+    }) as NonNullable<MatFitResult['corners']>;
+    const orientation={playerSide:candidate.side,mirrored:candidate.mirror};
+    try{createFieldCalibration(corners,orientation);return {corners,orientation};}catch{return;}
+  };
+  const primary=calibration(best),flipped=alternate&&calibration(alternate);
+  if(!primary||alternate&&!flipped)return;
   const reason='sparse-printed-zones';
-  return {corners,orientation,mirror:best.mirror,confidence:'low',reason,
-    flags:{colWindowAmbiguous:false,sideByPrior:false,zonesFound:best.count,reason},
+  return {...primary,...(flipped?{flipped}:{}),mirror:best.mirror,confidence:'low',reason,
+    flags:{colWindowAmbiguous:false,sideByPrior:!!flipped,zonesFound:best.count,reason},
     metrics:{inliers:best.count,rows:2,columns:best.columns,columnSpan:7,meanErrorPitch:best.mean,maxErrorPitch:best.max}} satisfies MatFitResult;
 }
 
@@ -544,7 +559,7 @@ function fitLattice(d:Rect[],lat:Lattice,w:number,h:number,options:MatFitOptions
   result.flags.zonesFound=d.length;
   result.metrics.rows=lat.nr;result.metrics.columns=lat.nc;result.metrics.columnSpan=lat.cspan+1;
   result.flags.colWindowAmbiguous=lat.cspan!==6;
-  const minColumns=sparse?3:4,minInliers=sparse?3:6;
+  const minColumns=sparse?3:4,minInliers=sparse?MIN_SPARSE_BOXES:6;
   const meanLimit=sparse?.065:.1,maxLimit=sparse?.13:.2;
   if(lat.nr<2||lat.nc<minColumns)return fail('too-few-rows-or-columns');
   const hy=hypotheses(lat,d.length,options);if(!hy.length)return fail('not-a-zone-lattice');
@@ -647,13 +662,16 @@ function fitMatAtScale(image:RGBAImage,options:MatFitOptions,workingWidth:number
  * occupied outlines need different ridge scales; each must pass every fit gate.
  * These sizes bound the ridge and rectangle search cost. */
 export function fitMat(image:RGBAImage,options:MatFitOptions={}):MatFitResult {
-  let refusal:MatFitResult|undefined;
+  let preview:MatFitResult|undefined,refusal:MatFitResult|undefined;
   for(const width of [832,768,512,480,448,416]){
     const result=fitMatAtScale(image,options,width);
-    if(result.corners||result.reason==='invalid-frame'||options.playerSide==='left'||options.playerSide==='right')return result;
-    refusal??=result;
+    if(result.reason==='invalid-frame'||options.playerSide==='left'||options.playerSide==='right')return result;
+    if(result.corners){
+      if(result.confidence==='high')return result;
+      preview??=result;
+    }else refusal??=result;
   }
-  return refusal!;
+  return preview??refusal!;
 }
 /** A preview requires a resolved column window, even for a sparse fit. */
 export function matFitCalibration(result:MatFitResult):FieldCalibration|undefined {

@@ -164,13 +164,40 @@ test('rotated real-frame variants retain correct rows and sub-pitch accuracy',as
     assert.ok(mean<19);assert.ok(max<19);
   }
 });
-test('blurred printed zones, art-only and noisy cloth do not yield a saved fit',async()=>{
+test('blurred zones, art-only, noisy cloth and frames without a mat do not yield corners',async()=>{
   const image=await frame(),blurred=await sharp(image.data,{raw:{width:image.width,height:image.height,channels:4}}).blur(9).raw().toBuffer();
   const noise=new Uint8ClampedArray(640*360*4);let seed=17;
   for(let i=0;i<noise.length;i+=4){seed=(Math.imul(seed,1664525)+1013904223)|0;noise[i]=noise[i+1]=noise[i+2]=120+(seed>>>27);noise[i+3]=255;}
   const art=await sharp(image.data,{raw:{width:image.width,height:image.height,channels:4}}).extract({left:350,top:70,width:800,height:260}).raw().toBuffer();
-  for(const input of [{...image,data:blurred},{width:640,height:360,data:noise},{width:800,height:260,data:art}]){
-    const result=fitMat(input);assert.equal(matFitCalibration(result),undefined,JSON.stringify(result));
+  const width=960,height=540;
+  const tabletop=Buffer.from(`<svg width="${width}" height="${height}">
+    <defs><linearGradient id="wood"><stop stop-color="#b49472"/><stop offset="1" stop-color="#86664f"/></linearGradient></defs>
+    <rect width="100%" height="100%" fill="url(#wood)"/>
+    <path d="M0 150 L960 158 M0 388 L960 396" fill="none" stroke="#80614a" opacity=".4"/>
+  </svg>`);
+  const table=await sharp(tabletop).ensureAlpha().raw().toBuffer();
+  // Three dark rectangles can interpolate a seven-column lattice exactly.
+  const outlines=[[120,210],[240,210],[840,355]].map(([x,y])=>
+    `<rect x="${x-43}" y="${y-63}" width="86" height="126" fill="none" stroke="#222" stroke-width="3.5"/>`).join('');
+  const outlinedTable=await sharp(Buffer.from(`<svg width="${width}" height="${height}">
+    <rect width="100%" height="100%" fill="#aaa"/>${outlines}</svg>`)).ensureAlpha().raw().toBuffer();
+  const placements=[
+    ['91152256',74,160,-4],['55144522',203,160,0],['66788016',360,310,12],
+    ['14087893',480,140,-8],['44095762',630,280,3],['41420027',788,305,0],
+  ] as const;
+  const cards=await Promise.all(placements.map(async ([id,left,top,angle])=>({
+    input:await sharp(fileURLToPath(new URL(`../../../docs/design/duel-3d-mode/concept/assets/cards/${id}.jpg`,import.meta.url)))
+      .resize({width:86,height:126,fit:'fill'}).ensureAlpha().rotate(angle,{background:'#0000'}).png().toBuffer(),
+    left,top,
+  })));
+  const cardsOnly=await sharp(tabletop).composite(cards).ensureAlpha().raw().toBuffer();
+  const cases=[
+    ['blurred',{...image,data:blurred}],['noise',{width:640,height:360,data:noise}],['art',{width:800,height:260,data:art}],
+    ['plain table',{width,height,data:table}],['cards only',{width,height,data:cardsOnly}],
+    ['three dark outlines',{width,height,data:outlinedTable}],
+  ] as const;
+  for(const [name,input] of cases){
+    const result=fitMat(input);assert.equal(result.corners,null,`${name}: ${JSON.stringify(result)}`);
   }
 });
 
