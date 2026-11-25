@@ -27,6 +27,8 @@ export function createManualCorrections(storage: Pick<Storage, 'getItem' | 'setI
   return {
     storageMatches() { try { return !storage || storage.getItem(key) === serialized; } catch { return true; } },
     has: (ref: string) => [...holds.values()].some(h => h.ref === ref || h.refs?.includes(ref)),
+    /** Drops one hold on purpose: the player's next step is to let the camera place a card in that cell. */
+    release(ref: string) { if (holds.delete(ref)) { changing.delete(ref); save(); } },
     rebind(from:string,to:string,restored=false) {
       const hold=holds.get(from)??[...holds.values()].find(h=>h.refs?.includes(from));
       if(!hold||hold.ref===to&&!restored)return;
