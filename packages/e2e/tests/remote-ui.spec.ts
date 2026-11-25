@@ -1313,8 +1313,7 @@ for (const showCardsSetFromDeck of [true]) test(`two browsers honor Deck publici
     await context.request.post(`${path}/ready`,{data:{ready:true}});await bob.request.post(`${url}${path}/ready`,{data:{ready:true}});
     const start=await context.request.post(`${path}/start`,{data:{}});expect(start.status(),await start.text()).toBe(200);room=await start.json();
     const act=async(action:Record<string,unknown>)=>{
-      room=await (await context.request.get(path)).json();
-      const response=await context.request.post(`${path}/actions`,{data:{baseSeq:room.lastSeq,action:{actorSeat:0,idempotencyKey:crypto.randomUUID(),...action}}});
+      const response=await postAction(context.request,path,{actorSeat:0,...action});
       expect(response.status(),await response.text()).toBe(200);room=await response.json();
     };
     await act({type:"effect.activated",source:{cardId:70825459}});
@@ -2448,8 +2447,7 @@ test.describe("remote duels screen, tokens and the camera", () => {
     const slug = await soloTable(context.request, 2), path = `/api/remote/${slug}`;
     await page.setViewportSize({ width: 1366, height: 768 });
     const act = async (action: Record<string, unknown>) => {
-      const room = await (await context.request.get(path)).json();
-      const response = await context.request.post(`${path}/actions`, { data: { baseSeq: room.lastSeq, action: { idempotencyKey: crypto.randomUUID(), ...action } } });
+      const response = await postAction(context.request, path, action);
       expect(response.status(), await response.text()).toBe(200);
     };
     const twins = async (seat: number) => ((await (await context.request.get(path)).json()).state.seats[seat].twin as { name?: string; zone: string }[]).map(c => `${c.name}:${c.zone}`);
