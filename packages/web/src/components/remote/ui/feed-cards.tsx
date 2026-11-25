@@ -8,13 +8,14 @@ import { cardArt } from "./catalog";
 import { cardCode, cardName, cellsFor, type TwinCard } from "./model";
 import { statsOf, type CardStats } from "./card-stats";
 import { useVideoHub } from "./video-hub";
+import { isFresh, markLabel, useLiveMarks, type ChainMark } from "./chain-marks";
 import t from "./stats-tokens.module.css";
 
 /** The cards of every seat and the card facts, for the labels drawn on camera feeds. The table and the spectator screen provide it. */
-type Source = { seats: readonly { twin: readonly TwinCard[] }[]; info: (id: number | undefined) => CardInfo | undefined };
+type Source = { seats: readonly { twin: readonly TwinCard[] }[]; info: (id: number | undefined) => CardInfo | undefined; marks?: readonly ChainMark[] };
 const Ctx = createContext<Source | null>(null);
-export function FeedCardsProvider({ seats, info, children }: Source & { children: ReactNode }) {
-  const value = useMemo(() => ({ seats, info }), [seats, info]);
+export function FeedCardsProvider({ seats, info, marks, children }: Source & { children: ReactNode }) {
+  const value = useMemo(() => ({ seats, info, marks }), [seats, info, marks]);
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 
@@ -73,7 +74,46 @@ const matrixOf = ([a, b, , d]: Point[]) => `matrix(${b.x - a.x} ${b.y - a.y} ${d
  * calibration, so it follows the mat's perspective. A token or proxy lies turned in Defense. The text is plain HTML, so
  * it reads upright for whoever looks at the feed. Without a saved calibration (zones placed on the mat) nothing is drawn.
  */
-export function FeedCards({ seat, frame, format, read }: { seat: number; frame: CSSProperties | null; format: FieldFormat; read: () => FieldCalibration | undefined }) {
+export function FeedCards(props: { seat: number; frame: CSSProperties | null; format: FieldFormat; read: () => FieldCalibration | undefined }) {
+  return <><FeedStats {...props} /><FeedChain {...props} /></>;
+}
+
+/**
+ * The chain mark on a feed: a short glow and the label "Effect activated · Chain N" where the activated card lies on the
+ * mat, then a small "Chain N" badge while the chain is open. A card with no field cell (in hand, or no calibration) shows
+ * the label at the top of the feed instead. Plain HTML, so it reads upright for everyone.
+ */
+function FeedChain({ seat, frame, format, read }: { seat: number; frame: CSSProperties | null; format: FieldFormat; read: () => FieldCalibration | undefined }) {
+  const data = useContext(Ctx);
+  const { live, now } = useLiveMarks(data?.marks);
+  const calibration = useCalibration(read);
+  const emz = hasExtraMonsterZones(format);
+  const cells = useMemo(() => fieldGridCells(format, calibration?.zoneSpacing, calibration?.zones), [format, calibration?.zoneSpacing, calibration?.zones]);
+  const twin = data?.seats[seat]?.twin;
+  const known = (ref: string) => !!ref && !!data?.seats.some(item => item.twin.some(card => card.ref === ref));
+  const mine = live.filter(mark => twin?.some(card => card.ref === mark.ref) || (mark.seat === seat && !known(mark.ref)));
+  if (!frame || !mine.length || !twin) return null;
+  const placed = cellsFor(twin, emz);
+  return <div className={t.feedLayer} style={frame} aria-hidden="true" data-testid={`feed-chain-${seat}`}>
+    {mine.map(mark => {
+      const key = (Object.keys(ZONE_OF) as (keyof typeof ZONE_OF)[]).find(zone => placed[zone as keyof typeof placed]?.card?.ref === mark.ref);
+      const cell = key ? cells.find(item => item.zone === ZONE_OF[key]) : undefined;
+      const defense = key ? placed[key as keyof typeof placed]?.card?.position === "defense" : false;
+      const at = calibration?.orientation && cell ? through(calibration, cell, { x: .5, y: .02 }) : null;
+      const fresh = isFresh(mark, now);
+      if (at && inView(at)) {
+        const corners = cardInCell(defense).corners.map(p => through(calibration!, cell!, p));
+        return <span key={`${mark.ref}:${mark.n}`} data-testid="feed-chain-mark" data-fresh={fresh ? "1" : "0"}>
+          {fresh ? <svg viewBox="0 0 1 1" preserveAspectRatio="none"><polygon className={t.chainGlow} points={corners.map(p => `${p.x},${p.y}`).join(" ")} /></svg> : null}
+          <span className={`${t.label} ${t.chainTag}`} style={{ left: `${at.x * 100}%`, top: `${at.y * 100}%` }}>{markLabel(mark, now)}</span>
+        </span>;
+      }
+      return <span key={`${mark.ref}:${mark.n}`} className={`${t.label} ${t.chainTag} ${t.chainTop}`} data-testid="feed-chain-mark" data-fresh={fresh ? "1" : "0"}>{markLabel(mark, now)}</span>;
+    })}
+  </div>;
+}
+
+function FeedStats({ seat, frame, format, read }: { seat: number; frame: CSSProperties | null; format: FieldFormat; read: () => FieldCalibration | undefined }) {
   const data = useContext(Ctx);
   const clipBase = useId().replace(/\W/g, "");
   const calibration = useCalibration(read);

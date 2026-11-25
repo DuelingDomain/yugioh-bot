@@ -191,7 +191,7 @@ export function SeatPanel(p: SeatPanelProps) {
         </div>
         {p.hand ? <HandStrip seat={p.seat} name={p.name} hand={compact ? { ...p.hand, tray: true } : p.hand} /> : null}
         <div className={s.lp} data-testid={`lp-${p.seat}`}>
-          {p.thinkingSince !== undefined ? <div className={s.thinkrow}><ThinkingChip since={p.thinkingSince} seat={p.seat} /></div> : null}
+          {p.thinkingSince !== undefined ? <div className={s.thinkrow}><ThinkingChip since={p.thinkingSince} seat={p.seat} who={p.name} /></div> : null}
           <div className={s.lpmain}>
             <span className={s.lpl}>LP</span>
             <span className={`${s.lpn} ${s.num} ${low ? s.low : ""} ${delta < 0 ? s.loss : delta > 0 ? s.gain : ""}`} data-testid={`lp-value-${p.seat}`} data-lp-seat={p.seat}>{p.lp}</span>

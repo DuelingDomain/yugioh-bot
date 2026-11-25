@@ -1,4 +1,4 @@
-import type { RemoteEvent, RemoteState } from "@yugidraft/shared/remote";
+import { remoteOpeningPending, type RemoteEvent, type RemoteState } from "@yugidraft/shared/remote";
 import { cardCode, type TwinCard } from "./model";
 
 /** How long the short "OK" shows on every screen. */
@@ -112,3 +112,7 @@ export function recentlyPlaced(events: readonly RemoteEvent[], state: RemoteStat
 /** Step (c): my face-up field cards that can be activated, at most nine, in zone order. */
 export const activatable = (state: RemoteState, seat: number): TwinCard[] =>
   (state.seats[seat]?.twin ?? []).filter(card => onField(card) && card.faceUp !== false && cardCode(card)).slice(0, 9);
+
+/** Thinking, OK and a spoken line need a live duel: not the die roll or first-player choice, not siding, not a finished game, and a seat still in it. */
+export const maySignal = (state: RemoteState, seat: number): boolean =>
+  !state.ended && state.match.phase === "duel" && !remoteOpeningPending(state.match) && seat >= 0 && !state.seats[seat]?.eliminated;

@@ -30,7 +30,7 @@ export const NATURAL_PHRASES: readonly Natural[] = [
   // Battle
   ["I ATTACK", "attack"], ["SWING", "attack"], ["SWING AT", "attack"], ["I ATTACK WITH", "attack with"], ["ATTACK DIRECTLY", "direct attack"],
   ["GO DIRECT", "direct attack"], ["GOING DIRECT", "direct attack"],
-  // Chain and response (the table notes a response; "chain" also wakes an idle microphone)
+  // Chain and response words only wake an idle microphone; a response is an Activate effect on the card
   ["CHAIN", "chain"], ["I CHAIN", "chain"], ["RESPOND", "chain"], ["I RESPOND", "chain"], ["IN RESPONSE", "chain"],
   ["RESPONSE", "chain"], ["CHAIN TO THAT", "chain"], ["I CHAIN TO THAT", "chain"], ["RESPOND TO THAT", "chain"], ["I RESPOND TO THAT", "chain"], ["IN RESPONSE TO THAT", "chain"],
   // Sets (flip summon needs a card name and a face-down monster, so only the grammar reads it)
@@ -72,8 +72,6 @@ function phaseText(name: string): string | null {
  * that makes no sense right now (said off turn, or too early to pass); null is "not one of these phrases".
  * `startsWithCard` keeps card names that begin with a command word ("Swing of Memories") out of the rewrites.
  */
-/** The spoken lines that mean "I respond". Anchored on purpose: "any response" (a question) and "I can't respond" stay table talk. */
-export const RESPOND_LINE = /^(?:i )?(?:ll )?(?:chain|respond)(?: to (?:that|this|it))?$|^(?:in )?response(?: to (?:that|this|it))?$/;
 
 export function naturalCommand(text: string, state: { phase: string; turnSeat: number }, me: number, startsWithCard = false): NaturalResult {
   if (TURN.has(text)) return { text: "end turn" };
@@ -99,9 +97,6 @@ export function naturalCommand(text: string, state: { phase: string; turnSeat: n
   }
   const attacker = /^i (?:ll )?(attack\b.*)$/.exec(text);
   if (attacker) return { text: attacker[1] };
-
-  // "I can't respond" and "no response" are not here: the pattern is anchored, so they stay table talk.
-  if (RESPOND_LINE.test(text)) return { text: "chain" };
 
   // "I set two face down" would set only one card, so it is left for the player to do by hand.
   if (/^(?:i )?(?:ll )?set (?:two|2|three|3|four|4|five|5|some|a few) /.test(text)) return { ignore: "sets more than one card" };

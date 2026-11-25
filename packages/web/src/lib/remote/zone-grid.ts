@@ -140,14 +140,11 @@ export const tapToIdentifyNow = (seat: number) => fieldScan.seat === seat && !!f
 /** Card detection of my seat as a name. */
 export type DetectionMode = "auto" | "tap";
 /**
- * The virtual field in "Webcam only" terms. In Tap to identify the board does not follow the camera, so it starts hidden;
- * with Auto-detect it starts shown. A choice made by hand wins while the mode stays the same; a mode change drops it.
- * A null mode (the watcher is not on the page yet, or has not read the saved mode) resolves to hidden until the first mode is known.
- * A player with no camera still has the watcher's default, "auto", so the field shows for them.
+ * The virtual field in "Webcam only" terms. The field is hidden until the person turns it on, in every detection mode;
+ * a stored choice (null: none yet) wins. Seats that need the board keep it (`needsBoard` in the table).
  */
-export function resolveWebcamOnly(choice: { hidden: boolean | null; mode: string | null }, mode: DetectionMode | null): boolean {
-  if (choice.hidden !== null && (mode === null || choice.mode === null || choice.mode === mode)) return choice.hidden;
-  return mode === "auto" ? false : true;
+export function resolveWebcamOnly(choice: boolean | null): boolean {
+  return choice ?? true;
 }
 /** True while this seat is mine and in Tap to identify: the table follows no cards, so a click reads the camera. */
 export function useTapToIdentify(seat: number): boolean {

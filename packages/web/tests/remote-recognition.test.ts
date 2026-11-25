@@ -244,7 +244,6 @@ it("parses activation with a named source and activation after identifying a car
     ["go back a phase", "main2", "phase:battle"],
     ["back to main phase one", "main2", "phase:main1"],
     ["undo", "main2", "undo"],
-    ["chain", "main1", "respond"],
     ["set", "main1", "move"],
     ["graveyard", "main1", "move"],
     ["GY", "main1", "move"],
@@ -1537,15 +1536,9 @@ it('applies an in-order patch without touching the old room, and repairs a gap w
   expect(timers2).toHaveLength(2); timers2[1](); expect(slow).toHaveBeenCalledTimes(2);
 });
 
-it('the virtual field starts hidden in Tap to identify and shown with Auto-detect; a choice wins only in the mode it was made in',async()=>{
+it('the virtual field starts hidden in every mode; a stored choice wins',async()=>{
   const {resolveWebcamOnly}=await import('../src/lib/remote/zone-grid');
-  const none={hidden:null,mode:null};
-  expect([resolveWebcamOnly(none,'tap'),resolveWebcamOnly(none,'auto'),resolveWebcamOnly(none,null)]).toEqual([true,false,true]);
-  expect(resolveWebcamOnly({hidden:false,mode:'tap'},'tap')).toBe(false);
-  expect(resolveWebcamOnly({hidden:false,mode:'tap'},'auto')).toBe(false);
-  expect(resolveWebcamOnly({hidden:true,mode:'auto'},'tap')).toBe(true);
-  expect(resolveWebcamOnly({hidden:true,mode:'auto'},'auto')).toBe(true);
-  expect(resolveWebcamOnly({hidden:true,mode:'tap'},'auto')).toBe(false);
+  expect([resolveWebcamOnly(null),resolveWebcamOnly(true),resolveWebcamOnly(false)]).toEqual([true,true,false]);
 });
 
 it('Set comparison switches default on and query overrides take precedence over env and saved settings',async()=>{

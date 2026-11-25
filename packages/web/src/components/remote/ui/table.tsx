@@ -3,16 +3,14 @@
 import {announceNotACard} from '@/lib/remote/set-card-diagnostics';
 import { REMOTE_TABLE_TALK } from "@/lib/remote/table-talk";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
-import { REMOTE_RESPOND_COOLDOWN_MS, REMOTE_FORMATS, REMOTE_HAND_SUGGESTION_EVENT, type RemoteHandSuggestionEvent, matchCardsByName, previousYgoPhase, normalizeRemoteFormat, remoteRecognitionRef, remoteRecognitionRefs, type RemoteActionProposal, type RemoteEvent, type RemoteRoom, type RemoteUndoEntry } from "@yugidraft/shared/remote";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
+import { REMOTE_FORMATS, REMOTE_HAND_SUGGESTION_EVENT, type RemoteHandSuggestionEvent, matchCardsByName, previousYgoPhase, normalizeRemoteFormat, remoteRecognitionRef, remoteRecognitionRefs, type RemoteActionProposal, type RemoteEvent, type RemoteRoom, type RemoteUndoEntry } from "@yugidraft/shared/remote";
 import { cardInfo, isLinkInfo, isMonsterInfo, loadCards, searchCards, useCardInfo } from "./catalog";
 import { EffectControls, EffectPicker } from "./effect-controls";
 import { Rail, LpStrip, TopBar, AdminWatchStrip, type Player } from "./chrome";
 import { CardPopover, InspectorBody, type CardActions, type CardEdit, type CardSource, type Subject } from "./card-view";
-import { RespondBanner, useRespondHold } from "./respond-banner";
-import { heldByResponse, mayRespond, respondCoolingDown } from "./respond";
-import { ActivateRow, OkBanner, ThinkingBanner, useOkHold } from "./think";
-import { activatable, aliveSeats, chainOf, onField, recentlyPlaced, thinkingSeats } from "./think-model";
+import { ActivateRow, OkBanner, ThinkingCallout, useOkHold } from "./think";
+import { activatable, aliveSeats, chainOf, maySignal, onField, recentlyPlaced, thinkingSeats } from "./think-model";
 /** The client sends Thinking and OK this far apart: a little over the server rule of one a second. */
 const SIGNAL_GAP_MS = 1050;
 import { MicSection, UndoSection, VoxSection, type Proposal } from "./dock";
@@ -73,18 +71,17 @@ import s from "./remote-ui.module.css";
 import matchStyles from "./match-ui.module.css";
 
 const WEBCAM_ONLY_KEY = "dd-remote-webcam-only";
-/** The detection mode a stored Webcam only choice was made in. */
-const WEBCAM_ONLY_MODE_KEY = "dd-remote-webcam-only-mode";
 import {publicTrackedTwin, trackedRereadTarget} from '@/lib/remote/field-track-cache';
 import { AutoFieldWatcher } from "../field-watcher";
 import { isTournamentTable, stateMode, seatBoardOff } from "@/lib/remote/tournament-detection";
 import {manualFieldZoneWarning,projectFieldZone,tokenInCell,becomesTrapMonster,equipSourceOnField,fieldZoneCheck} from '@/lib/remote/field-legality';
 import {fieldOrientation,fieldZoneAt,fieldZoneLocation,mapFieldZone,onMat,type FieldFormat} from '@yugidraft/vision';
-import {useCardDetection,resolveWebcamOnly,type DetectionMode,useZoneGrid,useTapToIdentify,tapToIdentifyNow,currentZoneGrid,setFieldDeveloper,runFieldScan,useFieldWatcherError} from '@/lib/remote/zone-grid';
+import {useCardDetection,resolveWebcamOnly,useZoneGrid,useTapToIdentify,tapToIdentifyNow,currentZoneGrid,setFieldDeveloper,runFieldScan,useFieldWatcherError} from '@/lib/remote/zone-grid';
 import {distinctFieldQuads,fieldReadingPlaceholder,rememberFieldObservation} from '@/lib/remote/field-proposals';
 import {SUMMON_WINDOW_MS} from '@/lib/remote/field-summons';
 import { useCardMenu } from "./card-menu";
 import { FeedCardsProvider } from "./feed-cards";
+import { ChainBadges, chainMarksOf } from "./chain-marks";
 import { useTokens } from "./token-ui";
 import { useControlChange } from "./control-ui";
 import { quickMoves } from "./quick-moves";
@@ -209,8 +206,6 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
   const [toasts, setToasts] = useState<ToastItem[]>([]); const toastId = useRef(0);
   const toast = useCallback((text: ReactNode, ms = 2800) => { const id = ++toastId.current; setToasts(list => [...list.slice(-2), { id, text }]); setTimeout(() => setToasts(list => list.filter(item => item.id !== id)), ms); }, []);
   const [banner, setBanner] = useState<{ id: number; small: string; big: string } | null>(null);
-  // A response ("I chain") shows to everyone and holds spoken phase changes for a few seconds.
-  const respondHold = useRespondHold(room.events);
   // Thinking, OK and chain links come from the room events, so every screen shows the same.
   const okHold = useOkHold(room.events);
   const thinking = useMemo(() => thinkingSeats(room.events, live), [room.events, live]);
@@ -225,6 +220,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     return () => clearTimeout(timer);
   }, [pendingThink, thinking]);
   const chain = useMemo(() => chainOf(room.events, aliveSeats(state)), [room.events, state]);
+  const chainMarks = useMemo(() => chainMarksOf(chain), [chain]);
   const [peek, setPeek] = useState<PeekState>(null); const peekTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const showPeek = useCallback((kind: LogKind, text: ReactNode) => {
     if (R.current.layer === "log") return;
@@ -478,33 +474,16 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
   const [rv, setRv] = useState<Record<number, ZoneKey>>({}); const [selected, setSelected] = useState<{ seat: number; ref: string } | null>(null);
   const [effectOrigin,setEffectOrigin]=useState<string|null>(null);
   const [picking, setPicking] = useState<{ seat: number; ref: string } | null>(null);
-  // Webcam only: the virtual fields (beta) are hidden and the camera feeds get the space. The default follows my detection mode: hidden in Tap to identify (the board does not follow the camera), shown with Auto-detect.
-  // A choice in either direction is remembered in this browser with the mode it was made in. It wins while the mode stays the same; a mode change applies the new default once.
-  const detection = useCardDetection(); const detectMode: DetectionMode | null = detection ? (detection.autoDetect ? "auto" : "tap") : null;
-  const [choice, setChoice] = useState<{ hidden: boolean | null; mode: string | null }>({ hidden: null, mode: null });
-  useLayoutEffect(() => { try { const stored = localStorage.getItem(WEBCAM_ONLY_KEY); setChoice({ hidden: stored === null ? null : stored !== "0", mode: localStorage.getItem(WEBCAM_ONLY_MODE_KEY) }); } catch { /* storage blocked: the default */ } }, []);
-  // The last known mode bridges a camera change, when the watcher reloads its settings and the mode is unknown for a moment.
-  const [knownMode, setKnownMode] = useState<DetectionMode | null>(null);
-  useEffect(() => {
-    if (!detectMode) return;
-    setKnownMode(detectMode);
-    // A choice made in the other mode is dropped; the new mode's default applies. A change of nothing leaves the keys alone.
-    if (choice.hidden === null || choice.mode === detectMode) return;
-    // An old choice with no stored mode belongs to the mode we are in now.
-    if (choice.mode === null) {
-      setChoice({ hidden: choice.hidden, mode: detectMode });
-      try { localStorage.setItem(WEBCAM_ONLY_MODE_KEY, detectMode); } catch { /* storage blocked */ }
-      return;
-    }
-    setChoice({ hidden: null, mode: null });
-    try { localStorage.removeItem(WEBCAM_ONLY_KEY); localStorage.removeItem(WEBCAM_ONLY_MODE_KEY); } catch { /* storage blocked */ }
-  }, [detectMode, choice]);
-  const shownMode = detectMode ?? knownMode;
-  const webcamOnly = resolveWebcamOnly(choice, shownMode);
+  // Webcam only: the virtual fields (beta) are hidden by default, so the camera feeds get the space. The toggle or W turns the board on;
+  // the choice, either way, is remembered in this browser. A seat that needs the board (see `needsBoard`) keeps it.
+  const detection = useCardDetection();
+  const [choice, setChoice] = useState<boolean | null>(null);
+  useLayoutEffect(() => { try { const stored = localStorage.getItem(WEBCAM_ONLY_KEY); setChoice(stored === null ? null : stored !== "0"); localStorage.removeItem("dd-remote-webcam-only-mode"); } catch { /* storage blocked: the default */ } }, []);
+  const webcamOnly = resolveWebcamOnly(choice);
   const setWebcamOnly = useCallback((next: boolean) => {
-    setChoice({ hidden: next, mode: shownMode });
-    try { localStorage.setItem(WEBCAM_ONLY_KEY, next ? "1" : "0"); if (shownMode) localStorage.setItem(WEBCAM_ONLY_MODE_KEY, shownMode); else localStorage.removeItem(WEBCAM_ONLY_MODE_KEY); } catch { /* storage blocked: not remembered */ }
-  }, [shownMode]);
+    setChoice(next);
+    try { localStorage.setItem(WEBCAM_ONLY_KEY, next ? "1" : "0"); } catch { /* storage blocked: not remembered */ }
+  }, []);
   // A seat in Tap mode has its board off for everyone: the camera does not keep the board up to date.
   // Another player: any of the signals (see `seatBoardOff`). My own seat: my own switch, and only with my camera on, so a player with no camera keeps the board.
   const subscribeTap = useCallback((listener: () => void) => { const a = hub.subscribeFieldBacks(listener), b = hub.subscribePeerVision(listener); return () => { a(); b(); }; }, [hub.subscribeFieldBacks, hub.subscribePeerVision]);
@@ -1087,10 +1066,6 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
         }
         // Through the voice action when there is one, so it is stamped, logged and recorded like phase.
         set("Effect activated"); if (voiceAction) voiceAction(intent.proposal); else void act(intent.proposal); break;
-      case "respond": {
-        const respond: RemoteActionProposal = { type: "chain.respond", actorSeat: me };
-        set("Response!"); if (voiceAction) voiceAction(respond); else void act(respond); break;
-      }
       case "undo": set("Undone"); void doUndo(); break;
       case "phase":
         if (!now.solo && now.mySeat !== current.turnSeat) { set(`Only ${name(current.turnSeat)} can change phase`, true); break; }
@@ -1114,13 +1089,6 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [act, doUndo, moveCard]);
-  /** The Respond button and the R key: the same event as the spoken "response". Players only; own response is not repeated while it shows. */
-  const respondNow = useCallback(() => {
-    const { room: now, state: current } = R.current; const me = now.solo ? current.turnSeat : now.mySeat;
-    if (now.status !== "active" || now.spectator || !mayRespond(current, me)) return;
-    if (respondCoolingDown(now.events, me, serverNow())) return;
-    void act({ type: "chain.respond", actorSeat: me });
-  }, [act]);
   // Thinking and OK go out at most once a second (the server rule), in the order pressed: OK right after T still arrives.
   const signalQueue = useRef<(() => void)[]>([]); const signalTimer = useRef<ReturnType<typeof setTimeout> | null>(null); const signalAt = useRef(0);
   const flushSignals = useCallback(() => {
@@ -1142,7 +1110,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
   /** The T key and the Thinking button: "I am deciding". Pressed again it cancels. No time limit. On a solo table it cancels any seat that thinks. */
   const thinkNow = useCallback(() => {
     const { room: now, state: current } = R.current; const me = now.solo ? current.turnSeat : now.mySeat;
-    if (now.status !== "active" || now.spectator || !mayRespond(current, me)) return;
+    if (now.status !== "active" || now.spectator || !maySignal(current, me)) return;
     const ours = now.solo ? current.seats.map(item => item.seat) : [me];
     const active = ours.filter(thinkingNow);
     const send = (seat: number, on: boolean) => { setThink(seat, on); queueSignal(() => { if (R.current.room.status === "active") void act({ type: "chain.thinking", actorSeat: seat, on }); }); };
@@ -1152,7 +1120,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
   /** The Space key and the OK button: "OK, no response". It clears this player's Thinking. */
   const okNow = useCallback(() => {
     const { room: now, state: current } = R.current; const me = now.solo ? current.turnSeat : now.mySeat;
-    if (now.status !== "active" || now.spectator || !mayRespond(current, me)) return;
+    if (now.status !== "active" || now.spectator || !maySignal(current, me)) return;
     setThink(me, false);
     queueSignal(() => { if (R.current.room.status === "active") void act({ type: "chain.ok", actorSeat: me }); });
   }, [act, queueSignal]);
@@ -1214,19 +1182,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     const record = (result: VoiceDecision) => diagnosticsRef.current.record(utteranceRecord({ at: utteranceAt, id: final.id, method: final.method, text: final.text, canonical: final.canonical, context, decision: result, utterance: final.utterance }));
     setTranscript({ requestId: final.id, text: final.text || "(no keyword)", result: decision.accepted ? "" : decision.reason, ignored: !decision.accepted });
     if (!decision.accepted) { record({ outcome: "rejected", reason: decision.reason, actionId: null }); return; }
-    // A response holds the phase and turn lines for a few seconds, so the responder can name an effect first. Other lines go on.
-    // A response line is not a phase line, so a pending turn chip does not reject it. The responder's own cooldown still ends it quietly.
-    const respondLine = decision.intent.kind === "respond";
-    if (respondLine && respondCoolingDown(now.events, now.solo ? current.turnSeat : now.mySeat, serverNow())) {
-      record({ outcome: "rejected", reason: "other", actionId: null }); setTranscript(old => ({ ...old, result: "Response already sent", ignored: true })); return;
-    }
-    const holding = heldByResponse(decision.intent, now.events, serverNow(), now.solo ? current.turnSeat : now.mySeat);
-    if (holding) {
-      record({ outcome: "rejected", reason: "response-hold", actionId: null });
-      const note = `${name(holding.seat)} responded. Phase change ignored.`;
-      setTranscript(old => ({ ...old, result: note, ignored: true })); toast(note); return;
-    }
-    if (pendingVoice.current && !respondLine) { record({ outcome: "rejected", reason: "unconfirmed", actionId: null }); return; }
+    if (pendingVoice.current) { record({ outcome: "rejected", reason: "unconfirmed", actionId: null }); return; }
     const baseSeq = now.lastSeq;
     // Turn, LP and attack lines wait for a chip; their later outcome is a decision record. Only the turn chip locks out the next line.
     const chipLine = decision.intent.kind === "turn" || decision.intent.kind === "lp" || decision.intent.kind === "attack";
@@ -1239,13 +1195,6 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
       if (submitted) return; submitted = true;
       if (decision.intent.kind === "turn") pendingVoice.current = null;
       const latest = R.current;
-      // A turn chip confirmed by click inside a response window waits like a spoken line would.
-      const heldNow = heldByResponse(decision.intent, latest.room.events, serverNow(), latest.room.solo ? latest.state.turnSeat : latest.room.mySeat);
-      if (heldNow) {
-        record({ outcome: "rejected", reason: "response-hold", actionId: null });
-        const note = `${name(heldNow.seat)} responded. Phase change ignored.`;
-        setTranscript(old => ({ ...old, result: note, ignored: true })); toast(note); return;
-      }
       // A confirm belongs to the position and microphone choice that produced it.
       const stillLegal = decideVoice(final, { state: latest.state, players: latest.room.seats, me: latest.room.solo ? latest.state.turnSeat : latest.room.mySeat, trayOpen: false }, voiceAccept.current);
       // LP and attack chips may wait while other events arrive; the server still checks the action. Other lines keep the strict rule.
@@ -1283,25 +1232,14 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
 
   // ---- keyboard ----
   const toggleView = () => setWebcamOnly(!webcamOnly);
-  const respondSeat = solo ? state.turnSeat : mySeat;
-  const respondShown = live && (solo || mySeat >= 0) && mayRespond(state, respondSeat);
+  const signalSeat = solo ? state.turnSeat : mySeat;
+  const signalShown = live && (solo || mySeat >= 0) && maySignal(state, signalSeat);
   // The Think button shows pressed while any seat this client controls is thinking (a solo table controls every seat).
-  const thinkOn = (solo ? state.seats.map(item => item.seat) : [respondSeat]).some(seat => pendingThink.get(seat) ?? thinking.has(seat));
-  const respondCooling = respondShown && respondCoolingDown(room.events, respondSeat, serverNow());
-  // The button wakes again when the cooldown ends.
-  const [, respondTick] = useReducer((n: number) => n + 1, 0);
-  const lastOwnRespond = respondCooling ? room.events.findLast(e => e.action.type === "chain.respond" && e.actorSeat === respondSeat)?.id : undefined;
-  useEffect(() => {
-    if (!lastOwnRespond) return;
-    const last = R.current.room.events.find(e => e.id === lastOwnRespond);
-    const timer = setTimeout(respondTick, Math.max(0, (last?.at ?? 0) + REMOTE_RESPOND_COOLDOWN_MS - serverNow()) + 20);
-    return () => clearTimeout(timer);
-  }, [lastOwnRespond]);
-  const respond = respondShown && !respondCooling ? respondNow : null;
-  // Thinking, OK and E need a live duel like Respond; E also works before a card is placed.
-  const think = respondShown ? thinkNow : null; const ok = respondShown ? okNow : null;
+  const thinkOn = (solo ? state.seats.map(item => item.seat) : [signalSeat]).some(seat => pendingThink.get(seat) ?? thinking.has(seat));
+  // Thinking, OK and E need a live duel; E also works before a card is placed.
+  const think = signalShown ? thinkNow : null; const ok = signalShown ? okNow : null;
   const activate = live && (solo || mySeat >= 0) && !room.spectator ? activateNow : null;
-  const latest = useRef({ chip, cancelChip, doUndo, picking, ptt, toggleView, respond, think, ok, activate, activateRow, pickFromRow }); latest.current = { chip, cancelChip, doUndo, picking, ptt, toggleView, respond, think, ok, activate, activateRow, pickFromRow };
+  const latest = useRef({ chip, cancelChip, doUndo, picking, ptt, toggleView, think, ok, activate, activateRow, pickFromRow }); latest.current = { chip, cancelChip, doUndo, picking, ptt, toggleView, think, ok, activate, activateRow, pickFromRow };
   useEffect(() => {
     function down(event: KeyboardEvent) {
       const L = latest.current;
@@ -1309,8 +1247,6 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
       if (typing(event.target) || event.ctrlKey || event.metaKey || event.altKey) return;
       if ((event.key === "v" || event.key === "V") && L.ptt && !event.repeat) { setHeld(true); return; }
       if (R.current.layer) return;
-      // R responds ("I chain"). A frozen camera feed keeps R for its own read and says so by handling the key first.
-      if ((event.key === "r" || event.key === "R") && !event.repeat && !event.shiftKey && !event.defaultPrevented && L.respond) { event.preventDefault(); L.respond(); return; }
       // T thinks, Space says OK, E activates. A modal dialog, a focused control or a held key keeps its own behavior.
       const modal = !!document.querySelector('[role="alertdialog"],[role="dialog"][aria-modal="true"]');
       if (L.activateRow) {
@@ -1699,7 +1635,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     if (isPile(key)) return false;
     const card = cellsFor(state.seats[seat]?.twin ?? [], extraZones)[key]?.card; return card ? openCardActions(card) : tokens.create(seat, key);
   });
-  return <FeedCardsProvider seats={state.seats} info={info}><div ref={appRef} className={`${duelFontClasses} ${s.app}`} data-mode={mode} data-wc={webcamOnly ? "1" : undefined} data-testid="remote-table" data-status={room.status} {...cardMenu}>
+  return <FeedCardsProvider seats={state.seats} info={info} marks={chainMarks}><div ref={appRef} className={`${duelFontClasses} ${s.app}`} data-mode={mode} data-wc={webcamOnly ? "1" : undefined} data-testid="remote-table" data-status={room.status} {...cardMenu}>
     <AutoFieldWatcher dock={seatDocks[mySeat] ?? null} room={room} transaction={ctl.transaction} diagnosticsAllowed={feedbackPref?.isAdmin===true && feedbackPref.collectionEnabled} />
     <a className={s.skip} href="#stage">Skip to the table</a>
     <div className={s.shell}>
@@ -1724,8 +1660,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
         <EffectControls room={room} act={act} onOpen={id=>{setEffectOrigin(id);layers.open("effect");}} />
         {mySeat >= 0 ? <RecentDepartures room={room} seat={mySeat} onAction={action => void act(action)} /> : null}
         <Banner banner={banner} />
-        <RespondBanner hold={respondHold} name={name} />
-        <ThinkingBanner thinking={thinking} name={name} lowered={!!respondHold} />
+        <ThinkingCallout thinking={thinking} name={name} pointer={seatCount > 2} />
         <OkBanner hold={okHold} name={name} />
         <svg className={s.arrow} aria-hidden="true">{arrow ? <><defs><marker id="ah" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0 0 10 5 0 10z" fill="#f6dc9a" /></marker></defs>
           <path d={arrow.d} fill="none" stroke="rgba(232,185,79,.35)" strokeWidth="9" strokeLinecap="round" />
@@ -1759,8 +1694,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
         onPhase={setPhase} onPhaseBack={phaseBack} onPass={passTurn} turnIn={turnIn} backTo={previousYgoPhase(state)} />
       <footer ref={dockRef} className={`${s.dock} ${micSection ? "" : s.nomic}`} aria-label={micSection ? "Voice and undo" : "Commands and undo"}>
         {live && mySeat >= 0 ? <button type="button" className={`${s.btn} ${s.sm} ${s.q} ${s.myfield}`} onClick={() => { setWebcamOnly(false); document.querySelector(`[data-testid="field-${mySeat}"]`)?.scrollIntoView?.({ block: 'center' }); }}>My field</button> : null}
-        {respondShown ? <div className={s.signals}>
-          <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} onClick={respondNow} disabled={respondCooling} title="Respond: chain on top of the last action" data-testid="respond-button">Respond <kbd>R</kbd></button>
+        {signalShown ? <div className={s.signals}>
           <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} aria-pressed={thinkOn} onClick={event => { thinkNow(); event.currentTarget.blur(); }} title="Thinking: tell the table you are deciding. Press again to cancel. No time limit." data-testid="think-button">{thinkOn ? "Thinking…" : "Think"} <kbd>T</kbd></button>
           <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} onClick={event => { okNow(); event.currentTarget.blur(); }} title="OK: no response" data-testid="ok-button">OK <kbd>Space</kbd></button>
         </div> : null}
@@ -1850,6 +1784,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     <Toasts items={toastItems} dock={layers.layer && layers.layer !== "card" && layers.layer !== "tray" ? null : seatDocks[mySeat] ?? null} top={layers.layer === "pile"} />
     <HandActivation events={room.events} name={name} />
     {activateRow ? <ActivateRow cards={activateRow.cards} info={info} onPick={card => pickFromRow(activateRow.seat, card)} onClose={() => setActivateRow(null)} /> : null}
+    <ChainBadges marks={chainMarks} />
     <RemoteFx state={state} webcamOnly={webcamOnly} seq={room.lastSeq} last={room.events.find(event => event.seq === room.lastSeq)?.action} chainNo={chain.links.get(room.events.find(event => event.seq === room.lastSeq)?.id ?? "")?.n} />
   </div></FeedCardsProvider>;
 }

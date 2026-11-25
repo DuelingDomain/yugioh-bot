@@ -32,14 +32,14 @@ import { TapBoardNote, TapModeChip } from "./tap-mode-banner";
 import { seatBoardOff, stateMode } from "@/lib/remote/tournament-detection";
 import { PileViewer, type PileZone } from "./pile-viewer";
 import { FeedCards, FeedCardsProvider } from "./feed-cards";
+import { ChainBadges, chainMarksOf } from "./chain-marks";
 import type { PopAt, Rect } from "./popup";
 import { useLayers } from "./use-layers";
 import { HandActivation } from "./hand-activation";
 import type { RoomController } from "./use-remote-room";
 import s from "./remote-ui.module.css";
 import v from "./spectator-table.module.css";
-import { RespondBanner, useRespondHold } from "./respond-banner";
-import { OkBanner, ThinkingBanner, useOkHold } from "./think";
+import { OkBanner, ThinkingCallout, ThinkingChip, useOkHold } from "./think";
 import { aliveSeats, chainOf, thinkingSeats } from "./think-model";
 
 const NO_ACTIONS: CardActions = { readOnly: true, canAdd: false, adding: false, onAdd: () => undefined, canAttack: false, attackHint: "", onAttack: () => undefined };
@@ -121,9 +121,9 @@ function SpectatorFeed({ seat, name, video, online, stopped, frozen, onCard, for
 
 function SpectatorTable({ room }: { room: RemoteRoom }) {
   const layers = useLayers();
-  const [webcamOnly, setWebcamOnlyState] = useState(false);
+  const [webcamOnly, setWebcamOnlyState] = useState(true);
   const [gridOn, setGridOn] = useState(true);
-  useEffect(() => { try { setWebcamOnlyState(localStorage.getItem(SPECTATOR_WEBCAM_KEY) === "1"); } catch { /* storage blocked: both views */ } setGridOn(readGridPref(false)); }, []);
+  useEffect(() => { try { setWebcamOnlyState(localStorage.getItem(SPECTATOR_WEBCAM_KEY) !== "0"); } catch { /* storage blocked: the default, cameras only */ } setGridOn(readGridPref(false)); }, []);
   const setWebcamOnly = useCallback((next: boolean) => { setWebcamOnlyState(next); try { localStorage.setItem(SPECTATOR_WEBCAM_KEY, next ? "1" : "0"); } catch { /* not remembered */ } }, []);
   const toggleGrid = () => { const next = !gridOn; setGridOn(next); writeGridPref(false, next); };
   // W switches between Both and Webcam only, as for the players.
@@ -169,10 +169,11 @@ function SpectatorTable({ room }: { room: RemoteRoom }) {
   const seatIds = room.seats.map(seat => seat.seat);
   const name = (seat: number) => room.seats.find(item => item.seat === seat)?.displayName ?? `Seat ${seat + 1}`;
   const lp = (seat: number) => state.seats[seat]?.resources.lp ?? 0;
-  const respondHold = useRespondHold(room.events);
   const okHold = useOkHold(room.events);
   const thinking = useMemo(() => thinkingSeats(room.events, room.status === "active" && !state.ended && match.phase === "duel"), [room.events, room.status, state.ended, match.phase]);
-  const chainLinks = chainOf(room.events, aliveSeats(state)).links;
+  const chain = useMemo(() => chainOf(room.events, aliveSeats(state)), [room.events, state]);
+  const chainLinks = chain.links;
+  const chainMarks = useMemo(() => chainMarksOf(chain), [chain]);
   const [subject, setSubject] = useState<Subject | null>(null);
   const [popAt, setPopAt] = useState<PopAt>({ anchor: null, feed: null });
   const publicIds = state.seats.flatMap(item => [...item.twin.map(card => cardCode(card) ?? card.token?.artId), ...(item.knownHand ?? []).map(card => card.cardId)]);
@@ -280,9 +281,8 @@ function SpectatorTable({ room }: { room: RemoteRoom }) {
   // The end and siding screens carry their own words; the note is for a game result and for video problems.
   const note = ended || siding ? null : readNote || (match.phase === "result" ? "This game is over. The next game starts soon." : snapshot.error || null);
 
-  return <FeedCardsProvider seats={state.seats} info={info}><div className={`${duelFontClasses} ${s.app} ${v.app}`} data-mode={seatCount === 2 ? "1v1" : String(seatCount)} data-wc={webcamOnly ? "1" : undefined} data-testid="spectator-table" data-status={room.status}>
-    <RespondBanner hold={respondHold} name={name} />
-    <ThinkingBanner thinking={thinking} name={name} lowered={!!respondHold} />
+  return <FeedCardsProvider seats={state.seats} info={info} marks={chainMarks}><ChainBadges marks={chainMarks} /><div className={`${duelFontClasses} ${s.app} ${v.app}`} data-mode={seatCount === 2 ? "1v1" : String(seatCount)} data-wc={webcamOnly ? "1" : undefined} data-testid="spectator-table" data-status={room.status}>
+    <ThinkingCallout thinking={thinking} name={name} pointer={seatCount > 2} />
     <OkBanner hold={okHold} name={name} />
     <div className={s.shell} inert={covered ? true : undefined}>
       <header className={s.top}>
@@ -300,7 +300,7 @@ function SpectatorTable({ room }: { room: RemoteRoom }) {
           ? <button type="button" className={v.retry} data-testid="spectator-video-retry" onClick={() => video?.retry()}>Try again</button> : null}</p> : null}
         <LpStrip players={players} turnSeat={turnSeat} lp={lp} onJump={seat => document.querySelector(`[data-testid="seat-${seat}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" })} />
         {seatIds.map(seat => {
-          const boardOff = tapSeats.split(",").includes(String(seat)), wc = webcamOnly || boardOff;
+          const boardOff = tapSeats.split(",").includes(String(seat)), wc = (webcamOnly && !room.seats.find(item => item.seat === seat)?.bot) || boardOff;
           const twin = state.seats[seat]?.twin ?? [];
           const field = twin.filter(card => ["monster", "extra-monster", "spell-trap", "field", "pendulum"].includes(card.zone));
           const shown = field.filter(card => card.faceUp !== false && cardCode(card)); const hiddenCount = field.filter(card => card.faceUp === false).length;
@@ -325,7 +325,7 @@ function SpectatorTable({ room }: { room: RemoteRoom }) {
               {video ? <SpectatorFeed seat={seat} name={name(seat)} format={format} gridOn={gridOn} video={video} online={online} stopped={!!snapshot.error} frozen={onFrozen} onCard={onFeed} /> : <div className={s.feedcol}><div className={s.cams} data-testid={`feed-${seat}`}><div className={s.nofeed}><span>Table video is off.</span></div></div></div>}
               {wc ? <div className={`${s.fside} ${v.side}`}>
                 <HandStrip seat={seat} name={name(seat)} hand={{ cards: knownHandOf(state, seat), count: handCountOf(state, seat), tray: true, onInspect: card => showKnown(seat, card) }} />
-                <div className={v.stats}><span data-testid={`lp-${seat}`}>LP <b data-testid={`lp-value-${seat}`} aria-label={`${name(seat)}: ${lp(seat)} of ${startingLp} life points`}>{lp(seat)}</b></span></div>
+                <div className={v.stats}>{thinking.has(seat) ? <ThinkingChip since={thinking.get(seat) ?? 0} seat={seat} who={name(seat)} /> : null}<span data-testid={`lp-${seat}`}>LP <b data-testid={`lp-value-${seat}`} aria-label={`${name(seat)}: ${lp(seat)} of ${startingLp} life points`}>{lp(seat)}</b></span></div>
                 {boardOff ? <TapBoardNote /> : null}<ul className={v.cards} aria-label={`${name(seat)}'s public cards`} data-testid={`public-cards-${seat}`}>
                   {shown.map(card => <li key={card.ref}><button type="button" onClick={event => { const box = event.currentTarget.getBoundingClientRect(); show(seat, card, { left: box.left, right: box.right, top: box.top, bottom: box.bottom }, null); }}>{cardName(card, info(cardCode(card)))}</button></li>)}
                   {hiddenCount ? <li className={v.set} data-testid={`set-count-${seat}`}>{hiddenCount} Set</li> : null}
@@ -346,7 +346,7 @@ function SpectatorTable({ room }: { room: RemoteRoom }) {
                 </div>
                 <HandStrip seat={seat} name={name(seat)} hand={{ cards: knownHandOf(state, seat), count: handCountOf(state, seat), onInspect: card => showKnown(seat, card) }} />
                 {readList(seat)}
-                <div className={v.stats}><span data-testid={`lp-${seat}`}>LP <b data-testid={`lp-value-${seat}`} aria-label={`${name(seat)}: ${lp(seat)} of ${startingLp} life points`}>{lp(seat)}</b></span></div>
+                <div className={v.stats}>{thinking.has(seat) ? <ThinkingChip since={thinking.get(seat) ?? 0} seat={seat} who={name(seat)} /> : null}<span data-testid={`lp-${seat}`}>LP <b data-testid={`lp-value-${seat}`} aria-label={`${name(seat)}: ${lp(seat)} of ${startingLp} life points`}>{lp(seat)}</b></span></div>
               </div>}
             </div>
           </section>;
