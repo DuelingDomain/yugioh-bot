@@ -36,11 +36,12 @@ export function useNextStep({ room, live, tokens, control, layers }: {
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const dismiss = useCallback(() => { clearTimeout(timer.current); setChip(null); }, []);
 
-  const show = useCallback(async (seat: number, cardId: number, name: string | undefined, ref: string | undefined) => {
+  const show = useCallback(async (seat: number, cardId: number, name: string | undefined, ref: string | undefined, placed: boolean) => {
     if (!cardInfo(cardId)) await loadCards([cardId]);
     const found: CardInfo | undefined = cardInfo(cardId), label = found?.name ?? name;
     const step = label ? nextStep(label, found?.effectText) : null;
-    if (!step || !label) return;
+    // "Place on opponent's field" gives a card from the hand: only after a placement, and never in a solo room (one player cannot give to themself).
+    if (!step || !label || step.kind === "give" && (!placed || roomRef.current.solo)) return;
     const key = `${seat}:${label}`;
     if (serverNow() - (shown.current.get(key) ?? 0) < REPEAT_MS) return;
     shown.current.set(key, serverNow());
@@ -68,11 +69,11 @@ export function useNextStep({ room, live, tokens, control, layers }: {
     for (const event of fresh) {
       const action = event.action;
       if (event.actorSeat === null || !solo && event.actorSeat !== mySeat || serverNow() - event.at > FRESH_MS) continue;
-      if (action.type === "effect.activated" && action.source.cardId) void show(event.actorSeat, action.source.cardId, action.source.name, action.source.cardRef);
+      if (action.type === "effect.activated" && action.source.cardId) void show(event.actorSeat, action.source.cardId, action.source.name, action.source.cardRef, false);
       // A card put on the field from the hand. One that came back from a pile, or only moved on the field, is not played now.
-      else if (action.type === "twin.place" && !action.give && action.card.faceUp && !action.card.token && FIELD.has(action.zone)) {
+      else if (action.type === "twin.place" && !action.give && action.source !== "auto" && action.card.faceUp && !action.card.token && FIELD.has(action.zone)) {
         const id = action.card.cardId ?? action.card.passcode, from = was.get(action.fromRef ?? action.card.ref);
-        if (id && (from === undefined || from === "hand")) void show(event.actorSeat, id, action.card.name, action.card.ref);
+        if (id && (from === undefined || from === "hand")) void show(event.actorSeat, id, action.card.name, action.card.ref, true);
       }
     }
   }, [room.events]);
@@ -102,7 +103,7 @@ export function useNextStep({ room, live, tokens, control, layers }: {
   };
 
   const node = chip && live && !busy ? <div key={chip.id} className={`${t.nextStep} ${chip.at ? "" : t.nextStepLow}`} role="status" data-testid="next-step"
-    style={chip.at ? { left: Math.min(Math.max(chip.at.left, 120), window.innerWidth - 120), top: Math.max(chip.at.top - 8, 56) } as CSSProperties : undefined}>
+    style={chip.at ? { left: Math.min(Math.max(chip.at.left, 120), window.innerWidth - 120), top: Math.max(chip.at.top - 8, 104) } as CSSProperties : undefined}>
     <button type="button" className={t.nextGo} onClick={() => accept(chip)} data-testid="next-step-go"><Icon name="next" />{chip.step.label}</button>
     <button type="button" className={t.nextX} onClick={dismiss} aria-label="Dismiss suggestion" data-testid="next-step-dismiss"><Icon name="x" /></button>
   </div> : null;

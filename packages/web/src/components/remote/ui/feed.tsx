@@ -116,7 +116,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
   /** Webcam only: the name line for the card under the pointer, from the outlines or from the zone. */
   hoverTip?: (seat: number, x: number, y: number) => { label: string; detail?: string } | null;
   /** Right click (or a long press) on the camera. The table opens the card actions for the card under the point, if it knows one. The event goes on to the table menu. */
-  onCardMenu?: (seat: number, at: { x: number; y: number }) => void;
+  onCardMenu?: (seat: number, at: { x: number; y: number }, mouse: boolean) => void;
   /** A strip under the video box (camera controls). It never covers the video. */
   below?: ReactNode; emptyText: string; emptyAction?: ReactNode;
   /** A tournament table: the Auto-detect off strip then gives no reason from this computer's own choice. */
@@ -147,6 +147,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
   useEffect(() => () => { if (missTimer.current) clearTimeout(missTimer.current); }, []);
   const run = useRef(0); const dwell = useRef<ReturnType<typeof setTimeout> | null>(null); const lastMove = useRef<Pt>({ x: -1, y: -1 });
   const phonePointerHandled=useRef(false);
+  const lastPointer=useRef("mouse");
   // A press on the camera that closes an open themed list only closes it: it starts no card read.
   // The window's capture phase runs before the list's own document listener closes it. A later press sets this again.
   const closingPress=useRef(false);
@@ -552,11 +553,11 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
     aria-label={`${name}'s field camera. ${you ? "Your" : "Their"} view. Click a card to read it. Press F to freeze the frame and outline every card. Then Tab moves between cards and Enter opens one.`}
     data-testid={`feed-box-${seat}`} data-frozen={isFrozen ? frozen.status : "live"}>
     <div className={`${s.fcam} ${isFrozen ? s.fcamFrozen : ""}`} ref={cam} onClick={click} onPointerMove={move}
-      onPointerDown={event=>{phonePointerHandled.current=false;if(closingPress.current||event.button!==0||!event.isPrimary||frozenRef.current||(event.target as HTMLElement).closest("button")||!hub.phones.some(phone=>phone.seat===seat&&phone.paired))return;const p=point(event.clientX,event.clientY);if(p){phonePointerHandled.current=true;if(dwell.current){clearTimeout(dwell.current);dwell.current=null;}wrap.current?.focus({preventScroll:true});void liveClick(p);}}}
+      onPointerDown={event=>{lastPointer.current=event.pointerType;phonePointerHandled.current=false;if(closingPress.current||event.button!==0||!event.isPrimary||frozenRef.current||(event.target as HTMLElement).closest("button")||!hub.phones.some(phone=>phone.seat===seat&&phone.paired))return;const p=point(event.clientX,event.clientY);if(p){phonePointerHandled.current=true;if(dwell.current){clearTimeout(dwell.current);dwell.current=null;}wrap.current?.focus({preventScroll:true});void liveClick(p);}}}
       onPointerCancel={()=>{phonePointerHandled.current=false;}}
       onContextMenu={event => {
         if (!onCardMenu || !source || event.shiftKey) return;
-        const p = point(event.clientX, event.clientY); if (p) onCardMenu(seat, p);
+        const p = point(event.clientX, event.clientY); if (p) onCardMenu(seat, p, lastPointer.current === "mouse");
       }}
       data-testid={`feed-${seat}`} data-remote-seat={seat}
       style={{ cursor: !source ? "default" : hover >= 0 ? "pointer" : "crosshair" }}>

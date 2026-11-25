@@ -1634,14 +1634,18 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
   };
   /** The feed handler runs first and the table handler after it, in the same event. This tells the table handler what the feed did. */
   const feedMenu = useRef(false);
-  const onCardMenu = (seat: number, at: { x: number; y: number }) => {
+  const onCardMenu = (seat: number, at: { x: number; y: number }, mouse: boolean) => {
     const card = cardAtPoint(seat, at.x, at.y);
     if (card) { feedMenu.current = openCardActions(card); return; }
     const zone = zoneAtPoint(seat, at.x, at.y), pile = pileAt(zone);
     if (pile) { openPile(seat, pile, null); feedMenu.current = true; return; }
-    // Right click or long press on an empty Monster or Spell & Trap Zone of a camera feed: the same menu as a click on that zone of the board (a trusted board only).
+    // Right click (a mouse only: a slow tap on a phone is a card read, never a menu) on a Monster or Spell & Trap Zone of a camera feed that has no card:
+    // the same menu as a click on that empty zone of the board (a trusted board only).
     const mine = solo || seat === mySeat, key = zone?.toLowerCase() as ZoneKey | undefined;
-    if (key && /^[ms][1-5]$/.test(key) && !boardOff(seat) && (mine || /^m/.test(key) || control.canGive)) { openZonePicker(seat, key, undefined, true, false, !mine); feedMenu.current = true; }
+    if (!mouse || !key || !/^[ms][1-5]$/.test(key) || boardOff(seat)) return;
+    const held = cellsFor(state.seats[seat].twin, extraZones)[key]?.card;
+    if (held) { feedMenu.current = openCardActions(held); return; }
+    if (mine || /^m/.test(key) || control.canGive) { openZonePicker(seat, key, undefined, true, false, !mine); feedMenu.current = true; }
   };
   const cardMenu = useCardMenu(target => {
     if (target.closest("[data-remote-seat]")) { const done = feedMenu.current; feedMenu.current = false; return done; }

@@ -9,8 +9,10 @@ export type NextStep =
   | { kind: "tokens"; label: string; token: { name: string; atk: number; def: number; count: number; position: "attack" | "defense"; opponent: boolean; ask: boolean; artId?: number } };
 
 const COUNTS: Record<string, number> = { a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6 };
-/** This card is Special Summoned to the opponent's field: "Special Summon this card (from your hand) to your opponent's field", "Must first be Special Summoned (from your hand) to your opponent's field". */
-const SELF_GIVE = /Special Summon this card\s*(?:\([^)]*\)\s*)?to your opponent's field|Must first be Special Summoned\s*(?:\([^)]*\)\s*)?to your opponent's field/i;
+/** This card goes from the hand to the opponent's field: "Special Summon this card (from your hand) to your opponent's field", "Must first be Special Summoned (...) to your opponent's field". A card that only does it from the field or the GY (Ceruli, Brain Controller) is not a hand play. */
+const SELF_GIVE = /Special Summon this card\s*\(from your hand\)\s*to your opponent's field|Must first be Special Summoned\s*(?:\([^)]*\)\s*)?to your opponent's field/i;
+/** The tokens go to both fields: "to both players' fields", "each player's field", or "your opponent Special Summons 1 "X Token" to their field". */
+const BOTH = /both players' fields?|each player's field|your opponent Special Summons?\s+(?:\d+|an?|one|two|three) "[^"]*Tokens?"/i;
 /** `Special Summon 4 "Sheep Tokens" (Beast/EARTH/Level 1/ATK 0/DEF 0) in Defense Position`, or `1 Token (…)`. Groups: count, name, stats, tail. */
 const TOKENS = /Special Summon (\d+|an?|one|two|three|four|five|six) (?:"([^"]*?Tokens?)"|(Tokens?))\s*(?:\(([^)]*)\))?([^.;]*)/i;
 /** The cards whose tokens the table already makes by itself when they are played (token-ui.tsx): no chip, so the player is not asked twice. */
@@ -32,11 +34,16 @@ export function nextStep(name: string, text: string | undefined): NextStep | nul
     const tokenName = (tokens[2] ?? tokens[3] ?? "Token").replace(/s$/i, "");
     const atk = /ATK\s*(\d+|\?)/i.exec(tokens[4] ?? ""), def = /DEF\s*(\d+|\?)/i.exec(tokens[4] ?? "");
     const known = TOKEN_MAKERS[key];
-    const opponent = /to your opponent's field/i.test(tokens[5] ?? "");
+    const both = BOTH.test(text);
+    const opponent = !both && /to your opponent's field/i.test(tokens[5] ?? "");
+    // Several options (bullets), another count "instead", or different tokens: the count is not known, so the label says so.
+    const all = [...text.matchAll(new RegExp(TOKENS.source, "gi"))];
+    const unsure = /Special Summon \d+ instead|, Special Summon (?:\d+|two|three|four|five|six) instead/i.test(text) || all.length > 1 && new Set(all.map(item => `${item[1]}${item[2] ?? item[3]}`.toLowerCase())).size > 1;
     if (count >= 1 && count <= 6) {
       const ask = !known && (!atk || !def || stat(atk[1]) === null || stat(def[1]) === null);
-      const where = opponent ? " for the opponent" : "";
-      return { kind: "tokens", label: `Add ${count === 1 ? `${/^[aeiou]/i.test(tokenName) ? "an" : "a"} ${tokenName}` : `${count} ${tokenName}s`}${where}`,
+      const where = opponent ? " for the opponent" : both ? " (yours)" : "";
+      const label = unsure ? "Add tokens?" : `Add ${count === 1 ? `${/^[aeiou]/i.test(tokenName) ? "an" : "a"} ${tokenName}` : `${count} ${tokenName}s`}${where}`;
+      return { kind: "tokens", label,
         token: { name: tokenName, atk: known?.atk ?? stat(atk?.[1]) ?? 0, def: known?.def ?? stat(def?.[1]) ?? 0, count: known?.count ?? count, position: known?.position ?? (/Defense Position/i.test(tokens[5] ?? "") ? "defense" : "attack"), opponent: known?.opponent ?? opponent, ask, ...(known ? { artId: known.id } : {}) } };
     }
   }
