@@ -121,16 +121,18 @@ function SpectatorFeed({ seat, name, video, online, stopped, frozen, onCard, for
 
 function SpectatorTable({ room }: { room: RemoteRoom }) {
   const layers = useLayers();
-  const [webcamOnly, setWebcamOnlyState] = useState(true);
+  const [webcamChoice, setWebcamOnlyState] = useState(true);
+  // 3-way and 4-way tables show only the cameras: no virtual field, no toggle, no W.
+  const multi = room.seatCount > 2; const webcamOnly = multi || webcamChoice;
   const [gridOn, setGridOn] = useState(true);
   useEffect(() => { try { setWebcamOnlyState(localStorage.getItem(SPECTATOR_WEBCAM_KEY) !== "0"); } catch { /* storage blocked: the default, cameras only */ } setGridOn(readGridPref(false)); }, []);
   const setWebcamOnly = useCallback((next: boolean) => { setWebcamOnlyState(next); try { localStorage.setItem(SPECTATOR_WEBCAM_KEY, next ? "1" : "0"); } catch { /* not remembered */ } }, []);
   const toggleGrid = () => { const next = !gridOn; setGridOn(next); writeGridPref(false, next); };
   // W switches between Both and Webcam only, as for the players.
   useEffect(() => {
-    const key = (event: KeyboardEvent) => { if (event.repeat || event.key.toLowerCase() !== "w" || event.ctrlKey || event.metaKey || event.altKey || isTypingTarget(event.target)) return; setWebcamOnly(!webcamOnly); };
+    const key = (event: KeyboardEvent) => { if (multi || event.repeat || event.key.toLowerCase() !== "w" || event.ctrlKey || event.metaKey || event.altKey || isTypingTarget(event.target)) return; setWebcamOnly(!webcamOnly); };
     window.addEventListener("keydown", key); return () => window.removeEventListener("keydown", key);
-  }, [webcamOnly, setWebcamOnly]);
+  }, [multi, webcamOnly, setWebcamOnly]);
   const [rv, setRv] = useState<Record<number, ZoneKey>>({});
   const state = room.state; const match = matchOf(room); const seatCount = room.seatCount;
   const ended = room.status === "ended";
@@ -317,9 +319,9 @@ function SpectatorTable({ room }: { room: RemoteRoom }) {
               {state.seats[seat]?.eliminated ? <span className={s.tag}>OUT</span> : null}
               <span className={s.sp} />
               <button type="button" className={s.vtog} data-testid={`zone-grid-toggle-${seat}`} aria-pressed={gridOn} aria-label="Show zone grid" onClick={toggleGrid} title="Draw the zone outlines over the cameras"><span className={v.zgLong}>Show zone </span>grid</button>
-              <button type="button" className={`${s.vtog} ${s.vhide}`} data-testid={`field-toggle-${seat}`} onClick={() => setWebcamOnly(!webcamOnly)} aria-keyshortcuts="W"
+              {multi ? null : <button type="button" className={`${s.vtog} ${s.vhide}`} data-testid={`field-toggle-${seat}`} onClick={() => setWebcamOnly(!webcamOnly)} aria-keyshortcuts="W"
                 title={webcamOnly ? "Show the virtual fields (beta) (W)" : "Hide the virtual fields (beta). The cameras take the screen (W)"}>
-                <span>{webcamOnly ? "Show" : "Hide"} <span className={s.vlong}>virtual </span>field</span> <span className={s.vbeta}>Beta</span> <kbd>W</kbd></button>
+                <span>{webcamOnly ? "Show" : "Hide"} <span className={s.vlong}>virtual </span>field</span> <span className={s.vbeta}>Beta</span> <kbd>W</kbd></button>}
             </header>
             <div className={s.sbody}>
               {video ? <SpectatorFeed seat={seat} name={name(seat)} format={format} gridOn={gridOn} video={video} online={online} stopped={!!snapshot.error} frozen={onFrozen} onCard={onFeed} /> : <div className={s.feedcol}><div className={s.cams} data-testid={`feed-${seat}`}><div className={s.nofeed}><span>Table video is off.</span></div></div></div>}

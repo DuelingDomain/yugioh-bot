@@ -1204,6 +1204,8 @@
 .zglabels>.zghint{transform:translate(-50%,-100%);padding:2px 6px;border-radius:4px;background:rgb(60 30 8/.88);border:1px solid rgb(255 190 90/.8);color:#ffe3b0;font-size:10.5px;letter-spacing:0}
 .zglabels>.zgcal{position:absolute;left:50%;top:6px;bottom:auto;transform:translateX(-50%);pointer-events:auto;height:22px;padding:0 9px;border-radius:5px;background:rgb(7 4 14/.86);border:1px solid var(--line2);color:var(--gold-ink);font:600 11px/1 var(--font-duel-ui),system-ui,sans-serif;cursor:pointer}
 .zglabels>.zgcal:hover{border-color:var(--gold)}
+.zgcell[data-open="true"]{fill:rgb(120 220 160/.2);stroke:rgb(150 240 190/.95);stroke-width:2}
+.zglabels span[data-open="true"]{color:#fff;font-weight:700}
 @media(prefers-reduced-motion:reduce){.zgcell[data-glow="true"]{animation:none}}
 /* Two public cards of one seat look like one card: amber badge on each, one line above the field. */
 .zc .dupb{position:absolute;right:-3px;top:-3px;z-index:4;padding:1px 4px;border-radius:9px;background:var(--warn);color:#1b1204;font:800 10px/12px var(--font-duel-display),Oxanium,sans-serif;letter-spacing:.02em;box-shadow:0 0 8px rgb(240 178 79/.8);pointer-events:none}

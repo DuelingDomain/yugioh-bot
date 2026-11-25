@@ -35,7 +35,7 @@ export function TopBar({ crumb, tournament = null, chip, startedAt = null, ended
   onHealth: (el: HTMLElement) => void; onCard: (el: HTMLElement) => void; onLog: (el: HTMLElement) => void;
   /** Set while I am a living player in a live game: shows the Surrender button. */ onSurrender?: (el: HTMLElement) => void; surrenderOpen?: boolean;
   /** Set while I am a seated player in a live match: shows the Quit match button. */ onQuit?: (el: HTMLElement) => void;
-  /** True when the virtual fields are hidden and the camera feeds take the space. */ webcamOnly: boolean; onView: (webcamOnly: boolean) => void;
+  /** True when the virtual fields are hidden and the camera feeds take the space. */ webcamOnly: boolean; /** Absent on a 3-way or 4-way table: only the cameras show, so there is no view switch. */ onView?: (webcamOnly: boolean) => void;
 }) {
   const dot = health.q === "warn" ? s.warn : health.q === "bad" ? s.bad : "";
   const tone = health.q === "warn" ? s.warnc : health.q === "bad" ? s.badc : "";
@@ -53,10 +53,10 @@ export function TopBar({ crumb, tournament = null, chip, startedAt = null, ended
       <Icon name="x" /><span>Quit match</span></button> : null}
     </div> : null}
     <span className={s.sp} />
-    <div className={`${s.seg} ${s.viewseg}`} role="group" aria-label="Table view" data-testid="table-view">
+    {onView ? <div className={`${s.seg} ${s.viewseg}`} role="group" aria-label="Table view" data-testid="table-view">
       <button type="button" aria-pressed={!webcamOnly} data-testid="view-both" aria-label="Both: show cameras and virtual fields, beta" onClick={() => onView(false)} title="Show the cameras and the virtual fields, beta (W)">Both <span className={s.vbeta}>Beta</span></button>
       <button type="button" aria-pressed={webcamOnly} data-testid="view-webcam" aria-label="Webcam only: hide the virtual fields" onClick={() => onView(true)} title="Hide the virtual fields. The cameras get the space (W).">Webcam<span className={s.vlong}> only</span></button>
-    </div>
+    </div> : null}
     <button type="button" className={`${s.tb} ${tone}`} aria-haspopup="dialog" aria-expanded={healthOpen} data-layer-opener data-testid="health-chip" onClick={e => onHealth(e.currentTarget)}>
       <span className={`${s.hdot} ${dot}`} /><span>{health.text}</span></button>
     <button type="button" className={s.tb} aria-haspopup="dialog" aria-expanded={cardOpen} data-layer-opener data-testid="card-button" onClick={e => onCard(e.currentTarget)}>
