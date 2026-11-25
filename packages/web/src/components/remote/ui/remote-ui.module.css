@@ -608,7 +608,7 @@
 .drawer{position:fixed;top:var(--hdr);bottom:0;width:392px;max-width:94vw;z-index:35;display:flex;flex-direction:column;background:linear-gradient(180deg,#160e2a,#0c0719);box-shadow:0 0 60px rgb(0 0 0/.6);transition:transform .45s var(--ease),visibility 0s .45s;visibility:hidden}
 .drawer.open{transform:none!important;visibility:visible;transition:transform .45s var(--ease)}
 .logd{right:0;transform:translateX(104%);border-left:1px solid var(--line2)}
-.insp{left:0;transform:translateX(-104%);border-right:1px solid var(--line2);width:352px}
+.insp{left:0;transform:translateX(-104%);border-right:1px solid var(--line2);width:var(--tdr-w,352px)}
 .dh{display:flex;align-items:center;gap:8px;padding:11px 14px;border-bottom:1px solid var(--line)}
 .dh h2{margin:0;font:700 12px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;letter-spacing:.16em;text-transform:uppercase;color:var(--ink2)}
 .tabs{display:flex;gap:0;padding:0 14px;border-bottom:1px solid var(--line)}
@@ -1692,26 +1692,30 @@
 @media (max-width:900px){.boardtog .lbl{display:inline}.boardtog .vbeta{display:none}}
 @container ledge (max-width:600px){.htop .wcpiles button:nth-child(n+3){display:none}}
 
-/* ---- table drawer (Log / Settings / Info / Admin): right side, pushes the table from 1100 px, full sheet on a phone ---- */
+/* ---- table drawer (Log / Settings / Info / Admin): left side, pushes the table from 1100 px, full sheet on a phone ----
+   The card inspector uses the same left slot at the same width. Only one layer is open at a time, so they swap in place and never overlap. */
 .app{--tdr-w:392px}
 @media (max-width:1499px){.app{--tdr-w:340px}}
-.drawer.tdr{z-index:40;right:0;left:auto;transform:translateX(104%);border-left:1px solid var(--line2);width:392px;max-width:100vw}
+.drawer.tdr{z-index:40;left:0;right:auto;transform:translateX(-104%);border-left:0;border-right:1px solid var(--line2);width:392px;max-width:100vw}
 .drawer.tdr.open{transform:none}
-.tdr .dh .sp{flex:1}
-.tdr .tabs{padding:0 8px}
-.tdr .tabs button{flex:1;padding:10px 8px 9px}
+.tdr .tabs{align-items:stretch;gap:2px;padding:0 6px 0 10px;border-bottom:1px solid var(--line2)}
+.tdr .tabs [role=tab]{flex:1 1 0;min-width:0;padding:15px 6px 13px;font:700 14px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;letter-spacing:.1em;text-transform:uppercase}
+.tdr .tabs [role=tab]:hover{color:var(--ink)}
+.tdr .tabs [role=tab][aria-selected=true]{color:var(--ink);border-bottom-color:var(--gold)}
+.tdr .tabs .tabx{flex:none;align-self:center;margin-left:4px;width:32px;height:32px;padding:0;border:1px solid var(--line);color:var(--ink2)}
+.tdr .tabs .tabx:hover{border-color:var(--pen);color:var(--ink)}
 .tdr .db{padding:0}
 .tdr .flt button{min-height:28px;padding:3px 12px}
 @media (min-width:901px){.drawer.tdr{width:var(--tdr-w)}}
 @media (min-width:1100px){
-  .app[data-drawer] .shell{width:calc(100% - var(--tdr-w))}
+  .app[data-drawer] .shell{width:calc(100% - var(--tdr-w));margin-left:var(--tdr-w)}
   .app[data-drawer] .drawer.tdr{top:0}
 }
 @media (max-width:900px){
-  .drawer.tdr{top:var(--hdr);left:0;right:0;width:auto;max-width:none;bottom:0}
+  .drawer.tdr{top:var(--hdr);left:0;right:0;width:auto;max-width:none;bottom:0;border-right:0}
   .tdr .flt{gap:6px;padding:10px 12px 6px}
   .tdr .flt button{min-height:36px;padding:0 14px;font-size:13.5px}
-  .tdr .tabs button{min-height:44px}
+  .tdr .tabs [role=tab]{min-height:48px}
 }
 
 /* First-time consent for the training set: a small card in the bottom left corner. It never blocks the table or opens the drawer. */

@@ -1,4 +1,4 @@
-/* The right drawer of the table: Log / Settings / Info / Admin. Ported from the approved clean-table mockup. */
+/* The left drawer of the table: Log / Settings / Info / Admin. Ported from the approved clean-table mockup. */
 .turn{border-bottom:1px solid var(--line)}
 .turn>summary{position:sticky;top:0;z-index:2;display:flex;align-items:center;gap:9px;padding:9px 14px;list-style:none;cursor:pointer;background:#140c26;font:700 11.5px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:var(--ink2)}
 .turn>summary::-webkit-details-marker{display:none}
@@ -86,9 +86,9 @@
 }
 
 /* Card picture beside the drawer (hover shows, click pins). */
-.peek { position: fixed; z-index: 61; top: 76px; right: calc(var(--tdr-w, 392px) + 16px); width: min(260px, 40vw); border-radius: 10px; overflow: hidden; background: var(--panel, #14121c); border: 1px solid var(--line, rgba(255,255,255,.14)); box-shadow: 0 12px 40px rgba(0,0,0,.55); }
+.peek { position: fixed; z-index: 61; top: 76px; left: calc(var(--tdr-w, 392px) + 16px); width: min(260px, 40vw); border-radius: 10px; overflow: hidden; background: var(--panel, #14121c); border: 1px solid var(--line, rgba(255,255,255,.14)); box-shadow: 0 12px 40px rgba(0,0,0,.55); }
 .peek img { display: block; width: 100%; height: auto; }
 .peekname { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 10px; font-size: 13px; }
 .peekx { all: unset; cursor: pointer; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 6px; }
 .peekx:hover { background: rgba(255,255,255,.1); }
-@media (max-width: 900px) { .peek { right: 12px; top: auto; bottom: 12px; width: min(200px, 50vw); } }
+@media (max-width: 900px) { .peek { left: auto; right: 12px; top: auto; bottom: 12px; width: min(200px, 50vw); } }

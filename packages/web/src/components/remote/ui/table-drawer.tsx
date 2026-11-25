@@ -145,7 +145,7 @@ function InfoTab({ p }: { p: TableDrawerProps["info"] }) {
 }
 
 /**
- * The right drawer of the table, from the Log button: Log, Settings, Info and (for admins) Admin.
+ * The left drawer of the table, from the Log button or the Settings button: Log, Settings, Info and (for admins) Admin.
  * From 1100 px it pushes the table (the `data-drawer` flag on the app), below that it covers it, and on a phone it is a full sheet.
  * Only the open tab is mounted, so a control never exists twice.
  */
@@ -155,9 +155,9 @@ export function TableDrawer({ open, tab, onTab, onClose, admin, log, info, setti
   useEffect(() => { if (tab === "admin" && !admin) onTab("log"); }, [tab, admin, onTab]);
   const body = shown === "log" ? <LogTab p={log} /> : shown === "settings" ? settings : shown === "admin" ? adminPanel : <InfoTab p={info} />;
   return <aside className={`${s.drawer} ${s.logd} ${s.tdr} ${open ? s.open : ""}`} data-layer="log" data-sticky="true" role="dialog" aria-label="Table drawer" aria-modal="false" aria-hidden={!open} data-testid="log-drawer" data-tab={shown} inert={!open}>
-    <div className={s.dh}><h2>Table</h2><span className={s.sp} /><button type="button" className={s.ibtn} aria-label="Close drawer" data-testid="drawer-close" onClick={onClose}><Icon name="x" /></button></div>
     <div className={s.tabs} role="tablist" aria-label="Table drawer">
       {tabs.map(item => <button type="button" key={item.id} role="tab" id={`drawer-tab-${item.id}`} aria-selected={shown === item.id} aria-controls="drawer-panel" data-testid={`drawer-tab-${item.id}`} onClick={() => onTab(item.id)}>{item.label}</button>)}
+      <button type="button" className={`${s.ibtn} ${s.tabx}`} aria-label="Close drawer" data-testid="drawer-close" onClick={onClose}><Icon name="x" /></button>
     </div>
     <div className={s.db} id="drawer-panel" role="tabpanel" aria-labelledby={`drawer-tab-${shown}`}>{open ? <Fragment key={shown}>{body}</Fragment> : null}</div>
     {shown === "log" ? <div className={d.foot}>
