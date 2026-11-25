@@ -8,6 +8,7 @@ const PATHS = {
   hist: <><path d="M3 12a9 9 0 1 0 3-6.7L3 8" /><path d="M3 3v5h5M12 7v5l3 2" /></>,
   log: <><path d="M5 4h14v16H5z" /><path d="M8 9h8M8 13h8M8 17h5" /></>,
   card: <><rect x="6" y="3" width="12" height="18" rx="2" /><path d="M9 8h6" /></>,
+  clock: <><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></>,
   warn: <><path d="M12 3 2 20h20L12 3z" /><path d="M12 10v4M12 17v.5" /></>,
   check: <path d="m5 12 5 5L20 7" />,
   next: <path d="M5 12h14M13 6l6 6-6 6" />,
