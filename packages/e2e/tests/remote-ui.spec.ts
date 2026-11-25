@@ -64,7 +64,7 @@ async function fakeCamera(page: Page, shape: "16:9" | "4:3" | "" = "") {
     navigator.mediaDevices.enumerateDevices = async () => [];
   }, [FRAME, shape === "4:3" ? [960, 720] : [1280, 720]] as [string, number[]]);
 }
-/** Camera off now sits in the camera settings panel, behind the webcam "..." menu: press it through the page. */
+/** Camera off sits in the drawer Settings tab: press it through the page. */
 const cameraOff = async (page: Page) => { await openDrawer(page, "settings"); await page.getByTestId("camera-off").evaluate((b: HTMLElement) => b.click()); };
 const shot = async (page: Page, name: string) => { if (SHOTS) await page.screenshot({ path: `${SHOTS}/${name}.png` }); };
 
@@ -584,8 +584,12 @@ test.describe("remote duels screen, solo", () => {
             expect(on.lpFont).toBeLessThanOrEqual(42);
             if (mode === "1v1") expect(on.lp!.h).toBeLessThanOrEqual(60);
           }
-          // No bars: the box has the video's shape (2% tolerance for rounding).
-          expect(Math.abs(m.box!.w / m.box!.h - m.vw / m.vh) / (m.vw / m.vh)).toBeLessThan(0.02);
+          // Webcam first on a wide screen: the box takes all the free height of the seat, so the picture may sit in bars above and below.
+          // It still fills the seat width and shows the whole picture. Everywhere else the box has the video's shape (2% tolerance for rounding).
+          if (view === "Webcam only" && width > 900) {
+            expect(m.box!.w, "box fills the seat width").toBeGreaterThanOrEqual(on.seat!.w * 0.9);
+            expect(m.box!.w / (m.vw / m.vh), "whole picture fits the box").toBeLessThanOrEqual(m.box!.h + 2);
+          } else expect(Math.abs(m.box!.w / m.box!.h - m.vw / m.vh) / (m.vw / m.vh)).toBeLessThan(0.02);
           // The one "..." button is inside the window.
           expect(m.row!.x).toBeGreaterThanOrEqual(-1); expect(m.row!.x + m.row!.w).toBeLessThanOrEqual(width + 1);
           expect(m.row!.y).toBeGreaterThanOrEqual(-1); expect(m.row!.y + m.row!.h).toBeLessThanOrEqual(height + 1);
@@ -705,7 +709,9 @@ test.describe("remote lobby camera step", () => {
     expect(await page.evaluate(() => (window as any).__camlock.stopped.every((mode: string) => mode === 'continuous'))).toBe(true);
     await page.evaluate(() => { sessionStorage.setItem('camlock-unsupported','1'); sessionStorage.setItem('camlock-size-hang','1'); });
     for (const seats of [2, 4] as const) {
-      const slug = await soloTable(context.request, seats); await page.goto(`/duels/remote/${slug}`);
+      const slug = await soloTable(context.request, seats);
+      // A phone 3-way or 4-way table shows my seat as a small tile until I pick it, so each table starts wide.
+      await page.setViewportSize({width:1920,height:1080}); await page.goto(`/duels/remote/${slug}`);
       await page.getByTestId('camera-on-feed').click();
       for (const [width, height] of [[1920,1080],[2560,1440],[1366,768],[390,844]]) {
         await page.setViewportSize({width,height}); await openDrawer(page, 'settings');
@@ -1623,7 +1629,7 @@ test.describe("remote duels, spectators", () => {
       await expect(c.getByTestId("inspector").locator("button", { hasText: /Wrong card|Attack|Flip|Move|Activate/ })).toHaveCount(0);
       await c.keyboard.press("Escape");
       // Webcam only keeps the public card list and the Set count.
-      await c.getByTestId("view-board").click();
+      await c.getByTestId("field-toggle-0").click();
       await expect(c.getByTestId("public-cards-0")).toContainText("Origin fixture 1");
       await expect(c.getByTestId("set-count-0")).toHaveText("2 Set");
       hiddenFree((await c.locator("body").innerText()));
