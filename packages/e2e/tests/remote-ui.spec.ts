@@ -74,7 +74,7 @@ async function soloTable(api: APIRequestContext, seatCount: 2 | 3 | 4, registere
 }
 
 test.describe("remote duels screen, solo", () => {
-  test.beforeEach(async ({ context }) => { await authenticatePlayer(context.request, { userId: 101 }, process.env.E2E_AUTH_SECRET!, "http://localhost:3310"); });
+  test.beforeEach(async ({ context }) => { await authenticatePlayer(context.request, { userId: 101 }, process.env.E2E_AUTH_SECRET!, (process.env.E2E_REMOTE_UI_URL ?? "http://localhost:3310")); });
 
   test("Scan field now sits in the webcam ... menu and the S key runs it", async ({ page, context }) => {
     test.setTimeout(120_000);
@@ -1222,7 +1222,7 @@ test.describe("remote duels screen, two players on LiveKit", () => {
     const alice = await browser.newContext(); const bob = await browser.newContext();
     await Promise.all([bothView(alice), bothView(bob)]);
     try {
-      for (const [context, userId] of [[alice, 101], [bob, 102]] as const) await authenticatePlayer(context.request, { userId }, process.env.E2E_AUTH_SECRET!, "http://localhost:3310");
+      for (const [context, userId] of [[alice, 101], [bob, 102]] as const) await authenticatePlayer(context.request, { userId }, process.env.E2E_AUTH_SECRET!, (process.env.E2E_REMOTE_UI_URL ?? "http://localhost:3310"));
       const slug = await startTwoPlayerTable(alice.request, bob.request);
       const a = await alice.newPage(); const b = await bob.newPage();
       // Only Alice's camera shows cards. Bob's page needs a camera to join the table, nothing more.
