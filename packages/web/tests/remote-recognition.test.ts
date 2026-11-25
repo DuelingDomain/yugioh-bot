@@ -850,7 +850,7 @@ it('the face check waits on still frames, limits repeated flips, keeps the playe
  const {createFieldFaceCheck,FIELD_FACE_RELEASE_MS,FIELD_FACE_QUIET_MS,FIELD_FACE_CALM_MS}=await import('../src/lib/remote/field-face');
  const {fieldFaceProposal,fieldSetMove,applyFieldFaceFlip}=await import('../src/lib/remote/field-proposals');
  const track=(over:object={})=>({id:'c',state:'identified',zone:'S4',faceDown:true,position:'attack',removed:false,visible:false,lastSeen:0,restSince:0,revision:1,card:{confidence:.2},...over}) as any;
- const run=(check:ReturnType<typeof createFieldFaceCheck>,t:any,card:any,at:number,scan=false,freshZoom=false)=>check.due({at,seat:0,scan,tracks:[{...t,lastSeen:at}],twins:[card],refOf:x=>x.id,freshZoom:()=>freshZoom,identity:x=>x.cardId?{cardId:89194033,name:'Apophis'}:undefined});
+ const run=(check:ReturnType<typeof createFieldFaceCheck>,t:any,card:any,at:number,scan=false,freshZoom=false)=>check.due({at,seat:0,scan,tracks:[{...t,lastSeen:at}],twins:[card],refOf:x=>x.id,zoneOf:()=> 'S4',freshZoom:()=>freshZoom,identity:x=>x.cardId?{cardId:89194033,name:'Apophis'}:undefined});
  const up={ref:'c',zone:'spell-trap',faceUp:true} as any,down={...up,faceUp:false};
  // 600 ms of still frames, and a rest that starts later counts from there.
  let check=createFieldFaceCheck();

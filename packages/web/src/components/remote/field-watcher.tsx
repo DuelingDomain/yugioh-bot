@@ -1910,7 +1910,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   const faceBusy=useRef(false);
   const faceFixes=(at:number,scan:boolean,zoom?:FieldEvent)=>{
     const reading=new Set(placeholders.current.values());
-    return face.current.due({at,scan,seat,tracks:watch.getTracks(),twins:current.current.room.state.seats[seat].twin,refOf:t=>bindings.current.get(t.id)??t.id,skip:ref=>reading.has(ref)||heldStacks.current.has(ref),
+    return face.current.due({at,scan,seat,tracks:watch.getTracks(),twins:current.current.room.state.seats[seat].twin,refOf:t=>bindings.current.get(t.id)??t.id,zoneOf:knownZone,skip:ref=>reading.has(ref)||heldStacks.current.has(ref),
       freshZoom:t=>!!zoom&&zoom.track.id===t.id&&zoom.track.zone===t.zone&&zoom.track.restSince===t.restSince&&fieldEvidenceMatches(zoom,t),
       identity:t=>{const entry=t.cardId?entries.current.get(t.cardId):undefined,code=entry&&catalogCardId(entry);return code?{cardId:code,name:entry!.name}:undefined;}});
   };

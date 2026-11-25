@@ -291,13 +291,12 @@ export function fieldSetSlidePileActivity(snap:FieldSnapshot|undefined):Record<'
 export const fieldBackCandidate=(track:FieldTrack)=>!track.removed&&track.state!=='dismissed'&&
   (track.faceDown||track.state==='candidate'&&track.card.kind==='face-down')&&!track.card.partial&&!track.card.covered;
 
-/** A new back or sleeve witness in the source cell vetoes removal. */
+/** A new back or sleeve can keep a departure pending until the source is proven empty. */
 export function fieldDepartureHasBack(event:FieldEvent,snap:FieldSnapshot|undefined):boolean {
-  if(!snap)return false;
+  if(!snap||fieldCellEvidence(event)?.emptyProofAt!==undefined||event.track.faceDown&&event.reason==='empty')return false;
   const {id,zone,lastSeen,removedFrameAt}=event.track;
   const since=removedFrameAt??event.removedAt??lastSeen;
-  const sleeve=fieldCellEvidence(event)?.emptyProofAt===undefined&&snap.blindZones?.includes(zone)&&
-    (snap.blindSleeveAt?.[zone]??-Infinity)>=since;
+  const sleeve=snap.blindZones?.includes(zone)&&(snap.blindSleeveAt?.[zone]??-Infinity)>=since;
   return !!sleeve||snap.tracks.some(t=>t.id!==id&&t.zone===zone&&t.firstSeen>=lastSeen-1000&&fieldBackCandidate(t));
 }
 
@@ -422,7 +421,7 @@ export function fieldSetReturn({track,twins,tracks,owns,events,seat,at,now,pileT
   const returned=departed.filter(c=>handOrigin(c)&&there(c.departedFrom!)).sort((a,b)=>b.departedFrom!.at!-a.departedFrom!.at!)[0];
   if(returned){
     const from=origin(returned);
-    return from&&inPlace(from)&&!sized(returned,returned.departedFrom!.at!)?{kind:'return',card:returned}:undefined;
+    return from&&!from.faceDown&&inPlace(from)&&!sized(returned,returned.departedFrom!.at!)?{kind:'return',card:returned}:undefined;
   }
   // Legacy recovery for an unnamed Set the camera already sent to the hand.
   const arrivals=tracks.filter(t=>t.faceDown&&!t.removed&&t.visible&&MAIN_FIELD_SLOT.test(t.zone)&&fieldZoneLocation(t.zone).zone===cell.zone&&!twins.some(c=>c.ref===owns(t)));

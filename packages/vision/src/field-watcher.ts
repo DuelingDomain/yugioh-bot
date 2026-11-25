@@ -877,18 +877,18 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
     if(t.promptOnly==='card-presence'){if(evidence.motion(t.view.card)>.025)t.view.visible=false;return;}
     const card=t.view.card,spot=t.announced??card,box=t.view.faceDown&&t.view.setEvidence?.decision==='committed'?cellOf(t.view.zone):undefined;
     const exposedMat=()=>{
-      if(!options.zoomSets||!/^S[1-5]$/.test(t.view.zone)||handContact(evidence,spot))return false;
-      // A shadow can cross the cell's outer ring while the source has its
-      // learned mat colour back. Require that colour to differ from the sleeve.
+      if(!options.zoomSets||!/^S[1-5]$/.test(t.view.zone)||evidence.edgeGrip?.(spot)==='grip')return false;
+      // Printed skin tones can trip contact on an empty cell. Require the
+      // old footprint to match the learned mat and differ from the sleeve.
       const base=emptyLooks.get(t.view.zone),matLook=base?.appearance?.(spot)??base?.look;
       const look=evidence.appearance?.(spot),matChroma=centreChroma(matLook),backChroma=centreChroma(t.identityAppearance);
       return !!matChroma&&!!backChroma&&medianGap(matChroma,backChroma)>=.05&&
         medianGap(matChroma,centreChroma(look))<=.024&&sameFieldAppearance(centreLook(matLook),centreLook(look));
     };
     const vacantSet=!!box&&
-      !handContact(evidence,box)&&!evidence.occluded?.(spot)&&
+      !evidence.occluded?.(spot)&&
       medianGap(t.setBackLook??t.identityAppearance,evidence.appearance?.(spot))>SET_BRIDGE_LOOK&&
-      (cellEmpty(evidence,t.view.zone,false)||exposedMat());
+      (!handContact(evidence,box)&&cellEmpty(evidence,t.view.zone,false)||exposedMat());
     const stack=stackLooks.size>0&&stackStillThere(t.view.zone,evidence);
     const halo=evidence.halo?.(card),pixels=evidence.background?.(card)??evidence.appearance?.(card);
     // A sharp, hand-free footprint can show the mat even while a shadow
@@ -916,7 +916,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
     const clear=vacantSet||vacantFront||!sameFieldAppearance(t.identityAppearance??t.appearance,pixels)&&!evidence.occluded?.(card)&&
       clearFieldBackground(pixels,halo);
     t.clearCandidate=!!clear;if(clear)t.clearCandidateAt??=at;else t.clearCandidateAt=undefined;
-    if(!clear||evidence.motion(vacantFront?spot:card)>.01){resetAbsence(t);return;}
+    if(!clear||evidence.motion(vacantSet||vacantFront?spot:card)>.01){resetAbsence(t);return;}
     t.view.visible=false;t.missed=true;invalidateRead(t);t.best=undefined;
     // The detector's receiving outline needs a few samples to settle. Give a new outline over another known
     // monster the same bounded chance here as in the full-scan path, even when its new top looks unlike this source.
@@ -936,7 +936,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
     if(!vacantFront&&shadowOver(card)&&at-t.clearWindowAt<DEPARTURE_HOLD_MS){note(t,shadowNote());return;}
     t.view.removed=true;t.restoredAt=undefined;
     if(fieldSlot(t.view.zone))t.view.removedFrameAt=t.clearWindowAt;
-    if(t.view.state==='identified'||t.placeholder)emit('removed',t,{reason:'empty'});
+    if(t.view.state==='identified'||t.placeholder)emit('removed',t,{reason:'empty',...(vacantSet?{evidence:{basis:'pixel',emptyProofAt:at}}:{})});
     // A candidate lost from view is dismissed softly: it reads again when it shows again.
     if(t.view.state!=='identified'){t.softDismiss=t.view.state==='candidate';t.view.state='dismissed';}
   }
@@ -2577,19 +2577,18 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
           if(t.view.state!=='identified'&&!restOk(t)){t.view.visible=false;note(t,`Set waits: ${t.rest?.text??'not resting yet'}`);continue;}
           if(!t.view.faceDown&&t.view.cardId)faceState.setCardId=t.view.cardId;
           t.view.cardId=undefined;t.read=undefined;t.needsRead=false;t.identityCheck=undefined;
-          // A card that left this zone moments ago, and now a back in the same zone: the same card turned
-          // face-down (lifted to flip it, or out of view for a moment). It keeps its ref, so the board
-          // shows a flip in place, never a departure to the hand plus a new unknown Set.
+          // A recently lifted front can turn face-down in place. Once a Set
+          // has left, a new back in its cell gives no evidence of continuity.
           const returnedAt=now(),known=options.getKnownCards?.()??[];
           const back=t.view.state==='candidate'&&!t.binding&&t.resolvedAt===undefined&&fieldSlot(t.view.zone)?tracks.filter(o=>{
             const {id,removed,removedAt,zone}=o.view;
-            if(o===t||!removed||removedAt===undefined||o.view.state!=='identified'||o.under||zone!==t.view.zone||
+            if(o===t||!removed||removedAt===undefined||o.view.state!=='identified'||o.view.faceDown||o.under||zone!==t.view.zone||
               returnedAt-removedAt>FIELD_SET_RETURN_MS||known.some(k=>k.zone===zone&&k.id!==id)||!known.some(k=>k.id===id&&(k.zone===zone||k.zone==='HAND')))return false;
             const cardId=o.view.cardId??o.face?.setCardId??known.find(k=>k.id===id)?.cardId;
             return !cardId||heldReader.lastReadAt(cardId)<removedAt&&!tracks.some(other=>publicPile(other.view.zone)&&other.view.cardId===cardId&&other.view.lastSeen>=removedAt);
           }).sort((a,b)=>b.view.removedAt!-a.view.removedAt!)[0]:undefined;
           if(back){
-            const setCardId=back.view.faceDown?back.face?.setCardId:back.view.cardId;
+            const setCardId=back.view.cardId;
             tracks.splice(tracks.indexOf(back),1);back.best=undefined;twinMisses.delete(back.view.id);missingTwins.delete(back.view.id);
             t.binding={id:back.view.id,zone:back.view.zone,cardId:setCardId,faceDown:back.view.faceDown};t.view.revision=(back.view.revision??0)+1;
             t.identityEmbedding=back.identityEmbedding;t.latestEmbedding=back.latestEmbedding;faceState.setCardId=setCardId;faceState.reference=back.face?.reference;faceState.front=back.face?.front;

@@ -1980,6 +1980,47 @@ test('a face-up card turned face-down in its zone flips in place, also after a l
  }
 });
 
+test('a replacement Set in a vacated S4 gets its own ref and reveal',async()=>{
+ const r=fieldRig('sure',20,undefined,{width:160,height:90},{zoomSets:true});
+ try{
+  r.watcher.setCalibration(zones.createFieldCalibration([{x:0,y:0},{x:1,y:1}]));
+  const front=card(.62,.72,.085,.22),back={...front,kind:'face-down' as const};
+  const mat=Array.from({length:288},(_,i)=>[.58,.35,.25][i%3]+(Math.floor(i/3)%2)*.07);
+  const sleeve=Array(288).fill(.92);
+  r.outlines=[];r.appearanceAt=()=>mat;
+  for(let i=0;i<12;i++)await r.tick(500);
+  r.outlines=[back];r.appearanceAt=()=>sleeve;
+  for(let i=0;i<12;i++)await r.tick(100);
+  const first=r.events.find(e=>e.type==='placed'&&e.track.faceDown)!;
+  assert.equal(first?.track.zone,'S4');
+  const ref=first.track.id;
+  r.watcher.confirm(ref);
+  r.known=[{id:ref,zone:'S4',faceDown:true}];
+  r.outlines=[];r.appearanceAt=()=>mat;
+  // The exposed artwork still registers skin near the old sleeve.
+  r.touchedAt=()=>.07;r.skinNearAt=()=>.15;
+  for(let i=0;i<12&&!r.events.some(e=>e.type==='removed');i++)await r.tick(100);
+  const removal=r.events.find(e=>e.type==='removed');
+  assert.equal(removal?.track.id,ref,'the learned mat is visible at the old Set footprint');
+  assert.equal(removal.evidence?.basis,'pixel');
+  r.events.length=0;
+  r.touchedAt=undefined;r.skinNearAt=undefined;
+  r.outlines=[back];r.appearanceAt=()=>sleeve;
+  for(let i=0;i<12;i++)await r.tick(100);
+  const replacement=r.events.find(e=>e.type==='placed'&&e.track.faceDown);
+  assert.ok(replacement,'the new back is placed even while the old departure is saving');
+  assert.notEqual(replacement.track.id,ref);
+  assert.equal(replacement.track.zone,'S4');
+  r.watcher.confirm(replacement.track.id);
+  r.known=[{id:ref,zone:'HAND',faceDown:true},{id:replacement.track.id,zone:'S4',faceDown:true}];
+  r.outlines=[front];r.appearanceAt=()=>Array.from({length:288},(_,i)=>i%2?.6:.2);
+  for(let i=0;i<12;i++)await r.tick(100);
+  const reveal=r.events.find(e=>e.type==='placed'&&!e.track.faceDown);
+  assert.equal(reveal?.track.id,replacement.track.id);
+  assert.equal(reveal?.track.cardId,'A');
+ }finally{r.watcher.dispose();}
+});
+
 test('a settled same-cell flip follows the announced front after the detector follows the lift',async()=>{
  const r=fieldRig('sure',20,undefined,{width:1600,height:900},{zoomSets:true});
  try{
