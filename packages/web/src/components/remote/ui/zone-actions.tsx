@@ -89,8 +89,8 @@ export function ZoneActions({ tokenOnly, room, seat, zone, at, deck, targetRef, 
       </section>:null}
       <div className={s.zaList}>
         {tokenOnly ? null : card ? <>
-          {move('activate') ? <Row icon="check" primary data-autofocus="" disabled={busy} onClick={() => go(move('activate')!)} data-testid="zone-activate">{move('activate')!.label}</Row> : null}
-          {!card.token ? <Row icon="layers" next primary={!move('activate')} data-autofocus={move('activate') ? undefined : ""} disabled={busy} onClick={() => { setTopRef(card.ref); setMode('top'); }}>Put a card on top</Row> : null}
+          {move('activate') ? <Row icon="check" primary disabled={busy} onClick={() => go(move('activate')!)} data-testid="zone-activate">{move('activate')!.label}</Row> : null}
+          {!card.token ? <Row icon="layers" next primary={!move('activate')} data-autofocus="" disabled={busy} onClick={() => { setTopRef(card.ref); setMode('top'); }}>Put a card on top</Row> : null}
           {move('give') ? <Row icon="hand" disabled={busy} onClick={() => go(move('give')!)} data-testid="zone-give">{move('give')!.label}</Row> : null}
           {move('return') ? <Row icon="hand" disabled={busy} onClick={() => go(move('return')!)} data-testid="zone-return">{move('return')!.label}</Row> : null}
           {move('position') ? <Row icon="flip" disabled={busy} onClick={() => go(move('position')!)}>{move('position')!.label}</Row> : null}

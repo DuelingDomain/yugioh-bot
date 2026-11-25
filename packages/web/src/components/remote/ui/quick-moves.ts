@@ -24,10 +24,9 @@ export function quickMoves({ card, seat, mySeat, solo, live, isLink, canGive, ow
   if (!edit) return [];
   const actorSeat = solo ? seat : mySeat;
   const moves: QuickMove[] = [];
-  // The same signal as the E key and the card dialog's Activate, so the chain shows "<card> activated". A Set card the player knows turns face up first.
+  // The same signal as the E key and the card dialog's Activate, so the chain shows "<card> activated". The server turns a Set card face up in the same action.
   const code = cardCode(card);
-  if (code && !proxy && (solo || seat === mySeat)) moves.push({ id: "activate", label: card.faceUp === false ? "Flip and activate" : "Activate effect", run: () => void (async () => {
-    if (card.faceUp === false && !(await act({ type: "twin.flip", actorSeat, seat, cardRef: card.ref, faceUp: true }))) return;
+  if (code && (solo || seat === mySeat)) moves.push({ id: "activate", label: card.faceUp === false ? "Flip and activate" : "Activate effect", run: () => void (async () => {
     await act({ type: "effect.activated", actorSeat, source: { cardId: code, cardRef: card.ref } });
   })() });
   if (!proxy && seat === mySeat && canGive && ["monster", "extra-monster", "spell-trap"].includes(card.zone)) moves.push({ id: "give", label: "Give control to opponent", run: () => give(card) });
