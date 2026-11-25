@@ -31,7 +31,12 @@ const cards=[
   [47355498,"Necrovalley",0x80002,"Cards in the GY cannot be banished."],
   ...Array.from({length:35},(_,i)=>[900000001+i,"Origin fixture "+(i+1),0x11,""]),
 ];
-for(const [id,name,type,text] of cards) {
+// Cards for the follow-up chip tests: in the catalog, not in the saved deck (Dandylion is forbidden).
+const chipCards=[
+  [55063751,"Gameciel, the Sea Turtle Kaiju",0x21,"You can Special Summon this card (from your hand) to your opponent's field in Attack Position, by Tributing 1 monster they control."],
+  [15341821,"Dandylion",0x21,'If this card is sent to the GY: Special Summon 2 "Fluff Tokens" (Plant/WIND/Level 1/ATK 0/DEF 0) in Defense Position.'],
+];
+for(const [id,name,type,text] of [...cards,...chipCards]) {
   engine.prepare("insert into datas values(?,3,0,0,?,1000,1000,4,2,1)").run(id,type);
   engine.prepare("insert into texts values(?,?,?)").run(id,name,text);
   writeFileSync(resolve(engineDirectory,"card-scripts","c"+id+".lua"),"");
@@ -39,8 +44,8 @@ for(const [id,name,type,text] of cards) {
 engine.close(); writeFileSync(resolve(engineDirectory,"strings.conf"),"");
 await seedDatabase({ databasePath, savedDecks:[{name:"Remote origin fixture",mode:"normal",deck:{main:cards.map(c=>c[0]),extra:[],side:[]}}] });
 const appDb=new Database(databasePath);
-for(const [id,name,type,text] of cards) appDb.prepare("insert into card_catalog(ygoprodeck_id,name,type,frame_type,effect_text,image_url,image_url_small,card_sets_json,cached_at) values(?,?,?,?,?,'','','[]',datetime('now'))")
-  .run(id,name,type===4 ? "Trap Card" : type===0x11 ? "Normal Monster" : "Spell Card",type===4 ? "trap" : type===0x11 ? "normal" : "spell",text);
+for(const [id,name,type,text] of [...cards,...chipCards]) appDb.prepare("insert into card_catalog(ygoprodeck_id,name,type,frame_type,effect_text,image_url,image_url_small,card_sets_json,cached_at) values(?,?,?,?,?,'','','[]',datetime('now'))")
+  .run(id,name,type===4 ? "Trap Card" : type===0x11 ? "Normal Monster" : type===0x21 ? "Effect Monster" : "Spell Card",type===4 ? "trap" : type===0x11 ? "normal" : type===0x21 ? "effect" : "spell",text);
 appDb.close();
 const secret = process.env.E2E_AUTH_SECRET;
 if (!secret || secret.length < 32) throw new Error("Use playwright.remote-ui.config.ts for throwaway auth");

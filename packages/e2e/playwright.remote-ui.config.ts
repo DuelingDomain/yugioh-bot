@@ -4,7 +4,7 @@ process.env.E2E_AUTH_SECRET ??= randomBytes(24).toString("hex");
 const baseURL=`http://localhost:${process.env.E2E_WEB_PORT ?? 3310}`;
 process.env.E2E_REMOTE_UI_URL=baseURL;
 export default defineConfig({
-  testDir: "./tests", testMatch: "remote-ui.spec.ts", workers: 1,
+  testDir: "./tests", testMatch: /remote-(ui|context)\.spec\.ts$/, workers: 1,
   timeout: 120_000, expect: { timeout: 20_000 }, reporter: "list",
   outputDir: ".stack-remote-ui/results",
   use: {

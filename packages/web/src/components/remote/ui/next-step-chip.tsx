@@ -12,8 +12,8 @@ import type { useLayers } from "./use-layers";
 import t from "./stats-tokens.module.css";
 import { Icon } from "./icons";
 
-/** How long the suggestion stays, and how old an event may be to count as news (a reconnect or page load replays old ones). */
-const SHOW_MS = 6000, FRESH_MS = 8000, REPEAT_MS = 30_000;
+/** How long the suggestion stays, how old an event may be to count as news (a reconnect or page load replays old ones), and the pause before the same card may show it again (a play and its effect are one suggestion). */
+const SHOW_MS = 6000, FRESH_MS = 8000, REPEAT_MS = 4000;
 const FIELD = new Set(["monster", "extra-monster", "spell-trap", "field", "pendulum"]);
 const CELL: Record<string, string> = { monster: "m", "spell-trap": "s", "extra-monster": "e" };
 type Chip = { id: number; step: NextStep; name: string; cardId: number; ref?: string; seat: number; at: { left: number; top: number } | null };
@@ -46,7 +46,10 @@ export function useNextStep({ room, live, tokens, control, layers }: {
     shown.current.set(key, serverNow());
     const card = ref ? roomRef.current.state.seats[seat]?.twin.find(c => c.ref === ref) : undefined;
     const cell = card && CELL[card.zone] && card.slot ? `${CELL[card.zone]}${card.slot}` : null;
-    const rect = cell ? [...document.querySelectorAll<HTMLElement>(`[data-zone="${cell}"][data-seat="${seat}"]`)].map(el => el.getBoundingClientRect()).find(r => r.width > 0) : undefined;
+    // Over the card's zone when it is in view; otherwise (a phone shows one field at a time) just above the phase bar.
+    const inView = (r: DOMRect) => r.width > 0 && r.top >= 56 && r.bottom <= window.innerHeight;
+    const rect = (cell ? [...document.querySelectorAll<HTMLElement>(`[data-zone="${cell}"][data-seat="${seat}"]`)].map(el => el.getBoundingClientRect()).find(inView) : undefined)
+      ?? [...document.querySelectorAll<HTMLElement>('[data-testid="rail"]')].map(el => el.getBoundingClientRect()).find(inView);
     clearTimeout(timer.current);
     setChip({ id: ++counter.current, step, name: label, cardId, ref, seat, at: rect ? { left: rect.left + rect.width / 2, top: rect.top } : null });
     timer.current = setTimeout(() => setChip(null), SHOW_MS);

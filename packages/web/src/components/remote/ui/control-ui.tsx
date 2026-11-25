@@ -195,7 +195,7 @@ export function useControlChange({ act, room, live, extraZones, layers, info, na
     </>;
   } else if (view?.step === "hand") {
     heading = "Give a card to an opponent";
-    body = <GiveHand onClose={close} onChoose={(card, draft) => {
+    body = <GiveHand here={!!view.target} onClose={close} onChoose={(card, draft) => {
       const row: Row = /spell|trap/i.test(card.type) ? "spell-trap" : "monster";
       const sent: Give = { seat: view.seat, row, name: card.name, draft: { cardId: card.id, ...draft } };
       close();
@@ -232,7 +232,7 @@ export function useControlChange({ act, room, live, extraZones, layers, info, na
 }
 
 /** Search the catalog for the card in the hand, then ask how it lands. The zone is the next click. */
-function GiveHand({ onChoose, onClose }: { onChoose: (card: CardInfo, draft: { position: Position; faceUp: boolean }) => void; onClose: () => void }) {
+function GiveHand({ here, onChoose, onClose }: { here?: boolean; onChoose: (card: CardInfo, draft: { position: Position; faceUp: boolean }) => void; onClose: () => void }) {
   const [query, setQuery] = useState(""); const [found, setFound] = useState<CardInfo[] | null>(null); const [chosen, setChosen] = useState<CardInfo | null>(null);
   const [position, setPosition] = useState<Position>("attack"); const [faceUp, setFaceUp] = useState(true);
   useEffect(() => {
@@ -263,7 +263,7 @@ function GiveHand({ onChoose, onClose }: { onChoose: (card: CardInfo, draft: { p
       {!faceUp ? <p className={t.note}>A face-down card stays hidden from the other players. Only you can see what it is.</p> : null}
     </> : null}
     <div className={t.row}>
-      <button type="button" className={`${s.btn} ${s.go}`} disabled={!chosen} data-testid="give-choose-zone" onClick={() => { if (chosen) onChoose(chosen, { position, faceUp }); }}>Choose a zone</button>
+      <button type="button" className={`${s.btn} ${s.go}`} disabled={!chosen} data-testid="give-choose-zone" onClick={() => { if (chosen) onChoose(chosen, { position, faceUp }); }}>{here ? "Give here" : "Choose a zone"}</button>
       <button type="button" className={`${s.btn} ${s.q}`} onClick={onClose} data-testid="control-dismiss">Not now</button>
     </div>
   </>;
