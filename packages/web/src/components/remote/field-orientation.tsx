@@ -33,7 +33,7 @@ function MirrorButton({ orientation:{orientation,mirror}, disabled }: { orientat
   return <button type="button" disabled={disabled} aria-pressed={orientation.mirrored} title="Swap the player's left and right for mirrored video" onClick={mirror}>Mirror</button>;
 }
 function ConfirmHint({ orientation:{orientation,set}, disabled, className }: { orientation:Orientation; disabled:boolean; className:string }) {
-  return <span className={className} role="status" data-testid="orientation-hint">Is this right? <small>Auto-placement paused</small>
+  return <span className={className} role="status" data-testid="orientation-hint" title="Auto-placement stays paused until you answer">Is this right?
     <button type="button" disabled={disabled} data-testid="orientation-confirm" onClick={()=>set(orientation.playerSide,true)}>Yes</button></span>;
 }
 
