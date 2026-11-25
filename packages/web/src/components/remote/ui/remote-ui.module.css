@@ -1563,7 +1563,7 @@
 /* ---- table drawer (Log / Settings / Info / Admin): right side, pushes the table from 1100 px, full sheet on a phone ---- */
 .app{--tdr-w:392px}
 @media (max-width:1499px){.app{--tdr-w:340px}}
-.drawer.tdr{right:0;left:auto;transform:translateX(104%);border-left:1px solid var(--line2);width:392px;max-width:100vw}
+.drawer.tdr{z-index:40;right:0;left:auto;transform:translateX(104%);border-left:1px solid var(--line2);width:392px;max-width:100vw}
 .drawer.tdr.open{transform:none}
 .tdr .dh .sp{flex:1}
 .tdr .tabs{padding:0 8px}

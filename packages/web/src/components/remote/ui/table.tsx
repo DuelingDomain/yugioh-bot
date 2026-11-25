@@ -1705,7 +1705,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
             onAttack={(_key, card) => startAttack(seat, card)} onInspect={card => openSubject(card)} onPile={(zone, opener) => openPile(seat, zone, opener)} onDeck={(solo || seat === mySeat) && surrenderable(seat) ? el => { setDeckAt({ seat, rect: el.getBoundingClientRect() }); layers.toggle("deck", el); } : undefined} live={live} drag={fieldDrag(seat)} onPlate={() => { if (plate) void declare(seat); }}
             onLp={delta => void changeLp(seat, delta)} canLp={live} deckWarning={deckFlag(room, seat)?.message} onDeckFlag={el => { setFlagSeat(seat); layers.toggle("flag", el); }}
             hand={handOf(seat)} thinkingSince={thinking.get(seat)}
-            cameraControl={seat === mySeat ? scan => <div className={s.camtools}><div className={s.toolrow}>{scan}</div></div> : undefined}
+            cameraControl={seat === mySeat ? scan => <div className={s.camtools}><div className={s.toolrow} data-testid="camera-row">{scan}</div></div> : undefined}
             track={<PhaseTrack seat={seat} name={name(seat)} turn={seat === turnShown} phase={state.phase} canAct={live && myTurn && !state.attack} onPick={phaseAsk.pick} />} turnIn={turnIn && seat === turnShown}
             emptyFeedAction={seat === mySeat && !hub.cameraOn ? <button type="button" className={`${s.btn} ${s.sm} ${s.go}`} disabled={hub.starting} onClick={event => { event.stopPropagation(); void (hub.manual(seat) ? hub.useWebcam() : hub.enableCamera()); }} data-testid="camera-on-feed">{hub.starting ? "Starting…" : "Turn camera on"}</button> : undefined}
             emptyFeedText={hub.manual(seat) ? `No camera (manual). Use ${voiceRecognition ? "voice, " : ""}typing and your board twin.` : hub.health(seat).label === "Scan mode" ? "Scan mode · follow the board twin and log." : bot ? "Test opponent. No camera." : seat === mySeat ? "Your camera is off." : `Waiting for ${name(seat)}'s camera.`} />;
@@ -1741,6 +1741,8 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
             onMute={() => setMuted(v => !v)} onPtt={() => { setPtt(v => !v); setHeld(false); }} offTurn={!myTurn} />
           {voiceRecognition ? <>
             <p className={drawerCss.hint}>Say &quot;undo&quot;, &quot;pass turn&quot;, &quot;attack directly with Ash&quot;.</p>
+            <VoxSection recognition transcript={shownTranscript} proposal={null} samples={[...voiceCommands]} onConfirm={() => undefined} onCancel={cancelChip}
+              onSample={text => apply(interpret(text, voiceContext()), text, `sample-${Date.now()}`)} />
             <VoiceControls method={voice.method} onMethod={method => { setProposal(null); voice.pickMethod(method); }} logging={room.voiceDiagnosticsEnabled === true && !muted && live} last={diagnostics.last} recentIds={diagnostics.recentIds} onMark={diagnostics.mark} /></> : null}
         </> : null} />}
       adminPanel={<AdminTab room={room} isAdmin={adminAccess === true} collecting={feedbackPref?.isAdmin === true && feedbackPref.collectionEnabled} onFeedbackPref={onFeedbackPref} />} />

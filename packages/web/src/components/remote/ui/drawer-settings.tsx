@@ -5,7 +5,7 @@ import type { RemoteRoom } from "@yugidraft/shared/remote";
 import { ThemedSelect } from "@/components/ui/themed-select";
 import { VisionFeedbackSetting, type FeedbackPreference } from "@/components/settings/vision-feedback-setting";
 import { saveFieldClip, useFieldClipReady } from "@/lib/remote/clip-capture";
-import { setFieldDebugEnabled, useCardDetection, useFieldDebugEnabled, useFieldDeveloper, useFieldWatcherError, useGridPref, useHoverFreeze, useZoneGrid, writeGridPref, writeHoverFreeze } from "@/lib/remote/zone-grid";
+import { setFieldDebugEnabled, useFieldDebugEnabled, useFieldDeveloper, useFieldWatcherError, useGridPref, useHoverFreeze, useZoneGrid, writeGridPref, writeHoverFreeze } from "@/lib/remote/zone-grid";
 import { FieldOrientationSettings } from "../field-orientation";
 import { PhonePairing } from "../phone/pairing";
 import { adminWatchHref, useAdminWatchTables } from "./admin-watch-list";
@@ -40,7 +40,7 @@ export type DrawerSettingsProps = {
 
 /** Settings tab: Camera, Detection, Voice and View. Every control is an existing setting; only the place changed. */
 export function SettingsTab({ room, webcamOnly, onView, viewLocked, onCameraOff, voice }: DrawerSettingsProps) {
-  const hub = useVideoHub(), grid = useZoneGrid(), detection = useCardDetection();
+  const hub = useVideoHub(), grid = useZoneGrid();
   const ownGrid = useGridPref(true), opponentGrid = useGridPref(false), hoverFreeze = useHoverFreeze();
   const watcherError = useFieldWatcherError();
   const hasCamera = grid.ownSeat !== null && !!hub.sourceFor(grid.ownSeat);
@@ -49,7 +49,7 @@ export function SettingsTab({ room, webcamOnly, onView, viewLocked, onCameraOff,
   const calibrate = () => grid.calibrate?.();
   return <>
     <Group title="Camera" testId="drawer-camera">
-      <Row label="Camera source" stack testId="camera-row"><PhonePairing room={room} /></Row>
+      <Row label="Camera source" stack testId="camera-source"><PhonePairing room={room} /></Row>
       {hub.cameraOn && hub.devices.length > 1 ? <Row label="Choose camera"><ThemedSelect variant="menu" label="Choose camera" hideLabel placeholder="Choose camera" value={hub.cameraId} testId="camera-choice"
         choices={hub.devices.map(device => ({ value: device.deviceId, label: device.label || "Camera" }))} onChange={id => void hub.selectCamera(id)} /></Row> : null}
       <VideoRateSetting />
@@ -66,7 +66,7 @@ export function SettingsTab({ room, webcamOnly, onView, viewLocked, onCameraOff,
       <Row label="Now" note="Where card recognition runs and the last read time."><RecognitionBadge phoneCamera={phone} /></Row>
       {watcherError ? <p className={d.hint} role="status">{watcherError}</p> : null}
       <Row label="Freeze while hovering a card" note="Freezes the frame when the pointer rests on a camera."><Switch on={hoverFreeze} onChange={writeHoverFreeze} label="Freeze while hovering a card" testId="hover-freeze" /></Row>
-      <Row label="Show zone grid" note="My webcam. Shows where your zones are."><Switch on={ownGrid && !(detection && !detection.autoDetect)} disabled={!!detection && !detection.autoDetect} onChange={on => writeGridPref(true, on)} label="Show zone grid on my webcam" testId="zone-grid-toggle" /></Row>
+      <Row label="Show zone grid" note="My webcam. Shows where your zones are."><Switch on={ownGrid} onChange={on => writeGridPref(true, on)} label="Show zone grid on my webcam" testId="zone-grid-toggle" /></Row>
       <Row label="Show zone grid on opponent webcams"><Switch on={opponentGrid} onChange={on => writeGridPref(false, on)} label="Show zone grid on opponent webcams" testId="zone-grid-toggle-opponent" /></Row>
       <Row label="Zones" note={canZones ? "Move, resize or turn the zone grid to fit your mat." : "Available once your camera video is showing."}>
         <button type="button" className={`${s.btn} ${s.sm}`} disabled={!canZones} onClick={calibrate} data-testid="zone-grid-fit">Fit to my mat</button>
