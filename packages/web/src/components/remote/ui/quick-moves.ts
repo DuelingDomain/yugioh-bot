@@ -25,7 +25,8 @@ export function quickMoves({ card, seat, mySeat, solo, live, isLink, canGive, ow
   const actorSeat = solo ? seat : mySeat;
   const moves: QuickMove[] = [];
   if (!proxy && seat === mySeat && canGive && ["monster", "extra-monster", "spell-trap"].includes(card.zone)) moves.push({ id: "give", label: "Give control to opponent", run: () => give(card) });
-  if (proxy && ownerAlive) moves.push({ id: "return", label: seat === mySeat ? "Return control" : "Take back", run: () => giveBack(seat, card) });
+  // Return control asks for a Main Monster or Spell & Trap Zone, so a proxy in a Field or Pendulum Zone does not get it.
+  if (proxy && ownerAlive && ["monster", "extra-monster", "spell-trap"].includes(card.zone)) moves.push({ id: "return", label: seat === mySeat ? "Return control" : "Take back", run: () => giveBack(seat, card) });
   if (card.faceUp !== false && (card.zone === "monster" || card.zone === "extra-monster") && (card.position === "defense" || !isLink))
     moves.push({ id: "position", label: card.position === "defense" ? "Change to Attack" : "Change to Defense",
       run: () => void act({ type: "twin.flip", actorSeat, seat, cardRef: card.ref, faceUp: true, position: card.position === "defense" ? "attack" : "defense" }) });

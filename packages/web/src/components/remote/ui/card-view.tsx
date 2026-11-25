@@ -199,7 +199,7 @@ export function CardPopover({ subject, info, at, warning, actions, onClose }: {
     <div className={s.bbar} data-testid="card-popover-footer">
       {viewOnly ? <>
         {actions.quick?.length ? <Group label="Card" testid="card-quick-moves">
-          {actions.quick.map(move => <button type="button" key={move.id} className={BTN} onClick={move.run} data-testid={`quick-${move.id}`}>{move.label}</button>)}
+          {actions.quick.map(move => <button type="button" key={move.id} className={BTN} onClick={() => { onClose(); move.run(); }} data-testid={`quick-${move.id}`}>{move.label}</button>)}
         </Group> : null}
         {actions.onReadAgain ? <button type="button" className={BTN} onClick={actions.onReadAgain} data-testid="card-read-again">Read again</button> : null}
         {actions.onWrong ? <button type="button" className={BTN} onClick={actions.onWrong}>Wrong card?</button> : null}

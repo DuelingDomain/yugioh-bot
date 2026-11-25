@@ -73,7 +73,8 @@ export function ZoneActions({ tokenOnly, room, seat, zone, at, deck, targetRef, 
     }} />;
   const held = card?.materials?.length ?? 0;
   const move = (id: QuickMove['id']) => quick.find(m => m.id === id);
-  const go = (m: QuickMove) => { m.run(); onClose(); };
+  // Close first: a move that opens its own layer (the Return control zone choice) must be the last layer change.
+  const go = (m: QuickMove) => { onClose(); m.run(); };
   const sends = (['grave', 'banish', 'hand'] as const).map(move).filter((m): m is QuickMove => !!m);
   const set = /^[ms][1-5]$/.test(zone);
   return <PopupFrame at={at} layer="zone" label={`Actions in ${ZN[zone]}`} className={`${s.zonePicker} ${s.zoneMenu}`} testid="zone-actions" busy={busy}>
