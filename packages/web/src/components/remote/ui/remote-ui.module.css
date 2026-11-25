@@ -67,6 +67,9 @@
 .tb.leaveBtn{height:34px;padding:0 15px;font-size:14px;font-weight:700;border-color:color-mix(in srgb,var(--lossd) 70%,transparent);background:color-mix(in srgb,var(--lossd) 14%,var(--p0));color:var(--loss)}
 .tb.leaveBtn:hover{border-color:var(--lossd);color:var(--loss);background:color-mix(in srgb,var(--lossd) 26%,var(--p0))}
 .tb.warnc{border-color:rgb(240 178 79/.6);color:var(--warn)}.tb.badc{border-color:rgb(228 90 77/.7);color:var(--loss)}
+/* The feed health chip reads as a status (dot and words, no frame); it still opens the Info tab. */
+.tb.tbStatus,.tb.tbStatus.warnc,.tb.tbStatus.badc{border-color:transparent;background:transparent;padding:0 6px;font-weight:500;font-size:12.5px}
+.tb.tbStatus:hover,.tb.tbStatus[aria-expanded=true]{border-color:transparent;text-decoration:underline;text-underline-offset:3px}
 .nb{position:absolute;top:-4px;right:-4px;width:9px;height:9px;border-radius:50%;background:var(--gold);box-shadow:0 0 8px var(--gold);display:none}
 .nb.on{display:block}
 .ibtn{display:grid;place-items:center;width:30px;height:30px;border:1px solid var(--line);border-radius:6px;background:none;color:var(--ink2)}
@@ -361,10 +364,10 @@
 .fboard>.fwrap{flex:none;max-width:100%}
 .fboard{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px 10px;min-width:0}
 .fwrap[data-rail]{--scanw:0px;--scanh:40px}
-/* My board gets a little more than the others: the space the Scan column freed. The camera stays at least as large as before. */
-.seat.mine{--fmin:.32;--fmax:.485}
+/* Both seats use one share, so both webcams are the same height and the same width. The webcam fills the seat first; the board takes what is left (at least 20 % of the seat). */
+.seat{--fmin:.2;--fmax:.42}
 /* A narrow seat (3-way on a laptop) keeps the board no wider than its camera: the camera is the biggest feed. */
-@container seat (max-width:520px){.seat.mine:not([data-view="field"]) .fwrap{--fmin:.27;--fmax:.27}}
+@container seat (max-width:520px){.seat:not([data-view="field"]) .fwrap{--fmin:.27;--fmax:.27}}
 @container seat (min-width:800px){.seat[data-view="field"] .fboard{flex-direction:row}.seat[data-view="field"] .fwrap[data-rail]{--scanw:172px;--scanh:0px}}
 .toolrow .scanbtn{height:28px;padding:0 10px;font-size:13px}
 /* Scan field is the primary action of my camera tools: a bold neutral button (light fill, no gold) with its hotkey shown. It pulses white and says why while the camera and the board disagree. */
@@ -554,6 +557,10 @@
 .bmbtn.bleave .ic{color:var(--loss)}
 .bmbtn.bleave:hover{border-color:var(--lossd);background:color-mix(in srgb,var(--lossd) 24%,var(--p0))}
 .bsep{align-self:stretch;width:1px;margin:6px 2px;background:var(--line2)}
+/* On wide screens this wrapper adds no box: its children sit in the bar in the same order as before. On a phone it is the "..." panel. */
+.bover{display:contents}
+.bmoreBtn{display:none}
+.bover>.undo,.bover>.bsig,.bover>.bmenu{order:1}.bar>.bvoice,.bar>.bvoff{order:2}.bover>.pback{order:3}.bar>.pass{order:4}
 .bmic{position:relative;flex:none;width:40px;height:40px;border-radius:50%;border:2px solid var(--line2);background:radial-gradient(circle at 35% 30%,var(--p3),var(--p0));color:var(--ink2);display:grid;place-items:center;transition:.25s var(--ease)}
 .bmic .ic{width:20px;height:20px}
 .bmic.listen{border-color:var(--gold);color:#1b1204;background:radial-gradient(circle at 35% 30%,var(--gold-ink),var(--gold));box-shadow:0 0 0 4px rgb(232 185 79/.16),0 0 20px rgb(232 185 79/.45)}
@@ -597,19 +604,30 @@
   .bvbtn .bvl{display:none}
   .bmore{display:none}
 }
+/* 1101-1500 px with the voice controls: the Undo label gives way first, so Think and OK are never squeezed. */
+@media (min-width:1101px) and (max-width:1500px){
+  .bar .dk.undo{flex:0 1 auto;min-width:0}.bar .ubtn{flex:0 1 auto;min-width:0}.bar .ubtn .ul{max-width:clamp(90px,13vw,200px)}
+  .bsig{flex:1 1 auto;min-width:150px}
+}
 
 @media (max-width:900px){
-  .bar{position:fixed;left:0;right:0;bottom:0;z-index:36;height:auto;margin:0;display:grid;grid-template-columns:minmax(0,1fr) auto auto;grid-template-areas:"turn back pass" "undo undo voice" "sig sig sig" "menu menu menu";gap:6px 8px;align-items:center;padding:8px 10px calc(8px + env(safe-area-inset-bottom));border-radius:14px 14px 0 0;border-width:1px 0 0}
-  .bar>.bturn{grid-area:turn;padding-right:0;border-right:0;gap:9px}.bturn .pip{width:12px;height:12px}.bturn .tn b{max-width:none;font-size:17px}
-  .bar>.undo{grid-area:undo;min-width:0}
-  .bar .ubtn{flex:1;min-width:0}.bar .ubtn .ul{max-width:none;font-size:14px}
-  .bar>.bsig{grid-area:sig;justify-content:center}
-  .bar>.bmenu{grid-area:menu;display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:6px}.bmenu .bsep{display:none}.bmbtn{height:44px;font-size:14px}.bmore{display:inline}
-  .bar .myfield{display:inline-flex}
+  /* One row: the turn, the mic, "..." and Pass. Everything else is in the "..." panel above the bar. */
+  .bar{position:fixed;left:0;right:0;bottom:0;z-index:36;height:auto;margin:0;display:grid;grid-template-columns:minmax(0,1fr) auto auto auto;grid-template-areas:"turn voice more pass";gap:6px 8px;align-items:center;padding:8px 10px calc(8px + env(safe-area-inset-bottom));border-radius:14px 14px 0 0;border-width:1px 0 0}
+  .bar>.bturn{grid-area:turn;padding-right:0;border-right:0;gap:9px}.bturn .pip{width:12px;height:12px}.bturn .tn b{max-width:none;font-size:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .bar>.bvoice,.bar>.bvoff{grid-area:voice;justify-self:end}
+  .bar>.bmoreBtn{grid-area:more;display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;border:1px solid var(--line2);border-radius:10px;background:var(--p0);color:var(--ink)}
+  .bmoreBtn .ic{width:20px;height:20px}.bmoreBtn:hover,.bmoreBtn.on{border-color:var(--pen);background:var(--p2)}
+  .bmoreBtn:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+  .bover{display:none;position:absolute;left:8px;right:8px;bottom:calc(100% + 8px);z-index:40;flex-direction:column;align-items:stretch;gap:10px;max-height:calc(100dvh - 120px);overflow:auto;padding:12px;border:1px solid var(--line2);border-radius:14px;background:linear-gradient(180deg,#1a1130,#0f0a1f);box-shadow:0 12px 36px rgb(0 0 0/.6)}
+  .bover[data-open]{display:flex}
+  .bover>.undo{min-width:0}
+  .bar .ubtn{flex:1;min-width:0}.bar .ubtn .ul{max-width:none;font-size:14px}.bar .ubtn .ut{display:flex}
+  .bover>.bsig{justify-content:center;flex:none;min-width:0}
+  .bover>.bmenu{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:6px}.bmenu .bsep{display:none}.bmbtn{height:44px;font-size:14px}.bmore{display:inline}
+  .bar .myfield{display:inline-flex}
   .bvbtn .bvl{display:none}
-  .bar>.pback{grid-area:back;height:38px;padding:0 10px;font-size:12px}
-  .bar>.pass{grid-area:pass;height:38px;padding:0 12px;font-size:13px}.bar>.pass>span:last-child{display:none}
+  .bover>.pback{align-self:stretch;justify-content:center;height:44px;padding:0 10px;font-size:14px}
+  .bar>.pass{grid-area:pass;height:44px;padding:0 14px;font-size:14px}.bar>.pass>span:nth-last-child(-n+2){display:none}
   .vpop{position:fixed;left:8px;right:8px;bottom:calc(var(--dockh,128px) + 8px);width:auto;max-height:60dvh;overflow:auto}
   .vpop .mctl,.vpop .msub{display:flex}
   .bar .pconfirm{left:0;right:0;transform:none;white-space:normal;flex-wrap:wrap}
@@ -921,6 +939,8 @@
   .adminPill{max-width:100%}
   .seg button{padding:6px 10px}
   .tb{padding:0 9px}
+  /* At 360 px the header has room for the logo, the timer and four buttons: the feed status shows as its dot only (its words are the label and the Info tab). */
+  .top{overflow:hidden}.top .tbStatus>span:last-child,.top .vbeta{display:none}.top .tbStatus{padding:0 4px}.top .sp{min-width:0}.top .logo{min-width:0;flex:none}
   .stage{display:flex;flex-direction:column;padding:var(--gap);gap:10px}
   .seat,.lpstrip{order:3}
   .stage .s1{order:1}.stage .s0{order:3}
@@ -1365,6 +1385,8 @@
 @media (prefers-reduced-motion:reduce){.pile{animation:none}.pileArt{transition:none}}
 
 .zgcontrols{position:absolute;z-index:4;pointer-events:auto;max-height:calc(100% - 48px);overflow:auto}
+/* Narrow feeds: the status chips wrap to two rows, so the side picker starts below them and never covers the zone labels' chips. */
+@media (max-width:480px){.zgcontrols{top:62px!important}}
 
 /* Card recognition: where it runs (GPU or CPU) and the last read time */
 .backendBadge{display:block;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border:1px solid var(--line2);border-radius:4px;padding:3px 6px;background:rgb(7 4 14/.85);color:var(--ink2);font:600 10px/1.2 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif}
@@ -1499,6 +1521,8 @@
 @media (max-width:700px){.hchip{position:fixed;left:8px;right:8px;top:calc(var(--hdr) + 46px);z-index:33;flex-wrap:nowrap;overflow-x:auto;background:rgb(18 11 34/.98);box-shadow:0 8px 24px rgb(0 0 0/.55)}.hchip>*{flex:none}}
 /* Narrow top bar: after the 900px rules, so these win. Keeps the Surrender flag on screen at 360px. */
 @media (max-width:480px){.top{gap:4px;padding:0 6px}.top .seg button{padding:6px 7px}.top .tb{padding:0 7px;gap:5px}.top .logo{gap:0}.top [data-testid=health-chip]{font-size:12px}.top [data-testid=health-chip] span:last-child{max-width:68px;overflow:hidden;text-overflow:ellipsis}}
+/* 360 px phones: icon + ON is enough for the board toggle, so Card and Log stay whole. */
+@media (max-width:400px){.top .boardtog .lbl{display:none}}
 
 .voiceTools { display:flex; flex-wrap:wrap; align-items:center; gap:8px; font-size:12px; padding:6px 0; }
 .voiceTools label, .voiceTools form { display:flex; flex-wrap:wrap; align-items:center; gap:6px; }
@@ -1583,8 +1607,12 @@
 .toolsMenu:popover-open{display:flex;flex-direction:column;gap:4px}
 .toolsMenu:not(:popover-open){display:none}
 .toolsMenu .zaRow[aria-disabled=true]{opacity:.55;cursor:default}
-.toolsMenu{width:min(340px,calc(100vw - 16px));gap:2px;padding:8px}
-.toolsGroup{display:flex;flex-direction:column;gap:6px;padding:8px 0 10px}
+.toolsMenu{width:min(300px,calc(100vw - 16px));gap:2px;padding:6px}
+/* One line per row: the note is the row's tooltip. A note that carries live state (scan advice, "asked") stays visible. */
+.toolsMenu .zaRow{min-height:34px;padding:4px 10px}
+.toolsMenu .zaSub{display:none}
+.toolsMenu .zaRow[data-need] .zaSub,.toolsMenu .zaRow[data-sent] .zaSub{display:block}
+.toolsGroup{display:flex;flex-direction:column;gap:4px;padding:6px 0 8px}
 .toolsGroup+.toolsGroup,.toolsGroup+.toolsFoot{border-top:1px solid var(--line)}
 .toolsLabel{padding:0 4px;font:700 11px/1.2 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;letter-spacing:.12em;text-transform:uppercase;color:var(--ink3)}
 .toolsField{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--ink3)}
@@ -1725,8 +1753,8 @@
 @media (max-width:1499px){.app{--tdr-w:340px}}
 .drawer.tdr{z-index:40;left:0;right:auto;transform:translateX(-104%);border-left:0;border-right:1px solid var(--line2);width:392px;max-width:100vw}
 .drawer.tdr.open{transform:none}
-.tdr .tabs{align-items:stretch;gap:2px;padding:0 6px 0 10px;border-bottom:1px solid var(--line2)}
-.tdr .tabs [role=tab]{flex:1 1 0;min-width:0;padding:15px 6px 13px;font:700 14px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;letter-spacing:.1em;text-transform:uppercase}
+.tdr .tabs{align-items:stretch;gap:6px;padding:0 6px 0 10px;border-bottom:1px solid var(--line2)}
+.tdr .tabs [role=tab]{flex:1 1 0;min-width:0;padding:15px 4px 13px;font:700 13.5px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;letter-spacing:.07em;text-align:center;text-transform:uppercase}
 .tdr .tabs [role=tab]:hover{color:var(--ink)}
 .tdr .tabs [role=tab][aria-selected=true]{color:var(--ink);border-bottom-color:var(--gold)}
 .tdr .tabs .tabx{flex:none;align-self:center;margin-left:4px;width:32px;height:32px;padding:0;border:1px solid var(--line);color:var(--ink2)}
@@ -1741,8 +1769,8 @@
 /* The pushed drawer leaves the bar about 340 px less room, so a laptop window gets the same short bar as a small window. */
 @media (min-width:1100px) and (max-width:1560px){
   .app[data-drawer] .bar{gap:8px;padding:0 8px}
-  .app[data-drawer] .bturn{padding-right:8px;gap:8px}.app[data-drawer] .bturn .tn b{max-width:96px;font-size:16px}
-  .app[data-drawer] .bar .dk.undo{flex:0 1 auto;min-width:0}.app[data-drawer] .bar .ubtn{flex:0 1 auto;min-width:0;padding:0 10px}.app[data-drawer] .bar .ubtn .ul{max-width:96px;font-size:14px}
+  .app[data-drawer] .bturn{padding-right:8px;gap:8px}.app[data-drawer] .bturn .tn b{max-width:170px;font-size:16px}
+  .app[data-drawer] .bar .dk.undo{flex:0 1 auto;min-width:0}.app[data-drawer] .bar .ubtn{flex:0 1 auto;min-width:0;padding:0 10px}.app[data-drawer] .bar .ubtn .ut{display:none}
   .app[data-drawer] .bsig{flex:1 1 auto;min-width:150px}
   .app[data-drawer] .bar .pass{padding:0 12px;font-size:14px}.app[data-drawer] .bar .pass>span:last-child{display:none}
   .app[data-drawer] .bar .pback{padding:0 10px}

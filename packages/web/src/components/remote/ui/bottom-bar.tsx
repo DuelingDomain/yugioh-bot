@@ -33,7 +33,9 @@ export function BottomBar({ players, turnSeat, turn, phase, canAct, nextSeat, pa
 }) {
   const current = players.find(p => p.seat === turnSeat); const next = players.find(p => p.seat === nextSeat);
   const [open, setOpen] = useState(false);
-  const voiceRef = useRef<HTMLDivElement>(null);
+  // Phone only: Undo, Think, OK, Settings, Surrender, Quit and Back sit in this "..." panel (on wider screens the wrapper is invisible).
+  const [more, setMore] = useState(false);
+  const voiceRef = useRef<HTMLDivElement>(null), moreRef = useRef<HTMLDivElement>(null);
   const shown = open || !!voice?.proposal;
   // The popover closes on a press outside it or on Escape. A press that closes it still reaches what was pressed.
   useEffect(() => {
@@ -43,6 +45,13 @@ export function BottomBar({ players, turnSeat, turn, phase, canAct, nextSeat, pa
     document.addEventListener("pointerdown", away, true); document.addEventListener("keydown", key);
     return () => { document.removeEventListener("pointerdown", away, true); document.removeEventListener("keydown", key); };
   }, [open]);
+  useEffect(() => {
+    if (!more) return;
+    const away = (event: PointerEvent) => { if (!moreRef.current?.contains(event.target as Node)) setMore(false); };
+    const key = (event: KeyboardEvent) => { if (event.key === "Escape") { event.stopPropagation(); event.preventDefault(); setMore(false); } };
+    document.addEventListener("pointerdown", away, true); document.addEventListener("keydown", key);
+    return () => { document.removeEventListener("pointerdown", away, true); document.removeEventListener("keydown", key); };
+  }, [more]);
   const micLabel = voice ? (voice.muted ? "Unmute microphone" : "Mute microphone") : "";
   return <div ref={dockRef} className={`${s.bar} ${mine ? s.mine : ""}`} data-testid="rail" data-mine={mine || undefined} role="group" aria-label="Turn, undo and voice">
     <span className={s.sr} role="status" aria-live="polite" data-testid="rail-live">{mine ? "Your turn. " : ""}{current?.name ?? "Table"}&apos;s turn, turn {turn}, {PHASE_LONG[phase] ?? phase}.</span>
@@ -52,6 +61,7 @@ export function BottomBar({ players, turnSeat, turn, phase, canAct, nextSeat, pa
         <span className={s.tcap}>{mine ? <span className={s.you} data-testid="your-turn">Your turn</span> : null}<span className={s.tm}>Turn {turn}</span></span>
         <b data-testid="turn-name">{current?.name ?? "Table"}&apos;s turn</b></div>
     </div>
+    <div ref={moreRef} className={s.bover} id="bar-more-panel" data-open={more || undefined} onClick={event => { if ((event.target as HTMLElement).closest("button:not(:disabled)")) setMore(false); }}>
     <UndoSection {...undo} />
     <div className={s.bsig}>{center}</div>
     <div className={s.bmenu} role="group" aria-label="Table menu">
@@ -61,6 +71,12 @@ export function BottomBar({ players, turnSeat, turn, phase, canAct, nextSeat, pa
       {onSurrender ? <button type="button" className={`${s.bmbtn} ${s.bleave}`} aria-haspopup="dialog" data-layer-opener data-testid="surrender-button" onClick={event => onSurrender(event.currentTarget)}><Icon name="flag" /><span>Surrender</span></button> : null}
       {onQuit ? <button type="button" className={`${s.bmbtn} ${s.bleave}`} aria-haspopup="dialog" aria-label="Quit match" data-layer-opener data-testid="quit-button" onClick={event => onQuit(event.currentTarget)}><Icon name="x" /><span>Quit<span className={s.bmore}> match</span></span></button> : null}
     </div>
+    <button type="button" className={s.pback} disabled={!canAct || !backTo} data-testid="phase-back" onClick={() => backTo && onAsk(backTo)}
+      aria-label={backTo ? `Back to ${PHASE_LONG[backTo] ?? backTo}` : "No earlier phase"} title={backTo ? `Back to ${PHASE_LONG[backTo] ?? backTo}` : "No earlier phase"}>
+      <span aria-hidden="true">◀</span> Back</button>
+    </div>
+    <button type="button" className={`${s.bmoreBtn} ${more ? s.on : ""}`} aria-haspopup="true" aria-expanded={more} aria-controls="bar-more-panel" aria-label="More: undo, signals, settings, surrender" data-testid="bar-more"
+      onClick={() => setMore(v => !v)}><Icon name="dots" /></button>
     {voice ? <div className={s.bvoice} ref={voiceRef} data-testid="mic" data-mic={voice.state}>
       <button type="button" className={`${s.bmic} ${s[voice.state] ?? ""}`} aria-pressed={voice.muted} aria-label={micLabel} title={micLabel} data-testid="mic-button" onClick={voice.onMute}>
         <Icon name={voice.state === "muted" ? "micoff" : "mic"} /></button>
@@ -72,9 +88,6 @@ export function BottomBar({ players, turnSeat, turn, phase, canAct, nextSeat, pa
       {shown && voice.recognition ? <div className={s.vpop} role="dialog" aria-label="Voice" data-testid="voice-popover">{voice.details}</div> : null}
     </div> : null}
     {voiceOff ? <span className={s.bvoff} data-testid="voice-off" title="Voice commands are off. Use the phase boxes, the buttons and the keyboard.">Voice off</span> : null}
-    <button type="button" className={s.pback} disabled={!canAct || !backTo} data-testid="phase-back" onClick={() => backTo && onAsk(backTo)}
-      aria-label={backTo ? `Back to ${PHASE_LONG[backTo] ?? backTo}` : "No earlier phase"} title={backTo ? `Back to ${PHASE_LONG[backTo] ?? backTo}` : "No earlier phase"}>
-      <span aria-hidden="true">◀</span> Back</button>
     <button type="button" className={`${s.pass} ${passHot ? s.hot : ""}`} disabled={!canAct} data-testid="pass-turn" onClick={onPass} data-turn-in={turnIn || undefined}>
       <span>Pass turn</span><Icon name="next" /><span className={s.pip} style={{ "--c": next?.color } as React.CSSProperties} /><span>{next?.name ?? ""}</span></button>
     {ask ? <PhaseConfirm ask={ask} onYes={onAskYes} onNo={onAskNo} /> : null}

@@ -73,7 +73,7 @@ export type SeatPanelProps = {
   /** Opponent seats only: asks that player's Auto-detect to Scan field again. Absent for my seat, bots and spectators. */ onRescan?: () => Promise<string>;
   /** A tournament table. */ tournamentTable?: boolean;
   /** Multi-seat tables: this seat is the large one (3-way desktop) or a tile (phone focus view), and how a click makes it the large one. */ focus?: SeatFocus;
-  deckWarning?: string; onDeckFlag?: (button: HTMLElement) => void; /** The "..." menu item "Table settings": opens the drawer Settings tab. */ onSettings?: () => void; /** My camera menu: camera choice, side and admin tools (my own seat only). */ cameraSetup?: CameraMenuSetup; /** Opens the token dialog for this seat's field (the camera "..." menu). */ onToken?: () => void; emptyFeedText: string; emptyFeedAction?: ReactNode; turnIn: boolean;
+  deckWarning?: string; onDeckFlag?: (button: HTMLElement) => void; /** My camera menu: camera choice, side and admin tools (my own seat only). */ cameraSetup?: CameraMenuSetup; /** Opens the token dialog for this seat's field (the camera "..." menu). */ onToken?: () => void; emptyFeedText: string; emptyFeedAction?: ReactNode; turnIn: boolean;
 };
 
 /** Camera first (default) or enlarged field, per viewer and seat. Remembered in this browser only. */
@@ -158,7 +158,7 @@ export function SeatPanel(p: SeatPanelProps) {
     <div className={s.sbody}>
       <Feed seat={p.seat} name={p.name} you={p.you} health={p.health} marks={p.marks} reticles={p.reticles} onBegin={p.onBegin} readLive={p.readLive} onAbort={p.onAbort} onMiss={p.onMiss} onSearch={p.onSearch} onPoint={p.onPoint} onSelect={p.onSelect} holdSelection={p.holdSelection} onAdd={p.onAdd} onReset={p.onReset} onReadBoard={p.onReadBoard} onZoneCard={p.onZoneCard} onPick={compact ? p.onCamPick : undefined} openZones={compact ? openZones : undefined} hoverTip={p.hoverTip} onHoverEnd={p.onHoverEnd} silentHover={!p.webcamOnly} onCardMenu={p.onCardMenu} emptyText={p.emptyFeedText} emptyAction={p.emptyFeedAction} tournament={p.tournamentTable} prereadScope={compact && p.live ? p.prereadScope : undefined} announcedMode={p.detectionMode === "unknown" ? undefined : p.detectionMode}
         extra={<>
-          <CameraToolsMenu seat={p.seat} name={p.name} you={p.you} scan={scan} advice={advice} warn={p.health.q === "bad"} onToken={p.onToken} onRescan={p.you ? undefined : p.onRescan} onSettings={p.onSettings} setup={p.you ? p.cameraSetup : undefined} />
+          <CameraToolsMenu seat={p.seat} name={p.name} you={p.you} scan={scan} advice={advice} warn={p.health.q === "bad"} onToken={p.onToken} onRescan={p.you ? undefined : p.onRescan} setup={p.you ? p.cameraSetup : undefined} />
           {fieldView ? <button type="button" className={s.swapcam} tabIndex={-1} aria-label="Camera view: show the camera large again" data-testid={`swap-cam-${p.seat}`} onClick={() => setFieldView(false)} /> : null}
           {directive ? <button type="button" className={s.directHint} onClick={onDirect} data-testid={`direct-hint-${p.seat}`} aria-label={`Attack ${p.name} directly`}><Icon name="bolt" />{p.pickPlate ? "Attack directly" : "Click webcam or LP to attack directly"}</button> : null}
           {targeting ? cardList : null}

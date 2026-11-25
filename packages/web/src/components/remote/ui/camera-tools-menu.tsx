@@ -77,11 +77,11 @@ function AdminRows({ setup }: { setup: CameraMenuSetup }) {
  * Cards: Scan field now, Token, Freeze, Read board, Hover freeze (an opponent's menu: Token, Ask them to scan again, Freeze).
  * Zones: Show zone grid, Fit to my mat, Adjust zones. Camera: which camera, my side of the image, Retry video, Camera off.
  * Admin: debug and training tools, only for the people who had them before.
- * The drawer Settings tab keeps the table-wide settings (detection, voice, view).
+ * Rows are one line each; the longer notes are tooltips. The drawer Settings tab keeps the table-wide settings (detection, voice, view).
  */
-export function CameraToolsMenu({ seat, name, you, scan, advice, warn, onToken, onRescan, onSettings, setup }: {
+export function CameraToolsMenu({ seat, name, you, scan, advice, warn, onToken, onRescan, setup }: {
   seat: number; name: string; you: boolean; scan: FieldScanState | null; advice: ScanAdvice; /** A bad or lost feed: the button shows a warning dot. */ warn: boolean;
-  onToken?: () => void; onRescan?: () => Promise<string>; /** Opens the drawer Settings tab: detection, voice and view live there. */ onSettings?: () => void;
+  onToken?: () => void; onRescan?: () => Promise<string>;
   /** My own seat only: the camera, side and admin rows. */ setup?: CameraMenuSetup;
 }) {
   const id = useId();
@@ -91,9 +91,11 @@ export function CameraToolsMenu({ seat, name, you, scan, advice, warn, onToken, 
   const grid = useZoneGrid(), hub = useVideoHub();
   const zonesOn = useGridPref(you), opponentsOn = useGridPref(false), hoverFreeze = useHoverFreeze();
   useEffect(() => { if (!note) return; const timer = setTimeout(() => setNote(""), 4000); return () => clearTimeout(timer); }, [note]);
+  // The menu hangs from the button's right edge and scrolls inside when the page is short.
   const place = useCallback(() => {
     const box = trigger.current?.getBoundingClientRect(), node = panel.current;
     if (!box || !node) return;
+    node.style.maxHeight = `${Math.max(200, window.innerHeight - box.bottom - 14)}px`;
     node.style.left = `${Math.max(8, Math.min(window.innerWidth - node.offsetWidth - 8, box.right - node.offsetWidth))}px`;
     node.style.top = `${Math.max(8, Math.min(window.innerHeight - node.offsetHeight - 8, box.bottom + 6))}px`;
   }, []);
@@ -135,7 +137,6 @@ export function CameraToolsMenu({ seat, name, you, scan, advice, warn, onToken, 
         {!you && onRescan ? <Row icon="refresh" data-testid={`field-rescan-${seat}`} data-sent={note || undefined} sub={note || undefined} onClick={() => { if (!note) void onRescan().then(setNote); }}>{`Ask ${name} to scan again`}</Row> : null}
       </Group>
       {setup && open ? <AdminRows setup={setup} /> : null}
-      {onSettings ? <div className={s.toolsFoot}><Row icon="sliders" aria-haspopup="dialog" data-testid="camera-settings" sub="Card detection, voice and view" onClick={() => { close(); onSettings(); }}>Table settings</Row></div> : null}
     </div>
   </>;
 }

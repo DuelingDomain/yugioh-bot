@@ -17,7 +17,7 @@ import s from './remote-ui.module.css';
 
 /** One menu row: icon, plain label (with a short line under it when `sub` is set), a key hint, and a chevron when the tap opens a next step. */
 export function Row({ icon, next, primary, sub, hint, pill, children, ...rest }: { icon: IconName; next?: boolean; primary?: boolean; sub?: string; hint?: string; /** A short state on the right (On / Off) for a switch row. */ pill?: string; children: string } & Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'children' | 'className' | 'type'>) {
-  return <button type="button" className={`${s.zaRow} ${primary ? s.zaPrimary : ''}`} {...rest}><Icon name={icon} />
+  return <button type="button" className={`${s.zaRow} ${primary ? s.zaPrimary : ''}`} title={sub} {...rest}><Icon name={icon} />
     <span>{children}{sub ? <small className={s.zaSub}>{sub}</small> : null}</span>
     {pill ? <em className={s.zaPill} aria-hidden="true">{pill}</em> : null}{hint ? <kbd className={s.zaKey} aria-hidden="true">{hint}</kbd> : null}{next ? <Icon name="chev" className={s.zaNext} /> : null}</button>;
 }
