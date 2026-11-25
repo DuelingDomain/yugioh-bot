@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, type ComponentProps, type ReactNode } from "react";
 import { CircleHelp, Hand, Pencil, ScanLine } from "lucide-react";
-import { useFieldScan, useMissingPiles, useTapToIdentify } from "@/lib/remote/zone-grid";
+import { useFieldScan, useMissingPiles } from "@/lib/remote/zone-grid";
 import { useScanAdvice } from "@/lib/remote/scan-advice";
 import { CameraToolsMenu } from "./camera-tools-menu";
 import { Feed, type BoardReading, type FeedHit, type FeedMark, type FeedPoint, type FeedReticle, type FeedStart } from "./feed";
@@ -94,7 +94,6 @@ export function SeatPanel(p: SeatPanelProps) {
   const fieldView = fieldViewPref && !compact;
   const scan = useFieldScan(p.seat), missingPiles = useMissingPiles(p.seat), advice = useScanAdvice(p.seat);
   // The Scan button goes in Tap to identify; its space stays, so the camera does not move.
-  const tapHere = useTapToIdentify(p.seat);
   // Webcam only, while this seat can be attacked: the list of its monsters is on the feed, because a feed without a camera or outlines cannot be clicked.
   const targeting = compact && p.picking && !p.eliminated;
   // Free zones that take the next click (token or give): on a camera feed they are marked on its zone grid.
@@ -107,14 +106,7 @@ export function SeatPanel(p: SeatPanelProps) {
     {listed.map(({ key, card }) => <li key={card.ref}><button type="button" onClick={() => { if (targeting) p.onActivate(key, card); else p.onInspect(card); }}>{`${ZN[key]}: ${cardName(card, p.info(cardCode(card)))}`}</button></li>)}
   </ul> : null;
   // The field never zooms by itself: only the Enlarge field button (and the small camera) changes the view.
-  // Scan field is in the camera "..." menu. It also sits beside the virtual board, but only while the board is shown.
-  // The primary action of my camera tools. While the camera and the board disagree it glows and says why (the reason is also the tooltip and the screen reader text).
-  const need = scan && scan.ready && !scan.scanning ? advice.reason : null;
-  const scanButton = scan ? <button type="button" className={s.scanbtn} aria-disabled={scan.scanning || !scan.ready} aria-keyshortcuts="S" aria-label={scan.scanning ? "Scanning field" : scan.ready ? (need ? `Scan field. ${need}` : "Scan field") : "Scan field, camera off"}
-          onClick={() => { if (scan.ready && !scan.scanning) scan.scan?.(); }} data-testid="field-scan-board" data-need={need ? "" : undefined} data-scan-ms={advice.last?.totalMs} data-scan-sweep-ms={advice.last?.sweepMs}
-          title={scan.ready ? (need ? `${need}. Press to compare the camera with the board now and fix it (S)` : "Compare the camera with the board now and fix differences (S)") : "Turn the camera on to scan the field"}>
-          <ScanLine size={16} strokeWidth={2} aria-hidden="true" /><span>{scan.scanning ? "Scanning…" : "Scan field"}</span>
-          {scan.ready ? <kbd aria-hidden="true">S</kbd> : <small>Camera off</small>}</button> : null;
+  // Scan field (S) lives in the camera "..." menu only. The main area has no scan row.
   const previous = useRef(p.lp); const [delta, setDelta] = useState(0); const [input, setInput] = useState("");
   // Click the LP number to type an amount. Enter applies it, Escape or leaving the box cancels.
   const reduced = usePrefersReducedMotion(); const [typing, setTyping] = useState(false); const lpField = useRef<HTMLInputElement>(null);
@@ -180,8 +172,7 @@ export function SeatPanel(p: SeatPanelProps) {
         {p.boardOff && !p.you ? <TapBoardNote /> : null}
         {targeting ? null : cardList}
         <div className={s.fboard}>
-        {compact ? null : scan ? scanButton : tapHere ? <span className={s.scanbtn} style={{ visibility: "hidden" }} aria-hidden="true"><ScanLine size={15} strokeWidth={1.8} /><span>Scan field</span></span> : null}
-        <div className={s.fwrap} data-rail={!compact && (scan || tapHere) ? "" : undefined} data-testid={`fwrap-${p.seat}`}>
+        <div className={s.fwrap} data-testid={`fwrap-${p.seat}`}>
           <div className={s.holo}>
             <i className={`${s.corner} ${s.a}`} /><i className={`${s.corner} ${s.b}`} /><i className={`${s.corner} ${s.c}`} /><i className={`${s.corner} ${s.d}`} />
             <button type="button" ref={p.plateRef} className={`${s.fplate} ${p.pickPlate ? s.pick : ""}`} tabIndex={p.pickPlate ? 0 : -1} data-plate={p.seat} onClick={p.onPlate}
