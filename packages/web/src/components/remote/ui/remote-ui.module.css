@@ -1427,6 +1427,8 @@
 .zmBody>*{flex:none}
 .zaList{display:flex;flex-direction:column;gap:6px}
 .zaRow{display:flex;align-items:center;gap:10px;width:100%;min-height:40px;padding:6px 12px;text-align:left;border:1px solid var(--line2);border-radius:6px;background:var(--p2);color:var(--ink);font-weight:600;font-size:14px;line-height:1.25}
+.zaSend{display:flex;align-items:center;gap:6px;min-height:36px;padding:2px 8px 2px 12px;border:1px solid var(--line2);border-radius:6px;background:var(--p2)}
+.zaSend>span{flex:1 1 auto;font-weight:600;font-size:14px;color:var(--ink)}
 .zaRow>span{flex:1 1 auto;min-width:0}
 .zaRow .ic{width:18px;height:18px;color:var(--ink2)}
 .zaRow .zaNext{width:16px;height:16px;color:var(--ink3)}

@@ -87,6 +87,7 @@ import { useCardMenu } from "./card-menu";
 import { FeedCardsProvider } from "./feed-cards";
 import { useTokens } from "./token-ui";
 import { useControlChange } from "./control-ui";
+import { quickMoves } from "./quick-moves";
 import { controlOffer, equipsItself } from "@/lib/remote/card-logic";
 import { handAdd, handCount, handCountOf, handReveal, knownHandOf, openSearch, SEARCH_WINDOW_MS, type HandBy, type HandCandidate, type HandSource, type HandSuggestion, type KnownHandCard } from "./reveal-model";
 import type { HandProps } from "./hand-ui";
@@ -1460,7 +1461,12 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
   const cardEntry = subject?.ref ? ownUndo.find(entry => entry.cards.includes(`${subject.seat}:${subject.ref}`)) : undefined;
   const cardUndo: CardActions["undo"] = cardEntry && live
     ? { label: entryShort(cardEntry), reason: cardEntry.reason, onUndo: () => { void doUndo(cardEntry); if (!cardEntry.reason) layers.close(); } } : undefined;
+  /** The important card moves, shared by the board zone menu and the Tap-mode card popup. */
+  const quickFor = (seat: number, card: TwinCard | undefined) => card ? quickMoves({ card, seat, mySeat, solo, live, isLink: isLinkInfo(info(cardCode(card))), canGive: control.canGive,
+    ownerAlive: card.ownerSeat !== undefined && !state.seats[card.ownerSeat]?.eliminated, act, announce: (at, ref) => announceManualMove({ slug: room.slug, seat: at, ref }),
+    give: item => { if (control.give(item)) { layers.close(); setSubject(null); } }, giveBack: control.giveBack }) : [];
   const actions: CardActions = {
+    quick: quickFor(subject?.seat ?? mySeat, subjectCard),
     ...(subject && subjectCard && live && (solo || subject.seat === mySeat) ? (() => {
       const twins = state.seats[subject.seat].twin;
       const xyz = (c: TwinCard) => c.faceUp && ['monster','extra-monster'].includes(c.zone) && /xyz/i.test(info(cardCode(c))?.type ?? '');
@@ -1776,7 +1782,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     {zonePicker && layers.layer === 'zone' && live && (solo || zonePicker.seat === mySeat || zonePicker.tokenOnly) ? <ZoneActions key={zonePicker.requestId} tokenOnly={zonePicker.tokenOnly} room={room} seat={zonePicker.seat} zone={zonePicker.key} targetRef={zonePicker.targetRef} initialFaceUp={zonePicker.initialFaceUp} startPicker={zonePicker.startPicker} at={{anchor:zoneRect(zonePicker.seat,zonePicker.key),feed:null}} deck={deckIdsOf(room,zonePicker.seat)} busy={zoneBusy} error={zoneError} onPick={pick => void placeInZone(pick)}
       onAction={action => void saveZoneActions(latest => [zoneCardAction(latest, zonePicker.key, action)])} onSet={() => { const ref = crypto.randomUUID(); void saveZoneActions(latest => [zoneSet(latest, zonePicker.seat, zonePicker.key, ref)]); }}
       onToken={() => tokens.create(zonePicker.seat, /^m[1-5]$/.test(zonePicker.key) && !cellsFor(state.seats[zonePicker.seat].twin, extraZones)[zonePicker.key]?.card ? zonePicker.key : undefined)}
-      onDetails={card => openSubject(card)} onClose={() => layers.close('zone')} /> : null}
+      onDetails={card => openSubject(card)} quick={quickFor(zonePicker.seat, cellsFor(state.seats[zonePicker.seat].twin, extraZones)[zonePicker.key]?.card)} onClose={() => layers.close('zone')} /> : null}
     <InspectorDrawer open={layers.layer === "insp"} onClose={() => layers.close("insp")}>
       <InspectorBody subject={subjectDetails} info={subjectInfo} warning={subject ? deckFlag(room, subject.seat)?.message : undefined} actions={shownActions}
         sourceLine={subject ? `Identified by ${subject.via} on ${name(subject.seat)}'s side` : ""} />

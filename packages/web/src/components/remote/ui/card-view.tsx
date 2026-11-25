@@ -8,6 +8,7 @@ import { BigArt, CardText, PopupFrame, TierChip, type PopAt, type Tier } from ".
 import s from "./remote-ui.module.css";
 import z from "./zone-rules.module.css";
 import { cardTypeLine } from "@/lib/remote/field-legality";
+import type { QuickMove } from "./quick-moves";
 
 /** Where the person opened this card. A camera click only looks at the card; the board, a pile and the hand keep their controls. */
 export type CardSource = "camera" | "board" | "pile" | "hand";
@@ -78,6 +79,8 @@ export type CardActions = {
   control?: { label: string; onClick: () => void };
   /** Give my card on the field to an opponent: it shows there as a proxy that I keep owning. */
   give?: { label: string; onClick: () => void };
+  /** The same important card moves as the board zone menu (give control, position, send, remove proxy). Shown on a camera click too. */
+  quick?: QuickMove[];
   onWrong?: () => void; onPin?: () => void;
   /** A remembered card: read the camera again. */
   onReadAgain?: () => void;
@@ -195,6 +198,9 @@ export function CardPopover({ subject, info, at, warning, actions, onClose }: {
     </div>
     <div className={s.bbar} data-testid="card-popover-footer">
       {viewOnly ? <>
+        {actions.quick?.length ? <Group label="Card" testid="card-quick-moves">
+          {actions.quick.map(move => <button type="button" key={move.id} className={BTN} onClick={move.run} data-testid={`quick-${move.id}`}>{move.label}</button>)}
+        </Group> : null}
         {actions.onReadAgain ? <button type="button" className={BTN} onClick={actions.onReadAgain} data-testid="card-read-again">Read again</button> : null}
         {actions.onWrong ? <button type="button" className={BTN} onClick={actions.onWrong}>Wrong card?</button> : null}
         {actions.onPin ? <button type="button" className={BTN} onClick={actions.onPin} data-testid="pin-inspector">Pin to inspector</button> : null}

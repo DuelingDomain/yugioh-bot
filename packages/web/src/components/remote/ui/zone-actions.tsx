@@ -11,6 +11,7 @@ import { fieldSummonKind } from '@/lib/remote/field-summons';
 import { isFieldSpell } from '@/lib/remote/field-legality';
 import { recentReadsFor } from '@/lib/remote/recent-reads';
 import { playerStamp } from '@/lib/remote/field-timing';
+import type { QuickMove } from './quick-moves';
 import s from './remote-ui.module.css';
 
 
@@ -19,10 +20,11 @@ function Row({ icon, next, primary, children, ...rest }: { icon: IconName; next?
   return <button type="button" className={`${s.zaRow} ${primary ? s.zaPrimary : ''}`} {...rest}><Icon name={icon} /><span>{children}</span>{next ? <Icon name="chev" className={s.zaNext} /> : null}</button>;
 }
 
-export function ZoneActions({ tokenOnly, room, seat, zone, at, deck, targetRef, startPicker=false, initialFaceUp, busy, error, onPick, onAction, onSet, onToken, onDetails, onClose }: {
+export function ZoneActions({ tokenOnly, room, seat, zone, at, deck, targetRef, startPicker=false, initialFaceUp, busy, error, onPick, onAction, onSet, onToken, onDetails, onClose, quick = [] }: {
   room: RemoteRoom; seat: number; zone: ZoneKey; at: PopAt; deck: number[]; targetRef?: string; initialFaceUp?: boolean;
   busy: boolean; error: string; startPicker?: boolean; onPick(pick: ZonePick): void; onAction(action: ZoneCardAction): void;
   onSet(): void; onToken(): void; /** An empty zone of another player's field: the menu only offers a token. */ tokenOnly?: boolean; onDetails(card: TwinCard): void; onClose(): void;
+  /** The important card moves (give control, position, send, remove proxy), same set as the Tap-mode card popup. */ quick?: QuickMove[];
 }) {
   const twins = room.state.seats[seat].twin;
   const card = cellsFor(twins, hasExtraZones(room.format?.id))[zone]?.card;
@@ -70,6 +72,9 @@ export function ZoneActions({ tokenOnly, room, seat, zone, at, deck, targetRef, 
       else { setPick(chosen); setMaterials(card ? [card.ref] : []); }
     }} />;
   const held = card?.materials?.length ?? 0;
+  const move = (id: QuickMove['id']) => quick.find(m => m.id === id);
+  const go = (m: QuickMove) => { m.run(); onClose(); };
+  const sends = (['grave', 'banish', 'hand'] as const).map(move).filter((m): m is QuickMove => !!m);
   const set = /^[ms][1-5]$/.test(zone);
   return <PopupFrame at={at} layer="zone" label={`Actions in ${ZN[zone]}`} className={`${s.zonePicker} ${s.zoneMenu}`} testid="zone-actions" busy={busy}>
     <header className={s.zmHead}>
@@ -84,12 +89,18 @@ export function ZoneActions({ tokenOnly, room, seat, zone, at, deck, targetRef, 
       <div className={s.zaList}>
         {tokenOnly ? null : card ? <>
           {!card.token ? <Row icon="layers" next primary data-autofocus="" disabled={busy} onClick={() => { setTopRef(card.ref); setMode('top'); }}>Put a card on top</Row> : null}
+          {move('give') ? <Row icon="hand" disabled={busy} onClick={() => go(move('give')!)} data-testid="zone-give">{move('give')!.label}</Row> : null}
+          {move('return') ? <Row icon="hand" disabled={busy} onClick={() => go(move('return')!)} data-testid="zone-return">{move('return')!.label}</Row> : null}
+          {move('position') ? <Row icon="flip" disabled={busy} onClick={() => go(move('position')!)}>{move('position')!.label}</Row> : null}
           {!card.faceUp && !card.token ? <Row icon="flip" next disabled={busy} onClick={() => { setTopRef(card.ref); setMode('flip'); }}>Flip</Row> : null}
           {card.faceUp && !card.token && set ? <Row icon="cardback" disabled={busy} onClick={() => action({type:'twin.flip',actorSeat,seat,cardRef:card.ref,faceUp:false,...(card.zone==='monster'?{position:'defense' as const}:{})})}>Set a card here</Row> : null}
         </> : <>
           <Row icon="plus" next primary data-autofocus="" disabled={busy} onClick={() => setMode('place')}>Put a card here</Row>
           {set ? <Row icon="cardback" disabled={busy} onClick={onSet}>Set a card here</Row> : null}
         </>}
+        {!tokenOnly && card && sends.length ? <div className={s.zaSend} role="group" aria-label="Send the card to"><span>Send to</span>
+          {sends.map(m => <button type="button" key={m.id} className={`${s.btn} ${s.sm} ${s.q}`} disabled={busy} onClick={() => go(m)} data-testid={`zone-${m.id}`}>{m.label.replace('To ', '')}</button>)}</div> : null}
+        {!tokenOnly && move('remove') ? <Row icon="x" disabled={busy} onClick={() => go(move('remove')!)} data-testid="zone-remove-proxy">{move('remove')!.label}</Row> : null}
         <Row icon="coin" next primary={tokenOnly} data-autofocus={tokenOnly ? "" : undefined} disabled={busy} onClick={onToken}>Add token</Row>
         {card && !tokenOnly ? <Row icon="info" next disabled={busy} onClick={() => onDetails(card)}>Card details</Row> : null}
       </div>
