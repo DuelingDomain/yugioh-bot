@@ -6,6 +6,8 @@ import {fileURLToPath} from 'node:url';
 import {fitMat, matFitCalibration} from './mat-fit';
 import {createFieldCalibration, fieldMatPoint, fieldZoneCells, mapFieldZone,fieldQuadEnvelope,fieldQuadPoint,moveFieldQuad,resizeFieldQuad,turnFieldQuad,pinchFieldQuad} from './field-zones';
 
+const FIXTURE_BUDGET_MS=10_000;
+
 async function frame(name='circuit-break-base.png') {
   const {data,info}=await sharp(fileURLToPath(new URL(`../fixtures/mat-fit/${name}`,import.meta.url))).ensureAlpha().raw().toBuffer({resolveWithObject:true});
   return {data:new Uint8ClampedArray(data),width:info.width,height:info.height} as ImageData;
@@ -36,7 +38,7 @@ test('camera widths and harmless edge crops preserve every named row and column'
         const w=width-crop.left-crop.right,h=scaled.info.height-crop.top-crop.bottom;
         const data=await sharp(scaled.data,{raw:{width,height:scaled.info.height,channels:4}})
           .extract({left:crop.left,top:crop.top,width:w,height:h}).raw().toBuffer();
-        const start=performance.now(),cpu=process.cpuUsage(),result=fitMat({data,width:w,height:h},{playerSide:'top'});
+        const start=performance.now(),cpu=process.cpuUsage(),result=fitMat({data,width:w,height:h},{playerSide:'top',budgetMs:FIXTURE_BUDGET_MS});
         const elapsed=performance.now()-start,used=process.cpuUsage(cpu),grid=matFitCalibration(result);
         assert.ok(grid,JSON.stringify(result));
         for(const [i,[x,y]] of points.entries()){
@@ -117,7 +119,7 @@ test('occupied production camera frame fits the correct printed rows',async()=>{
 
 test('first fit previews the pale Raging Tempest mat with the correct side and columns',async()=>{
   const image=await frame('raging-tempest.png');
-  const start=performance.now(),result=fitMat(image,{playerSide:'top'}),elapsed=performance.now()-start;
+  const start=performance.now(),result=fitMat(image,{playerSide:'top',budgetMs:FIXTURE_BUDGET_MS}),elapsed=performance.now()-start;
   const grid=matFitCalibration(result);
   assert.ok(grid,JSON.stringify(result));
   assert.deepEqual(result.orientation,{playerSide:'top',mirrored:false});
@@ -197,7 +199,7 @@ test('blurred zones, art-only, noisy cloth and frames without a mat do not yield
     ['three dark outlines',{width,height,data:outlinedTable}],
   ] as const;
   for(const [name,input] of cases){
-    const result=fitMat(input);assert.equal(result.corners,null,`${name}: ${JSON.stringify(result)}`);
+    const result=fitMat(input,{budgetMs:FIXTURE_BUDGET_MS});assert.equal(result.corners,null,`${name}: ${JSON.stringify(result)}`);
   }
 });
 
@@ -205,7 +207,7 @@ test('quarter-turn camera priors retain named zones and flag side uncertainty',a
  const image=await frame(),base=fitMat(image,{playerSide:'bottom'});assert.ok(base.corners);
  for(const side of ['left','right'] as const){
   const rotated=await sharp(image.data,{raw:{width:image.width,height:image.height,channels:4}}).rotate(side==='left'?90:270).raw().toBuffer({resolveWithObject:true});
-  const result=fitMat({width:rotated.info.width,height:rotated.info.height,data:rotated.data},{playerSide:side});
+  const result=fitMat({width:rotated.info.width,height:rotated.info.height,data:rotated.data},{playerSide:side,budgetMs:0});
   const grid=matFitCalibration(result);assert.ok(grid,JSON.stringify(result));assert.equal(result.orientation.playerSide,side);assert.equal(result.flags.sideByPrior,true);assert.ok(result.flipped);
   const baseGrid=matFitCalibration(base)!;
   for(const cell of fieldZoneCells()){
@@ -215,17 +217,22 @@ test('quarter-turn camera priors retain named zones and flag side uncertainty',a
  }
 });
 
-test('returns a failure when the fit budget expires while reading the frame',t=>{
- const width=128,height=128;
- let expired=false;
- const data=new Proxy(new Uint8ClampedArray(width*height*4).fill(128),{
-   get(pixels,key){
-     if(key==='0')expired=true;
-     return Reflect.get(pixels,key,pixels);
-   },
- });
- t.mock.method(performance,'now',()=>expired?10_000:0);
- const result=fitMat({width,height,data},{playerSide:'top'});
- assert.equal(result.corners,null);
- assert.equal(result.reason,'time-budget-exceeded');
+test('returns the first scale result when the fit budget has already expired',async t=>{
+  const easy=await frame(),pale=await frame('raging-tempest.png');
+  let clockRead=0;
+  t.mock.method(performance,'now',()=>clockRead++===0?0:10_000);
+
+  const fit=fitMat(easy,{playerSide:'top'});
+  assert.ok(fit.corners,JSON.stringify(fit));
+  assert.equal(fit.confidence,'high');
+
+  clockRead=0;
+  const width=128,height=128,data=new Uint8ClampedArray(width*height*4).fill(128);
+  const blank=fitMat({width,height,data},{playerSide:'top'});
+  assert.equal(blank.corners,null);
+  assert.equal(blank.reason,'no-zones');
+
+  clockRead=0;
+  const needsPreviewPass=fitMat(pale,{playerSide:'top'});
+  assert.equal(needsPreviewPass.corners,null,JSON.stringify(needsPreviewPass));
 });

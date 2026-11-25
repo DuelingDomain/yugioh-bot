@@ -3,7 +3,12 @@ import type {Point} from './types';
 import type {RGBAImage} from './pixels';
 import {quadMap} from './geometry';
 
-export interface MatFitOptions { playerSide?:PlayerSide; mirrored?:boolean }
+export interface MatFitOptions {
+  playerSide?:PlayerSide;
+  mirrored?:boolean;
+  /** Time from the start of the fit, checked only after the first scale completes. */
+  budgetMs?:number;
+}
 export interface MatFitResult {
   /** Image-clockwise TL, TR, BR, BL, normalized like FieldCalibration. May extrapolate off camera. */
   corners:[Point,Point,Point,Point]|null;
@@ -771,7 +776,6 @@ function fitLattice(d:Rect[],lat:Lattice,w:number,h:number,options:MatFitOptions
 function fitSideMat(image:RGBAImage,options:MatFitOptions,checkBudget:CheckBudget):MatFitResult {
   const left=options.playerSide==='left',data=new Uint8ClampedArray(image.data.length);
   for(let y=0;y<image.height;y++){
-    checkBudget();
     for(let x=0;x<image.width;x++){
       const rx=left?y:image.height-1-y,ry=left?image.width-1-x:x;
       const src=(y*image.width+x)*4,dst=(ry*image.height+rx)*4;
@@ -804,50 +808,49 @@ function fitMatAtScale(image:RGBAImage,options:MatFitOptions,workingWidth:number
   const d=recoverOuterFrames(filtered,strength,angle,w,h,tone,checkBudget);
   const result=d.length>=3?fitLattice(d,lattice(d,checkBudget),w,h,options,checkBudget):emptyResult(options,'too-few-zones');
   result.flags.zonesFound=d.length;
-  // Staggered and sparse layouts can have fewer aligned boxes than a full
-  // lattice. Below four, there is too little aligned evidence for a preview.
-  if(result.corners||workingWidth!==PREVIEW_WIDTH||d.length<MIN_SPARSE_BOXES)return result;
+  // A staggered or sparse layout can have few neighbouring boxes in the main lattice.
+  if(result.corners||workingWidth!==PREVIEW_WIDTH||(rects.length<MIN_SPARSE_BOXES&&!sparseCandidates.length))return result;
   return fitStaggeredMat(rects,tone,w,h,theta,options,checkBudget)
     ??fitSparseLattice(sparseCandidates,tone,w,h,theta,options,checkBudget)
     ??result;
 }
 
 function fitMatWithinBudget(image:RGBAImage,options:MatFitOptions,checkBudget:CheckBudget):MatFitResult {
+  if(options.playerSide==='left'||options.playerSide==='right')return fitSideMat(image,options,checkBudget);
   let preview:MatFitResult|undefined,refusal:MatFitResult|undefined;
+  const fitScale=(width:number,scaleBudget=checkBudget)=>{
+    scaleBudget();
+    const result=fitMatAtScale(image,options,width,scaleBudget);
+    if(result.corners)preview??=result;
+    else refusal??=result;
+    return result;
+  };
+  const first=fitScale(768,()=>{});
+  if(first.confidence==='high')return first;
   try{
-    if(options.playerSide==='left'||options.playerSide==='right')return fitSideMat(image,options,checkBudget);
-    checkBudget();
-    const first=fitMatAtScale(image,options,768,checkBudget);
-    if(first.confidence==='high')return first;
-    refusal=first;
-    checkBudget();
-    const coarse=fitMatAtScale(image,options,512,checkBudget);
+    const coarse=fitScale(512);
     if(coarse.confidence==='high')return coarse;
     // 768 and 512 win most often in the fixture matrix. When 512 finds
     // an otherwise convincing lattice with an uncertain width and 768 also
     // found two rows, try nearby scales before the finer 832 pass.
     const widths=coarse.reason==='show-whole-mat-width'&&first.metrics.rows===2
-      ?[480,448,416,PREVIEW_WIDTH,768]
-      :[PREVIEW_WIDTH,768,480,448,416];
+      ?[480,448,416,PREVIEW_WIDTH]
+      :[PREVIEW_WIDTH,480,448,416];
     for(const width of widths){
-      checkBudget();
-      const result=fitMatAtScale(image,options,width,checkBudget);
+      const result=fitScale(width);
       if(result.confidence==='high')return result;
-      if(result.corners)preview??=result;
-      else if(width===PREVIEW_WIDTH)refusal=result;
     }
   }catch(error){
     // An interrupted pass has not finished checking its geometry and ambiguity.
     if(error!==fitTimedOut)throw error;
-    return preview??refusal??emptyResult(options,'time-budget-exceeded');
   }
   return preview??refusal!;
 }
 
-/** Fit raw camera pixels before drawing any grid or labels. A single deadline
- * covers camera rotation, the full scale search and any preview passes. */
+/** Fit raw camera pixels before drawing any grid or labels. The first scale
+ * completes even if rotation and fitting use up the deadline. */
 export function fitMat(image:RGBAImage,options:MatFitOptions={}):MatFitResult {
-  const deadline=performance.now()+FIT_BUDGET_MS;
+  const deadline=performance.now()+(options.budgetMs??FIT_BUDGET_MS);
   if(!Number.isInteger(image.width)||!Number.isInteger(image.height)||image.width<128||image.height<128||image.width*image.height>16_000_000||image.data.length!==image.width*image.height*4)return emptyResult(options,'invalid-frame');
   if(Math.max(image.width/image.height,image.height/image.width)>6)return emptyResult(options,'invalid-frame');
   return fitMatWithinBudget(image,options,()=>{
