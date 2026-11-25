@@ -310,6 +310,8 @@ test.describe("remote duels screen, solo", () => {
       if (SHOTS) {
         for (const [w, h] of [[1366, 768], [1024, 768], [390, 844], [375, 812], [360, 740]]) {
           await a.setViewportSize({ width: w, height: h }); await a.waitForTimeout(500);
+          // On a phone the bottom bar keeps the turn and Pass; Surrender sits in its overflow panel.
+          const more = a.getByTestId("bar-more"); if (await more.isVisible() && (await more.getAttribute("aria-expanded")) !== "true") await more.click();
           await expect(a.getByTestId("surrender-button")).toBeVisible(); await shot(a, `surrender-1-button-${w}`);
           // During a game there is no way to leave the whole match: Surrender only loses this game.
           await expect(a.getByTestId("quit-button")).toHaveCount(0);
@@ -722,7 +724,7 @@ test.describe("remote lobby camera step", () => {
       for (const [width, height] of [[1920,1080],[2560,1440],[1366,768],[390,844]]) {
         await page.setViewportSize({width,height}); await openDrawer(page, 'settings');
         await expect(lock).toContainText('Camera lock not supported — auto kept');
-        await expect(toggle).toContainText('On (not supported)');
+        await expect(page.getByRole('switch', { name: 'Camera lock' })).toHaveAttribute('aria-checked', 'true');
         const picker = page.getByTestId('recognition-mode-trigger');
         await expect(picker).toBeVisible();
         const box = await picker.boundingBox(); expect(box!.width).toBeGreaterThan(100); expect(box!.height).toBeGreaterThan(28);
@@ -1091,8 +1093,8 @@ test.describe("remote duels screen, moving cards by hand", () => {
     expect(placed.status(), await placed.text()).toBe(200);
     await page.goto(`/duels/remote/${slug}`);
     const choice = page.getByRole("radiogroup", { name: "Camera source" });
-    // The camera choice sits in the settings panel, behind the webcam "..." menu. A click outside closes it, so each step opens it again when needed.
-    const openRow = async () => { if (await choice.isVisible()) return; await page.getByTestId("camera-tools-0").click(); await page.getByTestId("camera-settings").first().click(); await expect(choice).toBeVisible(); };
+    // The camera choice sits in the drawer Settings tab (the Settings button in the bottom bar). A click outside closes it, so each step opens it again when needed.
+    const openRow = async () => { if (await choice.isVisible()) return; await page.getByTestId("settings-button").click(); await expect(choice).toBeVisible(); };
     await openRow();
     await expect(choice.getByRole("radio")).toHaveCount(3);
     await expect(choice.getByRole("radio", { name: "Use webcam" })).toBeVisible();
