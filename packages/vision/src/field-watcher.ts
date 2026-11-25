@@ -2697,7 +2697,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
             // A background attempt may settle a question only with a sure, unflagged name.
             if(!sureName(result)){t.needsRead=false;t.best=undefined;continue;}
             if(t.view.state==='identified'){
-              t.nameRetry=undefined;t.prompted=false;t.view.nameCandidates=undefined;t.view.bestMatch=false;
+              t.nameRetry=undefined;t.prompted=false;t.view.nameCandidates=undefined;t.view.bestMatch=undefined;
               t.awaitingName={previous:t.view.cardId,next:result!.candidates[0].cardId};
               t.view.cardId=result!.candidates[0].cardId;t.identityAppearance=pixels;t.identityEmbedding=result?.identityEmbedding;t.latestEmbedding=t.identityEmbedding;t.lastResult=result;
               emit('placed',t,{result});continue;
@@ -2735,7 +2735,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
           }
           if(t.confirming){
             t.confirming=false;t.identityAppearance=pixels;t.identityEmbedding=result?.identityEmbedding??t.identityEmbedding;t.latestEmbedding=t.identityEmbedding;
-            if(winner&&result!.tier==='sure'&&winner!==t.view.cardId&&t.view.state==='identified'&&(!locked||beatsLock(locked,result))){t.view.cardId=winner;t.view.bestMatch=false;note(t,'confirm read corrected the name');emit('placed',t,{result});}
+            if(winner&&result!.tier==='sure'&&winner!==t.view.cardId&&t.view.state==='identified'&&(!locked||beatsLock(locked,result))){t.view.cardId=winner;t.view.bestMatch=undefined;note(t,'confirm read corrected the name');emit('placed',t,{result});}
             continue;
           }
           if(t.identityCheck&&locked&&!beatsLock(locked,result)&&locked.cardId===t.identityCheck.cardId){restoreIdentity(t,pixels);t.view.visible=t.view.state==='identified';note(t,'identity locked');continue;}

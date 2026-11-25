@@ -284,9 +284,11 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       ((bindings.current.get(t.id)??t.id)===card.ref||code!==undefined&&!!t.cardId&&(catalogCardId(entries.current.get(t.cardId))??Number(t.cardId))===code));
   };
   const reboundSetOrigin=(card:TwinCard|undefined,event:FieldEvent)=>{
-    const origin=card?.departedFrom,zone=event.track.zone,age=event.track.lastSeen-(event.removedAt??-Infinity);
+    const removedAt=event.removedAt;
+    if(removedAt===undefined||event.track.lastSeen<removedAt)return;
+    const origin=card?.departedFrom,zone=event.track.zone,age=performance.now()-removedAt;
     if(!card||card.zone!=='hand'||card.ownerSeat!==undefined||card.token||!origin?.auto||age<0||age>FIELD_SET_RETURN_MS||fieldOriginSpot(card)!==zone||
-      seenOffField(card,event.removedAt!))return;
+      seenOffField(card,removedAt))return;
     if(current.current.room.state.seats[seat].twin.some(c=>c.ref!==card.ref&&publicField(c.zone)&&knownZone(c)===zone))return;
     return origin;
   };

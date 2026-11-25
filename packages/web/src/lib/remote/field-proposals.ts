@@ -175,7 +175,7 @@ export const fieldSetRebind=(event:FieldEvent)=>event.track.faceDown&&(event.typ
 export function fieldSureSetRead(track:FieldTrack,result:FieldEvent['result']):boolean {
   const top=result?.candidates[0];
   return !!track.visible&&!track.under&&!track.faceDown&&track.restSince!==undefined&&
-    !track.card?.partial&&!track.card?.covered&&!track.nameCandidates?.length&&track.bestMatch!==undefined&&
+    !track.card?.partial&&!track.card?.covered&&!track.nameCandidates?.length&&
     result?.tier==='sure'&&!!top&&top.cardId===track.cardId&&top.score>=.84&&
     !result.quality.fallback&&!result.quality.covered&&!result.quality.partial&&!result.quality.faceDown;
 }
