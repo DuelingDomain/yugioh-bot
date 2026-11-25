@@ -168,7 +168,18 @@ const prefKey = (own: boolean) => `dd-zone-grid:${own ? "own" : "opponent"}`;
 export function readGridPref(own: boolean): boolean {
   try { return localStorage.getItem(prefKey(own)) !== "0"; } catch { return true; }
 }
-export function writeGridPref(own: boolean, on: boolean) { try { localStorage.setItem(prefKey(own), on ? "1" : "0"); } catch { /* storage may be blocked */ } }
+const prefListeners = new Set<() => void>();
+const subscribePrefs = (listener: () => void) => { prefListeners.add(listener); return () => { prefListeners.delete(listener); }; };
+const notifyPrefs = () => { for (const listener of prefListeners) listener(); };
+export function writeGridPref(own: boolean, on: boolean) { try { localStorage.setItem(prefKey(own), on ? "1" : "0"); } catch { /* storage may be blocked */ } notifyPrefs(); }
+/** "Show zone grid" for my camera (`own`) or the opponents' cameras. The feed and the table drawer read the same saved choice. */
+export const useGridPref = (own: boolean) => useSyncExternalStore(subscribePrefs, () => readGridPref(own), () => true);
+
+/** "Freeze while hovering a card": off by default, remembered on this device. */
+const HOVER_FREEZE_KEY = "dd-remote-hover-freeze";
+export const readHoverFreeze = () => { try { return localStorage.getItem(HOVER_FREEZE_KEY) === "1"; } catch { return false; } };
+export function writeHoverFreeze(on: boolean) { try { localStorage.setItem(HOVER_FREEZE_KEY, on ? "1" : "0"); } catch { /* storage may be blocked */ } notifyPrefs(); }
+export const useHoverFreeze = () => useSyncExternalStore(subscribePrefs, readHoverFreeze, () => false);
 
 /** Owner debug overlay: what the field watcher saw on its last scan. Own feed only, never sent to other seats. */
 export interface FieldDebugView { /** Track id → text, for a track whose board card shows the other face. */ faces?: Readonly<Record<string, string>>; /** Frame sharpness vs its baseline and whether removals hold for blur. */ blur?: { ratio: number; hold: boolean; /** Crop sharpness a card needs to be read now. */ limit?: number }; /** Shadow over the mat and whether removals hold for it. */ shadow?: { share: number; hold: boolean }; debug?: FieldDebug; tracks: readonly FieldTrack[]; status: string; detectorMs: number; priorityPassMs?: number; zoomMs?: number; dutyPercent: number; intervalMs: number; writeError?: string; /** The watcher's own error text (why the badge says "Watcher unavailable"). */ error?: string; backend?: string; /** Why auto-placement does or does not act now (`live()`), and the 'placed' events held by the sync hold or dropped. */ gate?: { live: boolean; enabled: boolean; syncHold: boolean; calibrationNeeded: boolean; deferred: number; dropped: number }; gridShift?: { gap: number; outside: number; suspect: boolean } }

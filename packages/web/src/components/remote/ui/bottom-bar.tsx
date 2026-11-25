@@ -13,6 +13,7 @@ export type BarVoice = {
   state: MicState; muted: boolean; onMute: () => void; level: number; recognition: boolean;
   /** A voice command waits for Enter. The popover opens by itself and stays open until it is answered. */ proposal: boolean;
   /** The voice details (mic status, push to talk, what was heard, sample commands). Shown in the popover. */ details: ReactNode;
+  /** Open the drawer on its Settings tab (the voice settings live there). The popover then shows only a voice command that waits for Enter. */ onOpenSettings?: () => void;
 };
 
 /**
@@ -55,7 +56,7 @@ export function BottomBar({ players, turnSeat, turn, phase, canAct, nextSeat, pa
       <button type="button" className={`${s.bmic} ${s[voice.state] ?? ""}`} aria-pressed={voice.muted} aria-label={micLabel} title={micLabel} data-testid="mic-button" onClick={voice.onMute}>
         <Icon name={voice.state === "muted" ? "micoff" : "mic"} /></button>
       {voice.recognition
-        ? <button type="button" className={`${s.bvbtn} ${shown ? s.on : ""}`} aria-haspopup="dialog" aria-expanded={shown} data-testid="voice-open" onClick={() => setOpen(v => !v)}>
+        ? <button type="button" className={`${s.bvbtn} ${shown ? s.on : ""}`} aria-haspopup="dialog" aria-expanded={shown} data-layer-opener data-testid="voice-open" onClick={() => voice.onOpenSettings ? voice.onOpenSettings() : setOpen(v => !v)}>
           <span className={s.bvl}>{voice.state === "muted" ? "Muted" : voice.state === "listen" ? "Listening" : "Voice"}</span>
           <span className={s.meter} aria-hidden="true">{Array.from({ length: 5 }, (_, i) => <i key={i} style={{ height: voice.state === "muted" || voice.state === "off" ? 3 : Math.max(3, Math.round(voice.level * 14 * (0.45 + 0.55 * Math.sin((i + 1) * 1.7) ** 2))) }} />)}</span></button>
         : null}

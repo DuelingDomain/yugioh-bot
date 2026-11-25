@@ -1559,3 +1559,25 @@
 
 /* A card of the virtual board that is a link of the open chain keeps a small "Chain N" badge on its top edge. */
 .zc[data-chain]::before{content:"Chain " attr(data-chain);position:absolute;left:50%;top:-9px;transform:translateX(-50%);z-index:6;pointer-events:none;padding:2px 7px;border:1px solid rgb(155 126 255/.85);border-radius:999px;background:rgb(11 7 22/.94);box-shadow:0 0 10px rgb(155 126 255/.5);font:700 10px/1.2 var(--font-duel-display,Oxanium,sans-serif);letter-spacing:.08em;text-transform:uppercase;color:#f6dc9a;white-space:nowrap}
+
+/* ---- table drawer (Log / Settings / Info / Admin): right side, pushes the table from 1100 px, full sheet on a phone ---- */
+.app{--tdr-w:392px}
+@media (max-width:1499px){.app{--tdr-w:340px}}
+.drawer.tdr{right:0;left:auto;transform:translateX(104%);border-left:1px solid var(--line2);width:392px;max-width:100vw}
+.drawer.tdr.open{transform:none}
+.tdr .dh .sp{flex:1}
+.tdr .tabs{padding:0 8px}
+.tdr .tabs button{flex:1;padding:10px 8px 9px}
+.tdr .db{padding:0}
+.tdr .flt button{min-height:28px;padding:3px 12px}
+@media (min-width:901px){.drawer.tdr{width:var(--tdr-w)}}
+@media (min-width:1100px){
+  .app[data-drawer] .shell{width:calc(100% - var(--tdr-w))}
+  .app[data-drawer] .drawer.tdr{top:0}
+}
+@media (max-width:900px){
+  .drawer.tdr{top:var(--hdr);left:0;right:0;width:auto;max-width:none;bottom:0}
+  .tdr .flt{gap:6px;padding:10px 12px 6px}
+  .tdr .flt button{min-height:36px;padding:0 14px;font-size:13.5px}
+  .tdr .tabs button{min-height:44px}
+}

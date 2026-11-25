@@ -16,8 +16,7 @@ import { ZoneGridOverlay, FieldDebugOverlay } from "./zone-grid";
 import { HubFeedCards } from "./feed-cards";
 import {fieldCenter,fieldZoneLocation,mapFieldZone} from '@yugidraft/vision';
 import { noteTapFrame } from "@/lib/remote/tap-memory";
-import { useTapToIdentify, useZoneGrid, readGridPref, writeGridPref, currentZoneGrid, useFieldDebugEnabled, setFieldDebugEnabled, useFieldDeveloper } from "@/lib/remote/zone-grid";
-import { saveFieldClip, useFieldClipReady } from "@/lib/remote/clip-capture";
+import { useTapToIdentify, useZoneGrid, useGridPref, useHoverFreeze, currentZoneGrid, useFieldDebugEnabled } from "@/lib/remote/zone-grid";
 import s from "./remote-ui.module.css";
 import { isTypingTarget } from "@/lib/typing-target";
 import { isThemedListOpen } from "@/components/ui/themed-select";
@@ -55,11 +54,8 @@ const DEFAULT_RATIO = 16 / 9; const MIN_RATIO = 1; const MAX_RATIO = 2.4; // sha
 const CARD_H = 0.34; // card height as a share of the frame height
 const CARD_ASPECT = 0.686;
 const DWELL_MS = 650;
-const AUTO_KEY = "dd-remote-hover-freeze";
 const RING_SIZE = 6; const RING_GAP_MS = 140; const RING_MAX_AGE_MS = 1000; const RING_MAX_PX = 1280; const FLASH_MS = 1200;
 
-// Hover freeze is an opt-in mode now. A click on the live feed is the main way to read a card.
-const readAuto = () => { try { return localStorage.getItem(AUTO_KEY) === "1"; } catch { return false; } };
 const bounds = (quad: Pt[]) => { const xs = quad.map(p => p.x); const ys = quad.map(p => p.y); return { left: Math.min(...xs), top: Math.min(...ys), right: Math.max(...xs), bottom: Math.max(...ys) }; };
 
 /** What a board read hands back. `near` is the feed owner\'s side of the mat; `far` is the opposite side. */
@@ -137,7 +133,8 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
   const [active, setActive] = useState(-1); const [hover, setHover] = useState(-1); const [selected, setSelected] = useState<string | null>(null);
   const [peekLabel, setPeekLabel] = useState<PeekLabel | null>(null); const [board, setBoard] = useState<BoardState | null>(null);
   const peekCache = useRef(new Map<string, PeekLabel>()); const boardRun = useRef<AbortController | null>(null);
-  const [hovered, setHovered] = useState(false); const [auto, setAuto] = useState(false); const [say, setSay] = useState("");
+  const [hovered, setHovered] = useState(false); const auto = useHoverFreeze(); // Hover freeze is an opt-in mode now (Settings in the table drawer). A click on the live feed is the main way to read a card.
+   const [say, setSay] = useState("");
   const [flash, setFlash] = useState<{ quad: Pt[]; key: number } | null>(null); const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ring = useRef<{ canvas: HTMLCanvasElement; at: number }[]>([]); const scratch = useRef<HTMLCanvasElement | null>(null);
   const frozenRef = useRef<Frozen | null>(null); frozenRef.current = frozen;
@@ -161,24 +158,11 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
   const tipBox = useRef<HTMLDivElement>(null);
   const setFrozenHealth = hub.setFrozen;
 
-  useEffect(() => { setAuto(readAuto()); }, []);
   // "Show zone grid": off by default, remembered on this device.
   const tapSeat = useTapSeat(seat) && !you;
-  const zoneGrid = useZoneGrid(), canAdjust = you && !!box && !!video.current?.videoWidth && zoneGrid.ownSeat === seat && !!zoneGrid.calibrate;
-  const [gridOn, setGridOn] = useState(true); useEffect(() => { setGridOn(readGridPref(you)); }, [you]);
-  const toggleGrid = () => { const on = !gridOn; setGridOn(on); writeGridPref(you, on); };
-  const debugOn = useFieldDebugEnabled(), isDeveloper = useFieldDeveloper(), clipReady = useFieldClipReady();
-  // "Saved to your computer" note after a clip download; it clears itself after a few seconds.
-  const [clipNote, setClipNote] = useState(""); const clipTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [clipDetail, setClipDetail] = useState(""); const [clipSaved, setClipSaved] = useState(false);
-  const saveClip = () => {
-    const result = saveFieldClip(); if (clipTimer.current) clearTimeout(clipTimer.current);
-    setClipSaved(!!result?.saved);
-    setClipNote(!result ? "No clip yet: the card reader is not running." : result.saved ? "Saved to your computer. Contains your camera view of the mat." : "Nothing recorded yet: the card reader has not read the camera since it last started.");
-    setClipDetail(result?.saved ? `${result.stats.frames} frames, ${(result.stats.bytes / 1e6).toFixed(1)} MB, ${result.stats.events} events` : "");
-    clipTimer.current = setTimeout(() => setClipNote(""), 6000);
-  };
-  useEffect(() => () => { if (clipTimer.current) clearTimeout(clipTimer.current); }, []);
+  const zoneGrid = useZoneGrid();
+  // "Show zone grid" and "Hover freeze" are set in Settings of the table drawer.
+  const gridOn = useGridPref(you), debugOn = useFieldDebugEnabled();
   useEffect(() => {
     const element = video.current; if (!element || !source) return;
     const detach = source.attach(element);
@@ -533,7 +517,6 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
     document.addEventListener("keydown", onKey); return () => document.removeEventListener("keydown", onKey);
   }, [hovered, freeze, unfreeze]);
 
-  const toggleAuto = () => { const on = !auto; setAuto(on); try { localStorage.setItem(AUTO_KEY, on ? "1" : "0"); } catch { /* storage may be blocked */ } };
   const boxStyle: CSSProperties = box ? { left: box.left, top: box.top, width: box.width, height: box.height } : { display: "none" };
   const rect = (x: number, y: number, quad?: Pt[]) => {
     if (!box) return { display: "none" } as const;
@@ -624,13 +607,6 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
         <button type="button" className={s.fzbtn} onClick={() => unfreeze("Live feed.")} data-testid="resume-live">Resume live <kbd>Esc</kbd></button>
       </> : <>
         <button type="button" className={s.fzbtn} onClick={() => void freeze(true)} data-testid="freeze-feed" aria-keyshortcuts="F">Freeze <kbd>F</kbd></button>
-        <button type="button" className={`${s.fzbtn} ${s.fzauto}`} aria-pressed={gridOn && !tapSeat} disabled={tapSeat} onClick={toggleGrid} data-testid="zone-grid-toggle" title={tapSeat ? "This player uses Tap to identify: no zone grid" : you ? "Show zone grid on my camera" : "Show zone grid on this opponent camera"}>Show zone grid</button>
-        {you ? <button type="button" className={`${s.fzbtn} ${s.fzauto}`} disabled={!canAdjust} onClick={() => zoneGrid.calibrate?.()} data-testid="zone-grid-adjust" title={canAdjust ? "Move, resize or turn the zone grid to fit your mat" : "Available once your camera video is showing"}>Adjust zones</button> : null}
-        {you && !tapSeat ? <span className={s.gridHint} data-testid="zone-grid-hint">{gridOn ? "Recommended — shows where your zones are" : "Zones off"}</span> : null}
-        {you && isDeveloper ? <button type="button" className={`${s.fzbtn} ${s.fzauto}`} aria-pressed={debugOn} onClick={() => setFieldDebugEnabled(!debugOn)} data-testid="field-debug-toggle" title="Show what the field watcher sees: detector boxes, scores, tracks and reasons">Debug</button> : null}
-        {you && isDeveloper && clipReady ? <button type="button" className={`${s.fzbtn} ${s.fzauto}`} onClick={saveClip} data-testid="field-clip-save" title="Save the last 30 s of your mat camera and watcher events to a file on this computer. Nothing is uploaded. The recording restarts empty when the card reader restarts (backend switch, calibration on or off).">Save last 30 s</button> : null}
-        <button type="button" className={`${s.fzbtn} ${s.fzauto}`} aria-pressed={auto} onClick={toggleAuto} title="Freeze the frame when the pointer rests on the feed">Hover freeze {auto ? "on" : "off"}</button>
-        {clipNote ? <span className={`${s.fzchip} ${s.fzchipWrap}`} role="status" data-testid="field-clip-note" title={clipDetail}>{clipSaved ? <Icon name="check" /> : null}{clipNote}</span> : null}
       </>}
       <span className={s.watcherControlsSlot} data-field-watcher-controls />
     </div> : null}
