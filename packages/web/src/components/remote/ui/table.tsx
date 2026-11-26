@@ -1477,11 +1477,12 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     void startRead(subject.seat, at.x, at.y, { point: { anchor: at.at.anchor, feed: at.at.feed }, force: true, ...(hidden ? { hidden } : {}) });
   };
   const readAgain = () => readAt(!!ctx.current?.setClick || subject?.via === "preread");
-  /** "What is this card?": a named face-up card opens its text in the card drawer; a face-down or unnamed card is read (a Set card of mine privately). */
-  const peekCard = () => {
-    if (subject?.cardId && subjectCard?.faceUp !== false) { setSubject({ ...subject, from: "board" }); layers.open("insp"); return; }
-    readAt(subjectCard?.faceUp === false);
-  };
+  /** Webcam card panel: a face-down or unnamed card is read (a Set card of mine privately). */
+  const peekCard = () => readAt(subjectCard?.faceUp === false);
+  /** Pin to inspector: the card moves from the webcam panel to the card drawer, with its board actions. */
+  const pinCard = () => { if (subject?.from === "camera") setSubject({ ...subject, from: "board" }); layers.open("insp"); };
+  /** The webcam panel shows a named face-up card's text itself, so only that card can be pinned. Others get "Read this card" instead. */
+  const pinnable = !!subject?.cardId && subjectCard?.faceUp !== false && !subject.remembered && subject.via !== "preread";
   /** The short zone name of a card for the line under its name in the card menu ("M3", "S2", "EMZ", "Field"). */
   const whereIs = (seat: number, ref?: string) => {
     const key = ref ? (Object.entries(cellsFor(state.seats[seat]?.twin ?? [], extraZones)).find(([, cell]) => cell?.card?.ref === ref)?.[0] as ZoneKey | undefined) : undefined;
@@ -1489,7 +1490,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
   };
   const actions: CardActions = {
     quick: quickFor(subject?.seat ?? mySeat, subjectCard),
-    ...(subject?.from === "camera" ? { where: whereIs(subject.seat, subject.ref), onPeek: peekCard, onReadAgain: readAgain } : {}),
+    ...(subject?.from === "camera" ? { where: whereIs(subject.seat, subject.ref), onReadAgain: readAgain, ...(pinnable ? {} : { onPeek: peekCard }) } : {}),
     ...(subject && subjectCard && live && (solo || subject.seat === mySeat) ? (() => {
       const twins = state.seats[subject.seat].twin;
       const xyz = (c: TwinCard) => c.faceUp && ['monster','extra-monster'].includes(c.zone) && /xyz/i.test(info(cardCode(c))?.type ?? '');
@@ -1520,7 +1521,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
       layers.close(); setTray({ seat: subject.seat, ownerName: name(subject.seat), status: guesses.length?"guesses":"empty", guesses, note: `Search for the right card${sayItsName}.`, reader: "", at: popAt, ...(read?.token!==undefined?{aiToken:read.token}:{}), ...(placedRef?{placedRef}:{}) }); layers.open("tray"); },
     onActivate: subject && subject.cardId && live && subjectCard?.zone !== "deck" && subjectCard?.zone !== "extra" && (solo || subject.seat===mySeat) ? () => void act({type:"effect.activated",actorSeat:subject.seat,source:{cardId:subject.cardId,...(subject.ref ? {cardRef:subject.ref} : {})}}).then(done=>{if(done) layers.close();}) : undefined,
     onReveal: subject && subjectCard && !subjectCard.faceUp && (solo || subject.seat===mySeat) ? () => void act({type:"twin.flip",actorSeat:subject.seat,seat:subject.seat,cardRef:subjectCard.ref,faceUp:true}) : undefined,
-    onPin: () => layers.open("insp"),
+    ...(subject?.from === "camera" && !pinnable ? {} : { onPin: pinCard }),
     // Control change: take an opponent's monster or revived card, or hand a taken card back. Never guessed; the player presses the button.
     ...(subject && subjectCard && live && !solo && subject.seat !== mySeat && mySeat >= 0 && ["monster", "extra-monster", "graveyard"].includes(subjectCard.zone) && subjectCard.ownerSeat !== mySeat ? { control: { label: "Take control", onClick: () => { control.take(mySeat, subject.seat, subjectCard); } } } : {}),
     // A card I gave away shows on the other field as my proxy: I can take it back to a free zone of mine.
@@ -1573,7 +1574,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
   };
   /** Local camera identities open with the correction and reread actions. */
   const shownActions: CardActions = subject && (subject.remembered || subject.via === "preread") ? { canAdd: false, adding: false, onAdd: () => undefined, canAttack: false, attackHint: "", onAttack: () => undefined, onWrong: actions.onWrong,
-    where: actions.where, onPeek: peekCard, onReadAgain: readAgain } : actions;
+    where: actions.where, onReadAgain: readAgain } : actions;
   /** "Equipped to" choices: every monster on any field. One twin.equip action, one Undo. */
   function equipChoice(seat: number, card: TwinCard): NonNullable<CardEdit["equip"]> {
     const options = state.seats.flatMap(other => other.eliminated ? [] : other.twin.filter(c => c.zone === "monster" || c.zone === "extra-monster").map(c => ({

@@ -85,7 +85,7 @@ export type CardActions = {
   onWrong?: () => void; onPin?: () => void;
   /** A remembered card: read the camera again. On a webcam card it is a row of the card menu. */
   onReadAgain?: () => void;
-  /** Webcam card menu: peek at a face-down card, or name a card the table cannot name ("What is this card?"). */
+  /** Webcam card menu: read a face-down or unnamed card (a Set card of mine privately). A named face-up card has Pin to inspector (`onPin`) instead. */
   onPeek?: () => void;
   /** Webcam card menu: the zone the card is in, for the line under its name ("Webcam card · M3"). */
   where?: string;
@@ -180,44 +180,55 @@ function MoveGroup({ edit }: { edit: CardEdit }) {
 }
 
 /**
- * The menu of a card on a webcam (click, right click or long press). The camera shows the card and how it lies, so the menu only has what the camera cannot show:
- * activate (chain glow), look at a face-down card, send it away, give control, remove a proxy, read again. No position, no Set, no flip: the player does those by hand.
+ * The panel of a card on a webcam (click, right click or long press). It shows the card first: name, art, type line, ATK / DEF and the full text (the
+ * same text block as the other card popups), then the actions. The camera shows the card and how it lies, so the actions are only what the camera cannot show:
+ * activate (chain glow), send it away, give control, remove a proxy, read again. No position, no Set, no flip: the player does those by hand.
  */
 function CameraCardMenu({ subject, info, at, warning, actions, onClose }: {
   subject: Subject; info: CardInfo | undefined; at: PopAt; warning?: string; actions: CardActions; onClose: () => void;
 }) {
-  const name = info?.name ?? subject.name ?? (subject.cardId ? `Card ${subject.cardId}` : "Face-down card");
+  const known = subject.cardId > 0;
+  const name = known ? info?.name ?? subject.name ?? `Card ${subject.cardId}` : "Unknown card";
   const move = (id: QuickMove["id"]) => actions.quick?.find(m => m.id === id);
   const go = (m: QuickMove) => { onClose(); m.run(); };
   const activate = move("activate"), give = move("give") ?? move("return"), remove = move("remove");
   const sends = (["grave", "banish", "hand"] as const).map(move).filter((m): m is QuickMove => !!m);
   const sendIcon = { grave: "cardback", banish: "ban", hand: "hand" } as const;
-  const chips = subject.revealed || !!actions.materials?.length || subject.bestMatch || subject.notInDecklist === true || warning || subject.remembered;
-  return <PopupFrame at={at} layer="card" label={`${name}, card menu`} testid="card-popover" className={`${s.zonePicker} ${s.zoneMenu}`}>
-    <header className={s.zmHead}>
-      {subject.cardId ? <img className={s.cmArt} src={cardArt(subject.cardId, "small")} alt="" draggable={false} data-testid="big-art" /> : <i className={`${s.cmArt}`} aria-hidden="true" />}
-      <div className={s.zmTitle}><strong title={name}>{name}</strong><span>{actions.where ? `Webcam card \u00b7 ${actions.where}` : "Webcam card"}</span></div>
-      <button type="button" className={`${s.btn} ${s.q} ${s.zpClose}`} onClick={onClose} aria-label="Close card menu">Close</button>
-    </header>
-    <div className={s.zmBody}>
+  const chips = subject.revealed || !!actions.materials?.length || subject.notInDecklist === true || warning || subject.remembered;
+  const wrong = known && actions.onWrong ? <button type="button" className={s.cmWrong} onClick={actions.onWrong} data-testid="card-menu-wrong">Wrong card?</button> : null;
+  const where = actions.where ? `Webcam card \u00b7 ${actions.where}` : "Webcam card";
+  const ident = <div className={s.cmIdent}><span className={s.cmWhere}>{where}</span>{subject.bestMatch ? <span className={`${s.cb} ${s.w}`} data-testid="card-best-match">Best match</span> : null}{wrong}</div>;
+  return <PopupFrame at={at} layer="card" label={`${name}, card menu`} testid="card-popover" className={s.camMenu}>
+    <div className={s.cmTools}>
+      {actions.onPin ? <button type="button" className={s.ibtn} onClick={actions.onPin} aria-label="Pin to inspector" title="Pin to inspector" data-testid="pin-inspector"><Icon name="pin" /></button> : null}
+      <button type="button" className={s.ibtn} onClick={onClose} aria-label="Close card menu" title="Close"><Icon name="x" /></button>
+    </div>
+    {known ? <CardText id={subject.cardId} info={info} name={subject.name} fallbackName={`Card ${subject.cardId}`} art={<BigArt id={subject.cardId} label={name} />}>{ident}</CardText>
+      : <div className={s.cmUnknown}>
+        <h2 className={s.bname} data-testid="popover-name">{name}</h2>
+        <p className={s.bdetails}>{where} {"\u00b7"} Not identified yet.</p>
+      </div>}
+    <div className={s.cmBody}>
       {chips ? <div className={s.cbadges} data-testid="card-menu-notes">
         {subject.remembered ? <span className={s.cb} data-testid="card-last-read">Last read here, may have changed {"\u00b7"} {readAge(subject.rememberedAt)}</span> : null}
         {subject.revealed ? <span className={s.cb}>Revealed</span> : null}
         {actions.materials?.length ? <span className={s.cb} data-testid="card-material-count">{actions.materials.length} material{actions.materials.length === 1 ? "" : "s"}</span> : null}
-        {subject.bestMatch ? <span className={`${s.cb} ${s.w}`}>Best match</span> : null}
         {subject.notInDecklist === true ? <span className={`${s.cb} ${s.w}`}><Icon name="warn" />Not in decklist{actions.canAdd ? <button type="button" className={`${BTN} ${s.cbadd}`} disabled={actions.adding} onClick={actions.onAdd}>Add to decklist</button> : null}</span> : null}
         {warning ? <span className={`${s.cb} ${s.w}`}><Icon name="warn" />{warning}</span> : null}
       </div> : null}
       {actions.zoneCheck ? <ZoneCheck reason={actions.zoneCheck} /> : null}
-      <div className={s.zaList} data-testid="card-quick-moves">
+      <div className={s.cmActs} data-testid="card-quick-moves">
         {activate ? <Row icon="bolt" primary hint="E" data-autofocus="" onClick={() => go(activate)} data-testid="quick-activate">{activate.label}</Row> : null}
-        {actions.onPeek ? <Row icon="eye" sub={subject.cardId ? "Opens the card inspector, with Wrong card? and the full text" : "Peek at or identify a face-down card"} onClick={actions.onPeek} data-testid="card-peek">What is this card?</Row> : null}
-        {sends.map(m => <Row key={m.id} icon={sendIcon[m.id as "grave" | "banish" | "hand"]} onClick={() => go(m)} data-testid={`quick-${m.id}`}>{m.label}</Row>)}
-        {give ? <Row icon="swap" onClick={() => go(give)} data-testid={`quick-${give.id}`}>{give.label}</Row> : null}
-        {remove ? <Row icon="x" onClick={() => go(remove)} data-testid="quick-remove">{remove.label}</Row> : null}
-        {actions.onReadAgain ? <Row icon="refresh" onClick={actions.onReadAgain} data-testid="card-read-again">Read again</Row> : null}
+        {!known && actions.onPeek ? <Row icon="eye" primary={!activate} data-autofocus={activate ? undefined : ""} sub="Then search by name if the read is wrong" onClick={actions.onPeek} data-testid="card-peek">Read this card</Row> : null}
+        <div className={s.cmGrid}>
+          {known && actions.onPeek ? <Row icon="eye" onClick={actions.onPeek} data-testid="card-peek">Look at this card</Row> : null}
+          {sends.map(m => <Row key={m.id} icon={sendIcon[m.id as "grave" | "banish" | "hand"]} onClick={() => go(m)} data-testid={`quick-${m.id}`}>{m.label}</Row>)}
+          {give ? <Row icon="swap" onClick={() => go(give)} data-testid={`quick-${give.id}`}>{give.label}</Row> : null}
+          {remove ? <Row icon="x" onClick={() => go(remove)} data-testid="quick-remove">{remove.label}</Row> : null}
+          {actions.onReadAgain ? <Row icon="refresh" onClick={actions.onReadAgain} data-testid="card-read-again">Read again</Row> : null}
+        </div>
       </div>
-      {activate ? <p className={s.zaTip} data-testid="card-menu-tip">Faster: hover a card and press <kbd>E</kbd>{subject.cardId ? <>, or say {"\u201c"}effect {name}{"\u201d"}</> : null}.</p> : null}
+      {activate ? <p className={s.zaTip} data-testid="card-menu-tip">Faster: hover + <kbd>E</kbd>{known ? <>, or say {"\u201c"}effect {name}{"\u201d"}</> : null}.</p> : null}
     </div>
   </PopupFrame>;
 }

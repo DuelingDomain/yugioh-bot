@@ -979,6 +979,18 @@ test.describe("remote duels screen, moving cards by hand", () => {
     await page.mouse.click(at.x, at.y); await expect(page.getByTestId("inspector")).toContainText("Dark Magician");
     await page.keyboard.press("Escape"); await expect(page.getByTestId("inspector")).toBeHidden();
     await page.mouse.click(at.x, at.y, { button: "right" }); await expect(page.getByTestId("inspector")).toContainText("Dark Magician");
+    // The webcam card panel shows the card first (name, art), then the actions. No "What is this card?" row: Wrong card? is a link, Pin to inspector an icon.
+    const panel = page.getByTestId("card-popover");
+    await expect(panel).toBeVisible(); await expect(panel.getByTestId("popover-name")).toHaveText("Dark Magician");
+    await expect(panel.getByTestId("big-art")).toBeVisible(); await expect(panel.getByTestId("pin-inspector")).toBeVisible();
+    await expect(panel.getByTestId("card-menu-wrong")).toHaveText("Wrong card?"); await expect(panel.getByTestId("quick-activate")).toBeVisible();
+    await expect(panel.getByTestId("card-peek")).toHaveCount(0);
+    const panelBox = (await panel.boundingBox())!; const view = page.viewportSize()!;
+    expect(panelBox.x).toBeGreaterThanOrEqual(0); expect(panelBox.y).toBeGreaterThanOrEqual(0);
+    expect(panelBox.x + panelBox.width).toBeLessThanOrEqual(view.width); expect(panelBox.y + panelBox.height).toBeLessThanOrEqual(view.height);
+    // Pin to inspector hands the card to the left drawer and the panel goes.
+    await panel.getByTestId("pin-inspector").click(); await expect(page.getByTestId("card-popover")).toHaveCount(0);
+    await expect(page.getByTestId("inspector")).toBeVisible(); await expect(page.getByTestId("inspector")).toContainText("Dark Magician");
     await page.keyboard.press("Escape");
     await shot(page, "webcam-only-1920");
     // Notices (here the undo toast) sit in my own seat's stack, never over the camera. Recognition prompts use the same stack.
@@ -2123,7 +2135,7 @@ test('field watcher automatic: tap to identify reads every camera on a click, ru
     const recalled=calls(a,'detect').then(n=>n+1);await clickCard(a);
     await expect(a.getByTestId('card-last-read')).toContainText('Last read here, may have changed',{timeout:30_000});await expect(a.getByTestId('card-read-again')).toBeVisible();await expect(a.getByTestId('card-popover')).toHaveAttribute('aria-label',seenCard);
     expect(await calls(a,'detect')).toBe(await recalled);
-    await expect(a.getByTestId('card-popover').getByRole('button',{name:'Wrong card?'})).toHaveCount(0);await expect(a.getByTestId('pin-inspector')).toHaveCount(0);
+    await expect(a.getByTestId('card-popover').getByRole('button',{name:'Wrong card?'})).toBeVisible();await expect(a.getByTestId('pin-inspector')).toHaveCount(0);
     await expect(b.getByTestId('card-last-read')).toHaveCount(0);await a.waitForTimeout(1000);
     expect(actionPosts).toEqual([]);const after=await room();expect(after.state.seats[0].twin).toHaveLength(0);expect(after.events.filter((e:any)=>e.action.type==='card.identified')).toHaveLength(identifiedBefore);
     await a.evaluate(async()=>{const camera=(window as any).fieldTest;await camera.texture(false);camera.back('');});

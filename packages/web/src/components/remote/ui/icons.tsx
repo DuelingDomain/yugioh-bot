@@ -21,6 +21,7 @@ const PATHS = {
   hand: <path d="M4 20l1-5L16 4l4 4L9 19z" />,
   grip: <path d="M9 5v.01M15 5v.01M9 12v.01M15 12v.01M9 19v.01M15 19v.01" strokeWidth="3" strokeLinecap="round" />,
   flag: <path d="M5 21V4M5 4h11l-2 4 2 4H5" />,
+  pin: <path d="M9 4h6l-1 6 3 3H7l3-3-1-6zM12 13v8" />,
   sword: <path d="M14 4h6v6L10 20l-6-6zM5 19l-2 2M8 16l-3 3" />,
   layers: <><path d="m12 3 9 5-9 5-9-5 9-5z" /><path d="m3 13 9 5 9-5" /></>,
   cardback: <><rect x="6" y="3" width="12" height="18" rx="2" /><path d="m12 9 2.5 3-2.5 3-2.5-3z" /></>,
