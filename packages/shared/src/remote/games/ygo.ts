@@ -511,7 +511,10 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
       break;
     }
     case "twin.counters": {
-      const card = seat(action.seat).twin.find(c => c.ref === action.cardRef);
+      // Same reach as a move or flip: my own field, a token I placed on another field, or a proxy I gave to another field.
+      const there = action.seat !== action.actorSeat ? seat(action.seat).twin.find(c => c.ref === action.cardRef) : undefined;
+      const mine = !!there && (there.token ? there.token.by === action.actorSeat : there.ownerSeat === action.actorSeat && there.zone !== "material" && (!context?.replay || context.givenCards === 1));
+      const card = (mine ? seat(action.seat) : ownField(action.seat)).twin.find(c => c.ref === action.cardRef);
       remoteAssert(card && FIELD_ZONES.has(card.zone), "Counters go on a card on the field", 409);
       const count = Math.min(99, Math.max(0, (card.counters ?? 0) + action.delta));
       remoteAssert(count !== (card.counters ?? 0), "No counters to change", 409);

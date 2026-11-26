@@ -1557,7 +1557,8 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
       const top = xyz(subjectCard), options = twins.filter(c => c.ref !== subjectCard.ref && (top ? material(c) : material(subjectCard) && xyz(c)));
       return { attach: { label: top ? 'Attach Xyz material' : 'Attach to Xyz', options: options.map(c => ({ ref: c.ref, label: `${c.faceUp || c.publicIdentity || solo || subject.seat === mySeat ? cardName(c,info(cardCode(c))) : 'Face-down card'} · ${c.zone} ${c.slot ?? ''}` })), onPick: (ref: string) => void act({type:'twin.attach',actorSeat:solo?subject.seat:mySeat,seat:subject.seat,cardRef:top?subjectCard.ref:ref,kind:'xyz',materialRefs:[top?ref:subjectCard.ref]}) } };
     })() : {}),
-    ...(subject && subjectCard && live && (solo || subject.seat === mySeat) && ['monster', 'extra-monster', 'spell-trap', 'field', 'pendulum'].includes(subjectCard.zone)
+    // Any card on the field I can edit: mine, a token I placed on another field, or a proxy I gave there. Webcam cards, face-down and unnamed cards, proxies and tokens all show the row.
+    ...(subject && subjectCard && live && (solo || subject.seat === mySeat || (subjectCard.token ? subjectCard.token.by === mySeat : subjectCard.ownerSeat === mySeat)) && ['monster', 'extra-monster', 'spell-trap', 'field', 'pendulum'].includes(subjectCard.zone)
       ? { counters: { count: subjectCard.counters ?? 0, onChange: (delta: 1 | -1) => void act({ type: 'twin.counters', actorSeat: solo ? subject.seat : mySeat, seat: subject.seat, cardRef: subjectCard.ref, delta }) } } : {}),
     canAdd: !!subject && live && (solo || subject.seat === mySeat) && !subject.addErrors.length, adding, onAdd: () => subject && void addToDeck(subject.seat, subject.cardId),
     voice: voiceRecognition,
