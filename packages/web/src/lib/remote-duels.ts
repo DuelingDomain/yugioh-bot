@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createRemoteDuelService, TournamentRemoteError } from "@yugidraft/shared/services";
-import { remoteActionSchema, remoteAssert, remoteBestOfSchema, type RemoteTable, type RemoteRevealedHand, RemoteDuelError, type SeatCount } from "@yugidraft/shared/remote";
+import { remoteActionSchema, remoteAssert, remoteBestOfSchema, type RemoteTable, type RemoteRevealedHand, type RemoteFirstPlayerMode, RemoteDuelError, type SeatCount } from "@yugidraft/shared/remote";
 import { isRemoteDuelUser } from "@yugidraft/shared/access/remote-duel-users";
 import { signedTransport } from "@yugidraft/shared/internal-auth";
 import { errorResponseBody, log } from "@yugidraft/shared/observability";
@@ -86,7 +86,7 @@ export async function remoteMutation(request: Request, context: RemoteRouteConte
   const actor = await requireRemoteActor(); if (!actor.ok) return actor.response;
   try {
     const { slug } = await context.params;
-    const keys = { seat: ["seat"], leave: [], activity: [], ready: ["ready"], start: [], actions: ["baseSeq", "action"], deck: ["savedDeckId", "seat"], format: ["format", "bestOf", "rules", "showCardsSetFromDeck", "revealedHand"] };
+    const keys = { seat: ["seat"], leave: [], activity: [], ready: ["ready"], start: [], actions: ["baseSeq", "action"], deck: ["savedDeckId", "seat"], format: ["format", "bestOf", "rules", "showCardsSetFromDeck", "revealedHand", "firstPlayer"] };
     // Empty bodies are accepted for the bodyless operations.
     const body = operation === "leave" || operation === "start" || operation === "activity" ? {} : await remoteBody(request, keys[operation]);
     let result;
@@ -96,8 +96,9 @@ export async function remoteMutation(request: Request, context: RemoteRouteConte
         const bestOf = remoteBestOfSchema.optional().safeParse(body.bestOf);
         remoteAssert(bestOf.success, "Match bestOf must be 1 or 3");
         remoteAssert(body.revealedHand === undefined || body.revealedHand === 'until-played' || body.revealedHand === 'one-turn', 'Invalid revealed hand setting');
+        remoteAssert(body.firstPlayer === undefined || body.firstPlayer === "dice" || body.firstPlayer === "own", "Invalid first player setting");
         remoteAssert(body.showCardsSetFromDeck === undefined || typeof body.showCardsSetFromDeck === "boolean", "Invalid Deck publicity setting");
-        result = actor.remote.configure(slug, actor.guildId, actor.userId, { format: body.format, bestOf: bestOf.data, rules: body.rules, showCardsSetFromDeck: body.showCardsSetFromDeck as boolean | undefined, revealedHand: body.revealedHand as RemoteRevealedHand | undefined }); break;
+        result = actor.remote.configure(slug, actor.guildId, actor.userId, { format: body.format, bestOf: bestOf.data, rules: body.rules, showCardsSetFromDeck: body.showCardsSetFromDeck as boolean | undefined, revealedHand: body.revealedHand as RemoteRevealedHand | undefined, firstPlayer: body.firstPlayer as RemoteFirstPlayerMode | undefined }); break;
       }
       case "deck":
         remoteAssert(body.savedDeckId === null || (typeof body.savedDeckId === "number" && Number.isSafeInteger(body.savedDeckId) && body.savedDeckId > 0), "Invalid saved deck");

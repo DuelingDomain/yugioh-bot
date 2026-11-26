@@ -3,7 +3,7 @@ import type { AttackHints, AttackResolution } from "./attack-resolver.js";
 import type { RemoteDeckChecks, RemoteDeckRegistration, RemoteFormat, RemoteReductionContext } from "./deck-checks.js";
 
 import type { RemoteEffectTracking } from "./effect-tracking.js";
-import type { RemoteBestOf, RemoteMatch, RemoteOpening } from "./match-contract.js";
+import type { RemoteBestOf, RemoteFirstPlayerMode, RemoteMatch, RemoteOpening } from "./match-contract.js";
 
 export type SeatCount = 2 | 3 | 4;
 export type RemoteRevealedHand = 'until-played' | 'one-turn';
@@ -49,6 +49,8 @@ export type RemotePosition = {
   /** Older JSON snapshots omit this default-on table rule. */
   showCardsSetFromDeck?: boolean;
   revealedHand?: RemoteRevealedHand;
+  /** Table option "Who goes first". Absent on older tables: digital dice. */
+  firstPlayer?: RemoteFirstPlayerMode;
   /** Pending physical origin choice. No pile is changed until the owner answers. */
   twinConfirmation?: RemoteTwinConfirmation;
   twinConfirmationQueue?: RemoteTwinConfirmation[];
@@ -88,13 +90,13 @@ export interface GameModule {
 export type RemoteStatus = "lobby" | "active" | "ended";
 export type RemoteSeat = { seat: number; userId: number | null; bot: boolean; displayName: string; ready: boolean; deckRegistered?: boolean; deck?: RemoteDeckRegistration | null };
 export type RemoteSystemAction =
-  | { type: "table.created"; gameId: string; seatCount: SeatCount; tournament?: boolean; bestOf?: RemoteBestOf; solo?: boolean; format?: RemoteFormat; showCardsSetFromDeck?: boolean; revealedHand?: RemoteRevealedHand }
-  | { type: "table.configured"; format: RemoteFormat; bestOf?: RemoteBestOf; registrations: RemoteDeckChecks["registrations"]; showCardsSetFromDeck?: boolean; revealedHand?: RemoteRevealedHand }
+  | { type: "table.created"; gameId: string; seatCount: SeatCount; tournament?: boolean; bestOf?: RemoteBestOf; solo?: boolean; format?: RemoteFormat; showCardsSetFromDeck?: boolean; revealedHand?: RemoteRevealedHand; firstPlayer?: RemoteFirstPlayerMode }
+  | { type: "table.configured"; format: RemoteFormat; bestOf?: RemoteBestOf; registrations: RemoteDeckChecks["registrations"]; showCardsSetFromDeck?: boolean; revealedHand?: RemoteRevealedHand; firstPlayer?: RemoteFirstPlayerMode }
   | { type: "seat.deck"; seat: number; registration: RemoteDeckRegistration | null }
   | { type: "seat.joined"; seat: number; userId: number | null; bot?: boolean }
   | { type: "seat.left"; seat: number; userId: number | null }
   | { type: "seat.ready"; seat: number; ready: boolean }
-  | { type: "table.started"; handCounts?: 1; opening?: RemoteOpening }
+  | { type: "table.started"; handCounts?: 1; opening?: RemoteOpening; ownFirst?: 1 }
   | { type: "idle.warning"; closesAt: number }
   /** An admin started or stopped watching. A public fact: who and when, never camera data. */
   | { type: "admin.watching"; userId: number | null; name: string; watching: boolean }
@@ -117,6 +119,8 @@ export type RemoteTable = {
   format?: RemoteFormat;
   showCardsSetFromDeck?: boolean;
   revealedHand?: RemoteRevealedHand;
+  /** "dice" (default) or "own": the players roll their own dice on camera. */
+  firstPlayer?: RemoteFirstPlayerMode;
   /** Same words as normal duels. Public tables can be watched; private tables take no spectators. */
   visibility?: RemoteVisibility;
   /** Admins who watch now. Shown to the players as "Admin watching". Only on a table read for a room view. */

@@ -32,6 +32,18 @@ export type RemoteOpening = {
   /** A bot won the roll and went first at once: the screen shows the dice for a moment, with no choice. */
   auto?: true;
 };
+/** Table option "Who goes first": the server rolls digital dice, or the players roll their own on camera and one of them says who goes first. */
+export type RemoteFirstPlayerMode = "dice" | "own";
+/**
+ * Game 1 of a table where the players roll their own dice. No dice are rolled here: any seated player says who goes first
+ * (match.first), and the choice can change until the first turn action of the game locks it.
+ */
+export type RemoteOwnFirst = {
+  /** Unset until somebody chooses. Turns do not start before that. */
+  chosenSeat?: number;
+  /** Set by the first game action after the choice. */
+  locked?: true;
+};
 export type RemoteMatch = {
   bestOf: RemoteBestOf;
   games: RemoteGameResult[];
@@ -45,6 +57,8 @@ export type RemoteMatch = {
   firstSeat?: number;
   /** Game 1 of a table that rolled for the first player. Absent on tables started before the roll existed. */
   opening?: RemoteOpening;
+  /** Game 1 of a table that uses "Roll your own dice". Mutually exclusive with `opening`. */
+  ownFirst?: RemoteOwnFirst;
 };
 
 export const REMOTE_SIDE_MS = 180_000;

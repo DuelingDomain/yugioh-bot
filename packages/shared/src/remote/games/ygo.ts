@@ -1,7 +1,7 @@
 import { cloneRemoteCurrent } from "../position.js";
 import { applyRemoteGive, applyRemoteHand, moveRemoteCardToHand, reduceRemoteHandAction, restoreOwnerIdentity, sendGivenCardsHome } from "../hand.js";
 import { rememberRemoteAction, undoRemoteAction } from "../undo.js";
-import { ensureRemoteMatch, finishRemoteGame, initialRemoteMatch, reduceRemoteMatch, remoteOpeningPending, syncRemoteSideStart } from "../match.js";
+import { ensureRemoteMatch, finishRemoteGame, initialRemoteMatch, reduceRemoteMatch, remoteActionLocksOwnFirst, remoteFirstPending, syncRemoteSideStart } from "../match.js";
 import { remoteActionSchema, remoteActivationKey, remoteActivationNotice, remoteAssert, remoteSummonKinds, type RemoteAction, type TwinCard } from "../actions.js";
 import type { GameModule, RemoteSeatState, RemoteState } from "../types.js";
 import { resolveAttack } from "../attack-resolver.js";
@@ -175,10 +175,12 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
     remoteAssert(undo && undo.actionId === action.targetActionId && at - undo.at <= 5000, "Undo expired or action is no longer the latest reversible action", 409, "UNDO_UNAVAILABLE");
     return { ...structuredClone(undo.before), detection: structuredClone(state.detection ?? {}), updatedAt: at, undo: null };
   }
-  remoteAssert(!remoteOpeningPending(state.match) || action.type === "player.concede", "Waiting for the die-roll winner to choose who goes first", 409, "OPENING_PENDING");
+  remoteAssert(!remoteFirstPending(state.match) || action.type === "player.concede", "Waiting for the first player to be chosen", 409, "OPENING_PENDING");
   remoteAssert(!state.ended, "Game has ended", 409);
   remoteAssert(!state.seats[action.actorSeat].eliminated, "Actor seat is eliminated", 403);
   let next: RemoteState = { ...cloneRemoteCurrent(state), updatedAt: at };
+  // "Roll your own dice": the first action of the game ends the time to change who goes first.
+  if (next.match.ownFirst?.chosenSeat !== undefined && remoteActionLocksOwnFirst(action.type)) next.match.ownFirst.locked = true;
   const fieldFaceVersion = context?.replay ? context.fieldFaceState : 2;
   next.deckChecks ??= initialDeckChecks();
   // Given cards (control proxies): replays recorded without the flag keep the older rules.

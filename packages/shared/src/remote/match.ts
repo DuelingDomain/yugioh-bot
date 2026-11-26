@@ -71,6 +71,20 @@ export function remoteOpeningPending(match: RemoteMatch | undefined): match is R
   return match?.phase === "duel" && match.opening !== undefined && match.opening.chosenSeat === undefined;
 }
 
+/** "Roll your own dice": game 1 waits until a player says who goes first. */
+export function remoteOwnFirstPending(match: RemoteMatch | undefined): boolean {
+  return match?.phase === "duel" && match.ownFirst !== undefined && match.ownFirst.chosenSeat === undefined;
+}
+
+/** Nobody has the first turn yet: the digital die roll or the players' own first-player choice is still open. */
+export function remoteFirstPending(match: RemoteMatch | undefined): boolean {
+  return remoteOpeningPending(match) || remoteOwnFirstPending(match);
+}
+
+/** Actions that do not start the game. Any other action after the choice locks the first player. */
+const OWN_FIRST_KEEPS_OPEN: ReadonlySet<string> = new Set(["detection.mode", "chain.respond", "chain.thinking", "chain.ok", "log.note", "undo", "player.concede", "player.leave"]);
+export const remoteActionLocksOwnFirst = (type: string): boolean => !OWN_FIRST_KEEPS_OPEN.has(type);
+
 /**
  * The seat that chooses who goes first: the die-roll winner, or, when the winner is out of the game, the next living seat by
  * roll order (highest latest roll first, lower seat number on equal rolls).
@@ -93,6 +107,11 @@ function startWithSeat(state: RemoteState, seat: number): void {
 export function applyRemoteOpening(state: RemoteState, opening: RemoteOpening): void {
   state.match.opening = structuredClone(opening);
   if (opening.chosenSeat !== undefined) startWithSeat(state, opening.chosenSeat);
+}
+
+/** Writes the "roll your own dice" wait into a fresh state (table start, and every replay of the table.started event). */
+export function applyRemoteOwnFirst(state: RemoteState): void {
+  state.match.ownFirst = {};
 }
 
 function chooseRemoteOpening(state: RemoteState, seat: number): RemoteState {
@@ -154,7 +173,7 @@ function advance(state: RemoteState, at: number, initialState: GameModule["initi
   const firstSeat = state.seats[chosen].accountDeleted ? state.seats.find(s=>!s.accountDeleted)!.seat : chosen;
   const next = initialState({ seatCount: state.seatCount, firstSeat, bestOf: match.bestOf, tournament: state.tournament });
   next.match = match; next.match.phase = "duel";
-  delete next.match.siding; delete next.match.firstChooser; delete next.match.firstSeat; delete next.match.opening;
+  delete next.match.siding; delete next.match.firstChooser; delete next.match.firstSeat; delete next.match.opening; delete next.match.ownFirst;
   next.deckChecks = initialDeckChecks(structuredClone(state.deckChecks.format));
   next.deckChecks.registrations = structuredClone(state.deckChecks.registrations);
   for (const seat of next.seats) {
@@ -213,6 +232,18 @@ export function reduceRemoteMatch(state: RemoteState, input: RemoteAction, initi
     pending.confirmed.push(action.actorSeat);
     const confirmed = legacyReplay ? pending.confirmed.length === next.seatCount : next.seats.every(s => s.eliminated || pending.confirmed.includes(s.seat));
     if (confirmed) finishRemoteGame(next, pending.winnerSeat, "declared", at);
+    return next;
+  }
+  if (match.phase === "duel" && match.ownFirst && action.type === "match.first") {
+    const own = match.ownFirst;
+    remoteAssert(!next.ended, "The game has ended", 409);
+    remoteAssert(!own.locked, "The first turn has started, so the first player can no longer change", 409);
+    remoteAssert(!next.seats[action.actorSeat].eliminated, "Actor seat is eliminated", 403);
+    validSeat(action.seatGoesFirst);
+    remoteAssert(!next.seats[action.seatGoesFirst].eliminated, "That seat is out of the game", 409);
+    if (own.chosenSeat === action.seatGoesFirst) return state;
+    own.chosenSeat = action.seatGoesFirst;
+    startWithSeat(next, action.seatGoesFirst);
     return next;
   }
   if (remoteOpeningPending(match)) {
