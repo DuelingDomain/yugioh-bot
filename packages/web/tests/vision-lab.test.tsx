@@ -739,6 +739,58 @@ async function typedWatcherFixture(entry:{cardId:string;passcode:number;name:str
  return {addTrack(values:any){const added=Object.assign(Object.create(Object.getPrototypeOf(track),Object.getOwnPropertyDescriptors(track)),values),tracks=fixture.watch.snapshot.tracks;tracks.push(added);fixture.watch.getTrack=(id:string)=>tracks.find((t:any)=>t.id===id);confirm.mockImplementation((id:string,cardId?:string,ref?:string)=>Object.assign(tracks.find((t:any)=>t.id===id)??track,{id:ref??id,cardId,state:'identified'}));view.rerender(<AutoFieldWatcher room={room} transaction={queue.transaction} diagnosticsAllowed={diagnosticsAllowed}/>);return added;},refreshAfterPosts(){fixture.refreshAfterPosts=true;},refresh(){view.rerender(<AutoFieldWatcher room={room} transaction={queue.transaction} diagnosticsAllowed={diagnosticsAllowed}/>);},setTwins(twins:any[]){room={...room,lastSeq:room.lastSeq+1,state:{...room.state,seats:room.state.seats.map((seat:any,i:number)=>i===0?{...seat,twin:twins}:seat)}};view.rerender(<AutoFieldWatcher room={room} transaction={queue.transaction} diagnosticsAllowed={diagnosticsAllowed}/>);},async restart(){view.unmount();fixture.ready=false;view=render(<AutoFieldWatcher room={room} transaction={queue.transaction} diagnosticsAllowed={diagnosticsAllowed}/>);await waitFor(()=>expect(fixture.ready).toBe(true));},switchCamera(){source={local:true};view.rerender(<AutoFieldWatcher room={room} transaction={queue.transaction} diagnosticsAllowed={diagnosticsAllowed}/>);},action:queue.action,known:()=>fixture.config.getKnownCards(),track,post,confirm,room:()=>room,async emit(event:any={}){await act(async()=>fixture.onEvent({type,track:{...track},source:'auto',...(bindRef?{bindRef}:{}),result:{...result,candidates:[{cardId:entry.cardId,score:.99}]},...event}));},dispose(){cleanup();host.remove();state.fieldWatch=null;}};
 }
 
+it.each([['GY','graveyard',false],['BANISHED','banished',true]] as const)(
+  'removes an unread %s entry and forgets the physical track even when the camera reports it again', async (zone, destination, alias) => {
+    const unknown = {ref: 'pile-unknown', zone: destination, faceUp: true, position: 'attack'};
+    const survivor = {...unknown, ref: 'pile-known', cardId: cards[1].passcode, name: cards[1].name};
+    const fixture = await typedWatcherFixture(cards[0], zone, [survivor, unknown], 'prompt', unknown.ref);
+    const watch = state.fieldWatch.watch;
+    try {
+      state.fieldWatch.recordEvents = true;
+      Object.assign(fixture.track, {id: alias ? 'physical-typed' : unknown.ref, cardId: undefined, restSince: 0});
+      watch.getSnapshot = () => watch.snapshot;
+      watch.forget.mockImplementation((id: string) => {
+        watch.snapshot.tracks = watch.snapshot.tracks.filter((track: {id: string}) => track.id !== id);
+        watch.getTrack = (id: string) => watch.snapshot.tracks.find((track: {id: string}) => track.id === id);
+      });
+      await fixture.emit({reason: 'uncertain', result: undefined});
+      await act(async () => {
+        await fixture.action({type: 'twin.remove', actorSeat: 0, seat: 0, cardRef: unknown.ref});
+        fixture.refresh();
+      });
+      expect(fixture.room().state.seats[0].twin).toEqual([survivor]);
+      expect(watch.forget).toHaveBeenCalledExactlyOnceWith(fixture.track.id);
+
+      const firstSeen = performance.now() + 2500;
+      watch.snapshot.pileTouchedAt = {[zone]: firstSeen};
+      await fixture.emit({reason: 'uncertain', bindRef: undefined, result: undefined, track: {...fixture.track, firstSeen}});
+      expect(fixture.post.mock.calls.map(([proposal]) => proposal.type)).toEqual(['twin.remove']);
+      expect(fixture.room().state.seats[0].twin).toEqual([survivor]);
+    } finally { fixture.dispose(); }
+  }
+);
+
+it('names an unread Graveyard entry in place from the pile viewer', async () => {
+  const {PileViewer} = await import('../src/components/remote/ui/pile-viewer');
+  const unknown: TwinCard = {ref: 'pile-unknown', zone: 'graveyard', faceUp: true, position: 'attack'};
+  const fixture = await typedWatcherFixture(cards[0], 'GY', [unknown], 'prompt', unknown.ref);
+  try {
+    vi.stubGlobal('matchMedia', () => ({matches: false, addEventListener() {}, removeEventListener() {}}));
+    fetcher.mockImplementation(async () => Response.json({cards: [catalogFacts[0]]}));
+    const props = {seat: 0, name: 'Player', mine: true, zone: 'graveyard' as const, onZone: vi.fn(), info: () => undefined,
+      onClose: vi.fn(), onOpenCard: vi.fn(), onName: (card: TwinCard, cardId: number, name: string) => {
+        void fixture.action({type: 'card.identified', actorSeat: 0, seat: 0, source: 'typed', cardRef: card.ref, cardId, name});
+      }};
+    const viewer = render(<PileViewer {...props} twin={fixture.room().state.seats[0].twin}/>);
+    fireEvent.change(screen.getByRole('textbox', {name: 'Name this card'}), {target: {value: cards[0].name}});
+    fireEvent.click(await screen.findByTestId('pile-name-pick'));
+    const named = {...unknown, cardId: cards[0].passcode, name: cards[0].name};
+    await waitFor(() => expect(fixture.room().state.seats[0].twin).toEqual([expect.objectContaining(named)]));
+    viewer.rerender(<PileViewer {...props} twin={fixture.room().state.seats[0].twin}/>);
+    expect(screen.getByTestId('pile-card')).toHaveTextContent(named.name);
+  } finally { fixture.dispose(); }
+});
+
 const physicalHintsKey='dd-field-physical:v1:g:typed-zone:0';
 it.each([false,true])('flips a projected Trap in place even when the physical monster row is full: %s',async full=>{
  const old={ref:'projected-trap',zone:'spell-trap',slot:4,cardId:41420027,name:'Solemn Judgment',faceUp:true,position:'attack'};
