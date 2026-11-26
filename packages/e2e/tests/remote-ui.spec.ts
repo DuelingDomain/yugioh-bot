@@ -1455,8 +1455,7 @@ test.describe("remote duels, spectators", () => {
       await c.goto(`/duels/remote/${slug}`);
       await expect(c.getByTestId("spectator-table")).toBeVisible({ timeout: 30_000 });
       const act = async (action: Record<string, unknown>) => {
-        const room = await (await alice!.request.get(path)).json();
-        const done = await alice!.request.post(`${path}/actions`, { data: { baseSeq: room.lastSeq, action: { actorSeat: 0, idempotencyKey: crypto.randomUUID(), ...action } } });
+        const done = await postAction(alice!.request, path, { actorSeat: 0, ...action });
         expect(done.status(), await done.text()).toBe(200);
       };
       await act({ type: "player.concede" });
@@ -1525,8 +1524,7 @@ test.describe("remote duels, spectators", () => {
       const slug = await startTwoPlayerTable(alice!.request, bob!.request, "public"), path = `/api/remote/${slug}`;
       // Hidden facts of Alice: a Set card, a card known to be in hand. Public: a face-up monster.
       const act = async (action: Record<string, unknown>) => {
-        const room = await (await alice!.request.get(path)).json();
-        const done = await alice!.request.post(`${path}/actions`, { data: { baseSeq: room.lastSeq, action: { actorSeat: 0, idempotencyKey: crypto.randomUUID(), ...action } } });
+        const done = await postAction(alice!.request, path, { actorSeat: 0, ...action });
         expect(done.status(), await done.text()).toBe(200);
       };
       await act({ type: "twin.place", seat: 0, zone: "spell-trap", card: { ref: "c0-53582587-set", slot: 1, cardId: 53582587, name: "Torrential Tribute", faceUp: false } });
