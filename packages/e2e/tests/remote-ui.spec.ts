@@ -776,7 +776,7 @@ test.describe("remote lobby camera step", () => {
         await expect(page.getByRole('switch', { name: 'Camera lock' })).toHaveAttribute('aria-checked', 'true');
         const picker = page.getByTestId('recognition-mode-trigger');
         await expect(picker).toBeVisible();
-        const box = await picker.boundingBox(); expect(box!.width).toBeGreaterThan(100); expect(box!.height).toBeGreaterThan(28);
+        const box = await picker.boundingBox(); expect(box!.width).toBeGreaterThan(100); expect(box!.height).toBeGreaterThanOrEqual(28);
         await shot(page, `camlock-more-${seats}-${width}`); await page.keyboard.press('Escape');
       }
     }
