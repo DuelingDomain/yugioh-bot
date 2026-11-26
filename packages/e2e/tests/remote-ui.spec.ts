@@ -108,6 +108,55 @@ test.describe("remote duels screen, solo", () => {
     await expect(scan).toContainText("Scan field");
   });
 
+  test("an unread Graveyard track that was already present during a field move uses the same pile entry", async ({ page, context }) => {
+    const slug = await soloTable(context.request, 2), path = `/api/remote/${slug}`;
+    const room = async () => (await context.request.get(path)).json();
+    const pile = async () => (await room()).state.seats[0].twin.filter((card: { zone: string }) => card.zone === "graveyard").map((card: { ref: string }) => card.ref);
+    const act = async (action: Record<string, unknown>) => {
+      const response = await postAction(context.request, path, { actorSeat: 0, seat: 0, ...action });
+      expect(response.ok(), await response.text()).toBe(true);
+    };
+    await act({ type: "twin.place", zone: "spell-trap", card: { ref: "played", cardId: 5318639, name: "Mystical Space Typhoon", slot: 3, faceUp: true } });
+    await fakeCamera(page, "16:9");
+    await page.addInitScript(() => {
+      const w = window as unknown as Record<string, unknown>;
+      const field = { tracks: [] as unknown[], touch: 0 }; w.__pileReader = field;
+      w.__e2eFieldWatcher = {
+        getSnapshot: () => ({ status: "watching", tracks: field.tracks, pileTouchedAt: { GY: field.touch }, metrics: {} }),
+        confirm() {}, dismiss() {}, forget() {}, resetBaselines() {}, scanNow() {}, setCalibration() {}, start() {}, dispose() {}, subscribe: () => () => {}, subscribeState: () => () => {},
+      };
+      const calibration = { version: 1, corners: [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 }, { x: 0, y: 1 }], orientation: { playerSide: "top", mirrored: false } };
+      localStorage.setItem("dd-field-watcher:v1:900000000000000001:101:0", JSON.stringify({ enabled: true, calibration, placed: true }));
+    });
+    await page.goto(`/duels/remote/${slug}`);
+    await page.getByTestId("camera-on-feed").click();
+    await page.waitForFunction(() => {
+      const field = (window as unknown as { __e2eField?: { live: () => boolean; watching: () => boolean } }).__e2eField;
+      return field?.live() && field.watching();
+    });
+    await page.waitForTimeout(2100); // Let the watcher's initial re-read window end.
+    const arrival = await page.evaluate(() => ({ firstSeen: performance.now(), origin: performance.timeOrigin }));
+    await act({ type: "twin.move", cardRef: "played", zone: "graveyard", source: "auto", faceUp: true,
+      cam: { by: "camera", seenAt: Math.round(arrival.origin + arrival.firstSeen - 500), sentAt: Math.round(arrival.origin + arrival.firstSeen + 1) } });
+    await expect(page.getByTestId("field-0").locator('[data-zone="gy"]')).toHaveAttribute("aria-label", /top card Mystical Space Typhoon/);
+
+    const unread = (id: string, firstSeen?: number) => page.evaluate(([id, firstSeen]) => {
+      const w = window as unknown as { __pileReader: { tracks: unknown[]; touch: number }; __e2eField: { handle: (event: unknown) => void } };
+      const now = performance.now(), track = { id, zone: "GY", state: "prompt", faceDown: false, revision: 0, position: "attack", visible: true, removed: false,
+        firstSeen: firstSeen ?? now, lastSeen: now, card: { kind: "face-up", confidence: .87, quad: [{ x: .8, y: .4 }, { x: .9, y: .4 }, { x: .9, y: .5 }, { x: .8, y: .5 }] } };
+      w.__pileReader.tracks = [track]; w.__pileReader.touch = track.firstSeen;
+      w.__e2eField.handle({ type: "prompt", reason: "uncertain", source: "auto", track });
+    }, [id, firstSeen] as const);
+    // Wait for the camera work to flush before checking that it made no extra write.
+    const flushed = page.waitForEvent("console", message => message.text().startsWith("[remote field] flushed prompt fw-overlapping-read"));
+    await unread("fw-overlapping-read", arrival.firstSeen);
+    await flushed;
+    expect(await pile()).toEqual(["played"]);
+
+    await unread("fw-new-arrival");
+    await expect.poll(pile).toEqual(["played", "fw-new-arrival"]);
+  });
+
   test("Scan field now in the ... menu: in view at every size, shows a reason when the camera and the board differ, runs by itself only when the player is idle, and reports its time", async ({ page, context }) => {
     test.setTimeout(120_000);
     await page.setViewportSize({ width: 1366, height: 768 });

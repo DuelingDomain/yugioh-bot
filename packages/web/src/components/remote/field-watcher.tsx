@@ -1274,7 +1274,19 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
           const twins=current.current.room.state.seats[seat].twin,ref=bindings.current.get(event.track.id)??event.track.id;
           if(!live()||twins.some(c=>c.ref===ref))return;
           const zone=event.track.zone==='GY'?'graveyard':'banished';
-          if(!pileEntry(event.track)){const top=twins.filter(c=>c.zone===zone).at(-1);if(top)bindings.current.set(event.track.id,top.ref);return;}
+          const top=twins.filter(c=>c.zone===zone).at(-1),departure=top?.departedFrom;
+          const move=top&&departure?.auto?current.current.room.events.findLast(({at,action})=>
+            at===departure.at&&action.type==='twin.move'&&action.seat===seat&&action.cardRef===top.ref&&action.zone===zone)?.action:undefined;
+          const stamp=move?.type==='twin.move'?move.cam:undefined;
+          // The field departure can save while the camera is still reading the same card in the pile.
+          // Compare the first outline with that move's camera times, before treating the hand touch as another arrival.
+          const firstSeen=Math.round(performance.timeOrigin+event.track.firstSeen);
+          const overlapsMove=stamp?.seenAt!==undefined&&firstSeen>=stamp.seenAt-1000&&firstSeen<=stamp.sentAt;
+          if(top&&(event.bindRef===top.ref||overlapsMove)){
+            const observed=watch.getTrack(event.track.id);
+            if(observed?.zone===event.track.zone&&fieldEvidenceMatches(event,observed)){bindings.current.set(event.track.id,top.ref);return;}
+          }
+          if(!pileEntry(event.track)){if(top)bindings.current.set(event.track.id,top.ref);return;}
           // A card that was just shown from the hand and then reaches a pile unread is that card: name it, so the hand count stays exact.
           const active=handActivation.current,mine=current.current.room.state.seats[seat];
           // Only while the shown card is still in the known hand (a field play already took it out) and no field departure is waiting.
