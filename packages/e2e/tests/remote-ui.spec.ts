@@ -1501,9 +1501,13 @@ test.describe("remote duels, spectators", () => {
         const w = v.videoWidth * sc; const h = v.videoHeight * sc;
         return { x: r.left + (r.width - w) / 2 + 0.338 * w, y: r.top + (r.height - h) / 2 + 0.486 * h };
       });
-      await c.mouse.click(p.x, p.y);
+      // The owner ignores a spectator while her own reader is busy. With vision data on the stack her page loads the real models first (slow on a CPU), so the spectator asks again until the owner answers.
+      for (let attempt = 0; attempt < 8 && !(await c.getByTestId("card-popover").isVisible()); attempt++) {
+        await c.mouse.click(p.x, p.y);
+        await c.getByTestId("card-popover").waitFor({ timeout: 20_000 }).catch(() => undefined);
+      }
       // The spectator sees the same card reading a player gets, in the read-only inspector.
-      await expect(c.getByTestId("card-popover")).toBeVisible({ timeout: 60_000 });
+      await expect(c.getByTestId("card-popover")).toBeVisible();
       await expect(c.getByTestId("popover-name")).toHaveText("Dark Magician");
       await shot(c, "spectator-tap-read");
       // A tap-mode read of a player (no board place) is a public read, so the spectator sees it in the recent reads of that seat.
