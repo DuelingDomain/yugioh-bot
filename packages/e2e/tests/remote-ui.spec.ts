@@ -125,7 +125,7 @@ test.describe("remote duels screen, solo", () => {
         getSnapshot: () => ({ status: "watching", tracks: field.tracks, pileTouchedAt: { GY: field.touch }, metrics: {} }),
         confirm() {}, dismiss() {}, forget() {}, resetBaselines() {}, scanNow() {}, setCalibration() {}, start() {}, dispose() {}, subscribe: () => () => {}, subscribeState: () => () => {},
       };
-      const calibration = { version: 1, corners: [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 }, { x: 0, y: 1 }], orientation: { playerSide: "top", mirrored: false } };
+      const calibration = { version: 1, layout: 3, corners: [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 }, { x: 0, y: 1 }], orientation: { playerSide: "top", mirrored: false } };
       localStorage.setItem("dd-field-watcher:v1:900000000000000001:101:0", JSON.stringify({ enabled: true, calibration, placed: true }));
     });
     await page.goto(`/duels/remote/${slug}`);
@@ -282,9 +282,9 @@ test.describe("remote duels screen, solo", () => {
     await page.waitForTimeout(500);
     const p = await at(0.338, 0.486); 
     await page.mouse.click(p.x, p.y);
-    // The popup is there at once, with the skeleton.
+    // The popup opens as soon as the detector has found the card. The first click also loads the detector (ONNX wasm), so give that a few seconds.
     const popup = page.locator('[data-layer="tray"], [data-layer="card"]').first();
-    await expect(popup).toBeVisible({ timeout: 2_000 });
+    await expect(popup).toBeVisible({ timeout: 8_000 });
     await shot(page, "live-click-reading");
     // It stays open for at least 3 s while the card is read, even with nothing else happening.
     for (let i = 0; i < 6; i++) { await page.waitForTimeout(500); await expect(popup).toBeVisible(); }
@@ -1932,7 +1932,7 @@ test('field watcher owner: one card completes the full physical lifecycle',async
     } as any;
   },process.env.E2E_RECOGNITION_MODE==='gpu'?'webgpu':'wasm');
   await page.addInitScript(()=>{
-    const calibration={version:1,layout:2,corners:[{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1}],orientation:{playerSide:'top',mirrored:false}};
+    const calibration={version:1,layout:3,corners:[{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1}],orientation:{playerSide:'top',mirrored:false}};
     for(const suffix of ['',':device:field-test-camera'])localStorage.setItem(`dd-field-watcher:v1:900000000000000001:101:0${suffix}`,JSON.stringify({enabled:true,calibration,placed:true}));
   });
   await page.addInitScript(mode=>localStorage.setItem('dd-remote-recognition-mode',mode),process.env.E2E_RECOGNITION_MODE??'cpu');
@@ -2058,7 +2058,7 @@ test('field watcher owner: one card completes the full physical lifecycle',async
 async function appearingCamera(page:Page,cardFile=AUTO_CARD,guided=false) {
   const data=readFileSync(cardFile).toString('base64');
   await page.addInitScript(async ({data,guided})=>{
-    if(!guided){const calibration={version:1,corners:[{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1}],orientation:{playerSide:'bottom',mirrored:false}};for(const key of ['900000000000000001:101:0','900000000000000001:102:1','vision-lab:normal:own:0'])for(const suffix of ['',':device:field-test-camera'])localStorage.setItem(`dd-field-watcher:v1:${key}${suffix}`,JSON.stringify({enabled:true,calibration,placed:true}));}
+    if(!guided){const calibration={version:1,layout:3,corners:[{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1}],orientation:{playerSide:'bottom',mirrored:false}};for(const key of ['900000000000000001:101:0','900000000000000001:102:1','vision-lab:normal:own:0'])for(const suffix of ['',':device:field-test-camera'])localStorage.setItem(`dd-field-watcher:v1:${key}${suffix}`,JSON.stringify({enabled:true,calibration,placed:true}));}
     const canvas=document.createElement('canvas');canvas.width=1280;canvas.height=720;const ctx=canvas.getContext('2d')!;
     const bytes=Uint8Array.from(atob(data),c=>c.charCodeAt(0));const image=await createImageBitmap(new Blob([bytes],{type:'image/png'}));
     let back='',stacks=false,sleeve:ImageBitmap|null=null;let covered=false;let visible=false,x=460,y=170,defense=false,jitter=false,markers=false,others:{x:number;y:number}[]=[];
@@ -2272,7 +2272,7 @@ test('field watcher automatic: Set backs, deck stacks, and revealed Sets keep fa
   await appearingCamera(page,EXTRA_CARD);
   // Camera faces the owner: Deck at upper left, Extra Deck at upper right.
   await page.addInitScript(()=>{
-    const calibration={version:1,corners:[{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1}],orientation:{playerSide:'top',mirrored:false}};
+    const calibration={version:1,layout:3,corners:[{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1}],orientation:{playerSide:'top',mirrored:false}};
     for(const suffix of ['',':device:field-test-camera'])localStorage.setItem(`dd-field-watcher:v1:900000000000000001:101:0${suffix}`,JSON.stringify({enabled:true,calibration,placed:true}));
   });
   await page.addInitScript(mode=>localStorage.setItem('dd-remote-recognition-mode',mode),process.env.E2E_RECOGNITION_MODE??'cpu');
