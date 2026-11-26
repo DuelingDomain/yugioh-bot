@@ -83,7 +83,7 @@ import { AutoFieldWatcher } from "../field-watcher";
 import { isTournamentTable, stateMode, seatBoardOff } from "@/lib/remote/tournament-detection";
 import {manualFieldZoneWarning,projectFieldZone,tokenInCell,becomesTrapMonster,equipSourceOnField,fieldZoneCheck} from '@/lib/remote/field-legality';
 import {fieldOrientation,fieldZoneAt,fieldZoneLocation,mapFieldZone,onMat,type FieldFormat} from '@yugidraft/vision';
-import {useCardDetection,resolveWebcamOnly,useZoneGrid,useTapToIdentify,tapToIdentifyNow,currentZoneGrid,setFieldDeveloper,runFieldScan,useFieldWatcherError} from '@/lib/remote/zone-grid';
+import {useCardDetection,resolveWebcamOnly,useZoneGrid,useTapToIdentify,tapToIdentifyNow,currentZoneGrid,setFieldDeveloper,runFieldScan,useFieldWatcherError,readGridPref,writeGridPref} from '@/lib/remote/zone-grid';
 import {distinctFieldQuads,fieldReadingPlaceholder,rememberFieldObservation} from '@/lib/remote/field-proposals';
 import {SUMMON_WINDOW_MS} from '@/lib/remote/field-summons';
 import { useCardMenu } from "./card-menu";
@@ -1331,6 +1331,8 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
       }
       // S scans the field like the button beside the board. A confirm prompt or a modal dialog keeps the key (open popups set the layer above).
       if ((event.key === "s" || event.key === "S") && !event.repeat && !event.shiftKey && !event.defaultPrevented && !document.querySelector('[role="alertdialog"],[role="dialog"][aria-modal="true"]')) { if (runFieldScan()) event.preventDefault(); return; }
+      // G shows or hides the zone grid on my own webcam (the same switch as "Show zone grid" in the camera "..." menu). Without my camera it does nothing.
+      if ((event.key === "g" || event.key === "G") && !event.repeat && !event.shiftKey && !event.defaultPrevented && !modal) { if (currentZoneGrid().ownSeat !== null) { event.preventDefault(); writeGridPref(true, !readGridPref(true)); } return; }
       // W switches between Both and Webcam only (the focused element keeps Enter and Space).
       if ((event.key === "w" || event.key === "W") && !event.repeat) { event.preventDefault(); L.toggleView(); return; }
       // Enter confirms the chip only when nothing else took the key: a focused field cell, feed or button handles Enter itself.
@@ -1488,6 +1490,28 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     const key = ref ? (Object.entries(cellsFor(state.seats[seat]?.twin ?? [], extraZones)).find(([, cell]) => cell?.card?.ref === ref)?.[0] as ZoneKey | undefined) : undefined;
     return key ? zoneLabel(key) : undefined;
   };
+  /** "Wrong card? Pick the right one": opens the search tray at `popAt`. Shared by the card panel and the board zone menu. */
+  const wrongCard = (subject: Subject, popAt: PopAt) => {
+    cancelRead();
+    if (subject.via === "preread") ctx.current?.invalidatePreread?.();
+    if(subject.via==='tracked'&&ctx.current&&ctx.current.ref&&ctx.current.ref===subject.ref){
+      const at=ctx.current,frozen=(solo||subject.seat===mySeat)&&at.frozenFrame?{x:at.x,y:at.y,frame:at.frozenFrame}:undefined;
+      const target=trackedRereadTarget(at.ref!,hub.trackedCards(subject.seat),frozen);
+      if(target){void startRead(subject.seat,target.x,target.y,{point:{anchor:at.at.anchor!,feed:at.at.feed!,frames:target.frames},force:true,ref:subject.ref});return;}
+    }
+    // A card opened from its zone on the camera: read that spot again. It may be a new physical card.
+    if(subject.via==='field'&&subject.ref&&ctx.current?.ref===subject.ref&&ctx.current.seat===subject.seat&&ctx.current.at.anchor&&ctx.current.at.feed){
+      const at=ctx.current;at.cardRef=subject.ref;void startRead(subject.seat,at.x,at.y,{point:{anchor:at.at.anchor!,feed:at.at.feed!},force:true,ref:subject.ref});return;
+    }
+    const same=ctx.current?.seat===subject.seat?ctx.current:undefined;
+    // A read accepted at once keeps its other guesses, so a wrong one costs no more than the tray did.
+    // Only that read: a board card opened later must not get its guesses, or a pick saves its crop under the wrong card.
+    const read=subject.via==="auto"&&same?.guesses?.[0]?.cardId===subject.cardId?same:undefined;
+    const guesses=(read?.guesses??[]).filter(g=>g.cardId!==subject.cardId);
+    const placedRef=subject.ref&&read?.placedRef===subject.ref?subject.ref:undefined;
+    ctx.current={from:subject.from,seat:subject.seat,x:same?.x??.5,y:same?.y??.5,at:popAt,id:++readCounter.current,...(read?.token!==undefined?{token:read.token}:{}),...(subject.ref?{cardRef:subject.ref,ref:subject.ref}:{}),...(subject.from==="camera"&&same?.spot?{spot:same.spot}:{}),...(subject.remembered||subject.via==="preread"?{hidden:true}:{}),...(subject.remembered&&same?.setClick?{setClick:true}:{})};
+    layers.close(); setTray({ seat: subject.seat, ownerName: name(subject.seat), status: guesses.length?"guesses":"empty", guesses, note: `Search for the right card${sayItsName}.`, reader: "", at: popAt, ...(read?.token!==undefined?{aiToken:read.token}:{}), ...(placedRef?{placedRef}:{}) }); layers.open("tray"); 
+  };
   const actions: CardActions = {
     quick: quickFor(subject?.seat ?? mySeat, subjectCard),
     ...(subject?.from === "camera" ? { where: whereIs(subject.seat, subject.ref), onReadAgain: readAgain, ...(pinnable ? {} : { onPeek: peekCard }) } : {}),
@@ -1500,25 +1524,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     })() : {}),
     canAdd: !!subject && live && (solo || subject.seat === mySeat) && !subject.addErrors.length, adding, onAdd: () => subject && void addToDeck(subject.seat, subject.cardId),
     canAttack: !!subjectCard && !block, attackHint: block || "Pick this monster as the attacker", onAttack: () => subjectCard && subject && startAttack(subject.seat, subjectCard),
-    onWrong: () => { if (!subject) return; cancelRead();
-      if (subject.via === "preread") ctx.current?.invalidatePreread?.();
-      if(subject.via==='tracked'&&ctx.current&&ctx.current.ref&&ctx.current.ref===subject.ref){
-        const at=ctx.current,frozen=(solo||subject.seat===mySeat)&&at.frozenFrame?{x:at.x,y:at.y,frame:at.frozenFrame}:undefined;
-        const target=trackedRereadTarget(at.ref!,hub.trackedCards(subject.seat),frozen);
-        if(target){void startRead(subject.seat,target.x,target.y,{point:{anchor:at.at.anchor!,feed:at.at.feed!,frames:target.frames},force:true,ref:subject.ref});return;}
-      }
-      // A card opened from its zone on the camera: read that spot again. It may be a new physical card.
-      if(subject.via==='field'&&subject.ref&&ctx.current?.ref===subject.ref&&ctx.current.seat===subject.seat&&ctx.current.at.anchor&&ctx.current.at.feed){
-        const at=ctx.current;at.cardRef=subject.ref;void startRead(subject.seat,at.x,at.y,{point:{anchor:at.at.anchor!,feed:at.at.feed!},force:true,ref:subject.ref});return;
-      }
-      const same=ctx.current?.seat===subject.seat?ctx.current:undefined;
-      // A read accepted at once keeps its other guesses, so a wrong one costs no more than the tray did.
-      // Only that read: a board card opened later must not get its guesses, or a pick saves its crop under the wrong card.
-      const read=subject.via==="auto"&&same?.guesses?.[0]?.cardId===subject.cardId?same:undefined;
-      const guesses=(read?.guesses??[]).filter(g=>g.cardId!==subject.cardId);
-      const placedRef=subject.ref&&read?.placedRef===subject.ref?subject.ref:undefined;
-      ctx.current={from:subject.from,seat:subject.seat,x:same?.x??.5,y:same?.y??.5,at:popAt,id:++readCounter.current,...(read?.token!==undefined?{token:read.token}:{}),...(subject.ref?{cardRef:subject.ref,ref:subject.ref}:{}),...(subject.from==="camera"&&same?.spot?{spot:same.spot}:{}),...(subject.remembered||subject.via==="preread"?{hidden:true}:{}),...(subject.remembered&&same?.setClick?{setClick:true}:{})};
-      layers.close(); setTray({ seat: subject.seat, ownerName: name(subject.seat), status: guesses.length?"guesses":"empty", guesses, note: `Search for the right card${sayItsName}.`, reader: "", at: popAt, ...(read?.token!==undefined?{aiToken:read.token}:{}), ...(placedRef?{placedRef}:{}) }); layers.open("tray"); },
+    onWrong: () => { if (subject) wrongCard(subject, popAt); },
     onActivate: subject && subject.cardId && live && subjectCard?.zone !== "deck" && subjectCard?.zone !== "extra" && (solo || subject.seat===mySeat) ? () => void act({type:"effect.activated",actorSeat:subject.seat,source:{cardId:subject.cardId,...(subject.ref ? {cardRef:subject.ref} : {})}}).then(done=>{if(done) layers.close();}) : undefined,
     onReveal: subject && subjectCard && !subjectCard.faceUp && (solo || subject.seat===mySeat) ? () => void act({type:"twin.flip",actorSeat:subject.seat,seat:subject.seat,cardRef:subjectCard.ref,faceUp:true}) : undefined,
     ...(subject?.from === "camera" && !pinnable ? {} : { onPin: pinCard }),
@@ -1836,7 +1842,9 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
       onAction={action => void saveZoneActions(latest => [zoneCardAction(latest, zonePicker.key, action)])} onSet={() => { const ref = crypto.randomUUID(); void saveZoneActions(latest => [zoneSet(latest, zonePicker.seat, zonePicker.key, ref)]); }}
       onToken={() => tokens.create(zonePicker.seat, /^m[1-5]$/.test(zonePicker.key) && !cellsFor(state.seats[zonePicker.seat].twin, extraZones)[zonePicker.key]?.card ? zonePicker.key : undefined)}
       onGive={zonePicker.tokenOnly && control.canGive ? () => control.giveHere(zonePicker.seat, zonePicker.key) : undefined}
-      onDetails={card => openSubject(card)} quick={quickFor(zonePicker.seat, cellsFor(state.seats[zonePicker.seat].twin, extraZones)[zonePicker.key]?.card, true)} onClose={() => layers.close('zone')} /> : null}
+      onDetails={card => openSubject(card)} quick={quickFor(zonePicker.seat, cellsFor(state.seats[zonePicker.seat].twin, extraZones)[zonePicker.key]?.card, true)}
+      onWrong={card => { const code = cardCode(card); if (code) wrongCard({ from: "board", cardId: code, seat: zonePicker.seat, ref: card.ref, name: card.name, notInDecklist: null, addErrors: [], via: "field" }, { anchor: zoneRect(zonePicker.seat, zonePicker.key), feed: null }); }}
+      onClose={() => layers.close('zone')} /> : null}
     <InspectorDrawer open={layers.layer === "insp"} onClose={() => layers.close("insp")}>
       <InspectorBody subject={subjectDetails} info={subjectInfo} warning={subject ? deckFlag(room, subject.seat)?.message : undefined} actions={shownActions}
         sourceLine={subject ? `Identified by ${subject.via} on ${name(subject.seat)}'s side` : ""} />

@@ -1,7 +1,7 @@
 'use client';
 import { useState, type ButtonHTMLAttributes } from 'react';
 import type { RemoteRoom } from '@yugidraft/shared/remote';
-import { PopupFrame, type PopAt } from './popup';
+import { BigArt, CardText, PopupFrame, type PopAt } from './popup';
 import { ZoneCardPicker } from './zone-card-picker';
 import type { ZonePick, ZoneCardAction } from './zone-placement';
 import { cardCode, cellsFor, hasExtraZones, type TwinCard, type ZoneKey, ZN } from './model';
@@ -22,10 +22,10 @@ export function Row({ icon, next, primary, sub, hint, pill, children, ...rest }:
     {pill ? <em className={s.zaPill} aria-hidden="true">{pill}</em> : null}{hint ? <kbd className={s.zaKey} aria-hidden="true">{hint}</kbd> : null}{next ? <Icon name="chev" className={s.zaNext} /> : null}</button>;
 }
 
-export function ZoneActions({ tokenOnly, room, seat, zone, at, deck, targetRef, startPicker=false, initialFaceUp, busy, error, onPick, onAction, onSet, onToken, onGive, onDetails, onClose, quick = [] }: {
+export function ZoneActions({ tokenOnly, room, seat, zone, at, deck, targetRef, startPicker=false, initialFaceUp, busy, error, onPick, onAction, onSet, onToken, onGive, onDetails, onWrong, onClose, quick = [] }: {
   room: RemoteRoom; seat: number; zone: ZoneKey; at: PopAt; deck: number[]; targetRef?: string; initialFaceUp?: boolean;
   busy: boolean; error: string; startPicker?: boolean; onPick(pick: ZonePick): void; onAction(action: ZoneCardAction): void;
-  onSet(): void; onToken(): void; /** An empty zone of another player's field: the menu only offers a token and a card from my hand. */ tokenOnly?: boolean; /** Give a card from my hand to this zone (the opponent's field only). */ onGive?: () => void; onDetails(card: TwinCard): void; onClose(): void;
+  onSet(): void; onToken(): void; /** An empty zone of another player's field: the menu only offers a token and a card from my hand. */ tokenOnly?: boolean; /** Give a card from my hand to this zone (the opponent's field only). */ onGive?: () => void; onDetails(card: TwinCard): void; /** "Wrong card?" under the card info of a face-up card. */ onWrong?(card: TwinCard): void; onClose(): void;
   /** The important card moves (give control, position, send, remove proxy). The webcam card menu offers the same moves except the battle position. */ quick?: QuickMove[];
 }) {
   const twins = room.state.seats[seat].twin;
@@ -85,6 +85,12 @@ export function ZoneActions({ tokenOnly, room, seat, zone, at, deck, targetRef, 
       <button type="button" className={`${s.btn} ${s.q} ${s.zpClose}`} disabled={busy} onClick={onClose}>Close</button>
     </header>
     <div className={s.zmBody}>
+      {/* The same card info as the webcam card menu (art, type line, ATK / DEF, full text), so a board click tells as much as a camera click. */}
+      {card && !tokenOnly && !card.token && card.faceUp && cardCode(card) ? <div className={s.zmCard} data-testid="zone-card-info">
+        <CardText id={cardCode(card)} info={info(cardCode(card))} name={card.name} fallbackName={`Card ${cardCode(card)}`} art={<BigArt id={cardCode(card) ?? null} label={names(card)} />}>
+          {onWrong ? <div className={s.cmIdent}><button type="button" className={s.cmWrong} disabled={busy} onClick={() => onWrong(card)} data-testid="zone-card-wrong">Wrong card?</button></div> : null}
+        </CardText>
+      </div> : null}
       {card?.faceUp&&card.nameCandidates?<section aria-label="Unsure name" className={s.zaList}>
         <p className={s.zpNote}>Unsure · choose the card name</p>
         {card.nameCandidates.map(candidate=><Row key={candidate.cardId} icon="check" disabled={busy} onClick={()=>action({type:'card.identified',actorSeat,seat,cardRef:card.ref,cardId:candidate.cardId,name:candidate.name,source:'click'})}>{candidate.name}</Row>)}

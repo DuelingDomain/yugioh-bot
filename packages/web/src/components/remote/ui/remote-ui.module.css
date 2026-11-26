@@ -1595,6 +1595,13 @@
 .zoneMenu header.zmHead .zpClose .ic{margin-left:-4px}
 .zmBody{display:flex;flex-direction:column;gap:10px;min-height:0;flex:1 1 auto;overflow:auto;overscroll-behavior:contain;margin:0 -4px;padding:2px 4px}
 .zmBody>*{flex:none}
+.zmCard{--aw:72px;display:flex;flex-direction:column;gap:8px}
+.zmCard .bhead{gap:10px}
+.zmCard .bheadText{gap:5px}
+.zmCard .bname{font-size:16px}
+.zmCard .bdetails{font-size:12px}
+.zmCard .bcombat{font-size:14px}
+.zmCard .btext{flex:0 1 auto;min-height:48px;max-height:min(150px,22dvh);overscroll-behavior:contain;font-size:12.5px;line-height:1.4;padding:6px 4px 2px 0}
 .zaList{display:flex;flex-direction:column;gap:6px}
 /* The one "..." button on a webcam, and its menu. It replaces the old camera tool row. */
 .toolsBtn{position:absolute;right:8px;top:8px;z-index:5;display:inline-grid;place-items:center;width:30px;height:28px;padding:0;border-radius:6px;border:1px solid var(--line2);background:rgb(7 4 14/.82);color:var(--ink2);cursor:pointer}
