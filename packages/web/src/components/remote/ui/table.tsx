@@ -396,6 +396,9 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
   const phaseAsk = usePhaseAsk(state.phase, state.turn, turnShown, setPhase);
   // ---- match: result, declare, side decking ----
   const router = useRouter();
+  // Everyone agreed to the rematch: go to the new table.
+  const rematchSlug = room.rematch?.slug;
+  useEffect(() => { if (rematchSlug && room.mySeat >= 0) router.push(`/duels/remote/${encodeURIComponent(rematchSlug)}`); }, [rematchSlug, room.mySeat, router]);
   const matchSeat = mySeat >= 0 ? mySeat : 0;
   const [matchBusy, setMatchBusy] = useState(false);
   const [boardView, setBoardView] = useState(false);
@@ -1933,6 +1936,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
       ? <MatchResultScreen room={room} match={match} mySeat={leftMatch ? -1 : mySeat} name={name} final={match.phase === "done"} busy={matchBusy} error={overlayError}
         tournamentResult={tournament ? <RemoteResultSlot tournamentSlug={tournament.tournamentSlug} tournamentMatchId={tournament.tournamentMatchId} pair={tournament.pair} viewerId={tournament.viewerPlayerId} /> : null}
         undo={canUndo && mySeat >= 0 && !newestUndo?.reason ? { label: undoText, onUndo: () => void doUndo() } : null}
+        rematch={mySeat >= 0 && !leftMatch && !solo && !tournament ? { busy: ctl.busy, onAnswer: answer => void ctl.operation("rematch", { answer }) } : null}
         onContinue={() => matchStep({ type: "match.continue", actorSeat: matchSeat })} onLeave={() => router.push(tournament ? `/tournament/${encodeURIComponent(tournament.tournamentSlug)}` : "/duels")} onClose={() => setBoardView(true)} />
       : match.phase === "siding" && match.siding && room.status === "active"
         ? <SidingScreen room={room} match={match} mySeat={leftMatch ? -1 : mySeat} name={name} now={serverNow} act={act} error={overlayError} /> : null}

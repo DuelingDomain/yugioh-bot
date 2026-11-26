@@ -81,12 +81,12 @@ export async function notifyRemoteChange(slug: string, guildId: string) {
   if (!result.ok) log("warn", "Remote broadcast unavailable", { status: result.status });
 }
 export type RemoteRouteContext = { params: Promise<{ slug: string }> };
-export async function remoteMutation(request: Request, context: RemoteRouteContext, operation: "seat" | "leave" | "ready" | "start" | "actions" | "deck" | "format" | "activity") {
+export async function remoteMutation(request: Request, context: RemoteRouteContext, operation: "seat" | "leave" | "ready" | "start" | "actions" | "deck" | "format" | "activity" | "rematch") {
   const started=performance.now(),timings:string[]=[];
   const actor = await requireRemoteActor(); if (!actor.ok) return actor.response;
   try {
     const { slug } = await context.params;
-    const keys = { seat: ["seat"], leave: [], activity: [], ready: ["ready"], start: [], actions: ["baseSeq", "action"], deck: ["savedDeckId", "seat"], format: ["format", "bestOf", "rules", "showCardsSetFromDeck", "revealedHand", "firstPlayer"] };
+    const keys = { rematch: ["answer"], seat: ["seat"], leave: [], activity: [], ready: ["ready"], start: [], actions: ["baseSeq", "action"], deck: ["savedDeckId", "seat"], format: ["format", "bestOf", "rules", "showCardsSetFromDeck", "revealedHand", "firstPlayer"] };
     // Empty bodies are accepted for the bodyless operations.
     const body = operation === "leave" || operation === "start" || operation === "activity" ? {} : await remoteBody(request, keys[operation]);
     let result;
@@ -107,6 +107,9 @@ export async function remoteMutation(request: Request, context: RemoteRouteConte
       case "seat":
         remoteAssert(body.seat === undefined || (typeof body.seat === "number" && Number.isInteger(body.seat) && body.seat >= 0 && body.seat <= 3), "Invalid seat");
         result = actor.remote.join(slug, actor.guildId, actor.userId, actor.displayName, body.seat as number | undefined); break;
+      case "rematch":
+        remoteAssert(body.answer === "request" || body.answer === "accept" || body.answer === "decline", "Invalid rematch answer");
+        result = actor.remote.rematch(slug, actor.guildId, actor.userId, body.answer); break;
       case "leave": result = actor.remote.leave(slug, actor.guildId, actor.userId); break;
       // Presence only: nothing changed for other viewers, so skip the phone cleanup and the broadcast.
       case "activity": return remoteJson(actor.remote.touch(slug, actor.guildId, actor.userId));

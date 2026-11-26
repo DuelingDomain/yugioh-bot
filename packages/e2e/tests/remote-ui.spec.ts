@@ -2897,3 +2897,45 @@ test.describe("remote duels Thinking, OK and E", () => {
     await expect(cell.getByTestId("card-counters")).toHaveCount(0);
   });
 });
+
+test.describe("remote duels screen, rematch", () => {
+  test("Rematch: one player asks, the other accepts, and both land on a new started table with the same players, format and deck", async ({ browser }) => {
+    test.setTimeout(240_000);
+    const url = process.env.E2E_REMOTE_UI_URL!;
+    const options = { baseURL: url, viewport: { width: 1920, height: 1080 }, permissions: ["camera", "microphone"] };
+    const alice = await browser.newContext(options); const bob = await browser.newContext(options);
+    try {
+      for (const [context, userId] of [[alice, 101], [bob, 102]] as const) await authenticatePlayer(context.request, { userId }, process.env.E2E_AUTH_SECRET!, url);
+      const slug = await startTwoPlayerTable(alice.request, bob.request, undefined, 1);
+      // No rematch while the match is running.
+      expect((await alice.request.post(`/api/remote/${slug}/rematch`, { data: { answer: "request" } })).status()).toBe(409);
+      const first = await (await alice.request.get(`/api/remote/${slug}`)).json();
+      const conceded = await alice.request.post(`/api/remote/${slug}/actions`, { data: { baseSeq: first.lastSeq, action: { type: "player.concede", actorSeat: 0, idempotencyKey: crypto.randomUUID() } } });
+      expect(conceded.status(), await conceded.text()).toBe(200);
+      const [a, b] = await Promise.all([alice.newPage(), bob.newPage()]);
+      await Promise.all([a.goto(`/duels/remote/${slug}`), b.goto(`/duels/remote/${slug}`)]);
+      for (const page of [a, b]) { await expect(page.getByTestId("match-result")).toBeVisible({ timeout: 30_000 }); await expect(page.getByTestId("match-leave")).toBeVisible(); }
+      // Bob asks. Alice sees who asked and answers.
+      await b.getByTestId("rematch-button").click();
+      await expect(b.getByTestId("rematch-status")).toContainText("1 of 2");
+      await expect(a.getByTestId("rematch-status")).toContainText("wants a rematch", { timeout: 15_000 });
+      await a.getByTestId("rematch-accept").click();
+      await Promise.all([a, b].map(page => expect(page).toHaveURL(new RegExp(`/duels/remote/(?!${slug}$)[^/]+$`), { timeout: 30_000 })));
+      const next = new URL(a.url()).pathname.split("/").pop()!;
+      expect(next).not.toBe(slug);
+      expect(new URL(b.url()).pathname.split("/").pop()).toBe(next);
+      // The new table has the same players in the same seats, format, match length and deck choices, and it started without a lobby.
+      const before = await (await alice.request.get(`/api/remote/${slug}`)).json();
+      const after = await (await alice.request.get(`/api/remote/${next}`)).json();
+      expect(after.status).toBe("active");
+      expect(after.seats.map((seat: { seat: number; userId: number }) => [seat.seat, seat.userId])).toEqual(before.seats.map((seat: { seat: number; userId: number }) => [seat.seat, seat.userId]));
+      expect(after.format).toEqual(before.format);
+      expect(after.state.match.bestOf).toBe(before.state.match.bestOf);
+      expect(after.state.deckChecks.registrations[0].savedDeckId).toBe(before.state.deckChecks.registrations[0].savedDeckId);
+      // Each player sees only their own deck, so Bob's is read with Bob's session.
+      const bobBefore = await (await bob.request.get(`/api/remote/${slug}`)).json(), bobAfter = await (await bob.request.get(`/api/remote/${next}`)).json();
+      expect(bobAfter.state.deckChecks.registrations[1].savedDeckId).toBe(bobBefore.state.deckChecks.registrations[1].savedDeckId);
+      expect(bobAfter.state.deckChecks.registrations[1].savedDeckId).toBeTruthy();
+    } finally { await alice.close(); await bob.close(); }
+  });
+});

@@ -82,11 +82,13 @@ function useNow(now: () => number, on = true): number {
  * the Life Points tray and the match score. A game that did not decide the match offers Continue to side decking;
  * the final screen names the match winner.
  */
-export function MatchResultScreen({ room, match, mySeat, name, final, busy, error, undo, tournamentResult, onContinue, onLeave, onClose }: {
+export function MatchResultScreen({ room, match, mySeat, name, final, busy, error, undo, tournamentResult, rematch, onContinue, onLeave, onClose }: {
   room: RemoteRoom; match: Match; mySeat: number; name: (seat: number) => string; final: boolean; busy: boolean;
   /** The last action was refused: shown here, above the result. */ error?: string | null;
   /** A wrong result is fixed with Undo; null when there is nothing to undo. */ undo: { label: string; onUndo: () => void } | null;
   /** The tournament's Confirm or Dispute panel, under the scoreboard, for a tournament match. */ tournamentResult?: ReactNode;
+  /** The rematch of a finished match, for a seated player: null when there is none (spectator, solo, tournament). */
+  rematch?: { busy: boolean; onAnswer: (answer: "request" | "accept" | "decline") => void } | null;
   onContinue: () => void; onLeave: () => void; onClose: () => void;
 }) {
   const rootRef = useRef<HTMLDivElement>(null);
@@ -147,6 +149,7 @@ export function MatchResultScreen({ room, match, mySeat, name, final, busy, erro
 
       {tournamentResult}
       {error ? <p className={s.resultError} role="alert" data-testid="match-error">{error}</p> : null}
+      {final && rematch && mySeat >= 0 ? <RematchPanel room={room} mySeat={mySeat} name={name} busy={rematch.busy} onAnswer={rematch.onAnswer} /> : null}
       <div className={resultStyles.actions} data-count={final || undo ? 2 : 1}>
         {final
           ? <button type="button" className={resultStyles.btn} data-kind="primary" data-autofocus onClick={leave} data-testid="match-leave">Leave</button>
@@ -155,6 +158,32 @@ export function MatchResultScreen({ room, match, mySeat, name, final, busy, erro
         {final ? <button type="button" className={resultStyles.btn} data-kind="secondary" onClick={onClose} data-testid="match-view-board">View board</button> : null}
       </div>
     </div></div>
+  </div>;
+}
+
+/** Rematch under the final result: ask for one, or answer the player who did. Starts a new table with the same players and settings once all agree. */
+function RematchPanel({ room, mySeat, name, busy, onAnswer }: {
+  room: RemoteRoom; mySeat: number; name: (seat: number) => string; busy: boolean; onAnswer: (answer: "request" | "accept" | "decline") => void;
+}) {
+  const offer = room.rematch;
+  const total = room.seats.length;
+  const open = offer && offer.declinedBy === undefined;
+  const mine = !!open && offer.accepted.includes(mySeat);
+  let line: string | null = null;
+  if (offer?.slug) line = "Starting the rematch…";
+  else if (offer && offer.declinedBy !== undefined) line = `${offer.declinedBy === mySeat ? "You" : name(offer.declinedBy)} declined the rematch.`;
+  else if (open && mine) line = `Rematch asked. ${offer.accepted.length} of ${total} agreed.`;
+  else if (open) line = `${name(offer.requestedBy)} wants a rematch.`;
+  const answering = !!open && !mine && !offer?.slug;
+  return <div className={s.rematch} data-testid="rematch-panel" data-state={offer?.slug ? "starting" : offer && offer.declinedBy !== undefined ? "declined" : open ? (mine ? "waiting" : "asked") : "idle"}>
+    {line ? <p className={s.rematchLine} role="status" data-testid="rematch-status">{line}</p> : null}
+    <div className={s.rematchActions}>
+      {answering ? <>
+        <button type="button" className={resultStyles.btn} data-kind="primary" disabled={busy} onClick={() => onAnswer("accept")} data-testid="rematch-accept">Accept</button>
+        <button type="button" className={resultStyles.btn} data-kind="secondary" disabled={busy} onClick={() => onAnswer("decline")} data-testid="rematch-decline">Decline</button>
+      </> : !open && !offer?.slug
+        ? <button type="button" className={resultStyles.btn} data-kind="secondary" disabled={busy} onClick={() => onAnswer("request")} data-testid="rematch-button">Rematch</button> : null}
+    </div>
   </div>;
 }
 
