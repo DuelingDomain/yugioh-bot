@@ -8,9 +8,19 @@ export function VisionFeedbackSetting({onChange,promptOnly=false,loadOnly=false}
   useEffect(()=>{
     let alive=true;
     const localOnly=()=>{if(alive)onChange?.({enabled:false,askedAt:null,collectionEnabled:false});};
+    let retry:ReturnType<typeof setTimeout>|undefined;
+    // A slow first answer must not skip the consent card for the visit: one retry after 3 s with a longer wait. Only a second failure skips it; nothing is stored.
+    const load=async(ms:number)=>{const reply=await fetch('/api/remote-vision/feedback',{cache:'no-store',signal:AbortSignal.timeout(ms)});if(!reply.ok)throw new Error('feedback');return reply;};
+    const firstReply=async()=>{
+      try{return await load(5000);}catch{
+        await new Promise<void>(done=>{retry=setTimeout(done,3000);});
+        if(!alive)throw new Error('gone');
+        return load(10000);
+      }
+    };
     void (async()=>{
       try {
-        const reply=await fetch('/api/remote-vision/feedback',{cache:'no-store',signal:AbortSignal.timeout(5000)});if(!reply.ok){localOnly();return;}
+        const reply=await firstReply();
         let pref=await reply.json() as FeedbackPreference;
         if(!alive)return;
         if(!pref.isAdmin&&pref.askedAt===null&&pref.collectionEnabled){
@@ -19,7 +29,7 @@ export function VisionFeedbackSetting({onChange,promptOnly=false,loadOnly=false}
         }
         if(alive){setValue(pref);onChange?.(pref);}
       }catch{localOnly();/* Anonymous public lab continues with collection off. */}
-    })();return()=>{alive=false;};
+    })();return()=>{alive=false;clearTimeout(retry);};
   },[onChange]);
   async function update(enabled:boolean) {
     const previous=value;
