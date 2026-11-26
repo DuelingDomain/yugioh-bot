@@ -8,14 +8,14 @@ import s from "./coin-die.module.css";
 
 /** The roll that shows now (null when none), re-read when it runs out. */
 export function useRollHold(events: readonly RemoteEvent[]): RollHold | null {
-  const [, tick] = useReducer((n: number) => n + 1, 0);
+  const [beat, tick] = useReducer((n: number) => n + 1, 0);
   const hold = activeRoll(events, serverNow());
   const until = hold?.until;
   useEffect(() => {
     if (until === undefined) return;
     const timer = setTimeout(tick, Math.max(0, until - serverNow()) + 20);
     return () => clearTimeout(timer);
-  }, [until, hold?.eventId]);
+  }, [until, hold?.eventId, beat]); // beat: a timer that fires a little early (clock skew) is set again
   return hold;
 }
 
