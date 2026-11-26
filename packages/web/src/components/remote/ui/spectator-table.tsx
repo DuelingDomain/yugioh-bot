@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type MouseEvent, type PointerEvent } from "react";
-import { REMOTE_FORMATS, normalizeRemoteFormat, previousYgoPhase, type RemoteRoom } from "@yugidraft/shared/remote";
+import { REMOTE_FORMATS, normalizeRemoteFormat, previousYgoPhase, remoteOwnFirstPending, type RemoteRoom } from "@yugidraft/shared/remote";
 import { fieldZoneAt, onMat, type FieldCalibration, type FieldFormat } from "@yugidraft/vision";
 import { readGridPref, writeGridPref } from "@/lib/remote/zone-grid";
 import { isTypingTarget } from "@/lib/typing-target";
@@ -138,7 +138,7 @@ function SpectatorTable({ room }: { room: RemoteRoom }) {
   const ended = room.status === "ended";
   // During the opening die roll nobody has the turn yet: the roll screen says who chooses.
   const opening = match.phase === "duel" && match.opening && (match.opening.chosenSeat === undefined || match.opening.auto) && !state.ended && room.status === "active" ? match.opening : null;
-  const turnSeat = match.opening && match.opening.chosenSeat === undefined && match.phase === "duel" ? -1 : state.turnSeat;
+  const turnSeat = (match.opening && match.opening.chosenSeat === undefined || remoteOwnFirstPending(match)) && match.phase === "duel" ? -1 : state.turnSeat;
   const members = JSON.stringify(room.seats.map(({ seat, userId }) => ({ seat, userId })));
   // Between games the players side deck behind a full screen: a spectator gets no cameras then, and the connection closes with them.
   const siding = match.phase === "siding" && !!match.siding && room.status === "active";

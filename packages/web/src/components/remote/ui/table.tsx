@@ -4,7 +4,7 @@ import {announceNotACard} from '@/lib/remote/set-card-diagnostics';
 import { REMOTE_TABLE_TALK } from "@/lib/remote/table-talk";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
-import { REMOTE_FORMATS, REMOTE_HAND_SUGGESTION_EVENT, type RemoteHandSuggestionEvent, matchCardsByName, previousYgoPhase, normalizeRemoteFormat, remoteRecognitionRef, remoteRecognitionRefs, type RemoteActionProposal, type RemoteEvent, type RemoteRoom, type RemoteUndoEntry } from "@yugidraft/shared/remote";
+import { REMOTE_FORMATS, REMOTE_HAND_SUGGESTION_EVENT, type RemoteHandSuggestionEvent, matchCardsByName, previousYgoPhase, normalizeRemoteFormat, remoteOwnFirstPending, remoteRecognitionRef, remoteRecognitionRefs, type RemoteActionProposal, type RemoteEvent, type RemoteRoom, type RemoteUndoEntry } from "@yugidraft/shared/remote";
 import { useSeatFocus } from "./seat-focus";
 import { cardInfo, isLinkInfo, isMonsterInfo, loadCards, searchCards, useCardInfo } from "./catalog";
 import { EffectControls, EffectPicker } from "./effect-controls";
@@ -262,7 +262,10 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
   useEffect(() => { if (hub.cameraOn) rememberCameraWanted(room.slug, true); }, [hub.cameraOn, room.slug]);
 
   // Nobody has the turn until the opening die roll is decided: no turn glow, tag or banner before that.
-  const turnShown = match.phase === "duel" && match.opening && match.opening.chosenSeat === undefined ? -1 : state.turnSeat;
+  // "Roll your own dice" tables wait the same way, with no dice screen: the bottom bar asks who goes first.
+  const ownFirst = match.phase === "duel" ? match.ownFirst : undefined;
+  const ownFirstPending = remoteOwnFirstPending(match);
+  const turnShown = match.phase === "duel" && (match.opening && match.opening.chosenSeat === undefined || ownFirstPending) ? -1 : state.turnSeat;
   const seen = useRef<{ phase: string; turn: number; seat: number } | null>(null);
   const [turnIn, setTurnIn] = useState(false);
   useEffect(() => {
@@ -415,6 +418,27 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
   // Surrender: a seated, living player in a live game. A solo test table has no other player, so the seat whose turn it is gives up.
   // Not during the opening die roll and first-player choice. On a solo table the Deck menu gives up the seat whose Deck was clicked.
   const openingPending = turnShown < 0;
+  // Own dice: anyone seated may say who goes first, and change it until the first turn action locks it.
+  const [changingFirst, setChangingFirst] = useState(false);
+  const [firstBusy, setFirstBusy] = useState(false);
+  const chooseFirst = (seat: number) => { setFirstBusy(true); void act({ type: "match.first", actorSeat: mySeat, seatGoesFirst: seat }).then(() => setChangingFirst(false)).catch(() => {}).finally(() => setFirstBusy(false)); };
+  const firstPick = ownFirst && !ownFirst.locked && room.status === "active" && !state.ended ? (() => {
+    const canPick = mySeat >= 0 && !room.spectator && !state.seats[mySeat]?.eliminated;
+    const other = seatCount === 2 ? (mySeat === 0 ? 1 : 0) : -1;
+    const chosen = ownFirst.chosenSeat;
+    const picking = chosen === undefined || changingFirst;
+    return <div className={s.firstpick} data-testid="first-pick" role="group" aria-label="Who goes first">
+      {picking
+        ? <><span className={s.firstq}>{canPick ? "Roll your dice on camera — who goes first?" : "Waiting for the players to say who goes first."}</span>
+          {canPick ? <>
+            <button type="button" className={`${s.btn} ${s.sm}`} aria-pressed={chosen === mySeat} disabled={firstBusy} onClick={() => chooseFirst(mySeat)} data-testid="first-me">I go first</button>
+            {other >= 0 ? <button type="button" className={`${s.btn} ${s.sm}`} aria-pressed={chosen === other} disabled={firstBusy} onClick={() => chooseFirst(other)} data-testid="first-second">I go second</button> : null}
+          </> : null}
+          {chosen !== undefined && canPick ? <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} onClick={() => setChangingFirst(false)} data-testid="first-keep">Keep</button> : null}</>
+        : <><span className={s.firstq} data-testid="first-chosen"><b>{name(chosen)}</b> goes first</span>
+          {canPick ? <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} onClick={() => setChangingFirst(true)} data-testid="first-change">Change</button> : null}</>}
+    </div>;
+  })() : null;
   // The die roll still allows it: the game is live from the first moment.
   const surrenderable = (seat: number) => live && !!state.seats[seat] && !state.seats[seat].eliminated;
   const [deckAt, setDeckAt] = useState<{ seat: number; rect: Rect } | null>(null);
@@ -1806,7 +1830,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
             emptyFeedText={hub.manual(seat) ? `No camera (manual). Use ${voiceRecognition ? "voice, " : ""}typing and your board twin.` : hub.health(seat).label === "Scan mode" ? "Scan mode · follow the board twin and log." : bot ? "Test opponent. No camera." : seat === mySeat ? (hub.starting ? "Starting your camera…" : "Your camera is off.") : `Waiting for ${name(seat)}'s camera.`} />;
         })}
       </main>
-      <BottomBar players={players} turnSeat={turnShown} turn={state.turn} phase={state.phase} canAct={live && myTurn && !state.attack} nextSeat={nextSeat} passHot={state.phase === "end"} mine={!solo && mySeat === turnShown} turnIn={turnIn}
+      <BottomBar first={firstPick} players={players} turnSeat={turnShown} turn={state.turn} phase={state.phase} canAct={live && myTurn && !state.attack && !ownFirstPending} nextSeat={nextSeat} passHot={state.phase === "end"} mine={!solo && mySeat === turnShown} turnIn={turnIn}
         backTo={previousYgoPhase(state)} ask={phaseAsk.ask} onAsk={phaseAsk.setAsk} onAskYes={id => { phaseAsk.setAsk(null); phaseBack(id); }} onAskNo={() => phaseAsk.setAsk(null)} onPass={passTurn} dockRef={dockRef}
         undo={{ spokenUndo: false, recognition: voiceRecognition, label: undoText, enabled: canUndo, reason: newestUndo?.reason, flash, histOpen: layers.layer === "hist", onUndo: () => void doUndo(), onHist: el => layers.toggle("hist", el) }}
         center={<>

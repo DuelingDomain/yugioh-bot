@@ -1,4 +1,4 @@
-import { remoteOpeningPending, type RemoteEvent, type RemoteState } from "@yugidraft/shared/remote";
+import { remoteFirstPending, type RemoteEvent, type RemoteState } from "@yugidraft/shared/remote";
 import { cardCode, type TwinCard } from "./model";
 
 /** How long the short "OK" shows on every screen. */
@@ -115,4 +115,4 @@ export const activatable = (state: RemoteState, seat: number): TwinCard[] =>
 
 /** Thinking, OK and a spoken line need a live duel: not the die roll or first-player choice, not siding, not a finished game, and a seat still in it. */
 export const maySignal = (state: RemoteState, seat: number): boolean =>
-  !state.ended && state.match.phase === "duel" && !remoteOpeningPending(state.match) && seat >= 0 && !state.seats[seat]?.eliminated;
+  !state.ended && state.match.phase === "duel" && !remoteFirstPending(state.match) && seat >= 0 && !state.seats[seat]?.eliminated;

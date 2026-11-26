@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { DUEL_BANLIST_OPTIONS } from "@yugidraft/shared/duels";
-import { REMOTE_FORMATS, REMOTE_OPEN_FORMATS, normalizeRemoteFormat, type RemoteRoom } from "@yugidraft/shared/remote";
+import { REMOTE_FORMATS, REMOTE_OPEN_FORMATS, normalizeRemoteFormat, type RemoteFirstPlayerMode, type RemoteRoom } from "@yugidraft/shared/remote";
 import { AlertTriangle, Bot, Check, CheckCircle2, CircleDashed, Link2, Swords, UserPlus } from "lucide-react";
 import { cx, SheetButton, sheetButtonClass, sheetPage } from "@/components/duel/sheet-ui";
 import { ThemedSelect as SheetSelect } from "@/components/ui/themed-select";
@@ -80,6 +80,9 @@ export function RemoteLobbyRoom({ ctl, room, voiceRecognition = false, tournamen
   const [lp, setLp] = useState(current.settings.startingLP);
   const [publicityDraft,setPublicityDraft]=useState<boolean|null>(null);
   const showCardsSetFromDeck=publicityDraft ?? room.showCardsSetFromDeck ?? true;
+  // The host's pick waits for Apply rules; everyone else (and the host after applying) sees the table's saved setting, which follows live changes.
+  const [firstPlayerDraft, setFirstPlayerDraft] = useState<RemoteFirstPlayerMode | null>(null);
+  const firstPlayer = firstPlayerDraft ?? room.firstPlayer ?? "dice";
   const me = room.seats.find(seat => seat.seat === room.mySeat);
   const host = me?.userId === room.createdBy;
   const decks = saved.data?.decks ?? [];
@@ -104,6 +107,7 @@ export function RemoteLobbyRoom({ ctl, room, voiceRecognition = false, tournamen
             {tournament ? <a className={cx(ui.chip, r.tourneyChip)} href={`/tournament/${encodeURIComponent(tournament.tournamentSlug)}`} data-testid="lobby-tournament" title="Back to the tournament">Tournament · {tournament.tournamentName}</a> : null}
             <span className={cx(ui.chip, ui.chipAccent)}>{formatName(current.id)}</span>
             <span className={ui.chip}>{room.seatCount === 2 ? "1v1" : `${room.seatCount}-way`}</span>
+            {room.firstPlayer === "own" ? <span className={ui.chip} data-testid="room-first-player-chip">Own dice</span> : null}
             <span className={ui.chip}>Code <b className={r.code}>{room.slug}</b></span>
             {room.solo ? null : <span className={ui.chip} data-testid="room-visibility">{room.visibility === "private" ? "Private" : "Public"}</span>}
             {room.spectatorCount ? <span className={ui.chip} data-testid="room-watching">{room.spectatorCount} watching</span> : null}
@@ -192,12 +196,15 @@ export function RemoteLobbyRoom({ ctl, room, voiceRecognition = false, tournamen
             </div>
           </div>
           <form className={cx(room_.panel, r.rulesPanel)} aria-label="Rules" onSubmit={e => { e.preventDefault();
-            void operation("format", { format, bestOf: Number(bestOf), showCardsSetFromDeck, rules: { banlist, startingLP: lp, ...(format.includes("genesys") ? { genesys: { pointCap: points } } : {}) } }).then(()=>setPublicityDraft(null)); }}>
+            void operation("format", { format, bestOf: Number(bestOf), showCardsSetFromDeck, firstPlayer, rules: { banlist, startingLP: lp, ...(format.includes("genesys") ? { genesys: { pointCap: points } } : {}) } }).then(()=>{ setPublicityDraft(null); setFirstPlayerDraft(null); }); }}>
             <h2 className={ui.sectionTitle}>Rules</h2>
             <fieldset disabled={busy || !host || rulesLocked} className={r.fieldset}>
               <SheetSelect label="Match length" value={bestOf} testId="room-best-of"
                 choices={[{ value: "1", label: "Best of 1 (one game)" }, { value: "3", label: "Best of 3 (side decking between games)" }]}
                 onChange={setBestOf} />
+              <SheetSelect label="Who goes first" value={firstPlayer} testId="room-first-player"
+                choices={[{ value: "dice", label: "Digital dice (the table rolls)" }, { value: "own", label: "Roll your own dice (on camera)" }]}
+                onChange={value => setFirstPlayerDraft(value as RemoteFirstPlayerMode)} />
               {formatChoices.length > 1 ? <SheetSelect label="Duel format" value={format} testId="room-format"
                 choices={formatChoices.map(item => ({ value: item.value as string, label: remoteFormatName(item.value) }))}
                 onChange={value => { setFormat(value); setBanlist(normalizeRemoteFormat(value).settings.banlist); }} /> : null}

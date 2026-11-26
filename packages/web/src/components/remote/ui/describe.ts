@@ -62,7 +62,7 @@ export function describeEvent(event: RemoteEvent, name: (seat: number) => string
     case "admin.watching": return { kind: "PH", text: a.watching ? `Admin ${a.name} started watching` : `Admin ${a.name} stopped watching`, undoable: false };
     case "table.started": {
       const opening = a.opening;
-      if (!opening) return { kind: "PH", text: "The duel started", undoable: false };
+      if (!opening) return { kind: "PH", text: a.ownFirst ? "The duel started · the players roll their own dice" : "The duel started", undoable: false };
       const last = opening.rounds[opening.rounds.length - 1] ?? [];
       const rolls = last.map((roll, seat) => `${name(seat)} ${roll}`).join(", ");
       return { kind: "PH", text: `Die roll${opening.rounds.length > 1 ? ` (${opening.rounds.length} rounds)` : ""}: ${rolls} · ${name(opening.winnerSeat)} chooses who goes first`, undoable: false };

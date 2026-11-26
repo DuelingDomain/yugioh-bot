@@ -574,6 +574,11 @@
 .vpop{position:absolute;z-index:60;right:0;bottom:calc(100% + 14px);width:min(600px,calc(100vw - 24px));display:flex;flex-direction:column;gap:8px;padding:10px;border:1px solid var(--line2);border-radius:12px;background:#140d27;box-shadow:0 14px 40px rgb(0 0 0/.65)}
 .bar .pass,.bar .pback{height:38px}
 .bar .pconfirm{bottom:calc(100% + 10px)}
+/* Own dice: the first-player prompt floats above the bar, like a pending confirm. */
+.firstpick{position:absolute;z-index:40;left:50%;bottom:calc(100% + 10px);transform:translateX(-50%);display:flex;align-items:center;justify-content:center;gap:10px;flex-wrap:wrap;max-width:calc(100vw - 24px);padding:8px 12px 8px 14px;border:1.5px solid var(--gold);border-radius:10px;background:#1b1229;color:var(--ink);font-size:15px;box-shadow:0 10px 30px rgb(0 0 0/.6),0 0 24px rgb(232 185 79/.25)}
+.firstpick b{color:var(--gold-ink)}
+.firstpick [aria-pressed="true"]{outline:2px solid var(--gold);outline-offset:1px}
+.firstq{min-width:0}
 
 /* ---- each player's phase boxes, between the camera and the virtual field ---- */
 .ptrack{display:flex;gap:4px;list-style:none;margin:0;padding:0;flex:none;min-width:0;order:-1}
