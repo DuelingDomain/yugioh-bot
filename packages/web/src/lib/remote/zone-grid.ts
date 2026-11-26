@@ -1,7 +1,7 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
-import { normalizeZoneSpacing, fieldZoneCells, createFieldCalibration, fieldMatPoint, FIELD_ROW, onMat, zoneCellAt, type FieldCalibration, type FieldDebug, type FieldFormat, type FieldOrientation, type FieldTrack, type PlayerSide, type ZoneOverrides } from "@yugidraft/vision";
+import { normalizeZoneSpacing, fieldZoneCells, createFieldCalibration, fieldMatPoint, FIELD_ROW, onMat, zoneCellAt, type FieldCalibration, type FieldDebug, type FieldFormat, type FieldOrientation, type FieldTrack, type PlayerSide, type ZoneOverrides, type ZoneRect } from "@yugidraft/vision";
 
 type Point = { x: number; y: number };
 /** One zone of the Master Rule mat, in mat units (0..1 across and down, seen from the owner's seat). */
@@ -17,6 +17,12 @@ export type { ZoneOverrides };
 export function fieldGridCells(format: FieldFormat = "normal", spacing: number | Pick<FieldCalibration, "zoneSpacing" | "zones"> = 1, zones?: ZoneOverrides): GridCell[] {
   return typeof spacing === "number" ? fieldZoneCells(format, spacing, zones) : fieldZoneCells(format, spacing.zoneSpacing, zones ?? spacing.zones);
 }
+/** The Banished zone the player moved (mat units), or undefined while it sits where the layout puts it. */
+export const banishedOf = (calibration?: Pick<FieldCalibration, "zones">): ZoneRect | undefined => { const r = calibration?.zones?.BANISHED; return r && [r.x, r.y, r.w, r.h].every(Number.isFinite) ? r : undefined; };
+/** The sideways Banished cell of the default layout. */
+export const defaultBanished = (format: FieldFormat = "normal"): ZoneRect => { const { x, y, w, h } = fieldZoneCells(format).find(c => c.zone === "BANISHED")!; return { x, y, w, h }; };
+/** The same grid with the Banished zone moved (or back at its place with `undefined`). Corners, side and everything else stay. */
+export const withBanished = (grid: FieldCalibration, rect?: ZoneRect): FieldCalibration => ({ ...createFieldCalibration(grid.corners, grid.orientation, grid.zoneSpacing, rect ? { BANISHED: rect } : undefined), layout: grid.layout });
 /** Draw order for overlapping cells: largest first, so the cell on top is the one a card in the overlap is assigned to. */
 export const byAreaDesc = <T extends { w: number; h: number }>(cells: readonly T[]): T[] => [...cells].sort((a, b) => b.w * b.h - a.w * a.h);
 /** The grid shown before the player calibrates: most of the picture, as in the calibration dialog's first guess. */

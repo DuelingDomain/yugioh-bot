@@ -951,8 +951,9 @@ it('zoneSpacing widens cells and shares centre assignment through persistence, o
   const calibration=createFieldCalibration(points,{playerSide,mirrored:false},spacing);
   const cells=fieldGridCells('normal',spacing),main=cells.filter(c=>/^M/.test(c.zone));
   expect(calibration.zoneSpacing).toBe(spacing);
-  // Every zone is one slot of the same size, and EMZ sits right above M2 and M4.
-  for(const c of cells){expect(c.w).toBeCloseTo(main[0].w);expect(c.h).toBeCloseTo(main[0].h);}
+  // Every zone but Banished is one slot of the same size; Banished lies sideways (wider than tall), as on the virtual board. EMZ sits right above M2 and M4.
+  for(const c of cells.filter(c=>c.zone!=='BANISHED')){expect(c.w).toBeCloseTo(main[0].w);expect(c.h).toBeCloseTo(main[0].h);}
+  const banished=cells.find(c=>c.zone==='BANISHED')!;expect(banished.w).toBeCloseTo(main[0].w*86/59);expect(banished.h).toBeCloseTo(main[0].h*59/86);
   expect(cells.find(c=>c.zone==='EMZ1')!.x).toBeCloseTo(main[1].x);expect(cells.find(c=>c.zone==='EMZ2')!.x).toBeCloseTo(main[3].x);
   expect(main[2].w).toBeCloseTo(FIELD_ZONE_PITCH*spacing);expect(main[3].x-main[2].x).toBeCloseTo(main[2].w);
   for(const cell of main.slice(1,4)){
@@ -1566,4 +1567,19 @@ it('only a clean sure read can reveal the settled Set on its own ref immediately
   expect(fieldSureSetReveal(event,{...track,cardId:'other'},card)).toBe(false);
   expect(fieldSureSetReveal({...event,result:{...result,tier:'not sure'}},track,card)).toBe(false);
   expect(fieldSureSetReveal({...event,result:{...result,quality:{...result.quality,fallback:true}}},track,card)).toBe(false);
+});
+
+it('a moved Banished zone survives load and a Fit-to-mat style rebuild, and a card in it maps to BANISHED',async()=>{
+ const {createFieldCalibration,fieldMatPoint,mapFieldZone,flattenFieldCalibration}=await import('@yugidraft/vision');
+ const {banishedOf,defaultBanished,withBanished}=await import('../src/lib/remote/zone-grid');
+ const corners=[{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1}];
+ const moved={x:.3,y:.5,w:.2,h:.14};
+ const grid=withBanished(createFieldCalibration(corners,{playerSide:'bottom',mirrored:false}),moved);
+ // Load flattens other per-zone edits, but keeps the Banished rectangle; a grid without one has the sideways default.
+ expect(banishedOf(flattenFieldCalibration(grid))).toEqual(moved);
+ expect(banishedOf(flattenFieldCalibration(createFieldCalibration(corners,{playerSide:'bottom',mirrored:false})))).toBeUndefined();
+ expect(defaultBanished()).toMatchObject({w:expect.any(Number),h:expect.any(Number)});
+ // A face-down card at the centre of the moved zone maps to BANISHED.
+ const c={x:moved.x+moved.w/2,y:moved.y+moved.h/2},quad=[[-.03,-.02],[.03,-.02],[.03,.02],[-.03,.02]].map(([dx,dy])=>fieldMatPoint({x:c.x+dx,y:c.y+dy},grid));
+ expect(mapFieldZone({quad,kind:'face-down',confidence:.9,partial:false},grid).zone).toBe('BANISHED');
 });

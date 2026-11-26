@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import { Check, Crosshair } from "lucide-react";
 import { createFieldCalibration, type FieldCalibration, type FieldFormat } from "@yugidraft/vision";
 import { cx, SheetButton, sheetRoot } from "@/components/duel/sheet-ui";
-import { defaultSideFor, startGridCorners } from "@/lib/remote/zone-grid";
+import { banishedOf, defaultSideFor, startGridCorners, withBanished } from "@/lib/remote/zone-grid";
 import { FieldMoveSurface, FieldTransformControls, useFieldTransform } from "../field-transform";
 import { FieldOrientationControls } from "../field-orientation";
 import { PreviewGrid } from "./lobby-preview-grid";
@@ -33,7 +33,7 @@ export function LobbyZonesView({ stream, ratio, format, calibration, calibrated,
   const tf = useFieldTransform(calibration?.corners, corners => {
     const side = latest.current?.orientation;
     if (!side) return;
-    try { onChange(createFieldCalibration(corners, side)); } catch { /* the transform keeps the field inside the picture */ }
+    try { onChange(withBanished(createFieldCalibration(corners, side), banishedOf(latest.current))); } catch { /* the transform keeps the field inside the picture */ }
   }, ratio, () => startGridCorners(latest.current?.orientation));
   // A side makes the start layout, which relabels the corners: move the handles with them.
   const chooseSide = (grid: FieldCalibration) => { if (grid.corners.some((p, i) => Math.hypot(p.x - tf.corners[i].x, p.y - tf.corners[i].y) > 1e-9)) tf.rebase(grid.corners); onChange(grid); };

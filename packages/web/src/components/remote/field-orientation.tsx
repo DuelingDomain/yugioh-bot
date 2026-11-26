@@ -1,7 +1,7 @@
 "use client";
 
 import { createFieldCalibration, DEFAULT_FIELD_ORIENTATION, mirrorFieldCalibration, type FieldCalibration, type PlayerSide } from '@yugidraft/vision';
-import { DEFAULT_GRID_CORNERS, displayCalibration, startLayoutCorners } from '@/lib/remote/zone-grid';
+import { banishedOf, DEFAULT_GRID_CORNERS, displayCalibration, startLayoutCorners, withBanished } from '@/lib/remote/zone-grid';
 import { ThemedSelect } from '@/components/ui/themed-select';
 import s from './field-orientation.module.css';
 
@@ -12,13 +12,15 @@ function useOrientation({ calibration, defaultSide='bottom', onChange }: Orienta
   const shown=displayCalibration(calibration,defaultSide);
   const orientation=shown.orientation??DEFAULT_FIELD_ORIENTATION;
   const corners=calibration?.corners??DEFAULT_GRID_CORNERS;
+  /** A new side or mirror keeps the Banished zone where the player put it. */
+  const change=(grid:FieldCalibration)=>onChange(withBanished(grid,banishedOf(calibration)));
   return {
     orientation,
     unconfirmed:!calibration?.orientation,
     flipped:orientation.playerSide==='top',
     /** A side makes the start layout (Spell & Trap row on top, Extra Monster row at the bottom); `keep` leaves the corners as they are. */
-    set:(side:PlayerSide,keep=false)=>{const next={...orientation,playerSide:side};onChange(createFieldCalibration(keep?corners:startLayoutCorners(corners,next),next));},
-    mirror:()=>onChange(mirrorFieldCalibration(createFieldCalibration(corners,orientation))),
+    set:(side:PlayerSide,keep=false)=>{const next={...orientation,playerSide:side};change(createFieldCalibration(keep?corners:startLayoutCorners(corners,next),next));},
+    mirror:()=>change(mirrorFieldCalibration(createFieldCalibration(corners,orientation))),
   };
 }
 type Orientation = ReturnType<typeof useOrientation>;

@@ -54,6 +54,12 @@
 .grid{position:absolute;inset:0;width:100%;height:100%;overflow:visible;pointer-events:none;filter:drop-shadow(0 0 1px rgb(0 0 0/.85))}
 .grid polygon{fill:rgb(255 255 255/.012);stroke:rgb(246 220 154/.82);stroke-width:1;vector-effect:non-scaling-stroke;stroke-linejoin:round}
 .grid text{fill:rgb(255 244 214/.74);font-family:var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;font-weight:600;letter-spacing:.03em;text-anchor:start;dominant-baseline:hanging;paint-order:stroke;stroke:rgb(8 4 16/.7);stroke-linejoin:round;pointer-events:none}
+/* The Banished zone is dragged on its own: a layer above the grid's move surface, so only the zone itself takes the pointer. */
+.banishLayer{position:absolute;inset:0;z-index:4;width:100%;height:100%;overflow:visible;pointer-events:none}
+.banished{pointer-events:all;fill:rgb(240 128 170/.2);stroke:rgb(255 170 200/.95);stroke-width:2;vector-effect:non-scaling-stroke;stroke-linejoin:round;cursor:grab;touch-action:none;outline:none}
+.banished:active{cursor:grabbing}
+.banished:hover,.banished:focus-visible{fill:rgb(240 128 170/.34)}
+.banished:focus-visible{stroke:#fff0c9}
 .grid polygon[data-lit]{fill:rgb(232 185 79/.24);stroke:#fff0c9;stroke-width:2}
 .grid text[data-lit]{fill:#fff0c9;font-weight:700}
 .cardChoice{position:absolute;transform:translate(-50%,-50%);min-height:34px;padding:6px 12px;border:1.5px solid #fff0c9;border-radius:999px;background:rgb(20 13 38/.94);color:#fff0c9;font-size:13px;font-weight:700;white-space:nowrap;z-index:4;cursor:pointer;box-shadow:0 4px 16px rgb(0 0 0/.55)}

@@ -34,6 +34,8 @@ export function normalizeZones(value?: unknown): ZoneOverrides | undefined {
 /** Override rectangles are stored for spacing 1 (as drawn by default); spacing then widens them around M3/S3 like the default zones. */
 export const scaleZoneRect=(r:ZoneRect,zoneSpacing=1):ZoneRect=>{const spacing=normalizeZoneSpacing(zoneSpacing);return {x:.5+(r.x-.5)*spacing,y:r.y,w:r.w*spacing,h:r.h};};
 export const unscaleZoneRect=(r:ZoneRect,zoneSpacing=1):ZoneRect=>{const spacing=normalizeZoneSpacing(zoneSpacing);return {x:.5+(r.x-.5)/spacing,y:r.y,w:r.w/spacing,h:r.h};};
+/** The Banished zone lies sideways (cards are banished turned 90 degrees), as on the virtual board: a card is 86:59, so the cell is 1.458 pitches wide and 0.686 rows high, right-aligned to the Deck/GY column and sitting on the Graveyard. */
+const banishedCell = (pitch: number, right: number): ZoneRect => { const w = pitch * 86 / 59, h = FIELD_ROW * 59 / 86; return { x: right - w, y: FIELD_ROW - h, w, h }; };
 /**
  * The single zone geometry: the default Master Rule layout (zoneSpacing widens it around M3/S3), with the player's
  * per-zone rectangles on top. Overrides are kept at spacing 1 and scaled with the spacing, so the gaps stay as edited.
@@ -44,7 +46,7 @@ export function fieldZoneCells(format: FieldFormat = 'normal', zoneSpacing = 1, 
   const emz = hasExtraMonsterZones(format), { pitch, start, end } = fieldZoneLayout(zoneSpacing), R = FIELD_ROW;
   const base: FieldZoneCell[] = [
     { zone: 'FIELD', label: 'Field', x: start - pitch, y: R, w: pitch, h: R }, { zone: 'EXTRA', label: 'Extra', x: start - pitch, y: 2 * R, w: pitch, h: R },
-    { zone: 'BANISHED', label: 'Banished', x: end, y: 0, w: pitch, h: R }, { zone: 'GY', label: 'GY', x: end, y: R, w: pitch, h: R }, { zone: 'DECK', label: 'Deck', x: end, y: 2 * R, w: pitch, h: R },
+    { zone: 'BANISHED', label: 'Banished', ...banishedCell(pitch, end + pitch) }, { zone: 'GY', label: 'GY', x: end, y: R, w: pitch, h: R }, { zone: 'DECK', label: 'Deck', x: end, y: 2 * R, w: pitch, h: R },
     ...Array.from({ length: 5 }, (_, i) => ({ zone: `M${i + 1}`, label: `M${i + 1}`, x: start + pitch * i, y: R, w: pitch, h: R })),
     ...Array.from({ length: 5 }, (_, i) => ({ zone: `S${i + 1}`, label: `S${i + 1}`, x: start + pitch * i, y: 2 * R, w: pitch, h: R })),
     ...(emz ? [{ zone: 'EMZ1', label: 'EMZ', x: start + pitch, y: 0, w: pitch, h: R }, { zone: 'EMZ2', label: 'EMZ', x: start + 3 * pitch, y: 0, w: pitch, h: R }] : []),
@@ -308,8 +310,10 @@ export function resizeFieldQuad(quad: Point[], handle: FieldHandle, pointer: Poi
  */
 export function flattenFieldCalibration(calibration: FieldCalibration, format: FieldFormat = 'normal'): FieldCalibration {
   const orientation = calibration.orientation, plain = () => createFieldCalibration(calibration.corners, orientation);
-  const custom = !!normalizeZones(calibration.zones) || (calibration.zoneSpacing !== undefined && Math.abs(normalizeZoneSpacing(calibration.zoneSpacing) - 1) > 1e-6);
-  if (!custom) return calibration.zones === undefined && calibration.zoneSpacing === undefined ? calibration : plain();
+  // The Banished zone can be moved on its own (it keeps the grid as it is): it is the one per-zone edit that survives.
+  const { BANISHED: banished, ...others } = normalizeZones(calibration.zones) ?? {};
+  const custom = !!normalizeZones(others) || (calibration.zoneSpacing !== undefined && Math.abs(normalizeZoneSpacing(calibration.zoneSpacing) - 1) > 1e-6);
+  if (!custom) return calibration.zones === undefined && calibration.zoneSpacing === undefined ? calibration : { ...createFieldCalibration(calibration.corners, orientation, 1, banished ? { BANISHED: banished } : undefined), layout: calibration.layout };
   try {
     const old = fieldZoneBounds(calibration, format), def = fieldZoneBounds(undefined, format), turned = orientation ?? DEFAULT_FIELD_ORIENTATION;
     for (let shrink = 1, i = 0; i < 24; i++, shrink *= .96) {

@@ -5,7 +5,7 @@ import {useSetGuards,loadSetMemory,saveSetMemory} from './set-card-settings';
 import {recordSetDecision} from './set-card-diagnostics';
 import { readTapChoice } from './tap-offer';
 import { e2eFieldHook } from './e2e-field-hook';
-import { defaultGridCalibration, fieldDebugEnabled, isPlacedCalibration } from './zone-grid';
+import { banishedOf, defaultGridCalibration, fieldDebugEnabled, isPlacedCalibration, withBanished } from './zone-grid';
 import { attachClipRecorder, detachClipRecorder, clipEvent, clipAction, clipCalibration } from './clip-capture';
 import { createFieldCalibration, createFieldWatcher, flattenFieldCalibration, FIELD_ZONE_LAYOUT, fieldZoneCells, ignoreSetRegion, createFieldIdentityGallery, type FieldZone, type SetCardMemory, type FieldIdentityGallery, type FieldCalibration, type FieldEvent, type FieldSnapshot, type FieldWatcher, type FieldWatcherOptions } from '@yugidraft/vision';
 
@@ -86,7 +86,8 @@ export function saveFieldCalibration(seatKey:string,grid:FieldCalibration,camera
     const placed=meta.placed??isPlaced(before,before.calibration);
     // Only a confirmed save carries the current layout mark; edits to an older record keep it marked as old until "Looks good".
     const confirmed=meta.placed===true||before.calibration?.layout===FIELD_ZONE_LAYOUT;
-    const calibration={...createFieldCalibration(grid.corners,grid.orientation),...(confirmed?{}:{layout:undefined})};
+    // The Banished zone the player moved is kept with the grid; no other per-zone edit is saved.
+    const calibration={...withBanished(createFieldCalibration(grid.corners,grid.orientation),banishedOf(grid)),...(confirmed?{}:{layout:undefined})};
     const value={...before,calibration,cameraId,cameraLabel:meta.label??before.cameraLabel,placed,captureSize:meta.placed===true?meta.captureSize??before.captureSize:before.captureSize};
     localStorage.setItem(fieldCalibrationKey(seatKey,cameraId),JSON.stringify(value));
     // Retain the last-camera pointer for older clients and the lobby summary.
