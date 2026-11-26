@@ -8,13 +8,19 @@
 .menu button:hover{border-color:rgb(155 126 255)}
 @media (max-width:760px){.menu{bottom:auto;top:calc(100% + 6px)}}
 
-.toast{position:fixed;top:132px;left:50%;transform:translateX(-50%);z-index:60;pointer-events:none;display:flex;align-items:center;gap:14px;padding:8px 24px 8px 14px;border-block:1px solid var(--gold,#e8b94f);background:linear-gradient(90deg,transparent,rgb(11 7 22/.95) 12%,rgb(11 7 22/.95) 88%,transparent);animation:rollIn 3s ease both}
-.text{display:flex;flex-direction:column;gap:4px}
-.text small{font:700 11px/1 var(--font-duel-ui,"Sofia Sans Semi Condensed",system-ui,sans-serif);letter-spacing:.2em;color:var(--ink2,#b9b0cc);text-transform:uppercase}
-.text b{font:700 24px/1 var(--font-duel-display,Oxanium,sans-serif);letter-spacing:.12em;color:var(--gold-ink,#f5d98a);text-shadow:0 0 18px rgb(232 185 79/.5)}
-.token{display:grid;place-items:center;width:38px;height:38px;font:800 18px/1 var(--font-duel-display,Oxanium,sans-serif);color:#1b1204;animation:rollSpin .8s cubic-bezier(.2,.7,.3,1) both}
-.coin{border-radius:50%;background:radial-gradient(circle at 35% 30%,#fbe7a6,#e8b94f 60%,#a8791d)}
-.die{border-radius:8px;background:linear-gradient(145deg,#fdfcf8,#d9d4c8);box-shadow:inset 0 -3px 0 rgb(0 0 0/.12)}
-@keyframes rollSpin{0%{transform:rotateX(0) rotateY(0) scale(.6)}100%{transform:rotateX(720deg) rotateY(360deg) scale(1)}}
-@keyframes rollIn{0%{opacity:0}8%{opacity:1}85%{opacity:1}100%{opacity:0}}
-@media (prefers-reduced-motion:reduce){.token{animation:none}}
+.overlay{position:fixed;inset:0;z-index:70;pointer-events:none;display:grid;place-items:center;animation:rollLife 3.5s linear both;animation-delay:var(--spent,0ms)}
+.stage{--d:clamp(84px,16vmin,132px);display:flex;flex-direction:column;align-items:center;gap:18px;padding:22px 34px 20px;border-radius:18px;background:radial-gradient(ellipse at center,rgb(11 7 22/.82),rgb(11 7 22/.55) 70%,transparent);filter:drop-shadow(0 12px 28px rgb(0 0 0/.55))}
+.result{margin:0;display:flex;flex-direction:column;align-items:center;gap:6px;animation:rollWord 3.5s linear both;animation-delay:var(--spent,0ms)}
+.result small{font:700 11px/1 var(--font-duel-ui,"Sofia Sans Semi Condensed",system-ui,sans-serif);letter-spacing:.24em;color:var(--ink2,#b9b0cc);text-transform:uppercase}
+.result b{font:700 clamp(20px,3.4vmin,30px)/1.1 var(--font-duel-display,Oxanium,sans-serif);letter-spacing:.1em;color:var(--gold-ink,#f5d98a);text-shadow:0 0 18px rgb(232 185 79/.5);text-align:center}
+.dieBox{width:var(--d);height:calc(var(--d)*1.3);display:grid;place-items:center}
+.coinBox{width:var(--d);height:calc(var(--d)*1.3);display:grid;place-items:center;perspective:calc(var(--d)*6)}
+.coinTilt{transform:rotateX(-18deg);transform-style:preserve-3d}
+.coin3d{position:relative;width:var(--d);height:var(--d);transform-style:preserve-3d;transform:rotateY(var(--end,0deg));animation:coinSpin 1.2s cubic-bezier(.2,.7,.25,1) both}
+.face{position:absolute;inset:0;display:grid;place-items:center;border-radius:50%;backface-visibility:hidden;font:800 calc(var(--d)*.46)/1 var(--font-duel-display,Oxanium,sans-serif);color:#1b1204;border:calc(var(--d)*.05) solid #a8791d;box-shadow:inset 0 0 0 calc(var(--d)*.03) rgb(255 236 160/.55),0 0 24px rgb(155 126 255/.45)}
+.heads{background:radial-gradient(circle at 35% 30%,#fbe7a6,#e8b94f 62%,#a8791d)}
+.tails{transform:rotateY(180deg);background:radial-gradient(circle at 35% 30%,#d7c7ff,#9b7eff 62%,#5b3fb0);color:#140a33;border-color:#e8b94f}
+@keyframes coinSpin{0%{transform:translateY(calc(var(--d)*.5)) scale(.55) rotateY(0deg)}40%{transform:translateY(calc(var(--d)*-.35)) scale(1.1) rotateY(calc(var(--turns,1800deg)*.55))}100%{transform:translateY(0) scale(1) rotateY(var(--turns,1800deg))}}
+@keyframes rollLife{0%{opacity:0}4%{opacity:1}91%{opacity:1}100%{opacity:0}}
+@keyframes rollWord{0%,33%{opacity:0;transform:translateY(6px)}38%,100%{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){.coin3d{animation:none}.result{animation:none}}

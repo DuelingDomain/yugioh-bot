@@ -2846,19 +2846,28 @@ test.describe("remote duels Thinking, OK and E", () => {
     await Promise.all([page.goto(`/duels/remote/${slug}`), other.goto(`/duels/remote/${slug}`)]);
     await expect(page.getByTestId("coin-die-button")).toBeVisible();
     await page.getByTestId("coin-die-button").click();
+    await expect(page.getByTestId("flip-coin")).toContainText("Flip a coin");
     await page.getByTestId("flip-coin").click();
-    const coin = other.getByTestId("roll-banner");
+    const coin = other.getByTestId("roll-overlay");
     await expect(coin).toHaveAttribute("data-kind", "coin");
+    // It sits in the middle of the screen and never takes a click.
+    const box = await coin.boundingBox(); const view = other.viewportSize()!;
+    expect(box && box.width >= view.width * 0.9 && box.height >= view.height * 0.9).toBe(true);
+    expect(await coin.evaluate(node => getComputedStyle(node).pointerEvents)).toBe("none");
     const face = (await coin.getAttribute("data-result")) === "1" ? "Heads" : "Tails";
-    await expect(coin).toContainText(face);
-    await expect(page.getByTestId("roll-banner")).toHaveAttribute("data-result", await coin.getAttribute("data-result") ?? "");
+    await expect(other.getByTestId("roll-result")).toContainText(face);
+    await expect(page.getByTestId("roll-overlay")).toHaveAttribute("data-result", await coin.getAttribute("data-result") ?? "");
     await expect(coin).toHaveCount(0, { timeout: 8000 });
     await page.getByTestId("coin-die-button").click();
+    await expect(page.getByTestId("roll-die")).toContainText("Roll a die");
     await page.getByTestId("roll-die").click();
-    const die = other.getByTestId("roll-banner");
+    const die = other.getByTestId("roll-overlay");
     await expect(die).toHaveAttribute("data-kind", "die");
+    await expect(other.getByTestId("dice-die")).toBeVisible();
     const number = Number(await die.getAttribute("data-result"));
     expect(number).toBeGreaterThanOrEqual(1); expect(number).toBeLessThanOrEqual(6);
+    await expect(other.getByTestId("dice-die")).toHaveAttribute("data-value", String(number));
+    await expect(other.getByTestId("roll-result")).toContainText(String(number));
     // The server stored both results in the events, so a replay shows the same ones.
     const room = await (await page.request.get(`/api/remote/${slug}`)).json();
     const rolls = room.events.filter((event: { action: { type: string } }) => event.action.type === "random.roll").map((event: { action: { kind: string; result: number } }) => [event.action.kind, event.action.result]);
@@ -2898,6 +2907,17 @@ test.describe("remote duels Thinking, OK and E", () => {
     await act({ type: "twin.move", cardRef: "dm", zone: "graveyard" });
     expect((await room()).state.seats[0].twin.find((card: { ref: string }) => card.ref === "dm").counters).toBeUndefined();
     await expect(cell.getByTestId("card-counters")).toHaveCount(0);
+    // A face-down card with no name and a token take counters the same way.
+    await act({ type: "twin.place", zone: "monster", card: { ref: "fd", slot: 2, faceUp: false, position: "defense" } });
+    await act({ type: "twin.place", zone: "monster", card: { ref: "tk", slot: 3, faceUp: true, position: "attack", name: "Test Token", token: { atk: 0, def: 0 } } });
+    for (const [zone, ref] of [["m2", "fd"], ["m3", "tk"]] as const) {
+      await page.getByTestId("field-0").locator(`[data-zone="${zone}"]`).click();
+      await page.getByTestId("counters-plus").click();
+      await expect(page.getByTestId("counters-count")).toHaveText("1");
+      await page.keyboard.press("Escape");
+      expect((await room()).state.seats[0].twin.find((card: { ref: string }) => card.ref === ref).counters, ref).toBe(1);
+      await expect(page.getByTestId("field-0").locator(`[data-zone="${zone}"]`).getByTestId("card-counters")).toHaveText("1");
+    }
   });
 });
 
