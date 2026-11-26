@@ -82,7 +82,7 @@ export function remoteFirstPending(match: RemoteMatch | undefined): boolean {
 }
 
 /** Actions that do not start the game. Any other action after the choice locks the first player. */
-const OWN_FIRST_KEEPS_OPEN: ReadonlySet<string> = new Set(["detection.mode", "chain.respond", "chain.thinking", "chain.ok", "log.note", "undo", "player.concede", "player.leave"]);
+const OWN_FIRST_KEEPS_OPEN: ReadonlySet<string> = new Set(["detection.mode", "chain.respond", "chain.thinking", "chain.ok", "random.roll", "log.note", "undo", "player.concede", "player.leave"]);
 export const remoteActionLocksOwnFirst = (type: string): boolean => !OWN_FIRST_KEEPS_OPEN.has(type);
 
 /**

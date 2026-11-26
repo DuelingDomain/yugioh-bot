@@ -56,3 +56,5 @@
 .nextGo:focus-visible,.nextX:focus-visible{outline:2px solid #e8b94f;outline-offset:1px}
 @keyframes nextIn{from{opacity:0;margin-top:6px}to{opacity:1;margin-top:0}}
 @media (prefers-reduced-motion:reduce){.nextStep{animation:none}}
+
+.counterBadge{transform:translate(-50%,-50%);max-width:none;padding:0 5px;border-radius:9px;background:rgb(232 185 79/.96);color:#1a1405;font:800 10px/14px var(--font-duel-display),Oxanium,sans-serif;text-shadow:none}

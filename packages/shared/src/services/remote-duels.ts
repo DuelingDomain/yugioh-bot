@@ -21,7 +21,7 @@ import type Database from "better-sqlite3";
 import { isOwnerUser } from "../access/owner-access.js";
 import { isRemoteRecordUser } from "../access/remote-record-users.js";
 import { generateWebSlug } from "../util/web-slug.js";
-import { REMOTE_DEFAULT_VISIBILITY, getRemoteGame, remoteActionSchema, remoteAssert, type RemoteAction, type RemoteEvent, type RemoteRoom, type RemoteSeat, type RemoteState, type RemotePosition, type RemoteStatus, type RemoteSystemAction, type RemoteTable, type SeatCount } from "../remote/index.js";
+import { REMOTE_DEFAULT_VISIBILITY, getRemoteGame, remoteActionSchema, remoteAssert, type RemoteAction, type RemoteEvent, type RemoteRematch, type RemoteRoom, type RemoteSeat, type RemoteState, type RemotePosition, type RemoteStatus, type RemoteSystemAction, type RemoteTable, type SeatCount } from "../remote/index.js";
 
 import { applyRemoteOpening, applyRemoteOwnFirst, ensureRemoteMatch, initialRemoteMatch, remoteSideTimeoutDue, rollRemoteOpening, validateRemoteSideChange } from "../remote/match.js";
 import type { RemoteBestOf, RemoteFirstPlayerMode, RemoteMatch } from "../remote/match-contract.js";
@@ -102,7 +102,13 @@ export function createRemoteDuelService(db: Database.Database, options: {
       where v.table_id=? and v.last_seen_at>? order by v.last_seen_at,v.user_id`).all(row.id, now - REMOTE_SPECTATOR_SLOT_MS) as { userId: number; name: string }[])
       .filter(watcher => isOwnerUser(watcher.userId));
   }
-  const liveTable = (row: TableRow, now = Date.now()): RemoteTable => ({ ...table(row), adminWatchers: adminWatchers(row, now), spectatorCount: spectatorCount(row, now) });
+  const liveTable = (row: TableRow, now = Date.now()): RemoteTable => ({ ...table(row), adminWatchers: adminWatchers(row, now), spectatorCount: spectatorCount(row, now), ...rematchOf(row) });
+  /** The rematch of a finished match, for the end screen. Nothing for a table that is not over (an Undo can reopen a finished match). */
+  function rematchOf(row: Pick<TableRow, "id" | "status">): { rematch: RemoteRematch } | undefined {
+    if (row.status !== "ended") return undefined;
+    const r = db.prepare("select requested_by,accepted_json,declined_by,new_slug from remote_rematches where table_id=?").get(row.id) as { requested_by: number; accepted_json: string; declined_by: number | null; new_slug: string | null } | undefined;
+    return r ? { rematch: { requestedBy: r.requested_by, accepted: JSON.parse(r.accepted_json) as number[], ...(r.declined_by !== null ? { declinedBy: r.declined_by } : {}), ...(r.new_slug ? { slug: r.new_slug } : {}) } } : undefined;
+  }
   /**
    * Writes the "stopped watching" line of every admin watch that is over: the last tab left more than the grace ago, or the slot ran out.
    * Returns how many lines it wrote, so the caller reloads its row (each line moves last_seq).
@@ -293,6 +299,44 @@ export function createRemoteDuelService(db: Database.Database, options: {
     remoteAssert(!idleExpired(row, now), "Remote table expired from inactivity", 409, "TABLE_IDLE");
   }
   function name(value: string) { remoteAssert(typeof value === "string" && value.trim().length > 0 && value.length <= 100, "Invalid display name"); return value.trim(); }
+  /** The table of a rematch: same players and seats, format, settings and deck choices. Returns its slug. */
+  function openRematchTable(old: Row, all: RemoteSeat[], now: number): string {
+    const game = getRemoteGame(old.game_id);
+    const chosenFormat = format(old);
+    const host = all.find(s => s.userId === old.created_by) ?? all[0]!;
+    const initial = applyRemoteFormat(game.initialState({ tournament: false, seatCount: old.seat_count, bestOf: old.best_of ?? 1 }), chosenFormat);
+    initial.showCardsSetFromDeck = !!old.show_cards_set_from_deck;
+    initial.revealedHand = old.revealed_hand ?? "until-played";
+    initial.firstPlayer = old.first_player ?? "dice";
+    const slug = generateWebSlug();
+    db.prepare("insert into remote_tables(slug,guild_id,game_id,seat_count,status,created_by,state_json,created_at,last_event_at,solo,format_json,show_cards_set_from_deck,visibility,tournament_match_id) values(?,?,?,?,'lobby',?,?,?,?,0,?,?,?,null)")
+      .run(slug, old.guild_id, old.game_id, old.seat_count, host.userId, JSON.stringify(initial), now, now, JSON.stringify(chosenFormat), Number(initial.showCardsSetFromDeck), old.visibility);
+    const created = load(slug, old.guild_id);
+    for (const s of all) db.prepare("insert into remote_seats(table_id,seat,user_id,display_name) values(?,?,?,?)").run(created.id, s.seat, s.userId, s.displayName);
+    append(created, { type: "table.created", gameId: old.game_id, seatCount: old.seat_count, tournament: false, bestOf: initial.match.bestOf, solo: false, format: chosenFormat, showCardsSetFromDeck: initial.showCardsSetFromDeck, revealedHand: initial.revealedHand, firstPlayer: initial.firstPlayer }, now, host.userId, host.seat);
+    for (const s of all) append(load(slug, old.guild_id), { type: "seat.joined", seat: s.seat, userId: s.userId }, now, s.userId, s.seat);
+    // Deck choices carry over, checked again against the format. A seat with a deck that fails waits in the lobby.
+    const state = readState(load(slug, old.guild_id));
+    const before = readState(old);
+    let allReady = true;
+    for (const s of all) {
+      const kept = before.deckChecks.registrations[s.seat];
+      if (kept) state.deckChecks.registrations[s.seat] = { ...structuredClone(kept), validation: deckRules.inspect(chosenFormat, kept.deck) };
+    }
+    const target = load(slug, old.guild_id);
+    db.prepare("update remote_tables set state_json=? where id=?").run(writeRemoteState(db, target.id, state), target.id);
+    syncDecks(target, state);
+    for (const s of all) {
+      const registration = state.deckChecks.registrations[s.seat] ?? null;
+      if (registration) append(load(slug, old.guild_id), { type: "seat.deck", seat: s.seat, registration }, now, s.userId, s.seat);
+      if (registration?.validation.issues.length) { allReady = false; continue; }
+      db.prepare("update remote_seats set ready=1 where table_id=? and seat=?").run(target.id, s.seat);
+      append(load(slug, old.guild_id), { type: "seat.ready", seat: s.seat, ready: true }, now, s.userId, s.seat);
+    }
+    // Everyone ready: skip the lobby. The same start as a normal table, so the opening roll and the start event are the usual ones.
+    if (allReady) api.start(slug, old.guild_id, host.userId!, now);
+    return slug;
+  }
   const api = {
     /** Explicit retention cap, or only abandoned lobbies: at most `limit` rooms per transaction.
      * Started tables and their replay/Undo facts are kept by default by the hourly caller. */
@@ -585,12 +629,52 @@ export function createRemoteDuelService(db: Database.Database, options: {
         return room(load(slug, guildId), userId);
       });
     },
+    /**
+     * A rematch after a finished match: one player asks, the others accept or decline. When every player agreed, a new table opens with the same
+     * players in the same seats, the same format and settings, and the same deck choices. It starts at once when every deck passes, else it waits in its lobby
+     * with everyone seated. The vote is kept in remote_rematches, because an ended table takes no more game actions.
+     */
+    rematch(slug: string, guildId: string, userId: number, answer: "request" | "accept" | "decline", now = Date.now()): RemoteRoom {
+      return transaction(() => {
+        remoteAssert(answer === "request" || answer === "accept" || answer === "decline", "Invalid rematch answer");
+        const row = load(slug, guildId); const viewer = member(row, userId);
+        remoteAssert(row.status === "ended" && row.end_reason === "game", "A rematch can only be asked for after a finished match", 409, "REMATCH_UNAVAILABLE");
+        remoteAssert(!row.solo && !row.tournament_match_id, "This table has no rematch", 409, "REMATCH_UNAVAILABLE");
+        const all = seats(row);
+        remoteAssert(all.length === row.seat_count && all.every(s => !s.bot && s.userId !== null), "Every seat needs a player for a rematch", 409, "REMATCH_UNAVAILABLE");
+        const held = db.prepare("select requested_by,accepted_json,declined_by,new_slug from remote_rematches where table_id=?").get(row.id) as { requested_by: number; accepted_json: string; declined_by: number | null; new_slug: string | null } | undefined;
+        // The new table exists: every answer is settled, and a repeat only returns the room with its link.
+        if (held?.new_slug) return room(row, userId);
+        const pending = held && held.declined_by === null ? { requestedBy: held.requested_by, accepted: JSON.parse(held.accepted_json) as number[] } : undefined;
+        let accepted: number[];
+        if (answer === "decline") {
+          remoteAssert(pending && !pending.accepted.includes(viewer.seat), "There is no rematch to decline", 409, "REMATCH_UNAVAILABLE");
+          db.prepare("update remote_rematches set declined_by=?,updated_at=? where table_id=?").run(viewer.seat, now, row.id);
+          return room(load(slug, guildId), userId);
+        }
+        if (pending && !pending.accepted.includes(viewer.seat)) accepted = [...pending.accepted, viewer.seat];
+        else if (pending) accepted = pending.accepted;
+        else {
+          remoteAssert(answer === "request", "There is no rematch to accept", 409, "REMATCH_UNAVAILABLE");
+          accepted = [viewer.seat];
+        }
+        const requestedBy = pending?.requestedBy ?? viewer.seat;
+        db.prepare("insert into remote_rematches(table_id,requested_by,accepted_json,declined_by,new_slug,updated_at) values(?,?,?,null,null,?) on conflict(table_id) do update set requested_by=excluded.requested_by,accepted_json=excluded.accepted_json,declined_by=null,updated_at=excluded.updated_at")
+          .run(row.id, requestedBy, JSON.stringify(accepted), now);
+        if (all.every(s => accepted.includes(s.seat))) {
+          const next = openRematchTable(row, all, now);
+          db.prepare("update remote_rematches set new_slug=? where table_id=?").run(next, row.id);
+        }
+        return room(load(slug, guildId), userId);
+      });
+    },
     act(slug: string, guildId: string, userId: number, input: { baseSeq: number; action: RemoteAction; onTiming?:(stage:'reducer',ms:number)=>void }, now = Date.now()): RemoteRoom {
       return transaction(() => {
         const first = loadTable(slug, guildId); if (first.status === "active") settleAdminWatch(first, now);
         const row = load(slug, guildId); const s = member(row, userId);
         const parsed = remoteActionSchema.safeParse(input.action); remoteAssert(parsed.success, "Invalid remote action");
-        const command = parsed.data;
+        // A coin or die result is the server's: whatever the client sent is replaced.
+        const command = parsed.data.type === "random.roll" ? { ...parsed.data, result: parsed.data.kind === "coin" ? randomInt(1, 3) : randomInt(1, 7) } : parsed.data;
         const delegatedBot = row.solo && row.created_by === userId && seats(row).some(seat => seat.seat === command.actorSeat && seat.bot && seat.userId === null);
         remoteAssert(command.actorSeat === s.seat || delegatedBot, "Actor seat does not match session or an owned solo bot", 403, "ACTOR_SEAT_MISMATCH");
         remoteAssert(!command.idempotencyKey.startsWith("sys:"), "Reserved idempotency key");
@@ -598,6 +682,8 @@ export function createRemoteDuelService(db: Database.Database, options: {
         if (old) {
           const { at: _oldTime, ...oldAction } = JSON.parse(old.action_json);
           const { at: _time, ...newAction } = command;
+          // A retried roll has a new random result; the first one stands.
+          if (oldAction.type === "random.roll") { delete oldAction.result; delete (newAction as { result?: number }).result; }
           remoteAssert(old.user_id === userId && JSON.stringify(oldAction) === JSON.stringify(newAction), "Idempotency key was used for a different action", 409, "IDEMPOTENCY_CONFLICT");
           return room(row, userId);
         }
@@ -609,9 +695,9 @@ export function createRemoteDuelService(db: Database.Database, options: {
         // Admin watch notifications and player notes leave the board unchanged.
         // Quitting and conceding are final choices: another action in flight must not turn them into a refused click.
         // A response, Thinking and OK are public signals like a note: they neither waits for the board to settle nor makes other writes stale.
-        if (command.type !== "side.timeout" && command.type !== "player.leave" && command.type !== "player.concede" && command.type !== "chain.respond" && command.type !== "chain.thinking" && command.type !== "chain.ok") {
+        if (command.type !== "side.timeout" && command.type !== "player.leave" && command.type !== "player.concede" && command.type !== "chain.respond" && command.type !== "chain.thinking" && command.type !== "chain.ok" && command.type !== "random.roll") {
           remoteAssert(input.baseSeq === row.last_seq || (input.baseSeq < row.last_seq && !db.prepare(
-            "select 1 from remote_events where table_id=? and seq>? and json_extract(action_json,'$.type') not in ('admin.watching','log.note','chain.respond','chain.thinking','chain.ok') limit 1",
+            "select 1 from remote_events where table_id=? and seq>? and json_extract(action_json,'$.type') not in ('admin.watching','log.note','chain.respond','chain.thinking','chain.ok','random.roll') limit 1",
           ).get(row.id, input.baseSeq)), "Stale sequence; fetch state and retry", 409, "STALE_SEQUENCE");
         }
         // An idle table the sweep has not closed yet closes here, so the player sees the ended table at once instead of a refused move.
@@ -731,6 +817,8 @@ export function createRemoteDuelService(db: Database.Database, options: {
         const left = command.type === "player.leave" && !!state.seats[command.actorSeat]?.accountDeleted;
         db.prepare("update remote_tables set state_json=?,status=?,ended_at=?,end_reason=? where id=?")
           .run(writeRemoteState(db,row.id,state), matchDone ? "ended" : "active", matchDone ? now : null, matchDone ? left ? "forfeit" : "game" : null, row.id);
+        // An Undo reopened the match: a rematch that was only asked for no longer applies.
+        if (!matchDone) db.prepare("delete from remote_rematches where table_id=? and new_slug is null").run(row.id);
         if (matchDone && row.tournament_match_id && state.match.winnerSeat != null) createTournamentRemoteResultService(db).propose(row.id,state,now,left);
         else if (matchDone) captureRemoteTournamentEvidence(db, row.id, now);
         else if (row.status === 'ended') db.prepare('delete from tournament_remote_evidence where table_id=?').run(row.id);

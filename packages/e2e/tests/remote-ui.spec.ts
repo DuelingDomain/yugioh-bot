@@ -2840,4 +2840,105 @@ test.describe("remote duels Thinking, OK and E", () => {
     const events = await (await page.request.get(`/api/remote/${slug}`)).text();
     expect(events).not.toContain("effect.activated");
   });
+  test("Coin / Die flips and rolls on the server, shows the same result on every screen and writes it to the Log", async ({ page, context }) => {
+    const slug = await soloTable(context.request, 2);
+    const other = await context.newPage();
+    await Promise.all([page.goto(`/duels/remote/${slug}`), other.goto(`/duels/remote/${slug}`)]);
+    await expect(page.getByTestId("coin-die-button")).toBeVisible();
+    await page.getByTestId("coin-die-button").click();
+    await page.getByTestId("flip-coin").click();
+    const coin = other.getByTestId("roll-banner");
+    await expect(coin).toHaveAttribute("data-kind", "coin");
+    const face = (await coin.getAttribute("data-result")) === "1" ? "Heads" : "Tails";
+    await expect(coin).toContainText(face);
+    await expect(page.getByTestId("roll-banner")).toHaveAttribute("data-result", await coin.getAttribute("data-result") ?? "");
+    await expect(coin).toHaveCount(0, { timeout: 8000 });
+    await page.getByTestId("coin-die-button").click();
+    await page.getByTestId("roll-die").click();
+    const die = other.getByTestId("roll-banner");
+    await expect(die).toHaveAttribute("data-kind", "die");
+    const number = Number(await die.getAttribute("data-result"));
+    expect(number).toBeGreaterThanOrEqual(1); expect(number).toBeLessThanOrEqual(6);
+    // The server stored both results in the events, so a replay shows the same ones.
+    const room = await (await page.request.get(`/api/remote/${slug}`)).json();
+    const rolls = room.events.filter((event: { action: { type: string } }) => event.action.type === "random.roll").map((event: { action: { kind: string; result: number } }) => [event.action.kind, event.action.result]);
+    expect(rolls).toEqual([["coin", face === "Heads" ? 1 : 2], ["die", number]]);
+    await openDrawer(page, "log");
+    await expect(page.getByTestId("log-drawer")).toContainText(`flipped a coin: ${face}`);
+    await expect(page.getByTestId("log-drawer")).toContainText(`rolled a die: ${number}`);
+  });
+  test("Counters go on a card on the field, show as a badge on every screen, reach the Log and clear when the card leaves", async ({ page, context }) => {
+    const slug = await soloTable(context.request, 2), path = `/api/remote/${slug}`;
+    const act = async (action: Record<string, unknown>) => {
+      const response = await postAction(context.request, path, { actorSeat: 0, seat: 0, ...action });
+      expect(response.ok(), await response.text()).toBe(true);
+    };
+    await act({ type: "twin.place", zone: "monster", card: { ref: "dm", cardId: 46986414, name: "Dark Magician", slot: 1, faceUp: true, position: "attack" } });
+    const other = await context.newPage();
+    await Promise.all([page.goto(`/duels/remote/${slug}`), other.goto(`/duels/remote/${slug}`)]);
+    const cell = page.getByTestId("field-0").locator('[data-zone="m1"]');
+    await cell.click();
+    await expect(page.getByTestId("counters-count")).toHaveText("0");
+    await page.getByTestId("counters-plus").click();
+    await expect(page.getByTestId("counters-count")).toHaveText("1");
+    await page.getByTestId("counters-plus").click();
+    await expect(page.getByTestId("counters-count")).toHaveText("2");
+    await page.getByTestId("counters-minus").click();
+    await page.getByTestId("counters-plus").click();
+    await expect(page.getByTestId("counters-count")).toHaveText("2");
+    await page.keyboard.press("Escape");
+    // The badge shows on the virtual board of both screens.
+    await expect(cell.getByTestId("card-counters")).toHaveText("2");
+    await expect(other.getByTestId("field-0").locator('[data-zone="m1"]').getByTestId("card-counters")).toHaveText("2");
+    const room = async () => (await context.request.get(path)).json();
+    expect((await room()).state.seats[0].twin.find((card: { ref: string }) => card.ref === "dm").counters).toBe(2);
+    await openDrawer(page, "log");
+    await expect(page.getByTestId("log-drawer")).toContainText("counter");
+    // A card that leaves the field loses its counters.
+    await act({ type: "twin.move", cardRef: "dm", zone: "graveyard" });
+    expect((await room()).state.seats[0].twin.find((card: { ref: string }) => card.ref === "dm").counters).toBeUndefined();
+    await expect(cell.getByTestId("card-counters")).toHaveCount(0);
+  });
+});
+
+test.describe("remote duels screen, rematch", () => {
+  test("Rematch: one player asks, the other accepts, and both land on a new started table with the same players, format and deck", async ({ browser }) => {
+    test.setTimeout(240_000);
+    const url = process.env.E2E_REMOTE_UI_URL!;
+    const options = { baseURL: url, viewport: { width: 1920, height: 1080 }, permissions: ["camera", "microphone"] };
+    const alice = await browser.newContext(options); const bob = await browser.newContext(options);
+    try {
+      for (const [context, userId] of [[alice, 101], [bob, 102]] as const) await authenticatePlayer(context.request, { userId }, process.env.E2E_AUTH_SECRET!, url);
+      const slug = await startTwoPlayerTable(alice.request, bob.request, undefined, 1);
+      // No rematch while the match is running.
+      expect((await alice.request.post(`/api/remote/${slug}/rematch`, { data: { answer: "request" } })).status()).toBe(409);
+      const first = await (await alice.request.get(`/api/remote/${slug}`)).json();
+      const conceded = await alice.request.post(`/api/remote/${slug}/actions`, { data: { baseSeq: first.lastSeq, action: { type: "player.concede", actorSeat: 0, idempotencyKey: crypto.randomUUID() } } });
+      expect(conceded.status(), await conceded.text()).toBe(200);
+      const [a, b] = await Promise.all([alice.newPage(), bob.newPage()]);
+      await Promise.all([a.goto(`/duels/remote/${slug}`), b.goto(`/duels/remote/${slug}`)]);
+      for (const page of [a, b]) { await expect(page.getByTestId("match-result")).toBeVisible({ timeout: 30_000 }); await expect(page.getByTestId("match-leave")).toBeVisible(); }
+      // Bob asks. Alice sees who asked and answers.
+      await b.getByTestId("rematch-button").click();
+      await expect(b.getByTestId("rematch-status")).toContainText("1 of 2");
+      await expect(a.getByTestId("rematch-status")).toContainText("wants a rematch", { timeout: 15_000 });
+      await a.getByTestId("rematch-accept").click();
+      await Promise.all([a, b].map(page => expect(page).toHaveURL(new RegExp(`/duels/remote/(?!${slug}$)[^/]+$`), { timeout: 30_000 })));
+      const next = new URL(a.url()).pathname.split("/").pop()!;
+      expect(next).not.toBe(slug);
+      expect(new URL(b.url()).pathname.split("/").pop()).toBe(next);
+      // The new table has the same players in the same seats, format, match length and deck choices, and it started without a lobby.
+      const before = await (await alice.request.get(`/api/remote/${slug}`)).json();
+      const after = await (await alice.request.get(`/api/remote/${next}`)).json();
+      expect(after.status).toBe("active");
+      expect(after.seats.map((seat: { seat: number; userId: number }) => [seat.seat, seat.userId])).toEqual(before.seats.map((seat: { seat: number; userId: number }) => [seat.seat, seat.userId]));
+      expect(after.format).toEqual(before.format);
+      expect(after.state.match.bestOf).toBe(before.state.match.bestOf);
+      expect(after.state.deckChecks.registrations[0].savedDeckId).toBe(before.state.deckChecks.registrations[0].savedDeckId);
+      // Each player sees only their own deck, so Bob's is read with Bob's session.
+      const bobBefore = await (await bob.request.get(`/api/remote/${slug}`)).json(), bobAfter = await (await bob.request.get(`/api/remote/${next}`)).json();
+      expect(bobAfter.state.deckChecks.registrations[1].savedDeckId).toBe(bobBefore.state.deckChecks.registrations[1].savedDeckId);
+      expect(bobAfter.state.deckChecks.registrations[1].savedDeckId).toBeTruthy();
+    } finally { await alice.close(); await bob.close(); }
+  });
 });

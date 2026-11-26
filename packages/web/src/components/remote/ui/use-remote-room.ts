@@ -36,7 +36,7 @@ export function useRemoteRoom(slug: string, options: { watchAsAdmin?: boolean } 
     try { return newest(await remoteApi<RemoteRoom>(`/${slug}`)); }
     catch (e) { const { status, code } = e as { status?: number; code?: string }; if (status === 404 || code === "SPECTATOR_READ_ONLY") return watch(); throw e; }
   }, [slug, newest, watchAsAdmin]);
-  const { data: room, error: loadError, mutate } = useSWR(`remote:${slug}`, load, { refreshInterval: realtime === "Connected" ? 30_000 : 5000, /* A hidden tab still receives video, so it must keep its slot. */ refreshWhenHidden: watching });
+  const { data: room, error: loadError, mutate } = useSWR(`remote:${slug}`, load, { refreshInterval: latest => /* A finished match has no socket; a rematch answer arrives by this poll. */ latest && latest.status === "ended" && latest.endReason === "game" && latest.mySeat >= 0 && !latest.solo && !latest.tournamentMatchId ? 2000 : realtime === "Connected" ? 30_000 : 5000, /* A hidden tab still receives video, so it must keep its slot. */ refreshWhenHidden: watching });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   if(room&&(!roomRef.current||room.slug!==roomRef.current.slug||room.lastSeq>=roomRef.current.lastSeq))roomRef.current = room;

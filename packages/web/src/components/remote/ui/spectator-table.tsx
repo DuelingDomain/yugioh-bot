@@ -40,6 +40,7 @@ import type { RoomController } from "./use-remote-room";
 import s from "./remote-ui.module.css";
 import v from "./spectator-table.module.css";
 import { OkBanner, ThinkingCallout, ThinkingChip, useOkHold } from "./think";
+import { RollBanner, useRollHold } from "./coin-die";
 import { aliveSeats, chainOf, thinkingSeats } from "./think-model";
 
 const NO_ACTIONS: CardActions = { readOnly: true, canAdd: false, adding: false, onAdd: () => undefined, canAttack: false, attackHint: "", onAttack: () => undefined };
@@ -172,6 +173,7 @@ function SpectatorTable({ room }: { room: RemoteRoom }) {
   const name = (seat: number) => room.seats.find(item => item.seat === seat)?.displayName ?? `Seat ${seat + 1}`;
   const lp = (seat: number) => state.seats[seat]?.resources.lp ?? 0;
   const okHold = useOkHold(room.events);
+  const rollHold = useRollHold(room.events);
   const thinking = useMemo(() => thinkingSeats(room.events, room.status === "active" && !state.ended && match.phase === "duel"), [room.events, room.status, state.ended, match.phase]);
   const chain = useMemo(() => chainOf(room.events, aliveSeats(state)), [room.events, state]);
   const chainLinks = chain.links;
@@ -286,6 +288,7 @@ function SpectatorTable({ room }: { room: RemoteRoom }) {
   return <FeedCardsProvider seats={state.seats} info={info} marks={chainMarks}><ChainBadges marks={chainMarks} /><div className={`${duelFontClasses} ${s.app} ${v.app}`} data-mode={seatCount === 2 ? "1v1" : String(seatCount)} data-wc={webcamOnly ? "1" : undefined} data-testid="spectator-table" data-status={room.status}>
     <ThinkingCallout thinking={thinking} name={name} pointer={seatCount > 2} />
     <OkBanner hold={okHold} name={name} />
+    <RollBanner hold={rollHold} name={name} />
     <div className={s.shell} inert={covered ? true : undefined}>
       <header className={s.top}>
         <a className={s.logo} href="/duels" aria-label="Stop watching and return to the Duels page" onClick={() => void stopWatching(room.slug)}><span className={s.gem} /><b>Dueling Domain</b></a>

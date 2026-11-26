@@ -104,6 +104,7 @@ function clearZoneLinks(state: RemoteState, at: number, dropIfOwnerOut = false) 
   for (const seat of state.seats) for (const card of seat.twin) {
     if (card.knownFaceDown && (!card.publicIdentity || card.faceUp || !remoteFieldZone(card.zone))) delete card.knownFaceDown;
     if (card.trapZone !== undefined && !MONSTER_ZONES.has(card.zone)) delete card.trapZone;
+    if (card.counters !== undefined && !FIELD_ZONES.has(card.zone)) delete card.counters;
     if (card.equippedTo && (!FIELD_ZONES.has(card.zone) || !state.seats[card.equippedTo.seat]?.twin.some(c => c.ref === card.equippedTo!.ref && MONSTER_ZONES.has(c.zone)))) delete card.equippedTo;
   }
 }
@@ -185,7 +186,7 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
   next.deckChecks ??= initialDeckChecks();
   // Given cards (control proxies): replays recorded without the flag keep the older rules.
   const givenCardsOn = !context?.replay || context.givenCards === 1;
-  if (action.type === "chain.respond" || action.type === "chain.thinking" || action.type === "chain.ok") { /* a public signal: it never settles or cancels a pending twin confirmation */ }
+  if (action.type === "chain.respond" || action.type === "chain.thinking" || action.type === "chain.ok" || action.type === "random.roll") { /* a public signal: it never settles or cancels a pending twin confirmation */ }
   else if (!context?.replay || (context.twinPlacementGuard ?? 0) >= 3) { delete next.twinConfirmation; delete next.twinConfirmationQueue; }
   else if (context.twinPlacementGuard !== 2 && action.type !== "log.note") delete next.twinConfirmation;
   const ownTurn = () => remoteAssert(action.actorSeat === state.turnSeat || state.seats[state.turnSeat].eliminated, "Only the turn player can advance", 403);
@@ -509,6 +510,14 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
       if (action.type !== "twin.remove" && card.ownerSeat !== undefined && !FIELD_ZONES.has(card.zone)) returnToOwner(next.seats, s, card, givenCardsOn);
       break;
     }
+    case "twin.counters": {
+      const card = seat(action.seat).twin.find(c => c.ref === action.cardRef);
+      remoteAssert(card && FIELD_ZONES.has(card.zone), "Counters go on a card on the field", 409);
+      const count = Math.min(99, Math.max(0, (card.counters ?? 0) + action.delta));
+      remoteAssert(count !== (card.counters ?? 0), "No counters to change", 409);
+      if (count > 0) card.counters = count; else delete card.counters;
+      break;
+    }
     case "twin.equip": {
       const s = ownField(action.seat); const card = s.twin.find(c => c.ref === action.cardRef);
       remoteAssert(card && !card.token && FIELD_ZONES.has(card.zone), "Only a card on the field can be an Equip Card", 409);
@@ -635,6 +644,10 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
     }
     case "chain.ok":
       rememberRemoteAction(state, next, action);
+      return next;
+    case "random.roll":
+      // The server filled the result; a replay reads it from the stored action.
+      remoteAssert(action.result !== undefined && (action.kind === "die" || action.result <= 2), "Missing roll result", 409);
       return next;
     case "log.note": case "chain.respond": case "chain.thinking": return next;
   }

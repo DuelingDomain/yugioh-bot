@@ -13,6 +13,7 @@ import { BottomBar } from "./bottom-bar";
 import { PhaseTrack, usePhaseAsk } from "./phase-track";
 import { CardPopover, InspectorBody, type CardActions, type CardEdit, type CardSource, type Subject } from "./card-view";
 import { ActivateRow, OkBanner, ThinkingCallout, useOkHold } from "./think";
+import { CoinDieControl, RollBanner, useRollHold } from "./coin-die";
 import { activatable, aliveSeats, CHAIN_GAP_MS, chainOf, maySignal, onField, recentlyPlaced, thinkingSeats } from "./think-model";
 /** The client sends Thinking and OK this far apart: a little over the server rule of one a second. */
 const SIGNAL_GAP_MS = 1050;
@@ -209,6 +210,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
   const [banner, setBanner] = useState<{ id: number; small: string; big: string } | null>(null);
   // Thinking, OK and chain links come from the room events, so every screen shows the same.
   const okHold = useOkHold(room.events);
+  const rollHold = useRollHold(room.events);
   const thinking = useMemo(() => thinkingSeats(room.events, live), [room.events, live]);
   // What this client just asked for, until the room events echo it. Two fast T presses then toggle correctly.
   const [pendingThink, setPendingThink] = useState<ReadonlyMap<number, boolean>>(() => new Map());
@@ -354,7 +356,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     const card = R.current.state.seats[request.seat]?.twin.find(c => c.ref === request.ref);
     openZonePicker(request.seat, key as ZoneKey, request.actions ? undefined : card?.ref, request.faceDown ? false : card?.faceUp ?? true, !request.actions);
   }), [live, solo, mySeat]);
-  const saveZoneActions = async (build: (room: RemoteRoom) => RemoteActionProposal[]) => {
+  const saveZoneActions = async (build: (room: RemoteRoom) => RemoteActionProposal[], keepOpen = false) => {
     if (zoneBusy) return;
     setZoneBusy(true); setZoneError('');
     let rollback = () => {}; let wrote = false;
@@ -367,7 +369,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
         return updated;
       });
       if (!saved) { if (!wrote) rollback(); setZoneError(wrote ? 'Only part of the change saved. Use Undo in the dock before trying again.' : 'Could not save. Choose the card again.'); return; }
-      setZonePicker(null); layers.close('zone');
+      if (!keepOpen) { setZonePicker(null); layers.close('zone'); }
     } catch (error) { if (!wrote) rollback(); setZoneError(wrote ? 'Only part of the change saved. Use Undo in the dock before trying again.' : error instanceof Error ? error.message : 'Could not place this card.'); }
     finally { setZoneBusy(false); }
   };
@@ -394,6 +396,9 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
   const phaseAsk = usePhaseAsk(state.phase, state.turn, turnShown, setPhase);
   // ---- match: result, declare, side decking ----
   const router = useRouter();
+  // Everyone agreed to the rematch: go to the new table.
+  const rematchSlug = room.rematch?.slug;
+  useEffect(() => { if (rematchSlug && room.mySeat >= 0) router.push(`/duels/remote/${encodeURIComponent(rematchSlug)}`); }, [rematchSlug, room.mySeat, router]);
   const matchSeat = mySeat >= 0 ? mySeat : 0;
   const [matchBusy, setMatchBusy] = useState(false);
   const [boardView, setBoardView] = useState(false);
@@ -1188,6 +1193,12 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [act, queueSignal]);
   /** The Space key and the OK button: "OK, no response". It clears this player's Thinking. */
+  /** A coin flip or die roll for a card effect: the server picks the result. */
+  const rollNow = useCallback((kind: "coin" | "die") => {
+    const { room: now, state: current } = R.current; const me = now.solo ? current.turnSeat : now.mySeat;
+    if (now.status !== "active" || now.spectator || me < 0) return;
+    void act({ type: "random.roll", actorSeat: me, kind });
+  }, [act]);
   const okNow = useCallback(() => {
     const { room: now, state: current } = R.current; const me = now.solo ? current.turnSeat : now.mySeat;
     if (now.status !== "active" || now.spectator || !maySignal(current, me)) return;
@@ -1546,6 +1557,8 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
       const top = xyz(subjectCard), options = twins.filter(c => c.ref !== subjectCard.ref && (top ? material(c) : material(subjectCard) && xyz(c)));
       return { attach: { label: top ? 'Attach Xyz material' : 'Attach to Xyz', options: options.map(c => ({ ref: c.ref, label: `${c.faceUp || c.publicIdentity || solo || subject.seat === mySeat ? cardName(c,info(cardCode(c))) : 'Face-down card'} · ${c.zone} ${c.slot ?? ''}` })), onPick: (ref: string) => void act({type:'twin.attach',actorSeat:solo?subject.seat:mySeat,seat:subject.seat,cardRef:top?subjectCard.ref:ref,kind:'xyz',materialRefs:[top?ref:subjectCard.ref]}) } };
     })() : {}),
+    ...(subject && subjectCard && live && (solo || subject.seat === mySeat) && ['monster', 'extra-monster', 'spell-trap', 'field', 'pendulum'].includes(subjectCard.zone)
+      ? { counters: { count: subjectCard.counters ?? 0, onChange: (delta: 1 | -1) => void act({ type: 'twin.counters', actorSeat: solo ? subject.seat : mySeat, seat: subject.seat, cardRef: subjectCard.ref, delta }) } } : {}),
     canAdd: !!subject && live && (solo || subject.seat === mySeat) && !subject.addErrors.length, adding, onAdd: () => subject && void addToDeck(subject.seat, subject.cardId),
     voice: voiceRecognition,
     canAttack: !!subjectCard && !block, attackHint: block || "Pick this monster as the attacker", onAttack: () => subjectCard && subject && startAttack(subject.seat, subjectCard),
@@ -1802,6 +1815,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
         <Banner banner={banner} />
         <ThinkingCallout thinking={thinking} name={name} pointer={seatCount > 2} />
         <OkBanner hold={okHold} name={name} />
+        <RollBanner hold={rollHold} name={name} />
         <svg className={s.arrow} aria-hidden="true">{arrow ? <><defs><marker id="ah" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0 0 10 5 0 10z" fill="#f6dc9a" /></marker></defs>
           <path d={arrow.d} fill="none" stroke="rgba(232,185,79,.35)" strokeWidth="9" strokeLinecap="round" />
           <path className={s.flow} d={arrow.d} fill="none" stroke="#f6dc9a" strokeWidth="3" strokeLinecap="round" markerEnd="url(#ah)" /></> : null}</svg>
@@ -1836,6 +1850,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
         undo={{ spokenUndo: false, recognition: voiceRecognition, label: undoText, enabled: canUndo, reason: newestUndo?.reason, flash, histOpen: layers.layer === "hist", onUndo: () => void doUndo(), onHist: el => layers.toggle("hist", el) }}
         center={<>
           {live && mySeat >= 0 && !multi ? <button type="button" className={`${s.btn} ${s.sm} ${s.q} ${s.myfield}`} onClick={() => { setWebcamOnly(false); document.querySelector(`[data-testid="field-${mySeat}"]`)?.scrollIntoView?.({ block: 'center' }); }}>My field</button> : null}
+          {live && (solo || mySeat >= 0) ? <CoinDieControl onRoll={rollNow} /> : null}
           {signalShown ? <div className={s.signals}>
             <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} aria-pressed={thinkOn} onClick={event => { thinkNow(); event.currentTarget.blur(); }} title="Thinking: tell the table you are deciding. Press again to cancel. No time limit." data-testid="think-button">{thinkOn ? "Thinking…" : "Think"} <kbd>T</kbd></button>
             <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} onClick={event => { okNow(); event.currentTarget.blur(); }} title="OK: no response" data-testid="ok-button">OK <kbd>Space</kbd></button>
@@ -1864,7 +1879,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
       adminPanel={<AdminTab room={room} isAdmin={adminAccess === true} />} />
     <LogCardPreview card={layers.layer === "log" && drawerTab === "log" ? logCard : null} onClose={() => setLogCard(null)} />
     {zonePicker && layers.layer === 'zone' && live && (solo || zonePicker.seat === mySeat || zonePicker.tokenOnly) ? <ZoneActions key={zonePicker.requestId} tokenOnly={zonePicker.tokenOnly} room={room} seat={zonePicker.seat} zone={zonePicker.key} targetRef={zonePicker.targetRef} initialFaceUp={zonePicker.initialFaceUp} startPicker={zonePicker.startPicker} at={{anchor:zoneRect(zonePicker.seat,zonePicker.key),feed:null}} deck={deckIdsOf(room,zonePicker.seat)} busy={zoneBusy} error={zoneError} onPick={pick => void placeInZone(pick)}
-      onAction={action => void saveZoneActions(latest => [zoneCardAction(latest, zonePicker.key, action)])} onSet={() => { const ref = crypto.randomUUID(); void saveZoneActions(latest => [zoneSet(latest, zonePicker.seat, zonePicker.key, ref)]); }}
+      onAction={action => void saveZoneActions(latest => [zoneCardAction(latest, zonePicker.key, action)], action.type === 'twin.counters')} onSet={() => { const ref = crypto.randomUUID(); void saveZoneActions(latest => [zoneSet(latest, zonePicker.seat, zonePicker.key, ref)]); }}
       onToken={() => tokens.create(zonePicker.seat, /^m[1-5]$/.test(zonePicker.key) && !cellsFor(state.seats[zonePicker.seat].twin, extraZones)[zonePicker.key]?.card ? zonePicker.key : undefined)}
       onGive={zonePicker.tokenOnly && control.canGive ? () => control.giveHere(zonePicker.seat, zonePicker.key) : undefined}
       onDetails={card => openSubject(card)} quick={quickFor(zonePicker.seat, cellsFor(state.seats[zonePicker.seat].twin, extraZones)[zonePicker.key]?.card, true)}
@@ -1921,6 +1936,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
       ? <MatchResultScreen room={room} match={match} mySeat={leftMatch ? -1 : mySeat} name={name} final={match.phase === "done"} busy={matchBusy} error={overlayError}
         tournamentResult={tournament ? <RemoteResultSlot tournamentSlug={tournament.tournamentSlug} tournamentMatchId={tournament.tournamentMatchId} pair={tournament.pair} viewerId={tournament.viewerPlayerId} /> : null}
         undo={canUndo && mySeat >= 0 && !newestUndo?.reason ? { label: undoText, onUndo: () => void doUndo() } : null}
+        rematch={mySeat >= 0 && !leftMatch && !solo && !tournament ? { busy: ctl.busy, onAnswer: answer => void ctl.operation("rematch", { answer }) } : null}
         onContinue={() => matchStep({ type: "match.continue", actorSeat: matchSeat })} onLeave={() => router.push(tournament ? `/tournament/${encodeURIComponent(tournament.tournamentSlug)}` : "/duels")} onClose={() => setBoardView(true)} />
       : match.phase === "siding" && match.siding && room.status === "active"
         ? <SidingScreen room={room} match={match} mySeat={leftMatch ? -1 : mySeat} name={name} now={serverNow} act={act} error={overlayError} /> : null}

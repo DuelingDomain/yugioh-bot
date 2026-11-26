@@ -107,7 +107,11 @@ export type RemoteEvent = {
   effects?: RemoteReductionContext;
   messages?: string[];
 };
+/** A rematch asked for after a finished match. Seats, not user ids; `slug` is the new table once every player agreed. */
+export type RemoteRematch = { requestedBy: number; accepted: number[]; declinedBy?: number; slug?: string };
 export type RemoteTable = {
+  /** Only on a table read for a room view, after the match ended and someone asked for a rematch. */
+  rematch?: RemoteRematch;
   tournamentMatchId?: number;
   /** Tournament default overrides the device preference; U4 applies it per table. */
   detectionDefault?: "auto";

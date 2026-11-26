@@ -55,7 +55,7 @@ function touchedCards(action: RemoteAction, before: RemotePosition, after: Remot
   const add = (seat: number, ref?: string) => { if (ref) refs.add(`${seat}:${ref}`); };
   switch (action.type) {
     case "twin.place": add(action.seat, action.card.ref); break;
-    case "twin.move": case "twin.flip": case "twin.remove": case "card.identified": add(action.seat, action.cardRef); break;
+    case "twin.move": case "twin.flip": case "twin.remove": case "twin.counters": case "card.identified": add(action.seat, action.cardRef); break;
     case "cards.identified": for (const card of action.cards) add(action.seat, card.cardRef); break;
     case "pile.lift": for (const ref of action.cardRefs) add(action.seat, ref); break;
     case "monsters.tribute": for (const t of action.targets) add(t.seat, t.cardRef); break;
@@ -264,6 +264,7 @@ export function remoteUndoLabel(action: RemoteAction, position?: RemotePosition)
     case "twin.detach": return `${name}: material detached`;
     case "twin.flip": return action.tokenStats ? `${name} ATK/DEF set` : `${name} flipped ${action.faceUp ? "up" : "down"}`;
     case "twin.remove": return `${name} removed`;
+    case "twin.counters": return `${name} ${action.delta > 0 ? "+" : "−"}${Math.abs(action.delta)} counter${Math.abs(action.delta) === 1 ? "" : "s"}`;
     case "twin.equip": return action.target ? `${name} equipped` : `${name} unequipped`;
     case "twin.control": return `${name}: control changed`;
     case "hand.add": return "Added card to hand";

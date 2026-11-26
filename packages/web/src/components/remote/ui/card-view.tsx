@@ -10,6 +10,7 @@ import z from "./zone-rules.module.css";
 import { cardTypeLine } from "@/lib/remote/field-legality";
 import type { QuickMove } from "./quick-moves";
 import { Row } from "./zone-actions";
+import { CountersRow } from "./counters-row";
 
 /** Where the person opened this card. A camera click only looks at the card; the board, a pile and the hand keep their controls. */
 export type CardSource = "camera" | "board" | "pile" | "hand";
@@ -69,6 +70,8 @@ export type CardEdit = {
 export type CardMaterial = { ref: string; cardId?: number; name: string; onDetach?: () => void };
 
 export type CardActions = {
+  /** Counters on a card on the field (your own cards, or any card in a solo room). */
+  counters?: { count: number; onChange(delta: 1 | -1): void };
   attach?: { label: string; options: { ref: string; label: string }[]; onPick(ref: string): void };
   /** Xyz materials under this card, bottom first. */
   materials?: CardMaterial[];
@@ -146,6 +149,7 @@ function Actions({ a, subject }: { a: CardActions; subject: Subject }) {
       {a.give ? <button type="button" className={BTN} onClick={a.give.onClick} data-testid="card-give">{a.give.label}</button> : null}
       <button type="button" className={BTN} onClick={a.onAttack} disabled={!a.canAttack} title={a.attackHint}>Attack from here</button>
     </Group>}
+    {a.counters && !a.readOnly ? <CountersRow count={a.counters.count} onChange={a.counters.onChange} /> : null}
     {edit ? <MoveGroup edit={edit} /> : null}
     {a.attach?.options.length ? <Group label={a.attach.label}><select aria-label={a.attach.label} className={s.inp} value="" onChange={e => { if (e.target.value) a.attach?.onPick(e.target.value); }}><option value="">Choose a card…</option>{a.attach.options.map(o => <option key={o.ref} value={o.ref}>{o.label}</option>)}</select></Group> : null}
     {a.readOnly ? null : <Group label="Card">
@@ -229,6 +233,7 @@ function CameraCardMenu({ subject, info, at, warning, actions, onClose }: {
           {actions.onReadAgain ? <Row icon="refresh" onClick={actions.onReadAgain} data-testid="card-read-again">Read again</Row> : null}
         </div>
       </div>
+      {actions.counters ? <CountersRow count={actions.counters.count} onChange={actions.counters.onChange} /> : null}
       {activate ? <p className={s.zaTip} data-testid="card-menu-tip">Faster: hover + <kbd>E</kbd>{known && actions.voice ? <>, or say {"\u201c"}effect {name}{"\u201d"}</> : null}.</p> : null}
     </div>
   </PopupFrame>;

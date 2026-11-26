@@ -1973,6 +1973,15 @@ function migrateRemoteDuels(db: Database.Database) {
     ending_at integer,
     primary key (table_id,user_id)
   ) without rowid`);
+  // One rematch request for an ended table: who asked, which seats agreed, who declined, and the new table once all agreed.
+  db.exec(`create table if not exists remote_rematches (
+    table_id integer primary key references remote_tables(id) on delete cascade,
+    requested_by integer not null,
+    accepted_json text not null,
+    declined_by integer,
+    new_slug text,
+    updated_at integer not null
+  )`);
   for (const table of ["remote_seats", "remote_bot_seats"]) {
     addColumnIfMissing(db, table, "saved_deck_id", "integer");
     addColumnIfMissing(db, table, "deck_json", "text");
