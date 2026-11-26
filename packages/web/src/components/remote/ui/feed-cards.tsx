@@ -57,6 +57,7 @@ function useCalibration(read: () => FieldCalibration | undefined): FieldCalibrat
 type Cell = { x: number; y: number; w: number; h: number };
 type Item = { key: string; card: TwinCard; stats: CardStats; cell: Cell };
 type Proxy = { key: string; card: TwinCard; cell: Cell };
+type Counted = { key: string; card: TwinCard; cell: Cell };
 const ZONE_OF: Record<string, string> = { m1: "M1", m2: "M2", m3: "M3", m4: "M4", m5: "M5", e1: "EMZ1", e2: "EMZ2", s1: "S1", s2: "S2", s3: "S3", s4: "S4", s5: "S5", f: "FIELD" };
 
 /**
@@ -120,19 +121,20 @@ function FeedStats({ seat, frame, format, read }: { seat: number; frame: CSSProp
   const emz = hasExtraMonsterZones(format);
   const cells = useMemo(() => fieldGridCells(format, calibration?.zoneSpacing, calibration?.zones), [format, calibration?.zoneSpacing, calibration?.zones]);
   const twin = data?.seats[seat]?.twin;
-  const { items, proxies } = useMemo<{ items: Item[]; proxies: Proxy[] }>(() => {
-    if (!twin || !data) return { items: [], proxies: [] };
+  const { items, proxies, counted } = useMemo<{ items: Item[]; proxies: Proxy[]; counted: Counted[] }>(() => {
+    if (!twin || !data) return { items: [], proxies: [], counted: [] };
     const placed = cellsFor(twin, emz);
-    const items: Item[] = [], proxies: Proxy[] = [];
+    const items: Item[] = [], proxies: Proxy[] = [], counted: Counted[] = [];
     for (const key of Object.keys(ZONE_OF) as (keyof typeof ZONE_OF)[]) {
       const card = placed[key as keyof typeof placed]?.card; const cell = cells.find(item => item.zone === ZONE_OF[key]);
       if (!card || !cell) continue;
+      if (card.counters) counted.push({ key: card.ref, card, cell });
       if (isControlled(card, seat)) proxies.push({ key: card.ref, card, cell });
       const stats = key[0] === "m" || key[0] === "e" ? statsOf(card, data.info(cardCode(card))) : null; if (stats) items.push({ key: card.ref, card, stats, cell });
     }
-    return { items, proxies };
+    return { items, proxies, counted };
   }, [twin, data, emz, cells, seat]);
-  if (!frame || !calibration?.orientation || !(items.length || proxies.length)) return null;
+  if (!frame || !calibration?.orientation || !(items.length || proxies.length || counted.length)) return null;
   const tokens = items.filter(item => item.card.token);
   return <div className={t.feedLayer} style={frame} aria-hidden="true" data-testid={`feed-cards-${seat}`}>
     <svg viewBox="0 0 1 1" preserveAspectRatio="none">
@@ -162,6 +164,11 @@ function FeedStats({ seat, frame, format, read }: { seat: number; frame: CSSProp
       const at = through(calibration, cell, { x: .5, y: card.position === "defense" ? .22 : .02 });
       if (!inView(at)) return null;
       return <span key={key} className={`${t.label} ${t.tag}`} style={{ left: `${at.x * 100}%`, top: `${at.y * 100}%` }} data-testid="feed-proxy-tag">Controlled</span>;
+    })}
+    {counted.map(({ key, card, cell }) => {
+      const at = through(calibration, cell, { x: .88, y: .14 });
+      if (!inView(at)) return null;
+      return <span key={`${key}-counters`} className={`${t.label} ${t.counterBadge}`} style={{ left: `${at.x * 100}%`, top: `${at.y * 100}%` }} data-testid="card-counters" data-count={card.counters}>{card.counters}</span>;
     })}
     {items.map(({ key, card, stats, cell }) => {
       // A token's label sits at the middle of its card; a real card keeps its picture clear, so its label goes near the lower edge.

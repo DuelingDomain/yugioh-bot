@@ -1,0 +1,8 @@
+.row{display:flex;align-items:center;gap:8px;min-height:40px;padding:4px 10px;border:1px solid var(--line2,#3a3158);border-radius:6px;background:var(--p2,#161226);color:var(--ink,#f1ecff)}
+.label{flex:1;font-weight:600}
+.step{width:36px;height:32px;border:1px solid var(--line2,#3a3158);border-radius:6px;background:transparent;color:inherit;font:700 18px/1 inherit;cursor:pointer}
+.step:hover:not(:disabled){border-color:#e8b94f}
+.step:disabled{opacity:.4;cursor:default}
+.step:focus-visible{outline:2px solid #e8b94f;outline-offset:2px}
+.count{min-width:28px;text-align:center;font-weight:800;font-variant-numeric:tabular-nums}
+@media (max-width:720px){.row{min-height:48px}.step{width:44px;height:40px}}

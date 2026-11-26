@@ -135,6 +135,8 @@ export const remoteActionSchema = z.discriminatedUnion("type", [
     .refine(a=>a.faceUp||a.cardId===undefined&&a.name===undefined&&a.bestMatch===undefined,'Only a reveal can carry identity')
     .refine(a=>!a.identityUncertain||a.source==='auto'&&!a.faceUp,'Uncertain identity requires a camera Set'),
   z.strictObject({ ...meta, type: z.literal("twin.remove"), seat: remoteSeatSchema, cardRef: id, source: z.literal("auto").optional() }),
+  /** Add or remove counters on a card on the field (one generic kind). The count never goes below 0 or above 99, and the card loses them when it leaves the field. */
+  z.strictObject({ ...meta, type: z.literal("twin.counters"), seat: remoteSeatSchema, cardRef: id, delta: z.number().int().min(-99).max(99).refine(n => n !== 0, "A counter change needs a step") }),
   z.strictObject({ ...meta, type: z.literal("log.note"), text: z.string().trim().min(1).max(500) }),
   /** A player chains or responds ("response", "I chain"). Public room signal only: it changes nothing on the board. */
   z.strictObject({ ...meta, type: z.literal("chain.respond") }),
@@ -173,6 +175,8 @@ export type TwinCard = z.infer<typeof twinCardSchema> & {
   zone: string; departedFrom?: { zone: string; slot?: number; at?: number; /** The camera moved it (default for a card out of view). */ auto?: boolean; /** A known face-up field card before the camera moved it to Hand. */ wasKnownFaceUp?: true }; setBy?: import("./effect-filters.js").RemoteEffectSource;
   /** Server-authored: the Spell & Trap Zone a Trap Monster still occupies. Cleared when it leaves the Monster Zones. */
   trapZone?: number;
+  /** Counters on a card on the field (1 to 99). Cleared when the card leaves the field. */
+  counters?: number;
   /** A face-up Pendulum Monster in the Extra Deck: the one Extra card the opponent sees. */
   pendulumUp?: true;
   /** Server-authored: the monster this Equip Card equips. Cleared when either card leaves the field. */

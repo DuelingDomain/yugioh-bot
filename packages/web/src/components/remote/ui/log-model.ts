@@ -60,7 +60,7 @@ function cardOf(action: RemoteAction | RemoteSystemAction, input: LogInput): { i
     case "twin.place": return a.card?.token || a.card?.faceUp === false ? {} : { id: a.card?.cardId ?? a.card?.passcode, name: a.card?.name };
     case "card.identified": return { id: a.cardId ?? a.passcode, name: a.name };
     case "deck.add": return { id: a.cardId };
-    case "twin.move": case "twin.flip": case "twin.attach": case "twin.detach": case "twin.remove": case "twin.control": {
+    case "twin.move": case "twin.flip": case "twin.attach": case "twin.detach": case "twin.counters": case "twin.remove": case "twin.control": {
       if (typeof a.seat !== "number" || typeof a.cardRef !== "string") return {};
       const id = input.publicCode(a.seat, a.cardRef); return id ? { id, name: input.refName(a.seat, a.cardRef) } : {};
     }

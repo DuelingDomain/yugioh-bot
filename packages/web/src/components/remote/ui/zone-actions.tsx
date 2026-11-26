@@ -7,6 +7,7 @@ import type { ZonePick, ZoneCardAction } from './zone-placement';
 import { cardCode, cellsFor, hasExtraZones, type TwinCard, type ZoneKey, ZN } from './model';
 import { cardArt, useCardInfo } from './catalog';
 import { Icon, type IconName } from './icons';
+import { CountersRow } from './counters-row';
 import { fieldSummonKind } from '@/lib/remote/field-summons';
 import { isFieldSpell } from '@/lib/remote/field-legality';
 import { recentReadsFor } from '@/lib/remote/recent-reads';
@@ -113,6 +114,7 @@ export function ZoneActions({ tokenOnly, room, seat, zone, at, deck, targetRef, 
         {!tokenOnly && move('remove') ? <Row icon="x" disabled={busy} onClick={() => go(move('remove')!)} data-testid="zone-remove-proxy">{move('remove')!.label}</Row> : null}
         {!tokenOnly || /^m[1-5]$/.test(zone) ? <Row icon="coin" next primary={tokenOnly} data-autofocus={tokenOnly ? "" : undefined} disabled={busy} onClick={onToken} data-testid="zone-token">{!card && /^m[1-5]$/.test(zone) ? 'Add token here' : 'Add token'}</Row> : null}
         {tokenOnly && onGive ? <Row icon="hand" next primary={!/^m[1-5]$/.test(zone)} data-autofocus={/^m[1-5]$/.test(zone) ? undefined : ""} disabled={busy} onClick={() => { onClose(); onGive(); }} data-testid="zone-give-hand">Give a card from my hand here</Row> : null}
+        {card && !tokenOnly && ['monster', 'extra-monster', 'spell-trap', 'field', 'pendulum'].includes(card.zone) ? <CountersRow count={card.counters ?? 0} disabled={busy} onChange={delta => action({ type: 'twin.counters', actorSeat, seat, cardRef: card.ref, delta })} /> : null}
         {card && !tokenOnly ? <Row icon="info" next disabled={busy} onClick={() => onDetails(card)}>Card details</Row> : null}
       </div>
       {card?.materials?.length ? <section className={s.zmMats} aria-label="Materials">

@@ -104,6 +104,7 @@ function clearZoneLinks(state: RemoteState, at: number, dropIfOwnerOut = false) 
   for (const seat of state.seats) for (const card of seat.twin) {
     if (card.knownFaceDown && (!card.publicIdentity || card.faceUp || !remoteFieldZone(card.zone))) delete card.knownFaceDown;
     if (card.trapZone !== undefined && !MONSTER_ZONES.has(card.zone)) delete card.trapZone;
+    if (card.counters !== undefined && !FIELD_ZONES.has(card.zone)) delete card.counters;
     if (card.equippedTo && (!FIELD_ZONES.has(card.zone) || !state.seats[card.equippedTo.seat]?.twin.some(c => c.ref === card.equippedTo!.ref && MONSTER_ZONES.has(c.zone)))) delete card.equippedTo;
   }
 }
@@ -507,6 +508,14 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
       if (action.type === "twin.remove") s.twin = s.twin.filter(c => c.ref !== action.cardRef);
       // A controlled card that leaves the field goes to its owner's side (their Graveyard, hand, Deck…).
       if (action.type !== "twin.remove" && card.ownerSeat !== undefined && !FIELD_ZONES.has(card.zone)) returnToOwner(next.seats, s, card, givenCardsOn);
+      break;
+    }
+    case "twin.counters": {
+      const card = seat(action.seat).twin.find(c => c.ref === action.cardRef);
+      remoteAssert(card && FIELD_ZONES.has(card.zone), "Counters go on a card on the field", 409);
+      const count = Math.min(99, Math.max(0, (card.counters ?? 0) + action.delta));
+      remoteAssert(count !== (card.counters ?? 0), "No counters to change", 409);
+      if (count > 0) card.counters = count; else delete card.counters;
       break;
     }
     case "twin.equip": {

@@ -2864,4 +2864,36 @@ test.describe("remote duels Thinking, OK and E", () => {
     await expect(page.getByTestId("log-drawer")).toContainText(`flipped a coin: ${face}`);
     await expect(page.getByTestId("log-drawer")).toContainText(`rolled a die: ${number}`);
   });
+  test("Counters go on a card on the field, show as a badge on every screen, reach the Log and clear when the card leaves", async ({ page, context }) => {
+    const slug = await soloTable(context.request, 2), path = `/api/remote/${slug}`;
+    const act = async (action: Record<string, unknown>) => {
+      const response = await postAction(context.request, path, { actorSeat: 0, seat: 0, ...action });
+      expect(response.ok(), await response.text()).toBe(true);
+    };
+    await act({ type: "twin.place", zone: "monster", card: { ref: "dm", cardId: 46986414, name: "Dark Magician", slot: 1, faceUp: true, position: "attack" } });
+    const other = await context.newPage();
+    await Promise.all([page.goto(`/duels/remote/${slug}`), other.goto(`/duels/remote/${slug}`)]);
+    const cell = page.getByTestId("field-0").locator('[data-zone="m1"]');
+    await cell.click();
+    await expect(page.getByTestId("counters-count")).toHaveText("0");
+    await page.getByTestId("counters-plus").click();
+    await expect(page.getByTestId("counters-count")).toHaveText("1");
+    await page.getByTestId("counters-plus").click();
+    await expect(page.getByTestId("counters-count")).toHaveText("2");
+    await page.getByTestId("counters-minus").click();
+    await page.getByTestId("counters-plus").click();
+    await expect(page.getByTestId("counters-count")).toHaveText("2");
+    await page.keyboard.press("Escape");
+    // The badge shows on the virtual board of both screens.
+    await expect(cell.getByTestId("card-counters")).toHaveText("2");
+    await expect(other.getByTestId("field-0").locator('[data-zone="m1"]').getByTestId("card-counters")).toHaveText("2");
+    const room = async () => (await context.request.get(path)).json();
+    expect((await room()).state.seats[0].twin.find((card: { ref: string }) => card.ref === "dm").counters).toBe(2);
+    await openDrawer(page, "log");
+    await expect(page.getByTestId("log-drawer")).toContainText("counter");
+    // A card that leaves the field loses its counters.
+    await act({ type: "twin.move", cardRef: "dm", zone: "graveyard" });
+    expect((await room()).state.seats[0].twin.find((card: { ref: string }) => card.ref === "dm").counters).toBeUndefined();
+    await expect(cell.getByTestId("card-counters")).toHaveCount(0);
+  });
 });
