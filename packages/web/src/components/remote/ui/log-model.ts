@@ -27,7 +27,7 @@ export type LogRow = {
 export type LogTurn = { key: string; turn: number; seat: number | null; rows: LogRow[] };
 
 const CAT: Record<string, LogCat> = {
-  "effect.activated": "chain", "chain.respond": "chain", "chain.ok": "chain", "chain.thinking": "chain",
+  "effect.activated": "chain", "chain.respond": "chain", "chain.ok": "chain", "chain.thinking": "chain", "random.roll": "chain",
   "lp.change": "lp",
   "phase.set": "phase", "phase.advance": "phase", "turn.end": "phase", "table.started": "phase", "match.first": "phase",
 };

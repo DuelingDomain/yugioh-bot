@@ -142,6 +142,8 @@ export const remoteActionSchema = z.discriminatedUnion("type", [
   z.strictObject({ ...meta, type: z.literal("chain.thinking"), on: z.boolean() }),
   /** "OK, no response". Clears this player's Thinking and shows a short OK on every screen. Public signal only. */
   z.strictObject({ ...meta, type: z.literal("chain.ok") }),
+  /** A coin flip or a die roll for a card effect. The server picks `result` (coin: 1 Heads, 2 Tails; die: 1-6) and stores it, so a replay never rolls again. A client sends no result. Public signal only. */
+  z.strictObject({ ...meta, type: z.literal("random.roll"), kind: z.enum(["coin", "die"]), result: z.number().int().min(1).max(6).optional() }),
   z.strictObject({ ...meta, type: z.literal("undo"), targetActionId: id }),
   z.strictObject({ ...meta, type: z.literal("player.concede") }),
   /** Quit the match. 1v1: the opponent wins the match. FFA: only this seat leaves for good. It cannot be undone. */

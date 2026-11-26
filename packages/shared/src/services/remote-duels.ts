@@ -590,7 +590,8 @@ export function createRemoteDuelService(db: Database.Database, options: {
         const first = loadTable(slug, guildId); if (first.status === "active") settleAdminWatch(first, now);
         const row = load(slug, guildId); const s = member(row, userId);
         const parsed = remoteActionSchema.safeParse(input.action); remoteAssert(parsed.success, "Invalid remote action");
-        const command = parsed.data;
+        // A coin or die result is the server's: whatever the client sent is replaced.
+        const command = parsed.data.type === "random.roll" ? { ...parsed.data, result: parsed.data.kind === "coin" ? randomInt(1, 3) : randomInt(1, 7) } : parsed.data;
         const delegatedBot = row.solo && row.created_by === userId && seats(row).some(seat => seat.seat === command.actorSeat && seat.bot && seat.userId === null);
         remoteAssert(command.actorSeat === s.seat || delegatedBot, "Actor seat does not match session or an owned solo bot", 403, "ACTOR_SEAT_MISMATCH");
         remoteAssert(!command.idempotencyKey.startsWith("sys:"), "Reserved idempotency key");
@@ -598,6 +599,8 @@ export function createRemoteDuelService(db: Database.Database, options: {
         if (old) {
           const { at: _oldTime, ...oldAction } = JSON.parse(old.action_json);
           const { at: _time, ...newAction } = command;
+          // A retried roll has a new random result; the first one stands.
+          if (oldAction.type === "random.roll") { delete oldAction.result; delete (newAction as { result?: number }).result; }
           remoteAssert(old.user_id === userId && JSON.stringify(oldAction) === JSON.stringify(newAction), "Idempotency key was used for a different action", 409, "IDEMPOTENCY_CONFLICT");
           return room(row, userId);
         }
@@ -609,9 +612,9 @@ export function createRemoteDuelService(db: Database.Database, options: {
         // Admin watch notifications and player notes leave the board unchanged.
         // Quitting and conceding are final choices: another action in flight must not turn them into a refused click.
         // A response, Thinking and OK are public signals like a note: they neither waits for the board to settle nor makes other writes stale.
-        if (command.type !== "side.timeout" && command.type !== "player.leave" && command.type !== "player.concede" && command.type !== "chain.respond" && command.type !== "chain.thinking" && command.type !== "chain.ok") {
+        if (command.type !== "side.timeout" && command.type !== "player.leave" && command.type !== "player.concede" && command.type !== "chain.respond" && command.type !== "chain.thinking" && command.type !== "chain.ok" && command.type !== "random.roll") {
           remoteAssert(input.baseSeq === row.last_seq || (input.baseSeq < row.last_seq && !db.prepare(
-            "select 1 from remote_events where table_id=? and seq>? and json_extract(action_json,'$.type') not in ('admin.watching','log.note','chain.respond','chain.thinking','chain.ok') limit 1",
+            "select 1 from remote_events where table_id=? and seq>? and json_extract(action_json,'$.type') not in ('admin.watching','log.note','chain.respond','chain.thinking','chain.ok','random.roll') limit 1",
           ).get(row.id, input.baseSeq)), "Stale sequence; fetch state and retry", 409, "STALE_SEQUENCE");
         }
         // An idle table the sweep has not closed yet closes here, so the player sees the ended table at once instead of a refused move.

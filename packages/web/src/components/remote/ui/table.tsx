@@ -13,6 +13,7 @@ import { BottomBar } from "./bottom-bar";
 import { PhaseTrack, usePhaseAsk } from "./phase-track";
 import { CardPopover, InspectorBody, type CardActions, type CardEdit, type CardSource, type Subject } from "./card-view";
 import { ActivateRow, OkBanner, ThinkingCallout, useOkHold } from "./think";
+import { CoinDieControl, RollBanner, useRollHold } from "./coin-die";
 import { activatable, aliveSeats, CHAIN_GAP_MS, chainOf, maySignal, onField, recentlyPlaced, thinkingSeats } from "./think-model";
 /** The client sends Thinking and OK this far apart: a little over the server rule of one a second. */
 const SIGNAL_GAP_MS = 1050;
@@ -209,6 +210,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
   const [banner, setBanner] = useState<{ id: number; small: string; big: string } | null>(null);
   // Thinking, OK and chain links come from the room events, so every screen shows the same.
   const okHold = useOkHold(room.events);
+  const rollHold = useRollHold(room.events);
   const thinking = useMemo(() => thinkingSeats(room.events, live), [room.events, live]);
   // What this client just asked for, until the room events echo it. Two fast T presses then toggle correctly.
   const [pendingThink, setPendingThink] = useState<ReadonlyMap<number, boolean>>(() => new Map());
@@ -1188,6 +1190,12 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [act, queueSignal]);
   /** The Space key and the OK button: "OK, no response". It clears this player's Thinking. */
+  /** A coin flip or die roll for a card effect: the server picks the result. */
+  const rollNow = useCallback((kind: "coin" | "die") => {
+    const { room: now, state: current } = R.current; const me = now.solo ? current.turnSeat : now.mySeat;
+    if (now.status !== "active" || now.spectator || me < 0) return;
+    void act({ type: "random.roll", actorSeat: me, kind });
+  }, [act]);
   const okNow = useCallback(() => {
     const { room: now, state: current } = R.current; const me = now.solo ? current.turnSeat : now.mySeat;
     if (now.status !== "active" || now.spectator || !maySignal(current, me)) return;
@@ -1802,6 +1810,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
         <Banner banner={banner} />
         <ThinkingCallout thinking={thinking} name={name} pointer={seatCount > 2} />
         <OkBanner hold={okHold} name={name} />
+        <RollBanner hold={rollHold} name={name} />
         <svg className={s.arrow} aria-hidden="true">{arrow ? <><defs><marker id="ah" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0 0 10 5 0 10z" fill="#f6dc9a" /></marker></defs>
           <path d={arrow.d} fill="none" stroke="rgba(232,185,79,.35)" strokeWidth="9" strokeLinecap="round" />
           <path className={s.flow} d={arrow.d} fill="none" stroke="#f6dc9a" strokeWidth="3" strokeLinecap="round" markerEnd="url(#ah)" /></> : null}</svg>
@@ -1836,6 +1845,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
         undo={{ spokenUndo: false, recognition: voiceRecognition, label: undoText, enabled: canUndo, reason: newestUndo?.reason, flash, histOpen: layers.layer === "hist", onUndo: () => void doUndo(), onHist: el => layers.toggle("hist", el) }}
         center={<>
           {live && mySeat >= 0 && !multi ? <button type="button" className={`${s.btn} ${s.sm} ${s.q} ${s.myfield}`} onClick={() => { setWebcamOnly(false); document.querySelector(`[data-testid="field-${mySeat}"]`)?.scrollIntoView?.({ block: 'center' }); }}>My field</button> : null}
+          {live && (solo || mySeat >= 0) ? <CoinDieControl onRoll={rollNow} /> : null}
           {signalShown ? <div className={s.signals}>
             <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} aria-pressed={thinkOn} onClick={event => { thinkNow(); event.currentTarget.blur(); }} title="Thinking: tell the table you are deciding. Press again to cancel. No time limit." data-testid="think-button">{thinkOn ? "Thinking…" : "Think"} <kbd>T</kbd></button>
             <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} onClick={event => { okNow(); event.currentTarget.blur(); }} title="OK: no response" data-testid="ok-button">OK <kbd>Space</kbd></button>

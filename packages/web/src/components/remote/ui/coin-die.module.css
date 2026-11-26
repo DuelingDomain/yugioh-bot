@@ -1,0 +1,20 @@
+.control{position:relative;display:inline-flex}
+.open{height:30px;padding:0 12px;border-radius:8px;border:1px solid var(--line2,#3a3052);background:var(--p2,#1c1530);color:var(--ink,#f1ead9);font:700 12px/1 var(--font-duel-ui,"Sofia Sans Semi Condensed",system-ui,sans-serif);letter-spacing:.06em;white-space:nowrap}
+.open:hover:not(:disabled),.open[aria-expanded="true"]{border-color:rgb(155 126 255)}
+.open:disabled{opacity:.5}
+.menu{position:absolute;bottom:calc(100% + 8px);left:50%;transform:translateX(-50%);z-index:80;display:flex;flex-direction:column;gap:4px;padding:6px;min-width:170px;border-radius:10px;border:1px solid var(--line2,#3a3052);background:rgb(11 7 22/.97);box-shadow:0 10px 30px rgb(0 0 0/.55)}
+.menu button{display:flex;justify-content:space-between;align-items:baseline;gap:10px;height:34px;padding:0 10px;border-radius:6px;border:1px solid transparent;background:var(--p2,#1c1530);color:var(--ink,#f1ead9);font:700 13px/1 var(--font-duel-ui,"Sofia Sans Semi Condensed",system-ui,sans-serif)}
+.menu button small{font-weight:500;font-size:11px;color:var(--ink3,#aaa1ba)}
+.menu button:hover{border-color:rgb(155 126 255)}
+@media (max-width:760px){.menu{bottom:auto;top:calc(100% + 6px)}}
+
+.toast{position:fixed;top:132px;left:50%;transform:translateX(-50%);z-index:60;pointer-events:none;display:flex;align-items:center;gap:14px;padding:8px 24px 8px 14px;border-block:1px solid var(--gold,#e8b94f);background:linear-gradient(90deg,transparent,rgb(11 7 22/.95) 12%,rgb(11 7 22/.95) 88%,transparent);animation:rollIn 3s ease both}
+.text{display:flex;flex-direction:column;gap:4px}
+.text small{font:700 11px/1 var(--font-duel-ui,"Sofia Sans Semi Condensed",system-ui,sans-serif);letter-spacing:.2em;color:var(--ink2,#b9b0cc);text-transform:uppercase}
+.text b{font:700 24px/1 var(--font-duel-display,Oxanium,sans-serif);letter-spacing:.12em;color:var(--gold-ink,#f5d98a);text-shadow:0 0 18px rgb(232 185 79/.5)}
+.token{display:grid;place-items:center;width:38px;height:38px;font:800 18px/1 var(--font-duel-display,Oxanium,sans-serif);color:#1b1204;animation:rollSpin .8s cubic-bezier(.2,.7,.3,1) both}
+.coin{border-radius:50%;background:radial-gradient(circle at 35% 30%,#fbe7a6,#e8b94f 60%,#a8791d)}
+.die{border-radius:8px;background:linear-gradient(145deg,#fdfcf8,#d9d4c8);box-shadow:inset 0 -3px 0 rgb(0 0 0/.12)}
+@keyframes rollSpin{0%{transform:rotateX(0) rotateY(0) scale(.6)}100%{transform:rotateX(720deg) rotateY(360deg) scale(1)}}
+@keyframes rollIn{0%{opacity:0}8%{opacity:1}85%{opacity:1}100%{opacity:0}}
+@media (prefers-reduced-motion:reduce){.token{animation:none}}

@@ -2837,4 +2837,31 @@ test.describe("remote duels Thinking, OK and E", () => {
     const events = await (await page.request.get(`/api/remote/${slug}`)).text();
     expect(events).not.toContain("effect.activated");
   });
+  test("Coin / Die flips and rolls on the server, shows the same result on every screen and writes it to the Log", async ({ page, context }) => {
+    const slug = await soloTable(context.request, 2);
+    const other = await context.newPage();
+    await Promise.all([page.goto(`/duels/remote/${slug}`), other.goto(`/duels/remote/${slug}`)]);
+    await expect(page.getByTestId("coin-die-button")).toBeVisible();
+    await page.getByTestId("coin-die-button").click();
+    await page.getByTestId("flip-coin").click();
+    const coin = other.getByTestId("roll-banner");
+    await expect(coin).toHaveAttribute("data-kind", "coin");
+    const face = (await coin.getAttribute("data-result")) === "1" ? "Heads" : "Tails";
+    await expect(coin).toContainText(face);
+    await expect(page.getByTestId("roll-banner")).toHaveAttribute("data-result", await coin.getAttribute("data-result") ?? "");
+    await expect(coin).toHaveCount(0, { timeout: 8000 });
+    await page.getByTestId("coin-die-button").click();
+    await page.getByTestId("roll-die").click();
+    const die = other.getByTestId("roll-banner");
+    await expect(die).toHaveAttribute("data-kind", "die");
+    const number = Number(await die.getAttribute("data-result"));
+    expect(number).toBeGreaterThanOrEqual(1); expect(number).toBeLessThanOrEqual(6);
+    // The server stored both results in the events, so a replay shows the same ones.
+    const room = await (await page.request.get(`/api/remote/${slug}`)).json();
+    const rolls = room.events.filter((event: { action: { type: string } }) => event.action.type === "random.roll").map((event: { action: { kind: string; result: number } }) => [event.action.kind, event.action.result]);
+    expect(rolls).toEqual([["coin", face === "Heads" ? 1 : 2], ["die", number]]);
+    await openDrawer(page, "log");
+    await expect(page.getByTestId("log-drawer")).toContainText(`flipped a coin: ${face}`);
+    await expect(page.getByTestId("log-drawer")).toContainText(`rolled a die: ${number}`);
+  });
 });
