@@ -1333,7 +1333,8 @@ test.describe("remote duels screen, two players on LiveKit", () => {
       await b.keyboard.press("Escape");
       // Alice sees the result in her log: the identification travelled through the table, not only Bob's screen.
       await openDrawer(a, "log");
-      await expect(a.getByTestId("log-list")).toContainText("Dark Magician identified on E2E Alice", { timeout: 20_000 });
+      // Alice's decklist has no Dark Magician, so the log row for Bob's identification is the decklist warning, with Bob's name.
+      await expect(a.getByTestId("log-list")).toContainText("E2E Bob · Not in decklist: Dark Magician", { timeout: 20_000 });
       await a.keyboard.press("Escape");
       await shot(a, "two-players-alice-log");
       // Alice changes her LP and undoes it. A player can only undo their own actions, so Bob's screen follows.
