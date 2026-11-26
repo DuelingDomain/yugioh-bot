@@ -26,7 +26,7 @@ export function VoxSection({ recognition = true, transcript, proposal, samples, 
     return () => { document.removeEventListener("pointerdown", away, true); document.removeEventListener("keydown", key); };
   }, [open]);
   return <section ref={root} className={`${s.dk} ${s.vox} ${proposal ? s.has : ""} ${expanded ? s.sopen : ""}`} aria-label="Voice commands">
-    {!recognition ? <div className={`${s.chip} ${s.tr}`} data-testid="voice-off"><span className={s.note}>Voice commands are off. Use the phase bar, the buttons and the keyboard.</span></div>
+    {!recognition ? null
     : <div className={`${s.chip} ${s.tr}`} data-testid="transcript" aria-live="polite">
       <span className={s.who}><Icon name="mic" />Heard</span>
       <q className={transcript.live ? s.live : ""}>{transcript.text || "Say a phase or end turn."}</q>

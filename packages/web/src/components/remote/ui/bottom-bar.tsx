@@ -20,7 +20,7 @@ export type BarVoice = {
  * The one bottom bar of the table. Left: whose turn it is and Undo. Centre: the Think and OK signals. Right: the mic with its voice popover, Back and Pass turn.
  * The phases are not here: each player has their own phase boxes between their camera and their virtual field.
  */
-export function BottomBar({ first, players, turnSeat, turn, phase, canAct, nextSeat, passHot, mine, turnIn, backTo, ask, onAsk, onAskYes, onAskNo, onPass, dockRef, undo, center, voice, voiceOff, settingsOpen, onSettings, onSurrender, onQuit }: {
+export function BottomBar({ first, players, turnSeat, turn, phase, canAct, nextSeat, passHot, mine, turnIn, backTo, ask, onAsk, onAskYes, onAskNo, onPass, dockRef, undo, center, voice, settingsOpen, onSettings, onSurrender, onQuit }: {
   /** Own-dice tables: the "who goes first" strip that floats above the bar until the first turn action. */ first?: ReactNode;
   players: Player[]; turnSeat: number; turn: number; phase: string; canAct: boolean; nextSeat: number; passHot: boolean;
   /** The turn is mine (never true on a solo test table, where one person plays every seat). */ mine: boolean; turnIn: boolean;
@@ -28,7 +28,6 @@ export function BottomBar({ first, players, turnSeat, turn, phase, canAct, nextS
   /** The phase the player is about to go back to (asks first). */ ask: string | null; onAsk: (id: string) => void; onAskYes: (id: string) => void; onAskNo: () => void;
   onPass: () => void; /** The table measures this bar (--dockh on a phone). */ dockRef?: React.Ref<HTMLDivElement>; undo: ComponentProps<typeof UndoSection>; center?: ReactNode;
   /** Null when there is no mic control (a spectator, or voice is not available at this table). */ voice: BarVoice | null;
-  /** Voice commands are off for this player: the bar says so. */ voiceOff: boolean;
   /** The drawer is open on its Settings tab. */ settingsOpen: boolean; /** Opens the drawer on its Settings tab. */ onSettings: (el: HTMLElement) => void;
   /** Surrender and Quit match (the existing confirm flow, same gates). Each is undefined when the player may not use it. */ onSurrender?: (el: HTMLElement) => void; onQuit?: (el: HTMLElement) => void;
 }) {
@@ -89,7 +88,6 @@ export function BottomBar({ first, players, turnSeat, turn, phase, canAct, nextS
         : null}
       {shown && voice.recognition ? <div className={s.vpop} role="dialog" aria-label="Voice" data-testid="voice-popover">{voice.details}</div> : null}
     </div> : null}
-    {voiceOff ? <span className={s.bvoff} data-testid="voice-off" title="Voice commands are off. Use the phase boxes, the buttons and the keyboard.">Voice off</span> : null}
     <button type="button" className={`${s.pass} ${passHot ? s.hot : ""}`} disabled={!canAct} data-testid="pass-turn" onClick={onPass} data-turn-in={turnIn || undefined}>
       <span>Pass turn</span><Icon name="next" /><span className={s.pip} style={{ "--c": next?.color } as React.CSSProperties} /><span>{next?.name ?? ""}</span></button>
     {ask ? <PhaseConfirm ask={ask} onYes={onAskYes} onNo={onAskNo} /> : null}

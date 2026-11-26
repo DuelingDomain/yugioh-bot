@@ -76,6 +76,7 @@ export type CardActions = {
   canAttack: boolean; attackHint: string; onAttack: () => void;
   /** A spectator's view: no action buttons at all. */ readOnly?: boolean;
   onActivate?: () => void; onReveal?: () => void;
+  /** Voice commands are on for this player: the card menu tip may mention saying "effect <card>". */ voice?: boolean;
   /** Take control of an opponent's card, or return a taken card to its owner. */
   control?: { label: string; onClick: () => void };
   /** Give my card on the field to an opponent: it shows there as a proxy that I keep owning. */
@@ -228,7 +229,7 @@ function CameraCardMenu({ subject, info, at, warning, actions, onClose }: {
           {actions.onReadAgain ? <Row icon="refresh" onClick={actions.onReadAgain} data-testid="card-read-again">Read again</Row> : null}
         </div>
       </div>
-      {activate ? <p className={s.zaTip} data-testid="card-menu-tip">Faster: hover + <kbd>E</kbd>{known ? <>, or say {"\u201c"}effect {name}{"\u201d"}</> : null}.</p> : null}
+      {activate ? <p className={s.zaTip} data-testid="card-menu-tip">Faster: hover + <kbd>E</kbd>{known && actions.voice ? <>, or say {"\u201c"}effect {name}{"\u201d"}</> : null}.</p> : null}
     </div>
   </PopupFrame>;
 }

@@ -1658,7 +1658,7 @@ test.describe("remote duels, spectators", () => {
         await expect(a.getByText("Talk to the table")).toHaveCount(0);
         await a.keyboard.press("v");
         await expect(a.getByTestId("mic")).toHaveCount(0);
-        await expect(a.getByTestId("voice-off")).toBeVisible();
+        await expect(a.getByTestId("voice-off")).toHaveCount(0);
         expect(await a.evaluate(() => (window as unknown as { __audioAsked: number }).__audioAsked)).toBe(0);
         for (const [name, width, height] of [["1080p", 1920, 1080], ["768p", 1366, 768], ["mobile", 390, 844]] as const) {
           await a.setViewportSize({ width, height }); await a.waitForTimeout(300); await shot(a, `no-mic-${name}`);
