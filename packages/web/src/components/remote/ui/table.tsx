@@ -13,7 +13,7 @@ import { BottomBar } from "./bottom-bar";
 import { PhaseTrack, usePhaseAsk } from "./phase-track";
 import { CardPopover, InspectorBody, type CardActions, type CardEdit, type CardSource, type Subject } from "./card-view";
 import { ActivateRow, OkBanner, ThinkingCallout, useOkHold } from "./think";
-import { CoinDieControl, RollBanner, useRollHold } from "./coin-die";
+import { CoinDieControl, RollOverlay, useRollHold } from "./coin-die";
 import { activatable, aliveSeats, CHAIN_GAP_MS, chainOf, maySignal, onField, recentlyPlaced, thinkingSeats } from "./think-model";
 /** The client sends Thinking and OK this far apart: a little over the server rule of one a second. */
 const SIGNAL_GAP_MS = 1050;
@@ -1815,7 +1815,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
         <Banner banner={banner} />
         <ThinkingCallout thinking={thinking} name={name} pointer={seatCount > 2} />
         <OkBanner hold={okHold} name={name} />
-        <RollBanner hold={rollHold} name={name} />
+        <RollOverlay hold={rollHold} name={name} />
         <svg className={s.arrow} aria-hidden="true">{arrow ? <><defs><marker id="ah" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0 0 10 5 0 10z" fill="#f6dc9a" /></marker></defs>
           <path d={arrow.d} fill="none" stroke="rgba(232,185,79,.35)" strokeWidth="9" strokeLinecap="round" />
           <path className={s.flow} d={arrow.d} fill="none" stroke="#f6dc9a" strokeWidth="3" strokeLinecap="round" markerEnd="url(#ah)" /></> : null}</svg>
