@@ -224,7 +224,7 @@ describe("sign-in page", () => {
     expect(field).toHaveValue("old@example.com");
     expect(field).toBeEnabled();
     await user.clear(field);
-    await user.type(field, "penisman10000");
+    await user.type(field, "cardshark");
     await user.click(screen.getByRole("button", { name: "Join the waitlist" }));
     expect(screen.getByRole("alert")).toHaveTextContent("Enter a valid email.");
     expect(fetchMock).not.toHaveBeenCalled();
@@ -232,7 +232,12 @@ describe("sign-in page", () => {
     await user.type(field, "new@example.com");
     await user.click(screen.getByRole("button", { name: "Check this email" }));
     expect(actions.recheckIdentifier).toHaveBeenCalledWith("new@example.com");
+    expect(field).toHaveFocus();
+    // Enter after an edit checks the email; it does not join.
     await user.type(field, "{Enter}");
+    expect(actions.recheckIdentifier).toHaveBeenCalledTimes(2);
+    expect(fetchMock).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Join the waitlist" }));
     await screen.findByRole("heading", { level: 1, name: "You’re on the list" });
     expect(JSON.parse(String((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body))).toMatchObject({ email: "new@example.com" });
   });

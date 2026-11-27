@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { FormEvent } from "react";
+import type { KeyboardEvent } from "react";
 import { DoneRow, HeardFromSelect, TextField, type HeardFromValue } from "../fields";
 import { SignInBanner } from "../sign-in-error";
 import { SignInFootLinks, SignInStep } from "../sign-in-step";
@@ -49,6 +49,13 @@ export function NotInvitedStep({ identifier, error, banner, pending: checking = 
   const failedOnce = useRef(false);
   const confirmation = useRef<HTMLDivElement>(null);
   const heard = useRef<HeardFromValue>({});
+  const formRef = useRef<HTMLFormElement>(null);
+
+  // Arriving on this card from a refused check: read the new heading first, the way the joined card does.
+  useEffect(() => {
+    const heading = formRef.current?.closest("section")?.querySelector("h1");
+    if (heading) { heading.tabIndex = -1; heading.focus(); }
+  }, []);
 
   const joined = phase === "joined" || phase === "exists";
   const notify = useRef(onJoined);
@@ -70,13 +77,28 @@ export function NotInvitedStep({ identifier, error, banner, pending: checking = 
   };
 
   async function check() {
-    if (!valid() || !onCheck) return;
-    await onCheck(email);
-    setStillClosed(email);
+    if (inFlight.current || checking || !onCheck || !valid()) return;
+    inFlight.current = true;
+    try {
+      await onCheck(email);
+      setStillClosed(email);
+      // Still here, so the check did not move on. The pressed button was disabled meanwhile; put focus back in the field.
+      formRef.current?.querySelector<HTMLInputElement>("#f-email-wl")?.focus();
+    } finally {
+      inFlight.current = false;
+    }
   }
 
-  async function join(event?: FormEvent) {
-    event?.preventDefault();
+  // Enter after an edit asks the question the person just changed (is this email in?); otherwise it joins.
+  // Handled on the keydown, not as a form submit: the Join button's own click would otherwise look like an Enter.
+  function enter(event: KeyboardEvent<HTMLFormElement>) {
+    if (event.key !== "Enter" || !(event.target instanceof HTMLInputElement)) return;
+    event.preventDefault();
+    if (edited && onCheck) void check();
+    else void join();
+  }
+
+  async function join() {
     if (inFlight.current || checking || !valid()) return;
     inFlight.current = true;
     setPhase("pending");
@@ -128,7 +150,7 @@ export function NotInvitedStep({ identifier, error, banner, pending: checking = 
       screen="err-invite"
       foot={<SignInFootLinks waitlist={false} />}
     >
-      <form className={shell.form} data-clerk="identifier-not-found" noValidate aria-busy={pending} onSubmit={join}>
+      <form ref={formRef} className={shell.form} data-clerk="identifier-not-found" noValidate aria-busy={pending} onSubmit={(event) => event.preventDefault()} onKeyDown={enter}>
         {shownBanner}
         {(phase === "limited" || phase === "failed") && <SignInBanner tone="bad" code={phase}>{ERROR_COPY[phase]}</SignInBanner>}
         <TextField
@@ -140,13 +162,12 @@ export function NotInvitedStep({ identifier, error, banner, pending: checking = 
           inputMode="email"
           placeholder="you@email.com"
           defaultValue={identifier}
-          error={localError ?? error}
+          error={localError ?? (edited ? undefined : error)}
           onChange={typed}
-          autoFocus
         />
-        {!edited && stillClosed === checked && !banner && !error && <SignInBanner tone="info" code="still-closed">Still not in the alpha. You can join the waitlist with this email.</SignInBanner>}
+        {!edited && !pending && stillClosed === checked && !banner && !error && <SignInBanner tone="info" code="still-closed">Still not in the alpha. You can join the waitlist with this email.</SignInBanner>}
         <HeardFromSelect id="f-heard-wl" onChange={(value) => { heard.current = value; }} />
-        <button type="submit" className={`${shell.btn} ${shell["btn-primary"]}`} disabled={pending}>
+        <button type="button" className={`${shell.btn} ${shell["btn-primary"]}`} disabled={pending} onClick={() => void join()}>
           {phase === "pending" && <span className={shell.spinner} aria-hidden="true" />}
           <span>Join the waitlist</span>
         </button>

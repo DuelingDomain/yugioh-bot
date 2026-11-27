@@ -231,6 +231,15 @@ describe("sign-in flow", () => {
     await act(() => result.current.actions.recheckIdentifier("b@test.dev"));
     expect(result.current.state).toMatchObject({ step: "err-invite", identifier: "b@test.dev", pending: false });
   });
+  it("keeps the shown email when the recheck fails on the network, so the person can retry", async () => {
+    mock.signal.signIn.create.mockResolvedValueOnce(error("form_identifier_not_found"));
+    const { result } = setup();
+    await act(() => result.current.actions.submitIdentifier("a@test.dev"));
+    mock.signal.signIn.create.mockResolvedValueOnce(error("network_error"));
+    await act(() => result.current.actions.recheckIdentifier("b@test.dev"));
+    expect(result.current.state).toMatchObject({ step: "err-invite", identifier: "a@test.dev", pending: false });
+    expect(result.current.state.banner).not.toBeNull();
+  });
   it("preserves the return path for Discord and uses the custom callback", async () => {
     mock.signal.signIn.id = "";
     const { result } = setup();
