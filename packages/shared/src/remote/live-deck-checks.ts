@@ -33,6 +33,7 @@ export function applyLiveDeckChecks(input: RemoteState, action: RemoteAction, co
   };
   if (action.type === "card.identified" || action.type === "cards.identified") {
     const sightings = action.type === "card.identified" ? [action] : action.cards;
+    const confirmed = (!context.replay || context.playerIdentityLock === 1) && action.source !== 'auto';
     for (const card of sightings) {
       const twin = card.cardRef ? next.seats[action.seat].twin.find(t => t.ref === card.cardRef) : undefined;
       // A new physical Set has no catalog instance until its first reveal.
@@ -48,8 +49,14 @@ export function applyLiveDeckChecks(input: RemoteState, action: RemoteAction, co
         source: action.source, name: (code ? context.facts?.[code]?.name : undefined) ?? card.name,
         notInDecklist: controlled ? false : context.identified?.notInDecklist ?? false, addErrors: controlled ? [] : context.identified?.addErrors ?? [] };
       // An explicit ref attaches recognition to the same physical twin card.
-      if (twin && (legacy ? twin.faceUp : isPublic(twin))) { twin.cardId = card.cardId; twin.passcode = card.passcode; twin.name = next.identified.name ?? twin.name; if(action.source!=='auto'||card.nameCandidates===null||card.bestMatch===false)delete twin.bestMatch;else if(card.bestMatch)twin.bestMatch=true;
-        if(action.source!=='auto'||card.nameCandidates===null)delete twin.nameCandidates;else if(card.nameCandidates)twin.nameCandidates=structuredClone(card.nameCandidates); }
+      if (twin && (legacy ? twin.faceUp : isPublic(twin))) {
+        const sameCode = (twin.cardId ?? twin.passcode) === code;
+        twin.cardId = card.cardId; twin.passcode = card.passcode;
+        twin.name = next.identified.name ?? (!confirmed || sameCode ? twin.name : undefined);
+        if(confirmed||action.source!=='auto'||card.nameCandidates===null||card.bestMatch===false)delete twin.bestMatch;else if(card.bestMatch)twin.bestMatch=true;
+        if(confirmed||action.source!=='auto'||card.nameCandidates===null)delete twin.nameCandidates;else if(card.nameCandidates)twin.nameCandidates=structuredClone(card.nameCandidates);
+        if (confirmed) twin.identityConfirmed = { seat: action.seat, zone: twin.zone, ...(twin.slot === undefined ? {} : { slot: twin.slot }) };
+      }
     }
   }
   if (action.type === "twin.flip" || action.type === "twin.move") {

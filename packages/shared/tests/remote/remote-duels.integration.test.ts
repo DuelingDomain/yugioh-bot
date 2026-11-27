@@ -404,6 +404,29 @@ it.each(['auto','tap','manual'] as const)('ignores repeated %s detection starts 
   expect(s.service.replay(s.room.slug,'g',s.users[0])).toEqual(s.room.state);
 });
 
+it('keeps a player-confirmed identity until the card leaves its zone or the player renames it', () => {
+  const s = deckSession('normal');
+  s.start();
+  s.act({type:'twin.place',seat:0,zone:'monster',source:'auto',card:{ref:'paper',slot:1}});
+  s.act({type:'card.identified',seat:0,cardRef:'paper',cardId:85523502,name:'Whisker Blitzclique',source:'typed'});
+  const named = s.room;
+  s.act({type:'card.identified',seat:0,cardRef:'paper',cardId:18666161,name:'Despian Proskenion',source:'auto'});
+  expect(s.room.lastSeq).toBe(named.lastSeq);
+  expect(s.room.state.seats[0].twin[0]).toMatchObject({ref:'paper',cardId:85523502,name:'Whisker Blitzclique'});
+  s.act({type:'twin.place',seat:0,zone:'monster',source:'auto',card:{ref:'paper',slot:1,cardId:18666161}});
+  expect(s.room.lastSeq).toBe(named.lastSeq);
+  s.act({type:'twin.flip',seat:0,cardRef:'paper',faceUp:false,source:'auto'});
+  s.act({type:'twin.flip',seat:0,cardRef:'paper',faceUp:true,cardId:18666161,source:'auto'});
+  expect(s.room.state.seats[0].twin[0]).toMatchObject({faceUp:true,cardId:85523502});
+  s.act({type:'card.identified',seat:0,cardRef:'paper',cardId:1,source:'click'});
+  s.act({type:'cards.identified',seat:0,source:'auto',cards:[{cardRef:'paper',cardId:2,observationId:'repeat-read'}]});
+  expect(s.room.state.seats[0].twin[0].cardId).toBe(1);
+  s.act({type:'twin.move',seat:0,cardRef:'paper',zone:'monster',slot:2});
+  s.act({type:'card.identified',seat:0,cardRef:'paper',cardId:2,source:'auto'});
+  expect(s.room.state.seats[0].twin[0].cardId).toBe(2);
+  expect(s.service.replay(s.room.slug,'g',s.users[0])).toEqual(s.room.state);
+});
+
 it.each([false,true])('preserves intervening detection reports when undoing a coalesced camera placement (legacy replay: %s)', legacyReplay => {
   const s = deckSession('normal');
   s.select(s.save().id); s.start();
