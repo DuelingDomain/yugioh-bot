@@ -90,7 +90,7 @@ export function FieldWatcherUI({host,enabled,onEnabledChange,statusLabel,statusT
   const hasNotice=!!notice;
   // The pointer or the keyboard is on a notice: asked from the page itself, so a notice that goes away under the pointer cannot leave the hold stuck.
   const [holding,setHolding]=useState(false);
-  const recheckHold=useCallback(()=>{const held=[...document.querySelectorAll('[data-notice-hold]')].some(el=>el.matches(':hover')||!!el.querySelector(':focus-visible'));setHolding(held);onNoticeHold?.(held);},[onNoticeHold]);
+  const recheckHold=useCallback(()=>{const held=[...document.querySelectorAll('[data-notice-hold]')].some(el=>(matchMedia('(hover:hover)').matches&&el.matches(':hover'))||!!el.querySelector(':focus-visible'));setHolding(held);onNoticeHold?.(held);},[onNoticeHold]);
   useEffect(()=>{recheckHold();},[notice,kept,recheckHold]);
   useEffect(()=>{if(!holding)return;const timer=setInterval(recheckHold,1000);return()=>clearInterval(timer);},[holding,recheckHold]);
   const hold={'data-notice-hold':'',onPointerEnter:recheckHold,onPointerLeave:recheckHold,onFocus:recheckHold,onBlur:()=>{requestAnimationFrame(recheckHold);}};
