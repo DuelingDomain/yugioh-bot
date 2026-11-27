@@ -729,6 +729,7 @@
 @container seat (max-height:420px){.bigTray.docked .btext{-webkit-line-clamp:2;line-clamp:2}.bigTray.docked .bhint{display:none}.pop.big.show.bigTray.docked{--aw:72px;grid-template-columns:72px minmax(0,1fr);padding:8px;gap:6px 8px}.bigTray.docked .bstrip li{flex-basis:36px}.bigTray.docked .bbar{padding-top:6px}}
 /* Little room above the LP buttons: this is the only case where the card text scrolls. */
 .seatDock[data-tight] .ndSlot{overflow:hidden}
+@media (pointer:coarse){.ndSlot [data-testid="proxy-clash"] button{min-height:44px}}
 .seatDock[data-tight] .pop.big.show.bigTray.docked{flex:0 1 auto;min-height:0;grid-template-rows:minmax(0,1fr) auto}
 .seatDock[data-tight] .bigTray.docked .bmain{align-self:stretch;min-height:0;overflow:hidden}
 .seatDock[data-tight] .bigTray.docked .btext{display:block;-webkit-line-clamp:none;line-clamp:none;flex:0 1 auto;min-height:24px;overflow:auto}
