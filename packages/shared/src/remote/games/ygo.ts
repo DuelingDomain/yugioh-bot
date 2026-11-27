@@ -1,5 +1,5 @@
 import { cloneRemoteCurrent } from "../position.js";
-import { applyRemoteGive, applyRemoteHand, moveRemoteCardToHand, reduceRemoteHandAction, restoreOwnerIdentity, sendGivenCardsHome } from "../hand.js";
+import { applyRemoteGive, applyRemoteHand, HAND_ACTIVATION_FALLBACK_MS, HAND_ACTIVATION_LINK_MS, moveRemoteCardToHand, pendingRemoteHandActivations, reduceRemoteHandAction, restoreOwnerIdentity, sendGivenCardsHome } from "../hand.js";
 import { rememberRemoteAction, undoRemoteAction } from "../undo.js";
 import { ensureRemoteMatch, finishRemoteGame, initialRemoteMatch, reduceRemoteMatch, remoteActionLocksOwnFirst, remoteFirstPending, remoteOwnFirstPending, syncRemoteSideStart } from "../match.js";
 import { remoteActionSchema, remoteActivationKey, remoteActivationNotice, remoteAssert, remoteSummonKinds, type RemoteAction, type TwinCard } from "../actions.js";
@@ -8,7 +8,7 @@ import { resolveAttack } from "../attack-resolver.js";
 import { parseRemoteCommand } from "../command-parser.js";
 import { initialDeckChecks, remotePhysicalSlot, remotePublicCard, type RemoteReductionContext } from "../deck-checks.js";
 import { applyLiveDeckChecks } from "../live-deck-checks.js";
-import { clearTwinConfirmation, guardTwinPlacement, remoteFieldZone } from "../twin-placement.js";
+import { clearTwinConfirmation, guardTwinPlacement, remoteFieldZone, sameTwinIdentity } from "../twin-placement.js";
 
 import { applyRemoteEffectTracking, availableEffectCandidates } from "../effect-tracking.js";
 import { battleEnteredThisTurn, ygoBattleAllowed, ygoPhases as phases } from "../phases.js";
@@ -115,6 +115,8 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
   remoteAssert(parsed.success, "Invalid remote action");
   const action = parsed.data;
   let deckAction = action;
+  let linkedHandActivation: ReturnType<typeof pendingRemoteHandActivations>[number] | undefined;
+  let correctedFallbackId: string | undefined;
   /** A token action changes table state only: it skips deck, effect and hand tracking. */
   let tokenAction = false;
   const at = action.at ?? state.updatedAt;
@@ -320,7 +322,10 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
       break;
     }
     case "effect.activated":
-      if (action.fromHand) activate(action.actorSeat, undefined, action.idempotencyKey);
+      if (action.fromHand) {
+        activate(action.actorSeat, undefined, action.idempotencyKey);
+        if (action.handDestination && context?.effect) deckAction = { ...action, source: context.effect.source };
+      }
       break;
     case "effect.choose": case "effect.announce": case "effect.context.clear": case "effect.note.dismiss": break;
     case "deck.add": ownField(action.seat); break;
@@ -368,7 +373,40 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
       }
       const fieldSpell = play?.field && remoteFieldZone(action.zone);
       const placement = fieldSpell ? { ...action, zone: "field", card: { ...action.card, slot: undefined, position: "attack" as const } } : action;
-      const reuse = !context?.replay || context.twinPlacementGuard !== undefined ? guardTwinPlacement(next, placement, context) : undefined;
+      let handTwin: TwinCard | undefined;
+      if (action.handFallback || action.fromActivation && (!context?.replay || state.undoHistory?.some(entry =>
+        entry.actionId === action.fromActivation && entry.action.type === "effect.activated" && !!entry.action.handDestination))) {
+        const pile = action.zone === "graveyard" || action.zone === "banished";
+        const activation = pendingRemoteHandActivations(state, action.actorSeat).find(entry => entry.actionId === action.fromActivation);
+        if (activation) {
+          remoteAssert(action.source === "auto" && action.card.faceUp && !action.summon &&
+            (action.card.cardId ?? action.card.passcode) === activation.cardId &&
+            (action.handFallback ? !action.fromRef && action.zone === activation.destination && at - activation.at >= HAND_ACTIVATION_FALLBACK_MS
+              : (pile || remoteFieldZone(action.zone)) && at - activation.at < HAND_ACTIVATION_LINK_MS),
+            "Invalid hand activation placement", 409);
+          linkedHandActivation = activation;
+          const matching = s.twin.filter(card => card.zone === "hand" && !card.inspectionFrom && sameTwinIdentity(state, action.seat, action.card, card, context));
+          handTwin = action.fromRef ? matching.find(card => card.ref === action.fromRef) : matching[0];
+          remoteAssert(!action.fromRef || handTwin, "The activated card is no longer in hand", 409);
+        } else if (!action.handFallback && action.source === "auto" && action.card.faceUp && (pile || remoteFieldZone(action.zone)) &&
+          action.fromRef && action.fromRef === action.card.ref && !action.summon) {
+          const fallback = state.undoHistory?.find(entry => !entry.undone && !entry.blocked && !entry.blockedBy?.length &&
+            entry.actorSeat === action.actorSeat && entry.undoWith === action.fromActivation && entry.action.type === "twin.place" &&
+            entry.action.handFallback && entry.action.card.ref === action.fromRef);
+          const from = state.undoHistory?.find(entry => entry.actionId === action.fromActivation);
+          handTwin = fallback && from && at - from.at < HAND_ACTIVATION_LINK_MS ? s.twin.find(card =>
+            card.ref === action.fromRef && (card.zone === "graveyard" || card.zone === "banished") && card.zone !== placement.zone &&
+            sameTwinIdentity(state, action.seat, action.card, card, context)) : undefined;
+          if (!fallback || !handTwin) return state;
+          correctedFallbackId = fallback.actionId;
+        } else {
+          if (!action.handFallback && action.source === "auto" && action.card.faceUp && remoteFieldZone(action.zone))
+            activate(action.seat, action.fromActivation);
+          return state;
+        }
+      }
+      const reuse = handTwin ? { ref: handTwin.ref, card: handTwin } :
+        !linkedHandActivation && (!context?.replay || context.twinPlacementGuard !== undefined) ? guardTwinPlacement(next, placement, context) : undefined;
       if (reuse && "noop" in reuse) return next;
       if (reuse && "pending" in reuse) return next;
       if (!context?.replay || (context.twinPlacementGuard ?? 0) >= 2) clearTwinConfirmation(next,action.seat,action.originRequestRef??action.card.ref);
@@ -654,10 +692,11 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
       return next;
     case "log.note": case "chain.respond": case "chain.thinking": return next;
   }
+  let handKnownId: string | undefined;
   if (!tokenAction) {
     applyRemoteEffectTracking(next, state, deckAction, context);
     next = applyLiveDeckChecks(next, deckAction, context);
-    applyRemoteHand(next, state, action, context);
+    handKnownId = applyRemoteHand(next, state, linkedHandActivation || action.type === "effect.activated" ? deckAction : action, context, linkedHandActivation?.knownId);
   }
   for(const origin of next.effectTracking?.origins ?? []) if(origin.pool)
     origin.candidates=availableEffectCandidates(next,origin.pool,origin.seat,origin.minimumCopies,origin.searchSource);
@@ -686,8 +725,8 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
   }
   // Camera placements may retain an existing physical ref. History must point to the card actually placed.
   const remembered = action.type === "twin.place" && deckAction.type === "twin.place"
-    ? { ...action, card: { ...action.card, ref: deckAction.card.ref } } : action;
-  rememberRemoteAction(state, next, remembered);
+    ? { ...action, card: { ...action.card, ref: deckAction.card.ref } } : action.type === "effect.activated" ? deckAction : action;
+  rememberRemoteAction(state, next, remembered, correctedFallbackId ?? linkedHandActivation?.actionId, handKnownId);
   return next;
 }
 export const ygoModule: GameModule = {

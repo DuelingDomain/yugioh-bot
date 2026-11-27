@@ -65,7 +65,7 @@ export function createRemoteDeckRules(db: Database.Database, directory = deckEng
         return searchCandidates(state, seat, recentCardId, knowledge);
       } finally { catalog.close(); }
     },
-    effect(source: {cardId?:number;name?:string;cardRef?:string}, main: readonly number[] | undefined, twin:readonly TwinCard[]=[]) {
+    effect(source: {cardId?:number;name?:string;cardRef?:string}, main: readonly number[] | undefined, twin:readonly TwinCard[]=[], fromHand = false) {
       const catalog=createInsightCatalog(db,directory);
       try {
         const candidate=source.cardId ? catalog.candidate(source.cardId) : source.name ? catalog.byName(source.name) : undefined;
@@ -84,7 +84,14 @@ export function createRemoteDeckRules(db: Database.Database, directory = deckEng
           }
           return {...plan,pool:[...pool.values()].sort((a,b)=>a.cardId-b.cardId)};
         });
-        return {source:resolved,plans};
+        const { card } = candidate;
+        const text = card.text ?? '';
+        const summonsItself = card.kind === 'monster' && /\bspecial summon this card\b/i.test(text) &&
+          !/\b(?:discard this card|send this card(?: from your hand)? to the GY)\b/i.test(text);
+        const handDestination = !fromHand || summonsItself ? undefined :
+          /\bbanish this card from your hand\b/i.test(text) ? 'banished' as const : 'graveyard' as const;
+        const handLimit = fromHand ? remoteActivationLimit(card.name, text, true) : undefined;
+        return {source:resolved,plans,handDestination,handLimit};
       } finally {catalog.close();}
     },
     inspect(format: RemoteFormat, deck: DuelDeck): DuelDeckValidation {

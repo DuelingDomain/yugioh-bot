@@ -1,4 +1,4 @@
-import type { RemoteAction, RemoteEvent, RemoteSystemAction } from "@yugidraft/shared/remote";
+import { remoteUndoneActionIds, type RemoteAction, type RemoteEvent, type RemoteSystemAction } from "@yugidraft/shared/remote";
 import { describeEvent, type LogKind } from "./describe";
 import { PHASE_ABBR, deckIdsOf, hasDeck, notInDecklist } from "./model";
 import type { ChainLink } from "./think-model";
@@ -82,8 +82,8 @@ function split(line: string, actor: string | null) {
 export function buildLog(input: LogInput): LogTurn[] {
   const { events, name } = input;
   const sorted = [...events].sort((a, b) => b.seq - a.seq);
-  const undone = new Set<string>();
-  for (const event of events) if (event.action.type === "undo") undone.add(event.action.targetActionId);
+  const byId = new Map(events.map(event => [event.id, event]));
+  const undone = remoteUndoneActionIds(events);
   const lpRunning = new Map<number, number>();
   const turns: LogTurn[] = []; let cur = Math.max(1, input.turn);
   const groupFor = (turn: number, seat: number | null) => {
@@ -100,7 +100,9 @@ export function buildLog(input: LogInput): LogTurn[] {
     if (ends) cur = Math.max(1, cur - 1);
     const group = groupFor(cur, ends ? event.actorSeat : null);
     turnOfAt.push({ at: event.at, turn: cur });
-    const line = describeEvent(event, name, input.cardName, input.refName, input.chain.get(event.id));
+    const link = input.chain.get(event.id);
+    const response = action.type === "effect.activated" && action.respondsTo ? byId.get(action.respondsTo) : undefined;
+    const line = describeEvent(event, name, input.cardName, input.refName, response ? { n: link?.n ?? 2, of: response } : link);
     if (!line) continue;
     const actorSeat = action.type === "lp.change" ? action.seat : event.actorSeat;
     const actor = actorSeat === null ? null : name(actorSeat);
@@ -110,7 +112,7 @@ export function buildLog(input: LogInput): LogTurn[] {
       id: event.id, at: event.at, time: input.fmtTime(event.at), cat: catOf(action.type), kind: line.kind, actorSeat, actor,
       rest: split(line.text, actor), cardId: card.id, cardName, fresh: event.seq > input.firstSeq,
     };
-    if (action.type === "effect.activated") { const link = input.chain.get(event.id); row.chain = link?.n ?? 1; }
+    if (action.type === "effect.activated") row.chain = Math.max(link?.n ?? 1, response ? 2 : 1);
     if (action.type === "lp.change") {
       row.badge = "LP";
       const after = lpRunning.get(action.seat) ?? input.lpNow(action.seat);

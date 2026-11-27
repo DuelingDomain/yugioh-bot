@@ -91,6 +91,76 @@ async function soloTable(api: APIRequestContext, seatCount: 2 | 3 | 4, registere
 test.describe("remote duels screen, solo", () => {
   test.beforeEach(async ({ context }) => { await authenticatePlayer(context.request, { userId: 101 }, process.env.E2E_AUTH_SECRET!, (process.env.E2E_REMOTE_UI_URL ?? "http://localhost:3310")); });
 
+  test("a manual hand activation joins the chain, goes to the Graveyard, and has one Undo", async ({ page, context }) => {
+    const slug = await soloTable(context.request, 2, true);
+    const path = `/api/remote/${slug}`;
+    const room = async () => (await context.request.get(path)).json();
+    const before = (await room()).state.seats[0].handCount;
+    await page.goto(`/duels/remote/${slug}`);
+    await expect(page.getByTestId("remote-table")).toBeVisible();
+    const first = await postAction(context.request, path, {
+      type: "effect.activated", actorSeat: 1, source: { cardId: 73628505 },
+    });
+    expect(first.ok(), await first.text()).toBe(true);
+    const opponent = (await first.json()).events.at(-1);
+    await expect(page.getByTestId("remote-table")).toHaveAttribute("data-open-chain-link", opponent.id);
+
+    // The Respond chip names the open link and opens the Hand effect row; the row finds any card.
+    await expect(page.getByTestId("respond-chip")).toContainText(/Respond to .+ \(Chain 1\)/);
+    await expect(page.getByTestId("respond-seconds")).toHaveText(/^\d+s$/);
+    await page.getByTestId("respond-chip").click();
+    await expect(page.getByTestId("hand-effect-picker")).toBeVisible();
+    await expect(page.getByTestId("respond-chip")).toHaveCount(0);
+    const search = page.getByRole("textbox", { name: "Search any card" });
+    await search.fill("Mystical Space Typhoon");
+    await expect(page.getByTestId("hand-effect-results").getByRole("button", { name: /Mystical Space Typhoon/ })).toBeVisible();
+    await search.press("Enter");
+    await expect(page.getByTestId("hand-effect-picker")).toHaveCount(0);
+    await expect(page.getByTestId("hand-activation")).toContainText("Mystical Space Typhoon");
+    const activated = await room();
+    const activation = activated.events.findLast((event: { action: { fromHand?: boolean } }) => event.action.fromHand);
+    expect(activation.action.respondsTo).toBe(opponent.id);
+    expect(activated.state.seats[0].knownHand).toContainEqual(expect.objectContaining({ cardId: 5318639 }));
+
+    const graveyard = page.getByTestId("field-0").locator('[data-zone="gy"]');
+    await expect(graveyard).toHaveAttribute("aria-label", /top card Mystical Space Typhoon/);
+    const settled = (await room()).state.seats[0];
+    expect(settled.handCount).toBe(before - 1);
+    expect(settled.knownHand ?? []).toHaveLength(0);
+    // The auto-Graveyard toast has the same single Undo as the bar.
+    await expect(page.getByTestId("toasts")).toContainText("Mystical Space Typhoon → GY", { timeout: 15_000 });
+    await page.getByTestId("auto-gy-undo").click();
+    await expect(graveyard).not.toHaveAttribute("aria-label", /top card Mystical Space Typhoon/);
+    const undone = await room();
+    expect(undone.state.seats[0].handCount).toBe(before);
+    expect(undone.state.seats[0].knownHand ?? []).toHaveLength(0);
+    expect(undone.events.findLast((event: { action: { type: string } }) => event.action.type === "undo").action.alsoUndid).toEqual([activation.id]);
+  });
+
+  test("the H key and the Hand effect button open the row, Escape closes it, and the empty row says what to do", async ({ page, context }) => {
+    const slug = await soloTable(context.request, 2, true);
+    await page.goto(`/duels/remote/${slug}`);
+    await expect(page.getByTestId("remote-table")).toBeVisible();
+    const button = page.getByTestId("hand-effect-button");
+    await expect(button).toBeVisible();
+    await expect(page.getByTestId("respond-chip")).toHaveCount(0);
+    await page.keyboard.press("h");
+    await expect(page.getByTestId("hand-effect-picker")).toBeVisible();
+    // The row says one of two things: the empty hint, or at least one hand trap. It never shows nothing.
+    await expect(page.getByTestId("hand-effect-empty").or(page.getByTestId("hand-effect-card").first())).toBeVisible();
+    await expect(page.getByRole("textbox", { name: "Search any card" })).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("hand-effect-picker")).toHaveCount(0);
+    await expect(button).toBeFocused();
+    await expect(button).toHaveAttribute("aria-expanded", "false");
+    await button.click();
+    await expect(page.getByTestId("hand-effect-picker")).toBeVisible();
+    await page.getByRole("textbox", { name: "Search any card" }).fill("Mystical Space Typhoon");
+    await page.getByTestId("hand-effect-results").getByRole("button", { name: /Mystical Space Typhoon/ }).click();
+    await expect(page.getByTestId("hand-activation")).toContainText("Mystical Space Typhoon");
+    await expect(page.getByTestId("toasts")).toContainText("→ GY", { timeout: 15_000 });
+  });
+
   test("Scan field now sits in the webcam ... menu and the S key runs it", async ({ page, context }) => {
     test.setTimeout(120_000);
     const slug = await soloTable(context.request, 2);

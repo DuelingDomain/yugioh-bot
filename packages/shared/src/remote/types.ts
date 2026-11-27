@@ -13,6 +13,8 @@ export type RemoteKnownHandCard = {
   by?: {cardId: number; name: string}; at: number; revealed: true;
   /** An explicit owner reveal can publish a Deck addition even when automatic Deck publicity is off. */
   publicIdentity?: true;
+  /** The one-turn reveal has expired, while its linked physical discard is still pending. */
+  revealExpired?: true;
 };
 export type RemoteSeatState = {
   /** An FFA privacy concession survives the next game of a match. */
@@ -57,6 +59,8 @@ export type RemotePosition = {
 };
 export type RemoteUndoEntry = {
   actionId: string; actorSeat: number; at: number; turn: number; order: number; action: RemoteAction; cards: string[];
+  /** Both actions are reversed atomically when the linked placement is undone. */
+  handPlacementId?: string; undoWith?: string; handKnownId?: string;
   /** Server-only snapshots and dependency tracking; omitted from client history. */
   before?: RemotePosition; after?: RemotePosition; blockedBy?: string[]; blocked?: boolean;
   undone?: boolean; reason?: string;

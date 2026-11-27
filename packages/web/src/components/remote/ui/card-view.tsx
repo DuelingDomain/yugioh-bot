@@ -95,6 +95,7 @@ export type CardActions = {
   where?: string;
   /** Opens the card search; the chosen card goes to the hand (hand.add). */
   onAddToHand?: () => void;
+  onActivateFromHand?: () => void;
   /** Opens the deck warning layer. Set only when this card's seat has a live warning. */
   onFlag?: (button: HTMLElement) => void;
   /** Twin edits for a card that is on a field the person may change. */
@@ -144,6 +145,7 @@ function Actions({ a, subject }: { a: CardActions; subject: Subject }) {
       {addToDeck ? <button type="button" className={BTN} disabled={a.adding} onClick={a.onAdd}>Add to decklist</button> : null}
       {a.onActivate ? <button type="button" className={BTN} onClick={a.onActivate}>Activate</button> : null}
       {a.onAddToHand ? <button type="button" className={BTN} onClick={a.onAddToHand} data-testid="add-to-hand">Add card to hand{"\u2026"}</button> : null}
+      {a.onActivateFromHand ? <button type="button" className={BTN} onClick={a.onActivateFromHand} data-testid="activate-from-hand">Activate from hand{"\u2026"}</button> : null}
       {a.onReveal ? <button type="button" className={BTN} onClick={a.onReveal}>Reveal card</button> : null}
       {a.control ? <button type="button" className={BTN} onClick={a.control.onClick} data-testid="card-control">{a.control.label}</button> : null}
       {a.give ? <button type="button" className={BTN} onClick={a.give.onClick} data-testid="card-give">{a.give.label}</button> : null}
@@ -270,7 +272,10 @@ export function InspectorBody({ subject, info, warning, actions, sourceLine }: {
   subject: Subject | null; info: CardInfo | undefined; warning?: string; actions: CardActions; sourceLine: string;
 }) {
   const status = useCardStatus(subject?.cardId || undefined);
-  if (!subject) return <p className={s.dempty}>No card selected.<br />Click a card on a camera feed, or press <kbd>F</kbd> over a feed to outline every card.</p>;
+  if (!subject) return <div className={s.dempty}>
+    <p>No card selected.<br />Click a card on a camera feed, or press <kbd>F</kbd> over a feed to outline every card.</p>
+    {actions.onActivateFromHand ? <button type="button" className={BTN} onClick={actions.onActivateFromHand} data-testid="activate-from-hand">Activate from hand{"\u2026"}</button> : null}
+  </div>;
   // cardId 0: your own card the table cannot name. Its actions (move, flip, Graveyard, Wrong card?) still work.
   if (!subject.cardId) return <div data-testid="inspector-body">
     <h3 className={s.dname} style={{ margin: 0 }}>{subject.name ?? "Face-down card"}</h3>

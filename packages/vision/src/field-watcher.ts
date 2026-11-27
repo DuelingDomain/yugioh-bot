@@ -25,7 +25,7 @@ import { fieldQuarterTurn, fieldZoneBounds, fieldZoneCells, fieldMatPoint, field
 function confidentDeckRead(result:RecognitionResult,priors:RecognitionPriors|undefined) {
   const id=result.candidates[0]?.cardId,{quality,raw,reader}=result;
   if(result.tier!=='sure'||!id||!priors?.decklist?.includes(id)||quality.notInDecklist||quality.fallback||
-    quality.covered||quality.partial||quality.faceDown||quality.framesAgree===false||raw?.blocked.length)return false;
+    quality.covered||quality.partial||quality.faceDown||quality.framesAgree===false||raw?.blocked?.length)return false;
   if(reader?.stage==='first'){
     const first=reader.first;
     return !!first&&first.score>=DUELSIGHT_CONFIDENT.score&&first.margin>=DUELSIGHT_CONFIDENT.margin;
@@ -45,7 +45,7 @@ export interface HeldUnsureEvent extends HeldCardTrack {type:'held-unsure'; cand
 
 /** A separate path so removal/shadow fixes can change the field tracker independently. */
 export function createHeldCardReader(options:Pick<FieldWatcherOptions,'recognizer'|'profile'|'getPriors'|'getKnownCards'|'clone'|'onHeldCard'|'onHeldUnsure'|'now'>) {
-  type Track={view:HeldCardTrack;look?:number[];seen:number;tried:number;attempts:number;stable:number;detectorWait:number;readMs:number;firstReadAt?:number;restGate?:number;pending:boolean;emitted:boolean;visible:boolean;field:boolean;eligible:boolean;planeHeld:boolean;/** Last sample this outline was off the mat plane (watcher clock). */lastLifted:number;unsure:boolean;/** Consecutive sure reads naming the same card. */sure?:{cardId:string;count:number}};
+  type Track={view:HeldCardTrack;look?:number[];seen:number;tried:number;attempts:number;stable:number;eligibleAt?:number;detectorWait:number;readMs:number;firstReadAt?:number;restGate?:number;pending:boolean;emitted:boolean;visible:boolean;field:boolean;eligible:boolean;planeHeld:boolean;/** Last sample this outline was off the mat plane (watcher clock). */lastLifted:number;unsure:boolean;/** Consecutive sure reads naming the same card. */sure?:{cardId:string;count:number}};
   const clone=options.clone??cloneFieldFrame,tracks:Track[]=[],lastRead=new Map<string,number>();
   const session=globalThis.crypto?.randomUUID?.()??Math.random().toString(36).slice(2);
   let serial=0,epoch=0;
@@ -81,6 +81,7 @@ export function createHeldCardReader(options:Pick<FieldWatcherOptions,'recognize
         const moving=distance(track.view.card,card)>.012||evidence.motion(card)>.025||!track.visible;
         if(moving||!(contact||planeHeld))track.stable=at;
         track.planeHeld=planeHeld;track.eligible=planeHeld||!track.field&&contact;if(planeHeld)track.lastLifted=at;
+        track.eligibleAt=track.eligible ? track.eligibleAt??at : undefined;
         track.view.card=structuredClone(card);track.seen=at;track.look=look;used.add(track);
         if(track.eligible&&track.view.cardId)lastRead.set(track.view.cardId,at);
         if(track.eligible){held.push(card);notes.set(card,planeHeld?verdict!.hard?verdict!.text:`${verdict!.text.replace(/^held\? /,'held: ')} · fingers`:'held: hand contact');}
@@ -98,7 +99,7 @@ export function createHeldCardReader(options:Pick<FieldWatcherOptions,'recognize
           try{
             if(generation!==epoch)return;
             const priors=options.getPriors?.();
-            const result=await options.recognizer.recognize([input] as ImageBitmap[]|ImageData[],{card,priors,maxFrames:1,k:5,preferUpright:true,includeIdentityEmbedding:true,includeRaw:true});
+            const result=await options.recognizer.recognize([input] as ImageBitmap[]|ImageData[],{card,priors,maxFrames:1,k:5,preferUpright:true,includeIdentityEmbedding:true,includeRaw:true,earlyExit:false,priority:'high'});
             const elapsed=performance.now()-readStart;
             track.readMs+=elapsed;
             const cardId=result.candidates[0]?.cardId;
@@ -106,9 +107,12 @@ export function createHeldCardReader(options:Pick<FieldWatcherOptions,'recognize
             if(generation!==epoch||track.field&&!track.planeHeld||track.emitted)return;
             const sure=result.tier==='sure'&&!!cardId&&cardId!==options.profile.cardBack.cardId&&!result.quality.faceDown&&!result.quality.fallback&&!result.quality.partial;
             if(sure)lastRead.set(cardId,Math.max(at,lastRead.get(cardId)??-Infinity));
-            // A confident registered name can reveal at once. Other names need two consecutive sure reads.
+            // A registered card with a wide visual margin can be revealed on the first read; so can a confident registered name. Other names need two consecutive sure reads.
+            const [best,runnerUp]=result.raw?.visual??[];
+            const fast=sure&&(track.planeHeld&&best?.cardId===cardId&&!!runnerUp&&best.score>=.85&&best.score-runnerUp.score>=.05&&
+              !!priors?.decklist?.includes(cardId)||confidentDeckRead(result,priors));
             track.sure=sure&&cardId?{cardId,count:track.sure?.cardId===cardId?track.sure.count+1:1}:undefined;
-            if(!sure||track.sure!.count<2&&!confidentDeckRead(result,priors)){
+            if(!sure||!fast&&track.sure!.count<2){
               // After the last try the player gets the best few to pick from. A wrong automatic card is worse than one tap.
               const top=result.candidates.filter(c=>c.cardId&&c.cardId!==options.profile.cardBack.cardId).slice(0,3);
               if(track.attempts>=3&&!track.unsure&&(sure||result.tier==='not sure')&&!result.quality.faceDown&&!result.quality.partial&&top.length){
@@ -140,6 +144,8 @@ export function createHeldCardReader(options:Pick<FieldWatcherOptions,'recognize
     },
     snapshot:()=>tracks.filter(t=>t.eligible).map(t=>({...t.view,visible:t.visible,card:structuredClone(t.view.card)})),
     hasVisibleCard:()=>tracks.some(t=>t.eligible&&t.visible),
+    needsUrgentRead:(at:number)=>tracks.some(t=>t.visible&&t.eligible&&t.view.card.kind==='face-up'&&
+      !t.emitted&&t.attempts<3&&at-t.seen<=1500&&at-(t.eligibleAt??at)<=2500),
     lastReadAt:(cardId:string)=>lastRead.get(cardId)??-Infinity,
     reset(){epoch++;tracks.length=0;lastRead.clear();},
   };
@@ -1180,7 +1186,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
   /** Short urgent window for a NEW card that lies on the mat (hand released, rest test running) and has no name yet: the first read must not wait for the idle pacing. Each card has URGENT_MS in total, spent only while it settles. */
   let urgentActive=false;
   const urgentTick=(at:number)=>{
-    let urgent=false;
+    let urgent=heldReader.needsUrgentRead(at);
     for(const t of tracks){
       // A finished read that waits for the rest test still needs the next samples soon (fast devices only: others keep the ordinary pacing).
       if(t.view.removed||t.view.state!=='candidate'||t.view.cardId||t.read&&!(pacer.fast&&t.read.result&&!t.read.error))continue;

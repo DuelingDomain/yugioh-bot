@@ -34,7 +34,7 @@ export function HandActivation({ events, name }: { events: readonly RemoteEvent[
       const now = current.current;
       if (action.type === "undo" || action.type === "log.note" && action.text === "Undid an action") {
         // Only an Undo of the activation on screen takes it away, not another seat's undo.
-        if (now && (action.type === "undo" ? action.targetActionId === now.id : event.actorSeat === now.seat)) setShown(null);
+        if (now && (action.type === "undo" ? action.targetActionId === now.id || action.alsoUndid?.includes(now.id) : event.actorSeat === now.seat)) setShown(null);
       } else if (action.type === "effect.activated" && action.fromHand && event.actorSeat !== null && serverNow() - event.at < FRESH_MS)
         setShown({ id: event.id, seat: event.actorSeat, cardId: action.source.cardId, name: action.source.name });
     }

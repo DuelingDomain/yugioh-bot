@@ -120,6 +120,7 @@
 .ph.on .dot{background:#1b1204;border-color:#1b1204}
 .ph.on:disabled{opacity:1}
 .pass{display:inline-flex;align-items:center;gap:8px;flex:none;height:42px;padding:0 18px;border-radius:9px;border:1px solid var(--gold);background:var(--gold-soft);color:var(--gold-ink);font:700 calc(15*var(--u))/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;white-space:nowrap}
+.bar .pass>span:last-child{max-width:clamp(64px,8vw,150px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pass:hover:not(:disabled){background:var(--gold);color:#1b1204}
 .pass:disabled{border-color:var(--line2);color:var(--ink3);background:none;cursor:default}
 .pass.hot{background:var(--gold);color:#1b1204;box-shadow:0 0 0 4px rgb(232 185 79/.18),0 0 26px rgb(232 185 79/.5);animation:hot 1.6s ease-in-out infinite}
@@ -430,7 +431,7 @@
 
 /* ============ dock: voice + undo ============ */
 .signals{display:flex;gap:6px;min-width:0}
-.signals>button{flex:1 1 0;min-width:0;max-width:220px;white-space:nowrap}
+.signals>button{flex:1 1 auto;min-width:max-content;max-width:220px;white-space:nowrap}
 .dk{display:flex;align-items:center;gap:12px;min-width:0;min-height:0;overflow:hidden;border:1px solid var(--line);border-radius:10px;background:linear-gradient(180deg,var(--p1),var(--p0));padding:8px 12px}
 .mic{position:relative;transition:border-color .3s,box-shadow .3s}
 .mic.listen{border-color:rgb(232 185 79/.7);box-shadow:0 0 0 1px rgb(232 185 79/.2),0 0 28px rgb(232 185 79/.14)}
@@ -608,17 +609,23 @@
 @media (min-width:901px) and (max-width:1100px){
   .bar{gap:8px;padding:0 8px}
   .bturn{padding-right:8px;gap:8px}.bturn .tn b{max-width:96px;font-size:calc(16*var(--u))}
-  .bar .dk.undo{flex:0 1 auto;min-width:0}.bar .ubtn{flex:0 1 auto;min-width:0;padding:0 10px}.bar .ubtn .ul{max-width:96px;font-size:calc(14*var(--u))}
-  .bsig{flex:1 1 auto;min-width:150px}
+  .bar .dk.undo{flex:0 1 auto;min-width:0}.bar .ubtn{flex:0 0 auto;min-width:44px;padding:0 12px}.bar .ubtn .ut{display:none}
+  .bsig{flex:1 1 auto;min-width:min-content}.signals kbd{display:none}
   .bar .pass{padding:0 12px;font-size:calc(14*var(--u))}.bar .pass>span:last-child{display:none}
   .bar .pback{padding:0 10px}
   .bvbtn .bvl{display:none}
   .bmore{display:none}
 }
+/* The Hand effect label loses its second word in the narrowest laptop windows, so the bar still fits in one row. */
+@media (min-width:901px) and (max-width:1000px){
+  /* The header row is full at 920: the crumb, the table chip, the Beta tag and the feed words go, so Card and Log stay whole. */
+  .top .crumb,.top .cchip,.top .vbeta,.top .tbStatus>span:last-child{display:none}
+  .hef{display:none}.bturn .tn b{max-width:70px}
+}
 /* 1101-1500 px with the voice controls: the Undo label gives way first, so Think and OK are never squeezed. */
 @media (min-width:1101px) and (max-width:1500px){
-  .bar .dk.undo{flex:0 1 auto;min-width:0}.bar .ubtn{flex:0 1 auto;min-width:0}.bar .ubtn .ul{max-width:clamp(90px,13vw,200px)}
-  .bsig{flex:1 1 auto;min-width:150px}
+  .bar .dk.undo{flex:0 1 auto;min-width:150px}.bar .ubtn{flex:0 1 auto;min-width:0}.bar .ubtn .ul{max-width:clamp(90px,13vw,200px)}
+  .bsig{flex:1 1 auto;min-width:min-content}
 }
 
 @media (max-width:900px){
@@ -633,7 +640,8 @@
   .bover[data-open]{display:flex}
   .bover>.undo{min-width:0}
   .bar .ubtn{flex:1;min-width:0}.bar .ubtn .ul{max-width:none;font-size:calc(14*var(--u))}.bar .ubtn .ut{display:flex}
-  .bover>.bsig{justify-content:center;flex:none;min-width:0}
+  .bover>.bsig{justify-content:center;flex:none;min-width:0;flex-wrap:wrap}
+  .bover>.bsig .signals{flex:1 1 100%}.bover>.bsig .signals>button{max-width:none}
   .bover>.bmenu{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:6px}.bmenu .bsep{display:none}.bmbtn{height:44px;font-size:calc(14*var(--u))}.bmore{display:inline}
   .bar .myfield{display:inline-flex}
   .bvbtn .bvl{display:none}
@@ -1049,7 +1057,10 @@
   .peek{top:calc(var(--hdr) + 6px);left:10px;right:10px;max-width:none}
   .hpop{left:8px;right:8px;width:auto}
   .hist{left:8px!important;right:8px;width:auto;bottom:calc(var(--bar) + 16px)!important;top:auto!important}
-  .toasts{bottom:calc(var(--dockh,128px) + 110px);max-width:94vw}
+  .toasts{bottom:calc(var(--dockh,128px) + 10px);max-width:94vw}
+  /* The Respond chip and the hand effect row sit at the same height: the toast goes above them. */
+  .app[data-handui] .toasts{bottom:calc(var(--dockh,128px) + 64px)}
+  .app[data-handui] .shell{padding-bottom:calc(var(--dockh,128px) + 64px)}
   .banner{position:fixed;inset:var(--hdr) 0 auto 0;height:34vh}
   .arrow{display:none}
 }
@@ -1552,10 +1563,13 @@
 .fxl{position:fixed;inset:0;z-index:34;pointer-events:none;overflow:hidden}
 
 /* A card held up from the hand, for every seat and spectator: big art and one line, over the board, never a click. */
-.hact{position:fixed;left:50%;top:calc(var(--hdr,48px) + 16px);transform:translateX(-50%);z-index:72;display:flex;flex-direction:column;align-items:center;gap:8px;max-width:92vw;pointer-events:none;animation:pop .3s var(--ease)}
+/* Below the seat headers and their LP and buttons: the announcement covers camera area only. */
+.hact{position:fixed;left:50%;top:calc(var(--hdr,48px) + 112px);transform:translateX(-50%);z-index:72;display:flex;flex-direction:column;align-items:center;gap:8px;max-width:92vw;pointer-events:none;animation:pop .3s var(--ease)}
 .hact img{width:clamp(96px,min(18vh,34vw),240px);aspect-ratio:59/86;object-fit:cover;border-radius:8px;border:1px solid var(--gold-ink,#e8b94f);box-shadow:0 14px 44px rgb(0 0 0/.7)}
 .hact p{margin:0;padding:6px 14px;border:1px solid var(--line2);border-radius:10px;background:rgb(20 13 38/.97);box-shadow:0 8px 24px rgb(0 0 0/.6);font-size:calc(14*var(--u));text-align:center}
 .hact b{color:var(--gold-ink)}
+/* On a phone the card is small so the text sits on the camera area, not on the revealed strip or the hand count. */
+@media (max-width:900px){.hact{top:calc(var(--hdr,50px) + 106px)}.hact img{width:84px}.hact p{max-width:min(300px,86vw);font-size:13px}}
 /* Quick look at a revealed hand card: fixed, no clicks. */
 .hprev{position:fixed;z-index:70;display:flex;flex-direction:column;gap:3px;padding:6px;border:1px solid var(--gold-ink,#e8b94f);border-radius:8px;background:rgb(12 8 24/.96);box-shadow:0 10px 30px rgb(0 0 0/.6);pointer-events:none}
 .hprev img{width:100%;aspect-ratio:59/86;object-fit:cover;border-radius:4px}
@@ -1828,7 +1842,7 @@
   .app[data-drawer] .bar{gap:8px;padding:0 8px}
   .app[data-drawer] .bturn{padding-right:8px;gap:8px}.app[data-drawer] .bturn .tn b{max-width:170px;font-size:calc(16*var(--u))}
   .app[data-drawer] .bar .dk.undo{flex:0 1 auto;min-width:0}.app[data-drawer] .bar .ubtn{flex:0 1 auto;min-width:0;padding:0 10px}.app[data-drawer] .bar .ubtn .ut{display:none}
-  .app[data-drawer] .bsig{flex:1 1 auto;min-width:150px}
+  .app[data-drawer] .bsig{flex:1 1 auto;min-width:min-content}.app[data-drawer] .signals kbd,.app[data-drawer] .hef{display:none}
   .app[data-drawer] .bar .pass{padding:0 12px;font-size:calc(14*var(--u))}.app[data-drawer] .bar .pass>span:last-child{display:none}
   .app[data-drawer] .bar .pback{padding:0 10px}
   .app[data-drawer] .bvbtn .bvl,.app[data-drawer] .bmore{display:none}

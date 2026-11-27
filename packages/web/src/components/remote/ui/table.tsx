@@ -4,7 +4,7 @@ import {announceNotACard} from '@/lib/remote/set-card-diagnostics';
 import { REMOTE_TABLE_TALK } from "@/lib/remote/table-talk";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
-import { REMOTE_FORMATS, REMOTE_HAND_SUGGESTION_EVENT, type RemoteHandSuggestionEvent, matchCardsByName, previousYgoPhase, normalizeRemoteFormat, remoteOwnFirstPending, remoteRecognitionRef, remoteRecognitionRefs, type RemoteActionProposal, type RemoteEvent, type RemoteRoom, type RemoteUndoEntry } from "@yugidraft/shared/remote";
+import { HAND_ACTIVATION_FALLBACK_MS, REMOTE_FORMATS, REMOTE_HAND_SUGGESTION_EVENT, type RemoteHandSuggestionEvent, matchCardsByName, pendingRemoteHandActivations, previousYgoPhase, normalizeRemoteFormat, remoteHandActivationAction, remoteOwnFirstPending, remoteRecognitionRef, remoteRecognitionRefs, type RemoteActionProposal, type RemoteEvent, type RemoteRoom, type RemoteUndoEntry } from "@yugidraft/shared/remote";
 import { useSeatFocus } from "./seat-focus";
 import { cardInfo, isLinkInfo, isMonsterInfo, loadCards, searchCards, useCardInfo } from "./catalog";
 import { EffectControls, EffectPicker } from "./effect-controls";
@@ -48,6 +48,8 @@ import { SeatPanel } from "./seat-panel";
 import type { RescanResult } from "@/lib/remote/video-protocol";
 import { RemoteFx } from "./remote-fx";
 import { HandActivation } from "./hand-activation";
+import { HAND_EFFECT_KEYS, HandEffectPicker, RespondChip, type HandEffectCard } from "./hand-effect";
+import fx from "./hand-effect.module.css";
 import { isPushedLayer, useLayers } from "./use-layers";
 import { remoteApi, serverNow } from "./api";
 import { useRemoteRoom, type RoomController } from "./use-remote-room";
@@ -90,13 +92,13 @@ import {distinctFieldQuads,fieldReadingPlaceholder,rememberFieldObservation} fro
 import {SUMMON_WINDOW_MS} from '@/lib/remote/field-summons';
 import { useCardMenu } from "./card-menu";
 import { FeedCardsProvider } from "./feed-cards";
-import { ChainBadges, chainMarksOf } from "./chain-marks";
+import { ChainBadges, chainMarksOf, useOpenChainLink } from "./chain-marks";
 import { useTokens } from "./token-ui";
 import { useControlChange } from "./control-ui";
 import { useNextStep } from "./next-step-chip";
 import { quickMoves } from "./quick-moves";
 import { controlOffer, equipsItself } from "@/lib/remote/card-logic";
-import { handAdd, handCount, handCountOf, handReveal, knownHandOf, openSearch, SEARCH_WINDOW_MS, type HandBy, type HandCandidate, type HandSource, type HandSuggestion, type KnownHandCard } from "./reveal-model";
+import { handAdd, handCount, handCountOf, handReveal, handTrapCandidatesOf, knownHandOf, openSearch, SEARCH_WINDOW_MS, type HandBy, type HandCandidate, type HandSource, type HandSuggestion, type KnownHandCard } from "./reveal-model";
 import type { HandProps } from "./hand-ui";
 import { isTypingTarget } from "@/lib/typing-target";
 import { playerStamp } from "@/lib/remote/field-timing";
@@ -208,6 +210,14 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
   const onSeatDock = useCallback((seat: number, node: HTMLElement | null) => setSeatDocks(old => old[seat] === node ? old : { ...old, [seat]: node }), []);
   const [toasts, setToasts] = useState<ToastItem[]>([]); const toastId = useRef(0);
   const toast = useCallback((text: ReactNode, ms = 2800) => { const id = ++toastId.current; setToasts(list => [...list.slice(-2), { id, text }]); setTimeout(() => setToasts(list => list.filter(item => item.id !== id)), ms); }, []);
+  // On a phone (or when the seat dock is below the visible screen) a toast in the dock cannot be seen: it goes fixed, above the bottom bar.
+  const [toastsFixed, setToastsFixed] = useState(false);
+  useLayoutEffect(() => {
+    if (!toasts.length) return;
+    const dock = seatDocks[mySeat];
+    const rect = dock?.getBoundingClientRect();
+    setToastsFixed(window.innerWidth <= 900 || !rect || rect.bottom > window.innerHeight || rect.top < 0);
+  }, [toasts.length, seatDocks, mySeat]);
   const [banner, setBanner] = useState<{ id: number; small: string; big: string } | null>(null);
   // Thinking, OK and chain links come from the room events, so every screen shows the same.
   const okHold = useOkHold(room.events);
@@ -225,6 +235,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
   }, [pendingThink, thinking]);
   const chain = useMemo(() => chainOf(room.events, aliveSeats(state)), [room.events, state]);
   const chainMarks = useMemo(() => chainMarksOf(chain), [chain]);
+  const respondTo = useOpenChainLink(room.events, aliveSeats(state), live ? mySeat : -1);
   const [peek, setPeek] = useState<PeekState>(null); const peekTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const showPeek = useCallback((kind: LogKind, text: ReactNode) => {
     if (R.current.layer === "log") return;
@@ -348,6 +359,58 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     if(updated&&proposal.type!=='cards.identified'){setSelected(null);camHover.current=null;}
     return updated;
   },[ctl.action,toast]);
+  /** Undo one placement: the toast Undo calls this with the placement's own history entry (set after `doUndo` is defined). */
+  const undoEntryRef = useRef<(entry?: RemoteUndoEntry) => void>(() => undefined);
+  /** Cards this client sent to a pile by the timer, until their Undo toast has shown. */
+  const autoPlaced = useRef(new Map<string, { label: string; destination: string; at: number }>());
+  /** Bumps when a placement is noted, so the toast check runs even if the history entry came first. */
+  const [autoNoted, setAutoNoted] = useState(0);
+  // The same timer runs for manual and camera activations. The transaction lets already-queued pile reads finish first.
+  const noopAt = useRef(new Map<string, number>());
+  useEffect(() => {
+    if (!live || mySeat < 0) return;
+    const ownSeats = solo ? state.seats.map(s => s.seat) : [mySeat];
+    const pending = ownSeats.flatMap(seat => pendingRemoteHandActivations(state, seat).map(entry => ({ ...entry, seat })))
+      .sort((a, b) => a.at - b.at)[0];
+    if (!pending) return;
+    let stopped = false;
+    const key = crypto.randomUUID(), ref = crypto.randomUUID();
+    let timer: ReturnType<typeof setTimeout>;
+    const settle = async () => {
+      let placed = false, latestSeq = -1;
+      const updated = await ctl.transaction(async (latest, send) => {
+        if (stopped || latest.slug !== room.slug || latest.status !== "active" ||
+            !pendingRemoteHandActivations(latest.state, pending.seat).some(entry => entry.actionId === pending.actionId)) return latest;
+        placed = true; latestSeq = latest.lastSeq;
+        // A timed placement the server turns down is retried below. Its raw error is not shown (the card is simply not placed yet).
+        // The flag clears a moment after the send, so the error effect (which runs on the next render) still sees it.
+        quietError.current = true;
+        try {
+          return await send({ type: "twin.place", actorSeat: pending.seat, seat: pending.seat, source: "auto", zone: pending.destination,
+            fromActivation: pending.actionId, handFallback: true, card: { ref, cardId: pending.cardId, name: pending.name, faceUp: true, position: "attack" } }, key);
+        } finally { setTimeout(() => { quietError.current = false; }, 150); }
+      }).catch(() => null);
+      // The server took the send as a no-op (the table did not move): wait a second before the next try instead of looping.
+      if (placed && updated && updated.lastSeq === latestSeq) noopAt.current.set(pending.actionId, Date.now());
+      if (!stopped && !updated) timer = setTimeout(() => void settle(), 1000);
+      // The toast shows when the placement's own history entry arrives (see the effect below).
+      else if (placed && updated) { autoPlaced.current.set(pending.actionId, { label: pending.name ?? cardInfo(pending.cardId)?.name ?? "Card", destination: pending.destination, at: Date.now() }); setAutoNoted(n => n + 1); }
+    };
+    // The HTTP Date estimate can be up to a second ahead of the server clock; 1.5 s covers a slow link as well.
+    const delay = Math.max(0, pending.at + HAND_ACTIVATION_FALLBACK_MS + 1500 - serverNow());
+    timer = setTimeout(() => void settle(), Math.max(delay, (noopAt.current.get(pending.actionId) ?? -Infinity) + 1000 - Date.now()));
+    return () => { stopped = true; clearTimeout(timer); };
+  }, [ctl.transaction, live, mySeat, room.slug, solo, state]);
+  // The card went to its pile by itself: say so, with an Undo for that placement (not the newest action of mine).
+  useEffect(() => {
+    for (const [actionId, placed] of autoPlaced.current) {
+      const entry = state.undoHistory?.find(item => item.undoWith === actionId && !item.undone);
+      if (!entry) { if (Date.now() - placed.at > 10_000) autoPlaced.current.delete(actionId); continue; }
+      autoPlaced.current.delete(actionId);
+      toast(<span className={fx.autoGy}><span className={fx.agName}><b className={fx.agCard}>{placed.label}</b><span className={fx.agDest}> → {placed.destination === "banished" ? "Banished" : "GY"}</span></span>
+        <button type="button" className={fx.toastUndo} data-testid="auto-gy-undo" onClick={() => undoEntryRef.current(R.current.state.undoHistory?.find(item => item.undoWith === actionId && !item.undone) ?? entry)}>Undo</button></span>, 7000);
+    }
+  }, [state, toast, autoNoted]);
   /** `tokenOnly`: an empty Main Monster Zone of another player's field. Its menu has just "Add token", and the view stays as it is. */
   const openZonePicker = (seat: number, key: ZoneKey, targetRef?: string, initialFaceUp=true, startPicker=false, tokenOnly=false) => {
     if (!live || !(solo || seat === mySeat || tokenOnly && mySeat >= 0 && !room.spectator) || state.seats[seat]?.eliminated || isPile(key)) return;
@@ -516,6 +579,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     const done = await act({ type: "undo", actorSeat: now.solo ? target.actorSeat : now.mySeat, targetActionId: target.actionId });
     if (done) { setFlash(n => n + 1); toast(<>Undid <b>{shortUndoLabel(target, (seat, ref) => { const card = current.seats[seat]?.twin.find(item => item.ref === ref); return card ? cardName(card, info(cardCode(card))) : undefined; }, name) ?? "last action"}</b></>); }
   }, [act, toast, name, info]);
+  undoEntryRef.current = entry => void doUndo(entry);
 
   // ---- feed marks, recognition ----
   const [marks, setMarks] = useState<Record<number, FeedMark[]>>({});
@@ -1248,6 +1312,8 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
   useEffect(() => { setSelected(null); camHover.current = null; }, [state.turn, state.turnSeat]);
   /** The E key: activate the card I mean. Under the pointer or focused first, then my newest placement of the last 10 s, else a numbered row. */
   const [activateRow, setActivateRow] = useState<{ seat: number; cards: TwinCard[] } | null>(null);
+  /** True while the hand effect row is open (the key handler of the table reads it; the row itself is below). */
+  const handRowOpen = useRef(false);
   useEffect(() => { if (activateRow && (!live || tableBlocked)) setActivateRow(null); }, [activateRow, live, tableBlocked]);
   const sendActivation = useCallback((seat: number, card: TwinCard) => {
     const cardId = cardCode(card); if (!cardId) return;
@@ -1392,6 +1458,8 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
         const picked = /^[1-9]$/.test(event.key) ? row.cards[Number(event.key) - 1] : undefined;
         if (picked && !modal) { event.preventDefault(); L.pickFromRow(row.seat, picked); return; }
       }
+      // The hand row owns the keyboard while it is open: only its own keys (see the hand effect keys below) work.
+      if (handRowOpen.current) return;
       if (!event.repeat && !event.shiftKey && !event.defaultPrevented && !modal) {
         if ((event.key === "t" || event.key === "T") && L.think) { event.preventDefault(); L.think(); return; }
         if ((event.key === "e" || event.key === "E") && L.activate) { event.preventDefault(); L.activate(); return; }
@@ -1453,6 +1521,76 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     setTray({ seat, ownerName: name(seat), status: "empty", guesses: [], note: "Search for the card to add to your hand.", reader: "none", at, intent: "hand", originId, by, source });
     layers.open("tray");
   }, [layers, name, popAt]);
+  const handActivationPending = useRef(false);
+  const sendHandActivation = useCallback(async (seat: number, cardId: number) => {
+    if (handActivationPending.current) return;
+    handActivationPending.current = true;
+    try { return await act(remoteHandActivationAction(seat, cardId)); }
+    finally { handActivationPending.current = false; }
+  }, [act]);
+  const searchForHandActivation = useCallback((seat: number) => {
+    const at: PopAt = popAt;
+    const guesses = handTrapCandidatesOf(R.current.room, seat).slice(0, 5).map(card => ({ cardId: card.cardId, name: card.name, score: null }));
+    ctx.current = { seat, x: .5, y: .5, at, id: ++readCounter.current };
+    setTray({ seat, ownerName: name(seat), status: "empty", guesses, note: "Search for the card to activate from your hand.", reader: "none", at, intent: "hand-activation" });
+    layers.open("tray");
+  }, [layers, name, popAt]);
+  // ---- hand effect row (H, the bar button, or the Respond chip) ----
+  const [handRow, setHandRow] = useState<{ seat: number } | null>(null);
+  const handSeat = mySeat >= 0 ? mySeat : signalSeat;
+  const handShown = signalShown && !room.spectator && maySignal(state, handSeat);
+  useEffect(() => { if (handRow && (!live || tableBlocked || !handShown || (layers.layer && !(layers.layer === "log" && isPushedLayer("log"))))) setHandRow(null); }, [handRow, live, tableBlocked, handShown, layers.layer]);
+  if (handRow) escapeBusy.current = true;
+  handRowOpen.current = !!handRow;
+  // The row and the activate row never show together; whichever opens last wins.
+  useEffect(() => { if (handRow) setActivateRow(null); }, [handRow]);
+  useEffect(() => { if (activateRow) setHandRow(null); }, [activateRow]);
+  const handButton = useRef<HTMLButtonElement>(null);
+  const closeHandRow = useCallback((refocus = false) => { setHandRow(null); if (refocus) setTimeout(() => handButton.current?.focus(), 0); }, []);
+  // Nine cards take the number keys; the search field covers the rest.
+  const handCandidates: HandEffectCard[] = handRow ? handTrapCandidatesOf(room, handRow.seat).slice(0, HAND_EFFECT_KEYS).map(card => ({ cardId: card.cardId, name: card.name })) : [];
+  const pickHandEffect = useCallback((seat: number, card: HandEffectCard) => {
+    setHandRow(null);
+    void sendHandActivation(seat, card.cardId);
+  }, [sendHandActivation]);
+  const handKeys = useRef({ handRow, handShown, handSeat, candidates: handCandidates, pickHandEffect, closeHandRow });
+  handKeys.current = { handRow, handShown, handSeat, candidates: handCandidates, pickHandEffect, closeHandRow };
+  useEffect(() => {
+    function down(event: KeyboardEvent) {
+      const K = handKeys.current;
+      if (typing(event.target) || event.ctrlKey || event.metaKey || event.altKey || event.defaultPrevented || event.shiftKey) return;
+      if (R.current.layer && !(R.current.layer === "log" && isPushedLayer("log"))) return;
+      if (document.querySelector('[role="alertdialog"],[role="dialog"][aria-modal="true"]')) return;
+      if (K.handRow) {
+        if (event.key === "Escape") { event.preventDefault(); K.closeHandRow(true); return; }
+        const picked = /^[1-9]$/.test(event.key) && Number(event.key) <= HAND_EFFECT_KEYS ? K.candidates[Number(event.key) - 1] : undefined;
+        if (picked) { event.preventDefault(); K.pickHandEffect(K.handRow.seat, picked); return; }
+      }
+      if ((event.key === "h" || event.key === "H") && !event.repeat && K.handShown) { event.preventDefault(); setHandRow(row => row ? null : { seat: K.handSeat }); }
+    }
+    document.addEventListener("keydown", down);
+    return () => document.removeEventListener("keydown", down);
+  }, []);
+  // The row and the chip sit over MY seat panel (never over the opponent's "Revealed in hand" strip, which is centred on the screen).
+  const [handAnchor, setHandAnchor] = useState<{ x: number; w: number } | null>(null);
+  const handUiOpen = !!handRow || !!(respondTo && handShown);
+  useLayoutEffect(() => {
+    if (!handUiOpen) { setHandAnchor(null); return; }
+    const seatEl = () => document.querySelector<HTMLElement>(`[data-testid="seat-${handSeat}"]`);
+    const measure = () => {
+      const el = seatEl(); if (!el) { setHandAnchor(null); return; }
+      const r = el.getBoundingClientRect(), vw = window.innerWidth;
+      const left = Math.max(0, r.left), right = Math.min(vw, r.right);
+      setHandAnchor(old => { const next = { x: Math.round((left + right) / 2), w: Math.round(right - left) }; return old && old.x === next.x && old.w === next.w ? old : next; });
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    const el = seatEl(); const watcher = typeof ResizeObserver === "undefined" || !el ? null : new ResizeObserver(measure);
+    if (el) watcher?.observe(el);
+    const interval = setInterval(measure, 500); // a drawer or a layout change moves the seat without a resize
+    return () => { window.removeEventListener("resize", measure); watcher?.disconnect(); clearInterval(interval); };
+  }, [handUiOpen, handSeat]);
+  const handAnchorStyle = handAnchor ? ({ "--ax": `${handAnchor.x}px`, "--aw": `${handAnchor.w}px` } as CSSProperties) : undefined;
   // The contract sends card ids only: load the names, then draw again.
   const [, setNames] = useState(0);
   const knownIds = state.seats.flatMap(item => ((item as unknown as { knownHand?: { cardId: number }[] }).knownHand ?? []).map(card => card.cardId)).join(",");
@@ -1598,7 +1736,11 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     voice: voiceRecognition,
     canAttack: !!subjectCard && !block, attackHint: block || "Pick this monster as the attacker", onAttack: () => subjectCard && subject && startAttack(subject.seat, subjectCard),
     onWrong: () => { if (subject) wrongCard(subject, popAt); },
-    onActivate: subject && subject.cardId && live && subjectCard?.zone !== "deck" && subjectCard?.zone !== "extra" && (solo || subject.seat===mySeat) ? () => void act({type:"effect.activated",actorSeat:subject.seat,source:{cardId:subject.cardId,...(subject.ref ? {cardRef:subject.ref} : {})}}).then(done=>{if(done) layers.close();}) : undefined,
+    onActivate: subject && subject.cardId && live && subjectCard?.zone !== "deck" && subjectCard?.zone !== "extra" && (solo || subject.seat===mySeat) ? () => {
+      const activation = subject.from === "hand" ? sendHandActivation(subject.seat, subject.cardId) :
+        act({ type: "effect.activated", actorSeat: subject.seat, source: { cardId: subject.cardId, ...(subject.ref ? { cardRef: subject.ref } : {}) } });
+      void activation.then(done => { if (done) layers.close(); });
+    } : undefined,
     onReveal: subject && subjectCard && !subjectCard.faceUp && (solo || subject.seat===mySeat) ? () => void act({type:"twin.flip",actorSeat:subject.seat,seat:subject.seat,cardRef:subjectCard.ref,faceUp:true}) : undefined,
     ...(subject?.from === "camera" && !pinnable ? {} : { onPin: pinCard }),
     // Control change: take an opponent's monster or revived card, or hand a taken card back. Never guessed; the player presses the button.
@@ -1609,6 +1751,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     ...(subject && subjectCard?.ownerSeat !== undefined && !state.seats[subjectCard.ownerSeat]?.eliminated && control.may(subject.seat) ? { control: { label: "Return control", onClick: () => { control.giveBack(subject.seat, subjectCard); } } } : {}),
     ...(subject && subjectCard && subject.seat === mySeat && !subjectCard.token && control.canGive && ["monster", "extra-monster", "spell-trap"].includes(subjectCard.zone) ? { give: { label: "Give to opponent", onClick: () => { if (control.give(subjectCard)) { layers.close(); setSubject(null); } } } } : {}),
     ...(live && (solo || mySeat >= 0) ? { onAddToHand: () => searchForHand(solo ? (subject?.seat ?? mySeat) : mySeat) } : {}),
+    ...(live && maySignal(state, mySeat) ? { onActivateFromHand: () => searchForHandActivation(mySeat) } : {}),
     undo: cardUndo,
     ...(subject && subjectCard?.materials?.length ? { materials: subjectCard.materials.flatMap(ref => {
       const material = state.seats[subject.seat]?.twin.find(c => c.ref === ref); if (!material) return [];
@@ -1830,7 +1973,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
   });
   // The result screen already says the match ended: the "table ended" banner waits until it is closed.
   const resultShown = (match.phase === "result" && room.status === "active") || (match.phase === "done" && !boardView);
-  return <FeedCardsProvider seats={state.seats} info={info} marks={chainMarks}><div ref={appRef} className={`${duelFontClasses} ${s.app}`} data-drawer={layers.layer === "log" ? drawerTab : layers.layer === "insp" ? "insp" : undefined} data-mode={mode} data-wc={webcamOnly ? "1" : undefined} data-testid="remote-table" data-status={room.status} {...cardMenu}>
+  return <FeedCardsProvider seats={state.seats} info={info} marks={chainMarks}><div ref={appRef} className={`${duelFontClasses} ${s.app}`} data-drawer={layers.layer === "log" ? drawerTab : layers.layer === "insp" ? "insp" : undefined} data-mode={mode} data-handui={handUiOpen ? "1" : undefined} data-wc={webcamOnly ? "1" : undefined} data-testid="remote-table" data-status={room.status} data-open-chain-link={respondTo?.event.id} {...cardMenu}>
     <AutoFieldWatcher dock={seatDocks[mySeat] ?? null} room={room} transaction={ctl.transaction} diagnosticsAllowed={feedbackPref?.isAdmin===true && feedbackPref.collectionEnabled} />
     <a className={s.skip} href="#stage">Skip to the table</a>
     <div className={s.shell}>
@@ -1894,6 +2037,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
           {signalShown ? <div className={s.signals}>
             <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} aria-pressed={thinkOn} onClick={event => { thinkNow(); event.currentTarget.blur(); }} title="Thinking: tell the table you are deciding. Press again to cancel. No time limit." data-testid="think-button">{thinkOn ? "Thinking…" : "Think"} <kbd>T</kbd></button>
             <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} onClick={event => { okNow(); event.currentTarget.blur(); }} title="OK: no response" data-testid="ok-button">OK <kbd>Space</kbd></button>
+            {handShown ? <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} ref={handButton} aria-pressed={!!handRow} aria-expanded={!!handRow} onClick={event => { setHandRow(row => row ? null : { seat: handSeat }); event.currentTarget.blur(); }} aria-label="Hand effect" title="Hand effect: activate a card from your hand, such as a hand trap" data-testid="hand-effect-button"><span>Hand<span className={s.hef}> effect</span></span> <kbd>H</kbd></button> : null}
           </div> : null}</>}
         onSurrender={canSurrender ? el => openLeave("game", el) : undefined} onQuit={canQuit ? el => openLeave("match", el) : undefined}
         voice={micSection ? { state: micState, muted, onMute: () => setMuted(v => !v), level: voice.level, recognition: voiceRecognition, proposal: !!chip, onOpenSettings: () => openDrawer("settings"), details:
@@ -1946,7 +2090,15 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
       } : {})} /> : null}
     {layers.layer === "card" && subjectDetails ? <CardPopover subject={subjectDetails} info={subjectInfo} at={popAt} warning={deckFlag(room, subjectDetails.seat)?.message} actions={shownActions} onClose={() => layers.close("card")} /> : null}
     {tray ? <RecognitionTray dock={seatDocks[tray.seat] ?? null} key={readCounter.current} tray={tray} aiAllowed={aiAllowed} onClose={closeTray} onRemovePlaced={ref => { void act({ type: "twin.remove", actorSeat: solo ? tray.seat : mySeat, seat: tray.seat, cardRef: ref, cam: playerStamp("popup-remove") }); closeTray(); setSubject(null); }} saying={false}
-      inDeck={id => { const flag = flagFor(tray.seat, id); return flag === null ? null : !flag; }} onPick={pick => { if (tray.intent === "hand") { addToHand(tray.seat, { cardId: pick.cardId, name: pick.name }, tray.originId ? tray.source ?? "deck" : "unknown", tray.by, tray.originId); closeTray(); return; } void identify(pick, pick.via === "typed" ? "typed" : pick.via); }} /> : null}
+      inDeck={id => { const flag = flagFor(tray.seat, id); return flag === null ? null : !flag; }} onPick={pick => {
+        if (tray.intent === "hand-activation") {
+          const id = readCounter.current;
+          void sendHandActivation(tray.seat, pick.cardId).then(done => { if (done && id === readCounter.current) closeTray(); });
+          return;
+        }
+        if (tray.intent === "hand") { addToHand(tray.seat, { cardId: pick.cardId, name: pick.name }, tray.originId ? tray.source ?? "deck" : "unknown", tray.by, tray.originId); closeTray(); return; }
+        void identify(pick, pick.via === "typed" ? "typed" : pick.via);
+      }} /> : null}
     {layers.layer==="effect" && effectOrigin ? (()=>{
       const origin=state.effectTracking?.origins.find(o=>o.id===effectOrigin);
       if(!origin) return null;
@@ -1989,8 +2141,11 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     {control.node}
     {nextStep.node}
     {/* A drawer or pile covers the stack, so a toast leaves it and stays readable. */}
-    <Toasts items={toastItems} dock={layers.layer && layers.layer !== "card" && layers.layer !== "tray" ? null : seatDocks[mySeat] ?? null} top={layers.layer === "pile"} />
+    <Toasts items={toastItems} dock={layers.layer && layers.layer !== "card" && layers.layer !== "tray" || toastsFixed ? null : seatDocks[mySeat] ?? null} top={layers.layer === "pile"} />
     <HandActivation events={room.events} name={name} />
+    {handRow ? <HandEffectPicker candidates={handCandidates} style={handAnchorStyle} onPick={card => pickHandEffect(handRow.seat, card)} onClose={() => closeHandRow(true)} /> : null}
+    {respondTo && handShown && !handRow ? <RespondChip key={respondTo.event.id} style={handAnchorStyle} event={respondTo.event} n={respondTo.n} who={name(respondTo.event.actorSeat ?? 0)}
+      card={respondTo.event.action.type === "effect.activated" ? respondTo.event.action.source.name ?? info(respondTo.event.action.source.cardId)?.name ?? "a card" : "a card"} onClick={() => setHandRow({ seat: handSeat })} /> : null}
     {activateRow ? <ActivateRow cards={activateRow.cards} info={info} onPick={card => pickFromRow(activateRow.seat, card)} onClose={() => setActivateRow(null)} /> : null}
     <ChainBadges marks={chainMarks} />
     <RemoteFx state={state} webcamOnly={webcamOnly} hiddenSeats={seatIds.filter(boardHidden)} seq={room.lastSeq} last={room.events.find(event => event.seq === room.lastSeq)?.action} chainNo={chain.links.get(room.events.find(event => event.seq === room.lastSeq)?.id ?? "")?.n} />
