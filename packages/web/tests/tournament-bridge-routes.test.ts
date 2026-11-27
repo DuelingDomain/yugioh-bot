@@ -177,6 +177,21 @@ it("returns one stable result when multiple accounts match the same exact identi
   expect(await (await searchExact("Ada_Name")).json()).toEqual({ users: [expectedUser] });
 });
 
+it.each([
+  ["000-987654321", 4],
+  ["ada.discord", 4],
+  ["bea@example.test", 3],
+])("prioritizes the exact match kind over user ID for %s", async (query, id) => {
+  db.exec(`update users set email_verified = 1 where id = 2;
+    insert into users(id,username,display_name) values
+      (3,'000-987654321','Charlie Example'), (4,'ADA.DISCORD','Dana Example');
+    insert into user_profile_ids(user_id,member_id,discord_username,updated_at) values
+      (3,null,'BEA@EXAMPLE.TEST','2026-01-01'), (4,'987654321',null,'2026-01-01');`);
+  const response = await searchExact(query);
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({ users: [expect.objectContaining({ id })] });
+});
+
 it("looks up at most 500 IDs with stable de-duplication and identifies unknown/deleted users", async () => {
   expect(await (await lookupIds([2, 1, 99, 1])).json()).toEqual({ users: [
     { id: 2, username: "bea", displayName: "Bea Example", discordUserId: null, discordUsername: null, memberId: null }, expectedUser,

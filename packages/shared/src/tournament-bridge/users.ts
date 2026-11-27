@@ -42,11 +42,15 @@ export function createTournamentBridgeUsers(db: Database.Database) {
       const q = query.trim();
       if (!q) return [];
       if (exact) {
-        return db.prepare<[string, string, string | null, string], TournamentUser>(`${selectUser}
-          and (u.username = ? collate nocase or p.discord_username = ? collate nocase
-            or p.member_id = ? or (u.email_verified = 1 and u.email = ?))
-          order by u.id limit 1`)
-          .all(q, q, normalizeMemberId(q), q.toLowerCase());
+        return db.prepare<{ name: string; memberId: string | null; email: string }, TournamentUser>(`${selectUser}
+          and (p.member_id = @memberId or u.username = @name collate nocase
+            or p.discord_username = @name collate nocase or (u.email_verified = 1 and u.email = @email))
+          order by case
+            when p.member_id = @memberId then 0
+            when u.username = @name collate nocase then 1
+            when p.discord_username = @name collate nocase then 2
+            else 3 end, u.id limit 1`)
+          .all({ name: q, memberId: normalizeMemberId(q), email: q.toLowerCase() });
       }
       const escaped = q.replace(/[\\%_]/g, "\\$&");
       return db.prepare<[string, string | null, string, string, string, string, string | null, string], TournamentUser>(`${selectUser}
