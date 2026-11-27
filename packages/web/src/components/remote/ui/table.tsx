@@ -538,11 +538,20 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
   const webcamOnly = multi || resolveWebcamOnly(choice);
   // 1v1: each seat can also hide its own board (the opponent's, mine, or both). The seats listed here have no board; the board logic keeps running.
   const [hiddenBoards, setHiddenBoards] = useState<number[]>([]);
-  useLayoutEffect(() => { try { setHiddenBoards((localStorage.getItem(SEAT_BOARD_KEY) ?? "").split(",").filter(Boolean).map(Number).filter(Number.isInteger)); } catch { /* storage blocked: all boards shown */ } }, []);
+  // Remembered by role ("me" / "opp"), not by seat number: my own board must stay mine when the next table seats me in seat 1. A spectator has no role, so it keeps seat numbers ("s0").
+  const boardRole = useCallback((seat: number) => (mySeat < 0 ? `s${seat}` : seat === mySeat ? "me" : "opp"), [mySeat]);
+  useLayoutEffect(() => {
+    try {
+      const saved = (localStorage.getItem(SEAT_BOARD_KEY) ?? "").split(",").filter(Boolean);
+      setHiddenBoards(seatIds.filter(seat => saved.includes(boardRole(seat))));
+    } catch { /* storage blocked: all boards shown */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [boardRole, seatIds.join(",")]);
   const keepHiddenBoards = useCallback((next: number[]) => {
     setHiddenBoards(next);
-    try { if (next.length) localStorage.setItem(SEAT_BOARD_KEY, next.join(",")); else localStorage.removeItem(SEAT_BOARD_KEY); } catch { /* storage blocked: not remembered */ }
-  }, []);
+    const roles = next.map(boardRole);
+    try { if (roles.length) localStorage.setItem(SEAT_BOARD_KEY, roles.join(",")); else localStorage.removeItem(SEAT_BOARD_KEY); } catch { /* storage blocked: not remembered */ }
+  }, [boardRole]);
   // The W switch and the top bar are the master: Both brings every board back.
   const setWebcamOnly = useCallback((next: boolean) => {
     setChoice(next); if (!next) keepHiddenBoards([]);
@@ -555,7 +564,8 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     if (multi) return;
     const seats = seatIds;
     // Webcam only hid every seat that did not need its board; turning one board on keeps the others hidden.
-    const hidden = on ? seats.filter(item => item !== seat && (hiddenBoards.includes(item) || (webcamOnly && !needsBoard(item)))) : Array.from(new Set([...hiddenBoards, seat]));
+    // Webcam only already hid the other seats too: hiding one board must not bring the other one back.
+    const hidden = seats.filter(item => on ? item !== seat && (hiddenBoards.includes(item) || (webcamOnly && !needsBoard(item))) : item === seat || hiddenBoards.includes(item) || (webcamOnly && !needsBoard(item)));
     keepHiddenBoards(hidden);
     const all = hidden.length >= seats.length;
     if (all !== webcamOnly) { setChoice(all); try { localStorage.setItem(WEBCAM_ONLY_KEY, all ? "1" : "0"); } catch { /* storage blocked */ } }
