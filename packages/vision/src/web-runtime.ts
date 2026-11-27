@@ -23,7 +23,11 @@ import type { WebGpuDiagnostics } from './types';
 export type WebOrt = Pick<typeof ortWasm, 'env' | 'InferenceSession' | 'Tensor'>;
 
 /** Minimal browser API surface, also used by the existing runtime tests. */
-interface GpuDeviceLike { limits?: Record<string, number>; destroy(): void }
+interface GpuDeviceLike {
+  limits?: Record<string, number>;
+  lost?: Promise<{ reason: string; message: string }>;
+  destroy(): void;
+}
 interface GpuAdapterLike {
   isFallbackAdapter?: boolean;
   features?: { has(name: string): boolean; [Symbol.iterator]?: () => Iterator<string> };
@@ -52,6 +56,8 @@ export interface WebRuntimeDeps {
   ortWebGpu?: () => Promise<WebOrt>;
   /** navigator.gpu; null or undefined when the browser has no WebGPU. */
   gpu?: GpuLike | null;
+  /** Lets the worker owner recover even when no inference is in flight. */
+  onGpuDeviceLost?: (reason: string) => void;
   getURL?: (path: string) => string;
   fetch?: typeof fetch;
   crossOriginIsolated?: boolean;
@@ -163,6 +169,9 @@ export type WebGpuRuntime =
   | { ort: WebOrt; adapter: string; fp16: boolean; device?: GpuDeviceLike; diagnostics: WebGpuDiagnostics }
   | { ort: null; why: string; diagnostics: WebGpuDiagnostics };
 const gpuRuntimes = new WeakMap<WebOrt, Promise<WebGpuRuntime>>();
+const GPU_DEVICE_INIT_COOLDOWN_MS = 20_000;
+const lostDevices = new WeakMap<GpuDeviceLike, Error>();
+const deviceLoss = (device?: GpuDeviceLike) => device && lostDevices.get(device);
 
 function gpuLimits(limits?: Record<string, number>): Record<string, number> {
   const result: Record<string, number> = {};
@@ -185,15 +194,18 @@ export async function webGpuRuntime(deps: WebRuntimeDeps = {}): Promise<WebGpuRu
   if (!gpu) return { ort: null, why: 'self.navigator.gpu is missing (WebGPU requires a secure context and browser worker support)', diagnostics };
   const timeouts = { ...WEBGPU_TIMEOUTS, ...deps.webgpuTimeouts };
   try {
-    let adapter: GpuAdapterLike | null = null;
+    let adapter: GpuAdapterLike | null = null, softwareAdapter: GpuAdapterLike | null = null;
     for (const options of [{ powerPreference: 'high-performance' as const }, undefined]) {
       const label = options ? 'high-performance' : 'default';
       try {
         adapter = await within(gpu.requestAdapter(options), timeouts.adapterMs, `requestAdapter(${label})`);
         diagnostics.attempts.push(`requestAdapter(${label}): ${adapter ? 'available' : 'null'}`);
-        if (adapter) break;
+        if (adapter && !adapter.isFallbackAdapter && !adapter.info?.isFallbackAdapter) break;
+        // Keep a software result for diagnostics if the remaining probe finds nothing usable.
+        if (adapter) softwareAdapter = adapter;
       } catch (error) { diagnostics.attempts.push(`requestAdapter(${label}): ${errorText(error)}`); }
     }
+    adapter ??= softwareAdapter;
     if (!adapter) return { ort: null, why: diagnostics.attempts.join('; '), diagnostics };
     const info = adapter.info;
     diagnostics.adapter = {
@@ -211,7 +223,7 @@ export async function webGpuRuntime(deps: WebRuntimeDeps = {}): Promise<WebGpuRu
     const cached = gpuRuntimes.get(ort);
     if (cached) return cached;
     const selected = adapter;
-    const ready = (async (): Promise<WebGpuRuntime> => {
+    const ready: Promise<WebGpuRuntime> = (async () => {
       try {
         const getURL = deps.getURL ?? ((path: string) => new URL(path, globalThis.location.href).href);
         ort.env.wasm.wasmPaths = getURL('ort/');
@@ -239,13 +251,26 @@ export async function webGpuRuntime(deps: WebRuntimeDeps = {}): Promise<WebGpuRu
             device = await requestDevice([]);
           }
         }
+        if (device?.lost) {
+          const watched = device;
+          void device.lost.then(info => {
+            const reason = `WebGPU device lost (${info.reason})${info.message ? `: ${info.message}` : ''}`;
+            lostDevices.set(watched, new Error(reason));
+            if (gpuRuntimes.get(ort) === ready) gpuRuntimes.delete(ort);
+            if (info.reason !== 'destroyed') deps.onGpuDeviceLost?.(reason);
+          });
+        }
         diagnostics.deviceLimits = gpuLimits(device?.limits as unknown as Record<string, number>);
         const name = [info?.vendor, info?.architecture, info?.description].filter(Boolean).join(' ');
         return { ort, adapter: name || 'unknown', fp16, device, diagnostics };
       } catch (error) { return { ort: null, why: `WebGPU device initialization: ${errorText(error)}`, diagnostics }; }
     })();
     gpuRuntimes.set(ort, ready);
-    return ready;
+    const result = await ready;
+    if (!result.ort) setTimeout(() => {
+      if (gpuRuntimes.get(ort) === ready) gpuRuntimes.delete(ort);
+    }, GPU_DEVICE_INIT_COOLDOWN_MS);
+    return result;
   } catch (error) {
     return { ort: null, why: `WebGPU initialization: ${errorText(error)}`, diagnostics };
   }
@@ -303,7 +328,7 @@ function isFinite32(t: TensorLike | undefined): boolean {
 
 /**
  * A packaged model's session, and the Tensor class to build its inputs with. It runs on WebGPU when the
- * browser has an adapter, and WASM takes over, for good, when:
+ * browser has an adapter, and WASM takes over for this model session when:
  * - the browser has no WebGPU or no adapter, or the adapter or the WebGPU build fails or takes too long;
  * - the WebGPU session can't be created, or takes too long (it is released if it turns up);
  * - a WebGPU run fails, returns a float output that isn't finite, or takes too long (the watchdog): that
@@ -311,7 +336,8 @@ function isFinite32(t: TensorLike | undefined): boolean {
  *   fetched again: the first fetch's 25 MB aren't kept for it). A failed WebGPU session is released; a
  *   stuck one is dropped (released only if its run ever comes back), and the other models leave that
  *   WebGPU build too (stuckGpu).
- * The extension must never break on a GPU. `what` names the model in errors and in the console.
+ * The Remote Duels reader retries with fresh workers after fallback. A timed-out ORT instance
+ * may still be executing, so replacing the worker also isolates that instance.
  */
 export async function openModelSession(path: string, what: string, deps: WebRuntimeDeps = {}): Promise<{ session: RuntimeSession; Tensor: TensorCtor }> {
   const wasm = webRuntime(deps);
@@ -330,7 +356,11 @@ export async function openModelSession(path: string, what: string, deps: WebRunt
     const options = device && deps.gpuOutputs?.length
       ? { ...base, preferredOutputLocation: Object.fromEntries(deps.gpuOutputs.map(name => [name, 'gpu-buffer' as const])) }
       : base;
-    const created = (gpuCreates.get(ort) ?? Promise.resolve()).then(async () => ({ ...(await create(ort, bytes, options as ortWasm.InferenceSession.SessionOptions)), device }));
+    const created = (gpuCreates.get(ort) ?? Promise.resolve()).then(async () => {
+      const loss = deviceLoss(device);
+      if (loss) throw loss;
+      return { ...(await create(ort, bytes, options as ortWasm.InferenceSession.SessionOptions)), device };
+    });
     gpuCreates.set(ort, created.catch(() => {}));
     return created;
   };
@@ -408,7 +438,10 @@ export async function openModelSession(path: string, what: string, deps: WebRunt
   const gpu = await openWebGpu();
   let active: Opened = gpu ?? (await openWasm());
   let ep: RuntimeSession['ep'] = gpu ? 'webgpu' : 'wasm';
-  let runs = 0, gpuRetries = 0;
+  let runs = 0;
+  let retries = 0, released = false;
+  let retryTimer: ReturnType<typeof setTimeout> | undefined;
+  let cpuRuns = new Set<Promise<unknown>>();
   const compiledShapes = new Set<string>();
   model = null;
 
@@ -416,26 +449,33 @@ export async function openModelSession(path: string, what: string, deps: WebRunt
   const feedsFor = (ort: WebOrt, feeds: Record<string, unknown>) =>
     Object.fromEntries(Object.entries(feeds).map(([k, t]) => [k, ort === wasm.ort ? t : new ort.Tensor('float32', (t as FeedTensor).data, [...(t as FeedTensor).dims])]));
 
-  /** WASM from now on. A failed WebGPU session is released; a stuck one only once its run comes back, if ever. */
+  /** A failed WebGPU session is released; a stuck one only once its run comes back, if ever. */
   async function toWasm(why: string, e: unknown, stuckRun?: Promise<unknown>): Promise<void> {
     fallbackReason = `${what}: WebGPU ${why}: ${errorText(e)}`;
     gpuDiagnostics?.attempts.push(fallbackReason);
-    console.warn(`[DuelLens] WebGPU ${why} for ${what} (${errorText(e)}); it runs on WASM from now on`, e);
+    console.warn(`[DuelLens] WebGPU ${why} for ${what} (${errorText(e)}); using WASM`, e);
     const dropped = active;
     active = await openWasm();
     ep = 'wasm';
-    // A lost device or a one-off failure is often temporary: reopen WebGPU in
-    // the background after 30 s (three tries); a stuck run never retries.
-    if (!stuckRun && gpuRetries < 3) setTimeout(() => {
-      gpuRetries++;
-      void openWebGpu().then(reopened => {
-        if (!reopened || ep !== 'wasm') return;
-        const cpu = active; active = reopened; ep = 'webgpu'; runs = 0; compiledShapes.clear();
-        fallbackReason = undefined; gpuDiagnostics?.attempts.push(`${what}: WebGPU reopened after: ${errorText(e)}`);
-        console.info(`[DuelLens] ${what}: back on WebGPU`);
-        cpu.session.release?.().catch(() => {});
-      }).catch(() => {});
-    }, 30_000);
+    // Vision Lab reopens WebGPU in the background. Remote Duels replaces the
+    // entire worker so that a wedged ONNX runtime cannot affect the new reader.
+    if (!deps.onGpuDeviceLost && !stuckRun && !stuckGpu.has(dropped.ort) && retries < 3) {
+      const cpu = active;
+      retryTimer = setTimeout(() => {
+        retries++;
+        void openWebGpu().then(reopened => {
+          if (!reopened) return;
+          if (released || active !== cpu) {
+            void reopened.session.release?.().catch(() => {});
+            return;
+          }
+          active = reopened; ep = 'webgpu'; runs = 0; compiledShapes.clear();
+          const draining = cpuRuns;
+          cpuRuns = new Set();
+          void Promise.allSettled(draining).then(() => cpu.session.release?.()).catch(() => {});
+        }).catch(() => {});
+      }, 30_000);
+    }
     if (stuckRun) {
       stuckGpu.add(dropped.ort);
       void stuckRun.then(
@@ -452,6 +492,11 @@ export async function openModelSession(path: string, what: string, deps: WebRunt
    * the float32 graph on the same GPU first (true: run again on it), otherwise WASM takes over (false).
    */
   async function gpuFailed(e: unknown): Promise<boolean> {
+    const loss = deviceLoss(active.device);
+    if (loss) {
+      await toWasm('failed', loss);
+      return false;
+    }
     // An fp16 session may load successfully, then fail during shader compilation.
     // Try the float32 graph on the same GPU before selecting CPU.
     if (deps.gpuFp32ModelPath && gpuDiagnostics && gpuDiagnostics.modelPath === deps.gpuModelPath) {
@@ -476,6 +521,8 @@ export async function openModelSession(path: string, what: string, deps: WebRunt
     },
     async run(feeds) {
       if (ep === 'webgpu' && stuckGpu.has(active.ort)) await toWasm('got stuck on another model', new Error('stuck'));
+      const loss = deviceLoss(active.device);
+      if (ep === 'webgpu' && loss) await toWasm('failed', loss);
       if (ep === 'webgpu') {
         const running = Promise.resolve().then(() => active.session.run(feedsFor(active.ort, feeds)));
         try {
@@ -495,12 +542,19 @@ export async function openModelSession(path: string, what: string, deps: WebRunt
           else if (await gpuFailed(e)) return session.run(feeds);
         }
       }
-      return active.session.run(feeds);
+      const running = active.session.run(feeds);
+      if (deps.onGpuDeviceLost) return running;
+      const reads = cpuRuns;
+      reads.add(running);
+      try { return await running; }
+      finally { reads.delete(running); }
     },
     async reportGpuFailure(e) {
       if (ep === 'webgpu') await gpuFailed(e);
     },
     release: async () => {
+      released = true;
+      clearTimeout(retryTimer);
       await active.session.release?.();
     },
   };

@@ -51,6 +51,10 @@ export interface RecognizerConfig {
   profile?: GameProfile;
   /** Reports actual providers and exact fallback reasons from the worker, including warmup/detection. */
   onBackendChange?: (status: BackendStatus) => void;
+  /** A crashed or hung worker requires replacement. */
+  onWorkerFailure?: (error: Error) => void;
+  /** The worker's GPU device was lost. The caller can replace the worker. */
+  onGpuDeviceLost?: (error: Error) => void;
   backend?: 'auto' | 'wasm'; workerUrl?: string; runtimeBase?: string;
   /** One worker, or a detector worker beside the read worker (default 'auto': see chooseWorkerLayout). */
   workers?: WorkerLayout;
@@ -96,7 +100,7 @@ const WASM_THREADS = (cores: number) => Math.max(1, Math.min(4, Math.floor(cores
  */
 const oneCpuWorker = (cores: number) => ({ split: false, threads: Math.min(2,WASM_THREADS(cores)) });
 export async function chooseWorkerLayout(layout: WorkerLayout, backend: 'auto' | 'wasm'): Promise<{ split: boolean; threads?: number; readThreads?: number }> {
-  const nav = (globalThis as { navigator?: Navigator & { deviceMemory?: number; userAgentData?: { mobile?: boolean }; gpu?: { requestAdapter(): Promise<{ isFallbackAdapter?: boolean; info?: { isFallbackAdapter?: boolean } } | null> } } }).navigator;
+  const nav = (globalThis as { navigator?: Navigator & { deviceMemory?: number; userAgentData?: { mobile?: boolean }; gpu?: import('./web-runtime').GpuLike } }).navigator;
   const cores = nav?.hardwareConcurrency ?? 1;
   // Hardware GPU layouts retain half of the one-worker budget per lane.
   const half = Math.max(1, Math.floor(WASM_THREADS(cores) / 2));
@@ -110,11 +114,17 @@ export async function chooseWorkerLayout(layout: WorkerLayout, backend: 'auto' |
   const safari = /^((?!chrome|chromium|android|edg).)*safari/i.test(nav?.userAgent ?? '');
   const cpu = cores >= 8 && !safari && typeof SharedArrayBuffer !== 'undefined' ? { split: true, threads: 1, readThreads: WASM_THREADS(cores) } : one;
   if (backend === 'wasm' || !nav?.gpu) return cpu;
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    const adapter = await nav.gpu.requestAdapter() as { isFallbackAdapter?: boolean; info?: { isFallbackAdapter?: boolean } } | null;
+    const adapter = await Promise.race([
+      nav.gpu.requestAdapter({ powerPreference: 'high-performance' }),
+      new Promise<null>(resolve => { timer = setTimeout(() => resolve(null), 3000); }),
+    ]);
     // A software adapter (SwiftShader) runs on the CPU like WASM.
-    if (!adapter || adapter.isFallbackAdapter || adapter.info?.isFallbackAdapter) return cpu;
+    const soft = adapter as { isFallbackAdapter?: boolean; info?: { isFallbackAdapter?: boolean } } | null;
+    if (!soft || soft.isFallbackAdapter || soft.info?.isFallbackAdapter) return cpu;
   } catch { return cpu; }
+  finally { clearTimeout(timer); }
   return { split: true, threads: half };
 }
 interface Lane {
@@ -126,6 +136,9 @@ class HybridWorkerFailed extends Error {}
 const HYBRID_WORKER_WAIT_MS = 15_000;
 const BACKGROUND_INFERENCE_MS = 3_000;
 const BACKGROUND_WORKER_HANG_MS = 60_000;
+const FOREGROUND_WORKER_HANG_MS = 240_000;
+// Cold setup can download and warm several models before the first read.
+const SETUP_WORKER_HANG_MS = 900_000;
 export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
   if (config.game !== undefined && config.game !== 'yugioh') throw new Error(`Unsupported game: ${config.game}`);
   const profile = config.profile ?? yugioh;
@@ -140,9 +153,12 @@ export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
   let scene = single, read = single;
   const lanes = () => scene === read ? [read] : [scene, read];
   const failAll = (lane: Lane, error: Error) => { for (const value of lane.pending.values()) value.reject(error); lane.pending.clear(); };
-  /** Detector from the worker that runs outline passes, embedder from the read worker. */
+  /** Both lanes can run a detector; the read lane starts its detector lazily. */
   function mergeStatus() {
-    const models = [...(scene.status?.models.filter(m => m.model === 'detector') ?? []), ...(read.status?.models.filter(m => m.model !== 'detector') ?? [])];
+    const models = scene === read ? read.status?.models ?? [] : [
+      ...(scene.status?.models ?? []),
+      ...(read.status?.models.map(m => m.model === 'detector' ? { ...m, model: 'read detector' } : m) ?? []),
+    ];
     if (!models.length) return;
     const failed = models.filter(m => m.backend === 'wasm' && m.fallbackReason);
     const reasons = failed.length > 1 && new Set(failed.map(m => m.fallbackReason)).size === 1 ? [failed[0].fallbackReason!] : failed.map(m => `${m.model}: ${m.fallbackReason}`);
@@ -158,24 +174,29 @@ export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
     backendStatus={backend:backendStatus?.backend??'wasm',models:[],readerNote};
     config.onBackendChange?.(backendStatus);
   }
-  function request(lane: Lane, message: object, transfers: Transferable[] = [], signal?: AbortSignal): Promise<unknown> {
+  function request(lane: Lane, message: {type: string} & Record<string, unknown>, transfers: Transferable[] = [], signal?: AbortSignal): Promise<unknown> {
     signal?.throwIfAborted();
     const id = ++serial;
+    const worker = lane.worker!;
     const hybrid=selectedReader==='hybrid'&&lane.role!=='scene';
-    const timer=hybrid?setTimeout(()=>fallbackReader(lane),HYBRID_WORKER_WAIT_MS):undefined;
+    const setup = message.type === 'init' || message.type === 'prepare';
+    const hangMs = hybrid ? HYBRID_WORKER_WAIT_MS : setup ? SETUP_WORKER_HANG_MS : FOREGROUND_WORKER_HANG_MS;
+    const timer = setTimeout(() => {
+      if (lane.worker === worker) workerFailed(lane, new Error('Recognition worker stopped responding'));
+    }, hangMs);
     const pending=new Promise((resolve, reject) => {
       lane.pending.set(id, { resolve, reject });
       // Keep the originals until Hybrid answers: a terminated worker cannot return transferred pixels.
-      try { lane.worker!.postMessage({ ...message, id }, hybrid?[]:transfers); }
+      try { worker.postMessage({ ...message, id }, hybrid?[]:transfers); }
       catch (error) { lane.pending.delete(id); reject(error); }
     });
-    if(!hybrid)return pending;
+    if(!hybrid)return pending.finally(()=>clearTimeout(timer));
     return pending.catch(async error => {
       if(!(error instanceof HybridWorkerFailed)||disposed)throw error;
       clearTimeout(timer);
       const initialized=await startLane(lane,threadsOf(lane));
-      if('type' in message&&message.type==='init')return initialized;
-      if(lastPrepare&&'type' in message&&message.type!=='init'&&message.type!=='prepare')await request(lane,{type:'prepare',opts:lastPrepare},[],signal);
+      if(message.type==='init')return initialized;
+      if(lastPrepare&&message.type!=='prepare')await request(lane,{type:'prepare',opts:lastPrepare},[],signal);
       return await request(lane,message,transfers,signal);
     }).finally(()=>clearTimeout(timer));
   }
@@ -183,12 +204,24 @@ export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
     lane.worker?.terminate(); lane.worker = undefined; lane.initial = undefined;
     if (lane === read) prepared = undefined;
   }
+  function workerFailed(lane: Lane, error: Error) {
+    if (selectedReader === 'hybrid' && lane.role !== 'scene') { fallbackReader(lane); return; }
+    failAll(lane, error);
+    reset(lane);
+    useOneWorker(lane);
+    config.onWorkerFailure?.(error);
+  }
   function startLane(lane: Lane, threads?: number) {
     if (!lane.initial) {
       if (lane !== read) detectorBackend = undefined;
-      const worker = lane.worker = new Worker(config.workerUrl ?? '/dev/vision-lab/assets/worker.js?v=gpu-check-v1', { type: 'module', name: lane.role === 'both' ? 'card-recognition' : `card-recognition-${lane.role}` });
+      const worker = lane.worker = new Worker(config.workerUrl ?? '/dev/vision-lab/assets/worker.js?v=gpu-recovery-v1', { type: 'module', name: lane.role === 'both' ? 'card-recognition' : `card-recognition-${lane.role}` });
       worker.onmessage = event => {
-        const { id, result, error, detectorBackend: backend, timingsMs, backendStatus: status } = event.data;
+        if (lane.worker !== worker) return;
+        const { id, result, error, detectorBackend: backend, timingsMs, backendStatus: status, type, reason } = event.data;
+        if (type === 'gpu-device-lost' && typeof reason === 'string') {
+          config.onGpuDeviceLost?.(new Error(reason));
+          return;
+        }
         const value = lane.pending.get(id); if (!value) return; lane.pending.delete(id);
         if (status) { lane.status = status; mergeStatus(); }
         if (lane !== read || read === scene) {
@@ -197,9 +230,12 @@ export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
         }
         if (error) value.reject(new Error(error)); else value.resolve(result);
       };
-      worker.onerror = event => { if(lane.worker!==worker)return;if(selectedReader==='hybrid'&&lane.role!=='scene'){fallbackReader(lane);return;}failAll(lane, new Error(event.message || 'Recognition worker failed')); reset(lane); useOneWorker(lane); };
-      worker.onmessageerror = () => {if(lane.worker!==worker)return;if(selectedReader==='hybrid'&&lane.role!=='scene')fallbackReader(lane);else failAll(lane, new Error('Recognition worker message failed'));};
-      lane.initial = request(lane, { type: 'init', profile, backend: config.backend ?? 'auto', runtimeBase: config.runtimeBase ?? '/dev/vision-lab/assets/ort/', role: lane.role, threads, ...(selectedReader==='hybrid'&&lane.role!=='scene'?{reader:'hybrid'}:{}) }).catch(error => {
+      const crash = (error: Error) => { if (lane.worker === worker) workerFailed(lane, error); };
+      worker.onerror = event => crash(new Error(event.message || 'Recognition worker failed'));
+      worker.onmessageerror = () => crash(new Error('Recognition worker message failed'));
+      lane.initial = request(lane, { type: 'init', profile, backend: config.backend ?? 'auto', runtimeBase: config.runtimeBase ?? '/dev/vision-lab/assets/ort/', role: lane.role, threads,
+        ...(config.onGpuDeviceLost ? {reportGpuLoss: true} : {}),
+        ...(selectedReader==='hybrid'&&lane.role!=='scene'?{reader:'hybrid'}:{}) }).catch(error => {
         if (lane.worker === worker) { reset(lane); useOneWorker(lane); }
         throw error;
       });
@@ -251,13 +287,20 @@ export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
     let timeout: ReturnType<typeof setTimeout> | undefined;
     const watchWorker = () => {
       clearTimeout(watchdog);
-      watchdog = setTimeout(() => stopLane(new DOMException('Recognition worker stopped responding', 'TimeoutError')), BACKGROUND_WORKER_HANG_MS);
+      const worker = lane.worker;
+      watchdog = setTimeout(() => {
+        if (!worker || lane.worker !== worker) return;
+        const error = new DOMException('Recognition worker stopped responding', 'TimeoutError');
+        stopLane(error);
+        config.onWorkerFailure?.(error);
+      }, BACKGROUND_WORKER_HANG_MS);
     };
     lane.inFlight = true;
-    if (background) watchWorker();
-    else signal?.addEventListener('abort', abort, { once: true });
+    if (!background) signal?.addEventListener('abort', abort, { once: true });
     try {
-      await startLane(lane, threadsOf(lane));
+      const initializing = startLane(lane, threadsOf(lane));
+      if (background) watchWorker();
+      await initializing;
       if (disposed) throw new Error('Recognizer is disposed');
       signal?.throwIfAborted();
       if (type !== 'detect') await restoreReadOptions(lane, signal);

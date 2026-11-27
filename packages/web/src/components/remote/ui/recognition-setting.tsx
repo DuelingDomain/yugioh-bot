@@ -2,10 +2,10 @@
 
 import {useSetGuards,SET_GUARD_SETTINGS} from '@/lib/remote/set-card-settings';
 import { useEffect, useId, useState } from "react";
-import { sheetRoot } from "@/components/duel/sheet-ui";
+import { SheetButton, sheetRoot } from "@/components/duel/sheet-ui";
 import { ThemedSelect as SheetSelect } from "@/components/ui/themed-select";
 import ui from "@/components/duel/sheet-ui.module.css";
-import { CARD_READERS, setCardReader, RECOGNITION_MODES, setRecognitionMode, useRecognitionBackend } from "./recognition-backend";
+import { CARD_READERS, gpuLossReason, hasBrowserGpu, recognitionCpuReason, RECOGNITION_MODES, retryRecognitionGpu, setCardReader, setRecognitionMode, useRecognitionBackend } from "./recognition-backend";
 import { useCardDetection } from "@/lib/remote/zone-grid";
 import { useVideoHub } from "./video-hub";
 import s from "./remote-ui.module.css";
@@ -21,13 +21,33 @@ const currentReader = CARD_READERS.filter(reader => reader.value === "current");
  * which sits on the table's own dark theme.
  */
 export function RecognitionSetting({ variant = "sheet" }: { variant?: "sheet" | "menu" }) {
-  const { mode,reader,readerNote,hybridEnabled } = useRecognitionBackend();
+  const recognition = useRecognitionBackend();
+  const { mode, backend, note, reader, readerNote, hybridEnabled, gpuRetryAt } = recognition;
+  const [, refreshRetryTime] = useState(0);
+  useEffect(() => {
+    if (gpuRetryAt === null) return;
+    const timer = setInterval(() => refreshRetryTime(tick => tick + 1), 60_000);
+    return () => clearInterval(timer);
+  }, [gpuRetryAt]);
   const readers = hybridEnabled ? CARD_READERS : currentReader;
   const hintId = useId();
   const hint = RECOGNITION_MODES.find(item => item.value === mode)?.hint;
+  const onCpu = backend === "wasm" || mode === "cpu";
+  const engine = backend === "webgpu" ? "Running on the GPU" : onCpu ? "Running on the CPU" : "Waiting for the reader";
+  // The reason is plain text, not only a tooltip: touch screens have no hover.
+  // A CPU you chose needs no reason; "Set to CPU in settings" only repeats the select above.
+  const reason = onCpu && backend !== "webgpu" && mode !== "cpu" ? recognitionCpuReason(recognition) : "";
+  const dot = backend === "webgpu" ? "rgb(88 214 141)" : onCpu ? "rgb(232 185 79)" : "";
+  const engineStatus = <>
+    <p role="status" className={ui.hint} style={{ margin: 0, overflowWrap: "anywhere" }} title={note || undefined} data-testid="recognition-status">
+      <span style={{ color: "var(--ink)" }}>{dot ? <span aria-hidden="true" style={{ display: "inline-block", width: 7, height: 7, borderRadius: "50%", marginRight: 6, background: dot }} /> : null}{engine}</span>
+      {reason ? <><br /><span data-testid="recognition-reason">{reason}</span></> : null}</p>
+    {onCpu && mode !== "cpu" && hasBrowserGpu() && gpuLossReason() && <SheetButton size="sm" onClick={retryRecognitionGpu}>Try GPU again</SheetButton>}
+  </>;
   if (variant === "menu") {
-    return <><ThemedSelect variant="menu" wide label="Card recognition" prefix="Recognition ·" title={hint} value={mode} testId="recognition-mode"
+    return <><ThemedSelect variant="menu" wide label="Card recognition" prefix="Card recognition ·" title={hint} value={mode} testId="recognition-mode"
       choices={RECOGNITION_MODES.map(item => ({ value: item.value, label: item.label, description: item.hint }))} onChange={setRecognitionMode} />
+      {engineStatus}
       <ThemedSelect variant="menu" wide label="Card reader" prefix="Reader ·" value={reader} testId="card-reader" choices={readers} onChange={setCardReader} />
       {readerNote?<span role="status" className={s.backendNote}>{readerNote}</span>:null}</>;
   }
@@ -36,6 +56,7 @@ export function RecognitionSetting({ variant = "sheet" }: { variant?: "sheet" | 
       choices={RECOGNITION_MODES.map(item => ({ value: item.value, label: item.label }))}
       onChange={setRecognitionMode} />
     <p id={hintId} className={ui.hint} style={{ margin: 0 }}>{hint}</p>
+    {engineStatus}
     <SheetSelect label="Card reader" value={reader} testId="card-reader" compact choices={readers} onChange={setCardReader} />
     {readerNote?<p role="status" className={ui.hint} style={{margin:0}}>{readerNote}</p>:null}
   </div>;
@@ -62,14 +83,15 @@ export function RecognitionBadge({ phoneCamera = false }: { phoneCamera?: boolea
   const { mode, backend, ms, note, readerNote } = useRecognitionBackend();
   const [say, setSay] = useState("");
   useEffect(() => {
-    if (!note || announced.has(note)) return;
-    announced.add(note); setSay("The GPU failed, so card reading uses the CPU (slower). Details: hover the CPU badge or open Debug.");
+    setSay("");
+    if (mode === "cpu" || !note || announced.has(note)) return;
+    announced.add(note); setSay("Card recognition is using the CPU. Open camera settings for details.");
     const timer = setTimeout(() => setSay(""), 8000);
     return () => clearTimeout(timer);
-  }, [note]);
+  }, [mode, note]);
   const gpu = backend === "webgpu";
-  // The badge stays short; the full GPU reason is in its tooltip and in the 8-second note below.
-  const where = backend ? (gpu ? "GPU" : note ? "CPU · GPU failed" : "CPU") : mode === "cpu" ? "CPU" : "Reader";
+  // Keep the full GPU error in the tooltip for troubleshooting.
+  const where = gpu ? "GPU" : backend === "wasm" || mode === "cpu" ? "CPU" : "Reader";
   const label = `${phoneCamera ? "Computer · " : ""}${where}${ms === null ? "" : ` · ${ms} ms`}`;
   const title = [
     backend ? `Card recognition runs on the ${gpu ? "graphics card (GPU)" : "processor (CPU)"}${ms === null ? "." : `. Last read: ${ms} ms.`}` : "Card recognition starts with the first read.",
@@ -78,8 +100,8 @@ export function RecognitionBadge({ phoneCamera = false }: { phoneCamera?: boolea
     "Change it in the camera menu.",
   ].filter(Boolean).join(" ");
   return <>
-    <span className={`${s.backendBadge} ${gpu ? s.backendGpu : ""}`} title={title} data-testid="recognition-backend" data-backend={backend ?? "pending"}>{label}</span>
-    {say ? <span className={s.backendNote} role="status" data-testid="recognition-note">{say}</span> : null}
+    <span className={`${s.backendBadge} ${gpu ? s.backendGpu : ""} ${say ? s.backendWarn : ""}`} title={title} data-testid="recognition-backend" data-backend={backend ?? "pending"}>{label}</span>
+    {say ? <span className={s.srOnly} role="status" data-testid="recognition-note">{say}</span> : null}
     {readerNote?<span className={s.backendNote} role="status" data-testid="reader-note">{readerNote}</span>:null}
   </>;
 }

@@ -31,13 +31,14 @@ let detectorSession:ModelSession|undefined,detectorLoading:Promise<ModelSession>
  * never waits behind a read (client.ts).
  */
 type Role='both'|'scene'|'read';
-let configuration:{profile:GameProfile;backend:'auto'|'wasm';runtimeBase:string;role:Role;threads?:number;reader?:CardReader}|undefined;
+let configuration:{profile:GameProfile;backend:'auto'|'wasm';runtimeBase:string;role:Role;threads?:number;reader?:CardReader;reportGpuLoss:boolean}|undefined;
 let hybridSessions:ModelSession[]=[];
 let readerNote:string|undefined;
 const DETECTOR_GPU_OUTPUTS=[CARD_DETECTOR.outputs.heat,CARD_DETECTOR.outputs.box,CARD_DETECTOR.outputs.peak];
+const onGpuDeviceLost = (reason: string) => scope.postMessage({ type: 'gpu-device-lost', reason });
 function ensureDetector():Promise<ModelSession> {
-  const {profile,backend,runtimeBase,threads}=configuration!;
-  detectorLoading??=createModelSession(profile.detector.url,profile.detector.sha256,backend,runtimeBase,profile.detector.webgpu,{threads,gpuOutputs:DETECTOR_GPU_OUTPUTS})
+  const {profile,backend,runtimeBase,threads,reportGpuLoss}=configuration!;
+  detectorLoading??=createModelSession(profile.detector.url,profile.detector.sha256,backend,runtimeBase,profile.detector.webgpu,{threads,gpuOutputs:DETECTOR_GPU_OUTPUTS,onGpuDeviceLost:reportGpuLoss?onGpuDeviceLost:undefined})
     .then(session=>detectorSession=session,error=>{detectorLoading=undefined;throw error;});
   return detectorLoading;
 }
@@ -51,8 +52,8 @@ const lazyDetector:ModelSession={
   run:async feeds=>(await ensureDetector()).run(feeds),
   release:async()=>{await detectorSession?.release();},
 };
-async function initializeDetector(profile:GameProfile,backend:'auto'|'wasm',runtimeBase:string,role:Role,threads?:number) {
-  configuration={profile,backend,runtimeBase,role,threads};
+async function initializeDetector(profile:GameProfile,backend:'auto'|'wasm',runtimeBase:string,role:Role,threads?:number,reportGpuLoss=false) {
+  configuration={profile,backend,runtimeBase,role,threads,reportGpuLoss};
   if(role==='read')return;
   const detector=await ensureDetector();
   // The scene worker serves outlines straight away: compile its kernels outside placement latency.
@@ -114,7 +115,7 @@ async function initialize(profile: GameProfile, backend: 'auto' | 'wasm', runtim
     // Sequential session creation avoids simultaneous WASM runtime initialization.
     const role=configuration!.role;
     const detector = role==='read' ? lazyDetector : detectorSession!;
-    const embedder = embedderSession ??= await createModelSession(profile.embedding.url, profile.embedding.sha256, backend, runtimeBase, profile.embedding.webgpu, {threads:configuration!.threads,gpuCheck:embeddingGpuCheck(profile.embedding)});
+    const embedder = embedderSession ??= await createModelSession(profile.embedding.url, profile.embedding.sha256, backend, runtimeBase, profile.embedding.webgpu, {threads:configuration!.threads,gpuCheck:embeddingGpuCheck(profile.embedding),onGpuDeviceLost:configuration!.reportGpuLoss?onGpuDeviceLost:undefined});
     let fullArtIndex:LoadedIndex|undefined;
     if(profile.fullArtIndex) {
       const reply=await fetch(profile.fullArtIndex.metaUrl);
@@ -188,7 +189,7 @@ async function jpeg(image:RGBAImage,width:number,maxBytes:number):Promise<string
     return btoa(binary);
   }
 }
-type Request = {id:number;type:'fitToMat';frame:ImageData|ImageBitmap;opts?:MatFitOptions} | { id: number; type: 'checkWebGpu' } | { id: number; type: 'init'; profile: GameProfile; backend: 'auto' | 'wasm'; runtimeBase: string; role?: Role; threads?: number; reader?:CardReader } | {id:number;type:'prepare';opts?:PrepareOptions} | {id:number;type:'aiCrop';token:string} | { id: number; type: 'detect'; frame: ImageBitmap | ImageData; opts?:DetectOptions } | { id: number; type: 'recognize'; frames: (ImageBitmap | ImageData)[]; opts?: RecognizeOptions } | {id:number;type:'peek';frame:ImageBitmap|ImageData;opts:PeekOptions} | {id:number;type:'readAll';frame:ImageBitmap|ImageData;opts:ReadAllOptions};
+type Request = {id:number;type:'fitToMat';frame:ImageData|ImageBitmap;opts?:MatFitOptions} | { id: number; type: 'checkWebGpu' } | { id: number; type: 'init'; profile: GameProfile; backend: 'auto' | 'wasm'; runtimeBase: string; role?: Role; threads?: number; reader?:CardReader; reportGpuLoss?:boolean } | {id:number;type:'prepare';opts?:PrepareOptions} | {id:number;type:'aiCrop';token:string} | { id: number; type: 'detect'; frame: ImageBitmap | ImageData; opts?:DetectOptions } | { id: number; type: 'recognize'; frames: (ImageBitmap | ImageData)[]; opts?: RecognizeOptions } | {id:number;type:'peek';frame:ImageBitmap|ImageData;opts:PeekOptions} | {id:number;type:'readAll';frame:ImageBitmap|ImageData;opts:ReadAllOptions};
 let queue = Promise.resolve();
 scope.onmessage = (event: MessageEvent<Request>) => {
   const message = event.data, receivedAt=performance.now();
@@ -196,13 +197,13 @@ scope.onmessage = (event: MessageEvent<Request>) => {
   queue = queue.then(async () => {
     const queueMs=performance.now()-receivedAt;
     try {
-      if (message.type === 'init') { await initializeDetector(message.profile, message.backend, message.runtimeBase, message.role??'both', message.threads); configuration!.reader=message.reader; reply({ id: message.id, result: null }); }
+      if (message.type === 'init') { await initializeDetector(message.profile, message.backend, message.runtimeBase, message.role??'both', message.threads, message.reportGpuLoss); configuration!.reader=message.reader; reply({ id: message.id, result: null }); }
       else if(message.type==='fitToMat'){reply({id:message.id,result:fitMat(pixels(message.frame),message.opts)});}
       else {
         if(!configuration)throw new Error('Recognizer has not initialized');
         if (message.type === 'checkWebGpu') {
-          const { profile, backend, runtimeBase, threads } = configuration;
-          const embedder = embedderSession ??= await createModelSession(profile.embedding.url, profile.embedding.sha256, backend, runtimeBase, profile.embedding.webgpu, {threads,gpuCheck:embeddingGpuCheck(profile.embedding)});
+          const { profile, backend, runtimeBase, threads, reportGpuLoss } = configuration;
+          const embedder = embedderSession ??= await createModelSession(profile.embedding.url, profile.embedding.sha256, backend, runtimeBase, profile.embedding.webgpu, {threads,gpuCheck:embeddingGpuCheck(profile.embedding),onGpuDeviceLost:reportGpuLoss?onGpuDeviceLost:undefined});
           const detectorSession = await ensureDetector();
           const timings: Record<string, number> = {};
           let start = performance.now();
