@@ -118,15 +118,15 @@ export function CameraToolsMenu({ seat, name, you, scan, advice, warn, onToken, 
     <div id={id} ref={panel} popover="auto" role="menu" aria-label={`Camera tools for ${name}`} className={s.toolsMenu} onToggle={event => { setOpen(event.newState === "open"); if (event.newState === "open") place(); }}>
       {setup ? <MyCameraGroup setup={setup} close={close} /> : null}
       {board ? <Group label="View">
-        <Row icon="layers" role="menuitemcheckbox" aria-checked={board.on} pill={onOff(board.on)} disabled={board.locked} sub={board.locked ? "This seat uses Tap mode, so its board is off for everyone." : "Hides or shows the virtual board under this webcam. The board keeps running."} data-testid={`camera-board-${seat}`}
+        <Row icon="eye" role="menuitemcheckbox" aria-checked={board.on} pill={onOff(board.on)} disabled={board.locked} sub={board.locked ? "This seat uses Tap mode, so its board is off for everyone." : "Hides or shows the virtual board under this webcam. The board keeps running."} data-testid={`camera-board-${seat}`}
           onClick={() => { close(); board.onChange(!board.on); }}>{`Virtual board under ${you ? "my" : `${name}'s`} webcam`}</Row>
       </Group> : null}
       <Group label="Zones">
-        <Row icon="layers" role="menuitemcheckbox" aria-checked={zonesOn} pill={onOff(zonesOn)} hint={you ? "G" : undefined} aria-keyshortcuts={you ? "G" : undefined} data-testid={you ? "zone-grid-toggle" : `zone-grid-toggle-opponent-${seat}`}
+        <Row icon="grid" role="menuitemcheckbox" aria-checked={zonesOn} pill={onOff(zonesOn)} hint={you ? "G" : undefined} aria-keyshortcuts={you ? "G" : undefined} data-testid={you ? "zone-grid-toggle" : `zone-grid-toggle-opponent-${seat}`}
           sub={you ? (zonesOn ? "Recommended: shows where your zones are." : "Zones are hidden on my webcam.") : "An opponent who uses Tap to identify has no zone grid, so none shows on that camera."}
           onClick={() => writeGridPref(you, !zonesOn)}>{you ? "Show zone grid" : "Show zone grid on opponent webcams"}</Row>
         {you ? <>
-          <Row icon="layers" role="menuitemcheckbox" aria-checked={opponentsOn} pill={onOff(opponentsOn)} data-testid="zone-grid-toggle-opponent" sub="An opponent who uses Tap to identify has no zone grid, so none shows on that camera." onClick={() => writeGridPref(false, !opponentsOn)}>Show zone grid on opponent webcams</Row>
+          <Row icon="grid" role="menuitemcheckbox" aria-checked={opponentsOn} pill={onOff(opponentsOn)} data-testid="zone-grid-toggle-opponent" sub="An opponent who uses Tap to identify has no zone grid, so none shows on that camera." onClick={() => writeGridPref(false, !opponentsOn)}>Show zone grid on opponent webcams</Row>
           <Row icon="scan" disabled={!canZones} data-testid="zone-grid-fit" sub={canZones ? "Fit the zone grid to your mat." : "Available once your camera video is showing."} onClick={calibrate}>Fit to my mat</Row>
           <Row icon="sliders" disabled={!canZones} data-testid="zone-grid-adjust" sub="Move, resize or turn the zone grid, and drag the sideways Banished zone." onClick={calibrate}>Adjust zones</Row></> : null}
       </Group>

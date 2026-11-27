@@ -188,7 +188,7 @@ export function SeatPanel(p: SeatPanelProps) {
           </div>
         </>} />
       <div className={s.fside}>
-        {splitOn ? <SeatSplitter seat={p.seat} name={p.name} seatRef={seatRef} box={splitBox} split={splitShown} onMeasure={setSplitBox} onSplit={setSplit} onGrab={() => { if (fieldView) setFieldView(false, false); }} /> : null}
+        {splitOn ? <SeatSplitter seat={p.seat} name={p.name} seatRef={seatRef} box={splitBox} split={splitShown} onMeasure={setSplitBox} onSplit={setSplit} onGrab={() => { if (!fieldView) return; setFieldView(false, false); return () => setFieldView(true, false); }} /> : null}
         {p.track}
         {p.boardOff && !p.you ? <TapBoardNote /> : null}
         {targeting ? null : cardList}

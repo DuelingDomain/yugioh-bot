@@ -506,6 +506,11 @@ test.describe("remote duels screen, solo", () => {
       await expect(page.getByTestId("fwrap-1")).toBeHidden(); await expect(page.getByTestId("feed-box-1")).toBeVisible(); await expect(page.getByTestId("wc-cards-1")).toBeAttached(); await expect(page.getByTestId("fwrap-0")).toBeVisible();
       await expect.poll(() => height("feed-box-1")).toBeGreaterThan(botCam + 40);
       await page.getByTestId("seat-board-1").click(); await expect(page.getByTestId("fwrap-1")).toBeVisible();
+      // Webcam only: my board is off. Hiding the bot's board must not turn mine on.
+      await page.evaluate(() => { try { localStorage.setItem("dd-remote-webcam-only", "1"); } catch { /* storage blocked */ } }); await page.reload();
+      await expect(page.getByTestId("fwrap-0")).toBeHidden({ timeout: 60_000 }); await expect(page.getByTestId("fwrap-1")).toBeVisible();
+      await page.getByTestId("seat-board-1").click(); await expect(page.getByTestId("fwrap-1")).toBeHidden(); await expect(page.getByTestId("fwrap-0")).toBeHidden();
+      await page.evaluate(() => { try { localStorage.setItem("dd-remote-webcam-only", "0"); localStorage.removeItem("dd-remote-board-hidden"); } catch { /* storage blocked */ } });
       await page.goto(`/duels/remote/${slug}`);
       await expect(page.getByTestId("fwrap-0")).toBeVisible(); await expect(page.getByTestId("fwrap-1")).toBeVisible();
       // Per seat: the opponent's board goes and mine stays, then the other way, and the choice is remembered. The webcam "..." menu has the same switch.
