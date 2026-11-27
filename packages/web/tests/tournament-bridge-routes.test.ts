@@ -27,6 +27,7 @@ function signed(path: string, method = "GET", body?: unknown, raw = false): Requ
     ...(method === "GET" ? {} : { body: rawBody }) });
 }
 const lookupIds = (ids: unknown) => lookup(signed(`${base}/users/lookup`, "POST", { ids }));
+const searchExact = (q: string) => search(signed(`${base}/users/search?q=${encodeURIComponent(q)}&exact=1`));
 const setMember = (id: string, memberId: unknown) => member(signed(`${base}/users/${id}/member-id`, "PUT", { memberId }), { params: Promise.resolve({ id }) });
 const startRequest = (path = "/events/one?desk=1", cookie?: string) =>
   new NextRequest(`https://app.test${base}/start?return=${encodeURIComponent(path)}`, { headers: cookie ? { cookie } : undefined });
@@ -135,6 +136,8 @@ it("verifies every service signature before parsing JSON, params, Clerk or datab
   ]) expect(response.status).toBe(401);
   const tampered = signed(`${base}/users/search?q=ada`);
   expect((await search(new Request(tampered.url.replace("q=ada", "q=bea"), { headers: tampered.headers }))).status).toBe(401);
+  const exact = signed(`${base}/users/search?q=ada&exact=1`);
+  expect((await search(new Request(tampered.url, { headers: exact.headers }))).status).toBe(401);
   expect(state.access).not.toHaveBeenCalled(); expect(state.currentUser).not.toHaveBeenCalled(); expect(state.getDb).not.toHaveBeenCalled();
 });
 
@@ -151,7 +154,27 @@ it("escapes literal LIKE wildcards and backslashes, caps search at 20, and puts 
   for (let id = 3; id <= 28; id++) db.prepare("insert into users(id,username,display_name) values (?,?,?)").run(id, `aaa${id}`, "1234567895");
   const result = await (await search(signed(`${base}/users/search?q=1234567895`))).json();
   expect(result.users).toHaveLength(20); expect(result.users[0]).toEqual(expectedUser);
+  db.prepare("update users set email_verified = 1 where id = 1").run();
   expect(await (await search(signed(`${base}/users/search?q=private%40example.test`))).json()).toEqual({ users: [] });
+});
+
+it.each(["  aDA_nAME  ", "ADA.DISCORD", "000-1234567895", "PRIVATE+PLAY@EXAMPLE.TEST"])("finds an exact identifier %j without exposing email", async q => {
+  db.prepare("update users set email = ?, email_verified = 1 where id = 1").run("private+play@example.test");
+  const response = await searchExact(q);
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({ users: [expectedUser] });
+  expect(response.headers.get("cache-control")).toBe("no-store");
+  expect(state.currentUser).not.toHaveBeenCalled();
+});
+
+it.each(["Ada", "Ada Example", "ada.dis", "123456", "123456789", "private@example.test", "play@example.test", "_", "  "])("returns no exact matches for %j", async q => {
+  db.prepare("update users set email = ?, email_verified = 1 where id = 2").run("bea+play@example.test");
+  expect(await (await searchExact(q)).json()).toEqual({ users: [] });
+});
+
+it("returns one stable result when multiple accounts match the same exact identifier", async () => {
+  db.prepare("update users set username = ? where id = 2").run("ADA_NAME");
+  expect(await (await searchExact("Ada_Name")).json()).toEqual({ users: [expectedUser] });
 });
 
 it("looks up at most 500 IDs with stable de-duplication and identifies unknown/deleted users", async () => {
@@ -198,5 +221,6 @@ it("keeps migration idempotent and cleans profiles on both hard deletion and ano
   expect(db.prepare("select * from user_profile_ids").all()).toEqual([]);
   expect(await (await lookupIds([1, 2, 99])).json()).toEqual({ users: [], missing: [1, 2, 99] });
   expect(await (await search(signed(`${base}/users/search?q=deleted`))).json()).toEqual({ users: [] });
+  expect(await (await searchExact("deleted-1")).json()).toEqual({ users: [] });
   expect((await setMember("1", "12345")).status).toBe(404);
 });

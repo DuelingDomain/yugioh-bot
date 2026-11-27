@@ -1,4 +1,4 @@
-// Tournament bridge: global application identities only; never select email.
+// Tournament bridge: global application identities with email omitted from results.
 import type Database from "better-sqlite3";
 
 export interface TournamentUser {
@@ -38,9 +38,16 @@ export function createTournamentBridgeUsers(db: Database.Database) {
         on conflict(user_id) do update set discord_username=excluded.discord_username, updated_at=excluded.updated_at`)
         .run(id, discordUsername, new Date().toISOString());
     },
-    search(query: string): TournamentUser[] {
+    search(query: string, exact = false): TournamentUser[] {
       const q = query.trim();
       if (!q) return [];
+      if (exact) {
+        return db.prepare<[string, string, string | null, string], TournamentUser>(`${selectUser}
+          and (u.username = ? collate nocase or p.discord_username = ? collate nocase
+            or p.member_id = ? or (u.email_verified = 1 and u.email = ?))
+          order by u.id limit 1`)
+          .all(q, q, normalizeMemberId(q), q.toLowerCase());
+      }
       const escaped = q.replace(/[\\%_]/g, "\\$&");
       return db.prepare<[string, string | null, string, string, string, string, string | null, string], TournamentUser>(`${selectUser}
         and (u.discord_user_id=? or p.member_id=? or u.username like ? escape '\\' collate nocase
