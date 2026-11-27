@@ -234,14 +234,15 @@ export function HoloField({ readOnly, seat, name, twin, info, extraZones, facing
     <div ref={fieldRef} className={s.field} role="group" onClickCapture={event => { if (swallow.current) { event.stopPropagation(); event.preventDefault(); } }} aria-label={`${name}'s virtual field`} data-testid={`field-${seat}`} data-rows="3" data-emz={extraZones ? "on" : undefined} data-rotated={rotated ? "on" : undefined}>
       {keys.map(key => {
         const cell = cells[key]; const card = cell.card; const pile = isPile(key);
-        const ghost = !card && !pile ? view[key].card : undefined;
+        const emzCell = key === "e1" || key === "e2";
+        const taken = emzCell && !card ? facing?.twin.find(other => other.zone === "extra-monster" && other.slot === mirrorEmz(Number(key[1]))) : undefined;
+        const ghost = !card && !pile && !taken ? view[key].card : undefined;
         const cardInfo = card ? info(cardCode(card)) : undefined;
         const unknown = !!card && card.faceUp && !cardCode(card) && !card.token;
         const down = !!card && !card.faceUp;
-        const monsterZone = isMonsterZone(key); const emzCell = key === "e1" || key === "e2";
+        const monsterZone = isMonsterZone(key);
         // The board mirrors the mat: a sideways card is drawn sideways in any cell. Moves out of a Monster Zone reset the position (leavePosition).
         const defense = (!!card && card.position === "defense" && !pile) || ghost?.position === "defense";
-        const taken = emzCell && !card ? facing?.twin.find(other => other.zone === "extra-monster" && other.slot === mirrorEmz(Number(key[1]))) : undefined;
         const carriedHere = !!carried && rv === key;
         const trapHolder = !card && /^s[1-5]$/.test(key) ? twin.find(other => other.trapZone === Number(key[1]) && (other.zone === "monster" || other.zone === "extra-monster")) : undefined;
         const zoneCheck = card && !pile && cardCode(card) && (card.faceUp || card.publicIdentity) ? fieldZoneCheck(cardInfo, card.zone, card.slot, { faceDown: !card.faceUp, equipSource, equipped: !!card.equippedTo }) : undefined;
@@ -254,7 +255,7 @@ export function HoloField({ readOnly, seat, name, twin, info, extraZones, facing
         const classes = [s.zc, stacked?s.pileStack:'', dropClass, tokenSlot ? s.tokSlot : "", card && dnd?.can(card) && !isPile(key) ? s.drg : "", card && (dragging?.ref === card.ref || carry === card.ref) ? s.dragSrc : "", emzCell ? s.ez : "", taken ? s.taken : "", card && !down ? s.clk : "", defense ? s.def : "", card && card.ref === selectedRef ? s.sel : "", card && card.ref === targetRef ? s.tgt : "",
           picking && monsterZone && card ? s.pickTarget : "", card && card.ref === freshRef && !swapped.has(key) ? s.scanin : "", card && landed.has(card.ref) && !swapped.has(key) ? s.land : "", ghost ? s.ghosted : "", ghost?.ref.startsWith("pv-") ? s.syncing : "", card && revealed.has(key) ? s.reveal : "", zoneCheck || card?.equippedTo || equipped.length ? z.cell : "", stacked_ ? s.matStack : ""].filter(Boolean).join(" ");
         let desc = taken ? `shared with ${facing!.name}: taken by their monster` : trapHolder ? `occupied by ${nameOf(trapHolder)} (Trap Monster)` : "empty";
-        const preview = !!ghost && ghost.ref.startsWith("pv-");
+        const preview = !!ghost && (ghost.ref.startsWith("pv-") || !!cardCode(ghost));
         if (ghost) desc = preview ? (ghost.faceUp && cardCode(ghost) ? `${ghost.name ?? "a card"}, syncing` : ghost.faceUp ? "a card, syncing" : "a face-down card, syncing") : ghost.faceUp ? "reading a card" : "a face-down card";
         else if (tokenSlot) desc = "free, click to place here";
         let inner: React.ReactNode = ghost ? preview && ghost.faceUp && cardCode(ghost) ? <><CardFace card={ghost} info={info(cardCode(ghost))} stats="none" /><i className={s.syncMark} aria-hidden="true" /></> : <><GhostCard faceUp={ghost.faceUp} />{preview ? <i className={s.syncMark} aria-hidden="true" /> : null}</> : <span className={s.zl}>{taken ? <>EMZ<small>{facing!.name} has it</small></> : key === "ex" ? <>EXTRA<small>DECK</small></> : zoneLabel(key)}{extraZones && isPendulumCell(key) ? <small>PZ</small> : null}</span>;

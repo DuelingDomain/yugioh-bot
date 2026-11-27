@@ -211,7 +211,7 @@ test('a finger kept on a still card asks after ten seconds and the presence choi
  assert.equal(all.filter(e=>e.type==='prompt').length,1);assert.equal(all.some(e=>e.type==='placed'||e.type==='reading'),false);
  r.watcher.dispose();
 });
-test('after placement contact clears for 200 ms before publishing, adding 100 ms over the old rest check',async t=>{
+test('clearing contact leaves only the ordinary rest check before a Set',async()=>{
  const times:number[]=[];
  for(const handRelease of [true,false]){
   const r=fieldRig('sure',20,undefined,undefined,{setGuards:{handRelease}});
@@ -223,7 +223,7 @@ test('after placement contact clears for 200 ms before publishing, adding 100 ms
   const placed=r.events.find(e=>e.type==='placed');assert.ok(placed);
   times.push(placed.track.lastSeen-released);assert.equal(r.events.filter(e=>e.type==='placed').length,1);r.watcher.dispose();
  }
- assert.deepEqual(times,[200,100]);t.diagnostic(`release to placement: on=${times[0]} ms, off=${times[1]} ms; added=${times[0]-times[1]} ms`);
+ assert.deepEqual(times,[100,100]);
 });
 test('a one-second finger hold and a brief forearm cover both place once after release, while a nearby hand adds no wait',async()=>{
  for(const kind of ['face-down','face-up'] as const)for(const mode of ['finger','forearm','nearby'] as const){
@@ -245,15 +245,16 @@ test('release settling restarts after contact, missing outlines or a pause and a
   const r=fieldRig(),all:field.FieldEvent[]=[];r.watcher.subscribe(e=>all.push(e));const c={...card(.3,.3,.17,.25),kind};r.outlines=[c];
   r.touchedAt=()=>.619134;r.occludedAt=()=>true;for(let i=0;i<115;i++)await r.tick(100);
   assert.equal(all.filter(e=>e.type==='prompt').length,1);
-  r.touchedAt=()=>0;r.occludedAt=()=>false;await r.tick(100);await r.tick(100);
+  r.touchedAt=()=>0;r.occludedAt=()=>false;await r.tick(100);
   assert.equal(all.some(e=>e.type==='placed'||e.type==='reading'),false);
   if(interruption==='contact')r.touchedAt=()=>.04;
   if(interruption==='miss'){r.outlines=[];r.watcher.scanNow();}
   if(interruption==='pause')r.hidden=true;
   await r.tick(100);
+  assert.equal(all.some(e=>e.type==='placed'||e.type==='reading'),false, `${kind}/${interruption}: interrupted frame cannot place`);
   r.touchedAt=()=>0;r.outlines=[c];r.hidden=false;r.watcher.scanNow();
-  await r.tick(100);await r.tick(100);
-  assert.equal(all.some(e=>e.type==='placed'||e.type==='reading'),false,`${interruption}: stale low samples must not release the gate`);
+  await r.tick(100);
+  assert.equal(all.some(e=>e.type==='placed'||e.type==='reading'),false,`${kind}/${interruption}: stale low samples must not release the gate `);
   for(let i=0;i<10&&!r.events.some(e=>e.type==='placed');i++)await r.tick(100);
   assert.equal(r.events.filter(e=>e.type==='placed').length,1,interruption);assert.equal(r.events.filter(e=>e.type==='prompt').length,1);r.watcher.dispose();
  }

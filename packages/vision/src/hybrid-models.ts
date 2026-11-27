@@ -2,6 +2,7 @@ import { duelLensModel } from './models';
 import { fullArtProfile } from './full-art';
 import type { EmbeddingModelSpec, GameProfile } from './types';
 
+export const DUELSIGHT_CONFIDENT = { score:.80, margin:.12 } as const;
 export const DUELSIGHT_RULE = { score:.68, margin:.06 } as const;
 export const duelSightModel:EmbeddingModelSpec = {
   id:'duelsight-862aec0f937da326', referenceTag:'duelsight-862aec0f937da326',

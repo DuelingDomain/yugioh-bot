@@ -17,6 +17,14 @@ export const remoteSetEvidenceSchema = z.strictObject({
  * and `ui` the control that made it (a short name such as `popup-remove`, `undo`, `voice`, `typed`, `stale-recover`). Both are evidence only and optional:
  * old events and clients without them stay valid, and no rule reads them (`source` stays the field that matters to the game).
  */
+const stageMs = z.number().finite().nonnegative();
+const cameraTimingSchema = z.strictObject({
+  id: z.string().min(1).max(100).optional(),
+  stagesMs: z.strictObject({
+    detectorWait: stageMs, restGate: stageMs, handGate: stageMs,
+    read: stageMs, nameVote: stageMs, post: stageMs, postServer: stageMs.optional(),
+  }),
+});
 export const remoteCameraStampSchema = z.strictObject({
   seenAt: z.number().int().nonnegative().optional(), namedAt: z.number().int().nonnegative().optional(),
   sentAt: z.number().int().nonnegative(), v: z.string().max(64).optional(),
@@ -27,6 +35,7 @@ export const remoteCameraStampSchema = z.strictObject({
     ms:z.number().finite().nonnegative(),
   }).optional(),
   set:remoteSetEvidenceSchema.optional(),
+  timing:cameraTimingSchema.optional(),
 });
 export type RemoteCameraStamp = z.infer<typeof remoteCameraStampSchema>;
 export const remoteActionMeta = {

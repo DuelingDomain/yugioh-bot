@@ -157,3 +157,18 @@ test('a quiet scene wakes an unanswered name within one second of the prompt', a
     assert.equal(r.events.filter(e=>e.type==='placed'&&e.track.cardId==='A').length,1);
   } finally { r.watcher.dispose(); }
 });
+
+test('a committed front reports the stage waits and measured reader time',async()=>{
+  const r=rig(false,false,.15,50);
+  try{
+    r.sure();
+    for(let i=0;i<20&&!r.events.some(e=>e.type==='placed');i++)await r.tick();
+    const stages=r.events.find(e=>e.type==='placed')?.timing?.stagesMs;
+    assert.ok(stages);
+    assert.equal(stages.read,50);
+    assert.equal(stages.nameVote,0);
+    assert.equal(stages.handGate,0);
+    assert.ok(stages.restGate>=100);
+    assert.ok(stages.detectorWait>=0);
+  }finally{r.watcher.dispose();}
+});

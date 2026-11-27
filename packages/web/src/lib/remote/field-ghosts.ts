@@ -11,7 +11,7 @@ type TwinCard = RemoteState["seats"][number]["twin"][number];
  * placeholder card there at once. It is local to this browser and is the same card as the "Reading…" placeholder the
  * watcher saves a moment later (same ref, same look): when that twin arrives, the ghost is simply replaced by it.
  */
-export interface FieldGhost { id: string; zone: string; slot?: number; faceDown: boolean; defense: boolean }
+export interface FieldGhost { id: string; zone: string; slot?: number; faceDown: boolean; defense: boolean; cardId?: number; name?: string }
 
 /** A pile has no outline to show; the watcher does not place a card there either. */
 const PILES = new Set(["DECK", "EXTRA", "GY", "BANISHED"]);
@@ -69,7 +69,7 @@ export function nextFieldGhosts(tracks: readonly FieldTrack[], state: GhostState
 export function ghostTwins(ghosts: readonly FieldGhost[], twin: readonly TwinCard[]): TwinCard[] {
   return ghosts.flatMap(ghost => {
     if (twin.some(card => card.ref === ghost.id || (card.zone === ghost.zone && (card.slot ?? 0) === (ghost.slot ?? 0)))) return [];
-    return [{ ref: ghost.id, faceUp: !ghost.faceDown, position: ghost.defense ? "defense" : "attack", zone: ghost.zone, ...(ghost.slot ? { slot: ghost.slot } : {}) } as TwinCard];
+    return [{ ref: ghost.id, faceUp: !ghost.faceDown, position: ghost.defense ? "defense" : "attack", zone: ghost.zone, ...(ghost.slot ? { slot: ghost.slot } : {}), ...(ghost.cardId ? { cardId: ghost.cardId, name: ghost.name } : {}) } as TwinCard];
   });
 }
 
@@ -80,7 +80,7 @@ const listeners = new Set<() => void>();
 /** Sets the ghosts of one table seat. Equal lists change nothing, so a steady watcher causes no render. */
 export function setFieldGhosts(key: string, ghosts: readonly FieldGhost[]): void {
   const before = store.get(key) ?? EMPTY;
-  if (before.length === ghosts.length && before.every((g, i) => g.id === ghosts[i].id && g.zone === ghosts[i].zone && g.slot === ghosts[i].slot && g.faceDown === ghosts[i].faceDown && g.defense === ghosts[i].defense)) return;
+  if (before.length === ghosts.length && before.every((g, i) => g.id === ghosts[i].id && g.zone === ghosts[i].zone && g.slot === ghosts[i].slot && g.faceDown === ghosts[i].faceDown && g.defense === ghosts[i].defense && g.cardId === ghosts[i].cardId && g.name === ghosts[i].name)) return;
   if (ghosts.length) store.set(key, ghosts); else store.delete(key);
   for (const listener of listeners) listener();
 }

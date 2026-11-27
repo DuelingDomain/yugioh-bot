@@ -3,9 +3,8 @@
  *
  * The zone watch (zone-events.ts) runs on small grey frames of the own camera. When a zone moves and then rests, this
  * controller takes one fresh full-size frame, asks the heuristic zone classifier (zone-state.ts) if something that is not
- * a hand lies in the zone, and sends that zone crop straight to the card reader. It never places a card itself: the
- * result goes back to the field watcher (`deliver`), which runs it through its normal outline, rest, hand, twin and slot
- * guards. A card that is not sure, not face-up or not alone in its zone is left to the normal pipeline.
+ * a hand lies in the zone, and sends that zone crop straight to the card reader. The watcher previews a sure name
+ * locally and uses its normal outline, rest, hand, twin and slot guards to commit the placement.
  *
  * Cost control: a settle that matches the committed picture is ignored; every attempt counts against a per-zone cooldown and a
  * cap per second (before any full frame is taken); it yields to scans and other reads (`busy`) and stands down with `enabled`.
@@ -57,6 +56,8 @@ export interface ZoneInstantOptions {
   now?: () => number;
   /** Attempts per second over all zones. Default 4. */
   maxPerSecond?: number;
+  /** Extend the gap after costly reads on devices with limited thermal headroom. */
+  maxReadDuty?: number;
   /** Longest wait for a busy reader (ms). Default 400. */
   yieldMs?: number;
 }
@@ -120,19 +121,21 @@ export function createZoneInstant(options: ZoneInstantOptions) {
   const stats: ZoneInstantStats = { frames: 0, settles: 0, attempts: 0, reads: 0, delivered: 0, skipped: {}, watchCpuMs: 0 };
   const skip = (why: string) => { stats.skipped[why] = (stats.skipped[why] ?? 0) + 1; };
   let watch: ReturnType<typeof createZoneWatch> | undefined, watchKey = '', specs: ReturnType<typeof zoneSpecsFromCalibration> = [];
-  let timer: ReturnType<typeof setTimeout> | undefined, running = false, working = false, disposed = false;
+  let timer: ReturnType<typeof setTimeout> | undefined, running = false, working = false, disposed = false, generation = 0;
+  let nextReadAt = -Infinity, sampledAt = -Infinity;
+  const settledAt = new Map<string, number>();
   let mat: MatColour | undefined, matAt = -Infinity, matTriedAt = -Infinity;
   const pending: { zone: FieldZone; settleAt: number; eventAt: number }[] = [], recent: number[] = [], zoneAt = new Map<string, number>(), movedAt = new Map<string, number>();
 
   function ensureWatch(frame: GrayFrame) {
     const calibration = options.calibration();
     if (!calibration) { watch = undefined; return undefined; }
-    const key = `${frame.width}x${frame.height}:${JSON.stringify(calibration.corners)}:${JSON.stringify(calibration.zoneSpacing ?? null)}:${JSON.stringify(calibration.zones ?? null)}:${options.format ?? ''}`;
+    const key = `${frame.width}x${frame.height}:${JSON.stringify(calibration.corners)}:${JSON.stringify(calibration.orientation ?? null)}:${JSON.stringify(calibration.zoneSpacing ?? null)}:${JSON.stringify(calibration.zones ?? null)}:${options.format ?? ''}`;
     if (!watch || key !== watchKey) {
       // Only field slots: piles and the hand are not instant zones.
       specs = zoneSpecsFromCalibration(calibration, options.format, undefined).filter(s => /^(M[1-5]|S[1-5]|EMZ[12]|FIELD)$/.test(s.id));
       watch = createZoneWatch(specs, frame, { idleIntervalMs: options.tier.idleIntervalMs, settleMs: options.tier.settleMs, budget: options.tier.budget, now });
-      watchKey = key; pending.length = 0; mat = undefined; movedAt.clear();
+      watchKey = key; pending.length = 0; mat = undefined; movedAt.clear(); settledAt.clear();
     }
     return watch;
   }
@@ -141,10 +144,10 @@ export function createZoneInstant(options: ZoneInstantOptions) {
   function push(frame: GrayFrame, at = now()) {
     const w = ensureWatch(frame);
     if (!w || !w.wants(at)) return;
-    stats.frames++;
+    stats.frames++; sampledAt = at;
     for (const event of w.push(frame, at)) {
-      if (event.type === 'start') { movedAt.set(event.zone, event.at); continue; }
-      stats.settles++;
+      if (event.type === 'start') { movedAt.set(event.zone, event.at); settledAt.delete(event.zone); continue; }
+      stats.settles++; settledAt.set(event.zone,event.at);
       movedAt.set(event.zone, Math.max(movedAt.get(event.zone) ?? -Infinity, event.at));
       // The zone rests on the picture it already had (a hand or a shadow passed): nothing to read.
       if (!event.changed) { skip('unchanged'); continue; }
@@ -176,11 +179,14 @@ export function createZoneInstant(options: ZoneInstantOptions) {
   async function handle(job: { zone: FieldZone; settleAt: number; eventAt: number }) {
     if (options.enabled && !options.enabled()) return skip('disabled');
     const stages: Record<string, number> = { zoneSettle: job.settleAt, zoneEvent: job.eventAt };
-    const started = now();
+    const started = now(), epoch = generation, calibration = options.calibration();
+    const stale = () => disposed || epoch !== generation || calibration !== options.calibration();
     // Yield to scans and other reads; a card that waits too long goes to the normal pipeline.
-    while (options.busy()) { if (disposed || now() - started > yieldMs) return skip('busy'); await new Promise(r => setTimeout(r, 25)); }
+    while (options.busy()) { if (stale() || now() - started > yieldMs) return skip('busy'); await new Promise(r => setTimeout(r, 25)); }
+    if (stale() || (options.enabled && !options.enabled())) return skip('disabled');
     const at = now();
     // Every attempt counts, before a full frame is taken: a zone that keeps settling must not cost a sample each time.
+    if (at < nextReadAt) return skip('read-cooldown');
     if (at - (zoneAt.get(job.zone) ?? -Infinity) < ZONE_COOLDOWN_MS) return skip('zone-cooldown');
     while (recent.length && at - recent[0] > 1000) recent.shift();
     if (recent.length >= maxPerSecond) return skip('rate');
@@ -192,6 +198,7 @@ export function createZoneInstant(options: ZoneInstantOptions) {
     const turnedAway = (why: string) => { zoneAt.set(job.zone, at - ZONE_COOLDOWN_MS + REJECT_COOLDOWN_MS); return skip(why); };
     const { frame, at: frameAt } = await options.sample();
     try {
+      if (stale()) return;
       stages.zoneSampled = now();
       const colour = matFrom(frame, job.zone);
       const crop = zoneCropOf(frame, card.quad);
@@ -205,11 +212,17 @@ export function createZoneInstant(options: ZoneInstantOptions) {
       // A foreground that reaches the crop edge is bigger than the zone: a held card or a neighbour that straddles it.
       if (state.edge) return turnedAway('straddles');
       if (!options.eligible(job.zone)) return skip('not-eligible');
+      if (options.enabled && !options.enabled()) return skip('disabled');
+      if (options.busy()) return skip('busy');
       stats.reads++;
       const look = zoneLookOf(crop), readAt = now();
-      const result = await options.read(frame, card);
-      stages.zoneRead = now();
-      if (disposed) return;
+      const result = await options.read(frame, card).finally(() => {
+        const done = stages.zoneRead = now();
+        const minimumGap = maxPerSecond === 1 ? 1000 : 0;
+        const dutyGap = options.maxReadDuty ? (done - readAt) / options.maxReadDuty : 0;
+        nextReadAt = readAt + Math.max(minimumGap, dutyGap);
+      });
+      if (stale()) return;
       if (options.enabled && !options.enabled()) return skip('disabled');
       stats.delivered++;
       options.deliver({ zone: job.zone, card, result, look, since: job.settleAt, readAt, frameAt, kind: state.kind, stages });
@@ -236,12 +249,14 @@ export function createZoneInstant(options: ZoneInstantOptions) {
   return {
     push,
     start() { if (running || disposed) return; running = true; timer = setTimeout(loop, 0); },
-    stop() { running = false; clearTimeout(timer); pending.length = 0; },
+    stop() { generation++; running = false; clearTimeout(timer); pending.length = 0; settledAt.clear(); },
     dispose() { disposed = true; running = false; clearTimeout(timer); pending.length = 0; },
     /** A zone settled on the board (a card placed or confirmed absent): learn the grey picture of it. */
     commit(frame: GrayFrame, zone: string) { watch?.commit(frame, zone); },
     /** True when the zone moved (or moves now) after `at` (watcher clock): a read taken before that no longer describes it. */
     movedSince(zone: string, at: number) { return !!watch?.isActive(zone) || (movedAt.get(zone) ?? -Infinity) > at; },
+    /** Recent stillness evidence, paired with the tracker's learned empty appearance. */
+    settledSince(zone: string) { return now() - sampledAt <= 500 && !watch?.isActive(zone) ? settledAt.get(zone) : undefined; },
     stats: () => ({ ...stats, skipped: { ...stats.skipped } }),
   };
 }
