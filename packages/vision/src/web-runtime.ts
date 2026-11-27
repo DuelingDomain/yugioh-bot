@@ -169,6 +169,7 @@ export type WebGpuRuntime =
   | { ort: WebOrt; adapter: string; fp16: boolean; device?: GpuDeviceLike; diagnostics: WebGpuDiagnostics }
   | { ort: null; why: string; diagnostics: WebGpuDiagnostics };
 const gpuRuntimes = new WeakMap<WebOrt, Promise<WebGpuRuntime>>();
+const GPU_DEVICE_INIT_COOLDOWN_MS = 20_000;
 const lostDevices = new WeakMap<GpuDeviceLike, Error>();
 const deviceLoss = (device?: GpuDeviceLike) => device && lostDevices.get(device);
 
@@ -266,7 +267,9 @@ export async function webGpuRuntime(deps: WebRuntimeDeps = {}): Promise<WebGpuRu
     })();
     gpuRuntimes.set(ort, ready);
     const result = await ready;
-    if (!result.ort && gpuRuntimes.get(ort) === ready) gpuRuntimes.delete(ort);
+    if (!result.ort) setTimeout(() => {
+      if (gpuRuntimes.get(ort) === ready) gpuRuntimes.delete(ort);
+    }, GPU_DEVICE_INIT_COOLDOWN_MS);
     return result;
   } catch (error) {
     return { ort: null, why: `WebGPU initialization: ${errorText(error)}`, diagnostics };
@@ -436,7 +439,9 @@ export async function openModelSession(path: string, what: string, deps: WebRunt
   let active: Opened = gpu ?? (await openWasm());
   let ep: RuntimeSession['ep'] = gpu ? 'webgpu' : 'wasm';
   let runs = 0;
-  let retryAt = Infinity, retries = 0;
+  let retries = 0, released = false;
+  let retryTimer: ReturnType<typeof setTimeout> | undefined;
+  let cpuRuns = new Set<Promise<unknown>>();
   const compiledShapes = new Set<string>();
   model = null;
 
@@ -452,10 +457,24 @@ export async function openModelSession(path: string, what: string, deps: WebRunt
     const dropped = active;
     active = await openWasm();
     ep = 'wasm';
-    // Callers such as Vision Lab can reopen on a later run. Remote Duels
-    // supervises recovery and replaces the entire worker, including stuck ORT.
+    // Vision Lab reopens WebGPU in the background. Remote Duels replaces the
+    // entire worker so that a wedged ONNX runtime cannot affect the new reader.
     if (!deps.onGpuDeviceLost && !stuckRun && !stuckGpu.has(dropped.ort) && retries < 3) {
-      retryAt = performance.now() + 30_000 * 2 ** retries;
+      const cpu = active;
+      retryTimer = setTimeout(() => {
+        retries++;
+        void openWebGpu().then(reopened => {
+          if (!reopened) return;
+          if (released || active !== cpu) {
+            void reopened.session.release?.().catch(() => {});
+            return;
+          }
+          active = reopened; ep = 'webgpu'; runs = 0; compiledShapes.clear();
+          const draining = cpuRuns;
+          cpuRuns = new Set();
+          void Promise.allSettled(draining).then(() => cpu.session.release?.()).catch(() => {});
+        }).catch(() => {});
+      }, 30_000);
     }
     if (stuckRun) {
       stuckGpu.add(dropped.ort);
@@ -501,16 +520,6 @@ export async function openModelSession(path: string, what: string, deps: WebRunt
       return ep;
     },
     async run(feeds) {
-      if (ep === 'wasm' && performance.now() >= retryAt) {
-        retryAt = Infinity;
-        retries++;
-        const reopened = await openWebGpu();
-        if (reopened) {
-          const cpu = active;
-          active = reopened; ep = 'webgpu'; runs = 0; compiledShapes.clear();
-          void cpu.session.release?.().catch(() => {});
-        } else if (retries < 3) retryAt = performance.now() + 30_000 * 2 ** retries;
-      }
       if (ep === 'webgpu' && stuckGpu.has(active.ort)) await toWasm('got stuck on another model', new Error('stuck'));
       const loss = deviceLoss(active.device);
       if (ep === 'webgpu' && loss) await toWasm('failed', loss);
@@ -533,12 +542,19 @@ export async function openModelSession(path: string, what: string, deps: WebRunt
           else if (await gpuFailed(e)) return session.run(feeds);
         }
       }
-      return active.session.run(feeds);
+      const running = active.session.run(feeds);
+      if (deps.onGpuDeviceLost) return running;
+      const reads = cpuRuns;
+      reads.add(running);
+      try { return await running; }
+      finally { reads.delete(running); }
     },
     async reportGpuFailure(e) {
       if (ep === 'webgpu') await gpuFailed(e);
     },
     release: async () => {
+      released = true;
+      clearTimeout(retryTimer);
       await active.session.release?.();
     },
   };
