@@ -177,6 +177,7 @@ export function useFieldWatcher(options:UseFieldWatcherOptions) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   },[options.owner,options.active,options.sourceKey,enabled,loaded,storageKey,hasCalibration,galleryKey]);
   return {placed,aspectChanged,getTracks:useCallback(()=>watcher.current?.getSnapshot().tracks??[],[]),getTrack:useCallback((id:string)=>watcher.current?.getSnapshot().tracks.find(t=>t.id===id),[]),enabled,/** The saved detection mode is read: `enabled` is not the player's mode before this. */ settingsLoaded:loaded===storageKey,setEnabled,calibration,setCalibration,calibrationNeeded,snapshot,
+    finishInstantPreview:useCallback((id:string)=>watcher.current?.finishInstantPreview?.(id),[]),
     isRemoved:useCallback((id:string)=>watcher.current?.getSnapshot().tracks.some(t=>t.id===id&&t.removed)??false,[]),
     confirm:useCallback((id:string,cardId?:string,ref?:string,human=true)=>{clipAction('confirm',{trackId:id,cardId,ref,human,zone:watcher.current?.getSnapshot().tracks.find(t=>t.id===id)?.zone});return watcher.current?.confirm(id,cardId,ref,human);},[]),
     acceptSet:useCallback((id:string)=>watcher.current?.acceptSet(id)??false,[]),

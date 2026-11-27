@@ -668,7 +668,7 @@ export function createRemoteDuelService(db: Database.Database, options: {
         return room(load(slug, guildId), userId);
       });
     },
-    act(slug: string, guildId: string, userId: number, input: { baseSeq: number; action: RemoteAction; onTiming?:(stage:'reducer',ms:number)=>void }, now = Date.now()): RemoteRoom {
+    act(slug: string, guildId: string, userId: number, input: { baseSeq: number; action: RemoteAction; postStartedAt?:number; onTiming?:(stage:'reducer',ms:number)=>void }, now = Date.now()): RemoteRoom {
       return transaction(() => {
         const first = loadTable(slug, guildId); if (first.status === "active") settleAdminWatch(first, now);
         const row = load(slug, guildId); const s = member(row, userId);
@@ -682,6 +682,12 @@ export function createRemoteDuelService(db: Database.Database, options: {
         if (old) {
           const { at: _oldTime, ...oldAction } = JSON.parse(old.action_json);
           const { at: _time, ...newAction } = command;
+          // Server-side diagnostics are added after parsing the proposal and can vary across retries.
+          if(oldAction.cam?.timing)delete oldAction.cam.timing.stagesMs.postServer;
+          if(newAction.cam?.timing){
+            const {postServer:_postServer,...stagesMs}=newAction.cam.timing.stagesMs;
+            newAction.cam={...newAction.cam,timing:{...newAction.cam.timing,stagesMs}};
+          }
           // A retried roll has a new random result; the first one stands.
           if (oldAction.type === "random.roll") { delete oldAction.result; delete (newAction as { result?: number }).result; }
           remoteAssert(old.user_id === userId && JSON.stringify(oldAction) === JSON.stringify(newAction), "Idempotency key was used for a different action", 409, "IDEMPOTENCY_CONFLICT");
@@ -714,7 +720,7 @@ export function createRemoteDuelService(db: Database.Database, options: {
         const before = timeoutState ?? readState(row);
         // `now` was read before this write lock. A request that waited for another writer (a second web worker or the sweep) can carry a time just before the state it now sees; the reducer refuses a time before the state, which would drop a valid move. Event time never goes backward.
         const stamp = Math.max(now, before.updatedAt);
-        const action = { ...command, at: stamp };
+        let action = { ...command, at: stamp };
         const effects: RemoteReductionContext = {...REMOTE_REDUCTION_VERSIONS,showCardsSetFromDeck:before.showCardsSetFromDeck};
         const target = 'cardRef' in command && 'seat' in command
           ? before.seats[command.seat]?.twin.find(c => c.ref === command.cardRef) : undefined;
@@ -780,6 +786,10 @@ export function createRemoteDuelService(db: Database.Database, options: {
             effects.registration = candidate;
           }
         }
+        const camera=action.cam;
+        if(camera?.timing&&input.postStartedAt!==undefined)action={...action,cam:{...camera,timing:{...camera.timing,stagesMs:{
+          ...camera.timing.stagesMs,postServer:Math.max(0,Math.round(performance.now()-input.postStartedAt)),
+        }}}};
         const reduceAt=performance.now();
         const state = getRemoteGame(row.game_id).reduce(before, action, effects);
         input.onTiming?.('reducer',performance.now()-reduceAt);

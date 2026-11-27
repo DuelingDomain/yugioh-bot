@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createFieldWatcher, type FieldEvent } from './field-watcher';
+import { yugioh } from './games/yugioh';
 import { createFieldCalibration } from './field-zones';
 import { createZoneWatch, zoneSpecsFromCalibration, type GrayFrame } from './zone-events';
 import { classifyZone, estimateMat, zoneCrop } from './zone-state';
@@ -15,7 +17,7 @@ const front = (x: number, y: number) => {
   return [35, 145, 120];
 };
 
-test('a card lands in one zone: watch settles, classifier names it, preview is private and server-reconciled', () => {
+test('a card lands in one zone: watch settles, classifier names it, preview is private and server-reconciled', async () => {
   const calibration = createFieldCalibration([{ x: .05, y: .05 }, { x: .95, y: .95 }]);
   const specs = zoneSpecsFromCalibration(calibration);
   const m3 = specs.find(s => s.id === 'M3')!, m1 = specs.find(s => s.id === 'M1')!;
@@ -84,4 +86,34 @@ test('a card lands in one zone: watch settles, classifier names it, preview is p
   assert.equal(board.apply({ ...up, seq: 4 }, 2100), false, 'a stale preview is ignored');
   assert.deepEqual(board.expire(2500), []);
   assert.equal(board.expire(5001).length, 1, 'no server event in 3 s rolls the preview back');
+
+  const eventsFromWatcher:FieldEvent[]=[];
+  t=0;lastRgba=draw(false,false);
+  const watcher=createFieldWatcher({
+    profile:yugioh,calibration,now:()=>t,hidden:()=>false,clone:async frame=>frame,
+    zoneInstant:{tier:{name:'cpu4',idleIntervalMs:33,settleMs:120,budget:1,preRead:false,maxPreReads:0}},
+    buffer:{gray:()=>gray(lastRgba),sample:async()=>({frame:lastRgba as unknown as ImageData,at:t})},
+    recognizer:{
+      detectCards:async()=>[],
+      recognize:async()=>({candidates:[{cardId:'A',score:.98}],tier:'sure',quality:{
+        detected:true,cornersFound:true,framesUsed:1,selectedFrameIndices:[0],sharpness:20,fallback:false,
+      },timingsMs:{sharpness:0,detect:0,warp:0,embed:0,search:0,total:0},backend:'wasm'}),
+    },
+  });
+  watcher.subscribe(event=>eventsFromWatcher.push(event));
+  try{
+    for(let i=0;i<18;i++){
+      t+=33;lastRgba=draw(i>=5,false);
+      watcher.pushZoneFrame(gray(lastRgba),t);
+      await new Promise<void>(resolve=>setImmediate(resolve));
+    }
+    assert.equal(watcher.zoneInstantStats()?.delivered,1);
+    assert.equal(watcher.getSnapshot().instantPreviews?.[0]?.cardId,'A','shows the name before a detector pass');
+    assert.deepEqual(eventsFromWatcher,[]);
+    t+=100;
+    await watcher.tick();
+    assert.equal(watcher.getSnapshot().instantPreviews?.length??0,0,'a detector miss rolls it back');
+    assert.deepEqual(eventsFromWatcher,[],'rollback never posts a board event');
+  }finally{watcher.dispose();}
+
 });

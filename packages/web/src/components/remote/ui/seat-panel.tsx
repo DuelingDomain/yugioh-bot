@@ -14,6 +14,7 @@ import type { Health } from "./video-hub";
 import { NotifyDock } from "./notify-dock";
 import { HandStrip, type HandProps } from "./hand-ui";
 import { TapBoardNote } from "./tap-mode-banner";
+import { SeatSplitter, clampSplit, readSplit, writeSplit, type SplitBox } from "./seat-splitter";
 import { modeLabel, modeShort, type TournamentMode } from "@/lib/remote/tournament-detection";
 import { ThinkingChip } from "./think";
 import { LifePoints } from "@/components/duel/life-points";
@@ -63,6 +64,7 @@ export type SeatPanelProps = {
   /** Names the table shape (2, 3 or 4 seats) so the remembered view is per viewer, seat and shape. */ viewScope?: string;
   /** This player's phase boxes (`PhaseTrack`). They sit between the camera and the virtual field, in every view. */ track?: ReactNode;
   /** The virtual field is hidden (the default). The camera feed takes its space. */ webcamOnly?: boolean;
+  /** 1v1 only: the switch for this seat's board (the header button and the webcam "..." menu), also for a seat with no camera. Absent on 3-way and 4-way tables. A seat whose board is off in Tap mode shows it locked. */ onBoard?: (on: boolean) => void;
   /** This player is in Tap mode, so the board is off for everyone: the seat shows its camera like Webcam only, plus a note. My own seat shows no note: the strip under my camera says it and has the Turn on button. */ boardOff?: Record<string, never>;
   /** A camera click on a card the table knows (both views). Webcam only also uses the camera for hover info and piles. Right click or long press opens the card actions (always). Same shapes as on the feed. */
   onHoverEnd?: ComponentProps<typeof Feed>["onHoverEnd"];
@@ -81,18 +83,31 @@ function useFieldView(key: string) {
   const [field, setField] = useState(false); const [swapping, setSwapping] = useState(false);
   useEffect(() => { try { setField(localStorage.getItem(key) === "field"); } catch { /* storage blocked: stay camera first */ } }, [key]);
   useEffect(() => { if (!swapping) return; const timer = setTimeout(() => setSwapping(false), 420); return () => clearTimeout(timer); }, [swapping]);
-  const set = useCallback((next: boolean) => {
-    setField(next); setSwapping(true);
+  const set = useCallback((next: boolean, animate = true) => {
+    setField(next); setSwapping(animate);
     try { if (next) localStorage.setItem(key, "field"); else localStorage.removeItem(key); } catch { /* storage blocked: not remembered */ }
   }, [key]);
   return [field, set, swapping] as const;
 }
 
+/** The webcam / board ratio of one seat, per viewer and seat. Null is the default layout. Remembered in this browser only. */
+function useSplit(key: string) {
+  const [split, setSplit] = useState<number | null>(null);
+  useEffect(() => { setSplit(readSplit(key)); }, [key]);
+  const set = useCallback((next: number | null) => { setSplit(next); writeSplit(key, next); }, [key]);
+  return [split, set] as const;
+}
+
 export function SeatPanel(p: SeatPanelProps) {
   const [fieldViewPref, setFieldView, swapping] = useFieldView(`dd-remote-view:${p.viewScope ?? "x"}:${p.seat}`);
+  const [split, setSplit] = useSplit(`dd-remote-split:${p.viewScope ?? "x"}:${p.seat}`);
+  const [splitBox, setSplitBox] = useState<SplitBox | null>(null);
+  const seatRef = useRef<HTMLElement | null>(null);
   // Board off (Tap mode) lays the seat out like Webcam only; the public-cards list stays.
   const compact = !!p.webcamOnly || !!p.boardOff;
   const fieldView = fieldViewPref && !compact;
+  // The webcam / board seam: only where a webcam sits over a board (not Webcam only, not a focus seat of a 3-way or 4-way table).
+  const splitOn = !compact && !p.focus; const splitShown = splitOn && split !== null ? clampSplit(split, splitBox ?? undefined) : null;
   const scan = useFieldScan(p.seat), missingPiles = useMissingPiles(p.seat), advice = useScanAdvice(p.seat);
   // The Scan button goes in Tap to identify; its space stays, so the camera does not move.
   // Webcam only, while this seat can be attacked: the list of its monsters is on the feed, because a feed without a camera or outlines cannot be clicked.
@@ -137,7 +152,7 @@ export function SeatPanel(p: SeatPanelProps) {
   const low = p.lp < 2500; const width = Math.min(100, Math.max(0, (p.lp / Math.max(1, p.startingLp)) * 100));
   const label = (value: number) => `${p.name} ${value < 0 ? "minus" : "plus"} ${Math.abs(value)}`;
   const classes = [s.seat, s[`s${p.index}`], p.turn ? s.turn : "", p.you ? s.mine : "", p.turn && p.turnIn ? s.turnIn : "", p.next ? s.next : "", p.speaking ? s.speak : "", p.frozen ? s.frozen : "", p.eliminated ? s.out : ""].filter(Boolean).join(" ");
-  return <section className={classes} aria-label={`${p.name}'s seat`} style={{ "--c": p.color } as React.CSSProperties} data-testid={`seat-${p.seat}`} data-turn={p.turn || undefined} data-view={fieldView ? "field" : "camera"} data-wc={compact || undefined} data-nocam={(!compact && !!p.focus) || undefined} data-big={p.focus?.big || undefined} data-tile={p.focus?.tile || undefined} data-swapping={swapping || undefined}>
+  return <section ref={seatRef} className={classes} aria-label={`${p.name}'s seat`} style={{ "--c": p.color, ...(splitShown !== null ? { "--split": splitShown.toFixed(4) } : {}) } as React.CSSProperties} data-testid={`seat-${p.seat}`} data-turn={p.turn || undefined} data-split={splitShown !== null ? "" : undefined} data-view={fieldView ? "field" : "camera"} data-wc={compact || undefined} data-nocam={(!compact && !!p.focus) || undefined} data-big={p.focus?.big || undefined} data-tile={p.focus?.tile || undefined} data-swapping={swapping || undefined}>
     <header className={s.sh}>
       <span className={s.pip} /><h2 className={s.nm} style={{ margin: 0 }} data-pick={p.focus && !p.focus.big ? "" : undefined} onClick={p.focus && !p.focus.big ? p.focus.onPick : undefined}>{p.name}</h2>
       {p.you ? <span className={`${s.tag} ${s.you}`}>YOU</span> : null}
@@ -146,6 +161,8 @@ export function SeatPanel(p: SeatPanelProps) {
       <span className={`${s.tag} ${s.turnt}`}>TURN</span><span className={`${s.tag} ${s.nextt}`}>NEXT</span>
       {p.eliminated ? <span className={s.tag}>OUT</span> : null}
       <span className={s.micI}><Icon name="mic" /></span><span className={s.sp} />
+      {p.onBoard ? <button type="button" className={`${s.vtog} ${s.vboard}`} data-testid={`seat-board-${p.seat}`} aria-pressed={!compact} disabled={!!p.boardOff} onClick={() => p.onBoard?.(compact)}
+        title={p.boardOff ? "This seat uses Tap mode, so its board is off for everyone." : compact ? `Show the virtual board under ${p.you ? "my" : `${p.name}'s`} webcam` : `Hide the virtual board under ${p.you ? "my" : `${p.name}'s`} webcam. The board keeps running`}>Board <b>{compact ? "Off" : "On"}</b></button> : null}
       {compact || p.focus ? null : <button type="button" className={s.vtog} data-testid={`view-toggle-${p.seat}`} onClick={() => setFieldView(!fieldView)}
         title={fieldView ? "Show the camera large again" : "Show the virtual field large and the camera small"}>{fieldView ? "Camera view" : "Enlarge field"}</button>}
       <button type="button" className={`${s.hl} ${s[p.health.q] ?? ""}`} aria-haspopup="dialog" aria-expanded={p.healthOpen} data-hl={p.seat} title={`${p.health.label}${p.health.detail ? `, ${p.health.detail}` : ""}`}
@@ -158,7 +175,7 @@ export function SeatPanel(p: SeatPanelProps) {
     <div className={s.sbody}>
       <Feed seat={p.seat} name={p.name} you={p.you} health={p.health} marks={p.marks} reticles={p.reticles} onBegin={p.onBegin} readLive={p.readLive} onAbort={p.onAbort} onMiss={p.onMiss} onSearch={p.onSearch} onPoint={p.onPoint} onSelect={p.onSelect} holdSelection={p.holdSelection} onAdd={p.onAdd} onReset={p.onReset} onReadBoard={p.onReadBoard} onZoneCard={p.onZoneCard} onPick={compact ? p.onCamPick : undefined} openZones={compact ? openZones : undefined} hoverTip={p.hoverTip} onHoverEnd={p.onHoverEnd} silentHover={!p.webcamOnly} onCardMenu={p.onCardMenu} emptyText={p.emptyFeedText} emptyAction={p.emptyFeedAction} tournament={p.tournamentTable} prereadScope={compact && p.live ? p.prereadScope : undefined} announcedMode={p.detectionMode === "unknown" ? undefined : p.detectionMode}
         extra={<>
-          <CameraToolsMenu seat={p.seat} name={p.name} you={p.you} scan={scan} advice={advice} warn={p.health.q === "bad"} onToken={p.onToken} onRescan={p.you ? undefined : p.onRescan} setup={p.you ? p.cameraSetup : undefined} />
+          <CameraToolsMenu seat={p.seat} name={p.name} you={p.you} board={p.onBoard ? { on: !compact, onChange: p.onBoard, locked: !!p.boardOff } : undefined} scan={scan} advice={advice} warn={p.health.q === "bad"} onToken={p.onToken} onRescan={p.you ? undefined : p.onRescan} setup={p.you ? p.cameraSetup : undefined} />
           {fieldView ? <button type="button" className={s.swapcam} tabIndex={-1} aria-label="Camera view: show the camera large again" data-testid={`swap-cam-${p.seat}`} onClick={() => setFieldView(false)} /> : null}
           {directive ? <button type="button" className={s.directHint} onClick={onDirect} data-testid={`direct-hint-${p.seat}`} aria-label={`Attack ${p.name} directly`}><Icon name="bolt" />{p.pickPlate ? "Attack directly" : "Click webcam or LP to attack directly"}</button> : null}
           {targeting ? cardList : null}
@@ -171,6 +188,7 @@ export function SeatPanel(p: SeatPanelProps) {
           </div>
         </>} />
       <div className={s.fside}>
+        {splitOn ? <SeatSplitter seat={p.seat} name={p.name} seatRef={seatRef} box={splitBox} split={splitShown} onMeasure={setSplitBox} onSplit={setSplit} onGrab={() => { if (fieldView) setFieldView(false, false); }} /> : null}
         {p.track}
         {p.boardOff && !p.you ? <TapBoardNote /> : null}
         {targeting ? null : cardList}

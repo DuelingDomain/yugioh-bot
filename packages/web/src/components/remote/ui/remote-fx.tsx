@@ -62,11 +62,12 @@ function tintOfCard(cardId: number | undefined, fallback: string): string {
  * new event arrived since the last render: not on first load, not after a reconnect that brings many events, and not for an
  * Undo (the server marks it as an `undo` event, so every seat sees the same).
  */
-export function RemoteFx({ state, webcamOnly, seq, last, chainNo }: { state: RemoteState; webcamOnly: boolean; seq: number; last?: RemoteEvent["action"]; chainNo?: number }) {
+export function RemoteFx({ state, webcamOnly, hiddenSeats = [], seq, last, chainNo }: { state: RemoteState; webcamOnly: boolean; /** Seats whose board is not drawn (their own switch, Tap mode): no board effect plays there. */ hiddenSeats?: number[]; seq: number; last?: RemoteEvent["action"]; chainNo?: number }) {
   const lastType = last?.type;
   const layer = useRef<HTMLDivElement>(null);
   const prev = useRef<Snap | null>(null);
   const rects = useRef(new Map<string, Box>());
+  const hiddenKey = hiddenSeats.join(",");
 
   useLayoutEffect(() => {
     const host = layer.current; if (!host) return;
@@ -142,8 +143,9 @@ export function RemoteFx({ state, webcamOnly, seq, last, chainNo }: { state: Rem
       });
 
       if (!webcamOnly) {
+        const hidden = new Set(hiddenKey ? hiddenKey.split(",").map(Number) : []);
         const attack = state.attack;
-        if (attack && attack.id !== before.attackId) {
+        if (attack && attack.id !== before.attackId && !hidden.has(attack.attackerSeat) && !hidden.has(attack.targetSeat)) {
           const from = (attack.attackerCardRef && (boxOf(cardEl(attack.attackerCardRef)) ?? rects.current.get(attack.attackerCardRef))) || null;
           const to = (attack.targetCardRef && (boxOf(cardEl(attack.targetCardRef)) ?? rects.current.get(attack.targetCardRef)))
             || boxOf(document.querySelector(`[data-plate="${attack.targetSeat}"]`)) || boxOf(document.querySelector(`[data-lp-seat="${attack.targetSeat}"]`));
@@ -158,6 +160,7 @@ export function RemoteFx({ state, webcamOnly, seq, last, chainNo }: { state: Rem
         for (const [ref, now] of next.cards) {
           if (used >= MAX_PER_STATE) break;
           const old = before.cards.get(ref);
+          if (hidden.has(now.seat) || (old && hidden.has(old.seat))) continue;
           if (old && ON_FIELD.has(old.zone) && now.zone === "graveyard") {
             // A summon material is not destroyed. Only a battle destroy shatters; any other send to the Graveyard is a soft flash.
             if (materialMove) continue;
@@ -177,13 +180,13 @@ export function RemoteFx({ state, webcamOnly, seq, last, chainNo }: { state: Rem
         if (last?.type === "effect.activated" && used < MAX_PER_STATE) {
           const source = last.source;
           const ref = source.cardRef ?? state.seats[last.actorSeat]?.twin.find(card => ON_FIELD.has(card.zone) && source.cardId !== undefined && (card.cardId ?? card.passcode) === source.cardId)?.ref;
-          const box = ref ? boxOf(cardEl(ref)) ?? rects.current.get(ref) : null;
+          const box = ref && !hidden.has(next.cards.get(ref)?.seat ?? last.actorSeat) ? boxOf(cardEl(ref)) ?? rects.current.get(ref) : null;
           if (box) { used += 1; activated = true; glow(box, "155 126 255", 1.3); ring(box, "155 126 255"); if (chainNo) chainBadge(box, chainNo); }
         }
         for (const id of activated ? [] : next.contexts) {
           if (used >= MAX_PER_STATE || before.contexts.has(id)) continue;
           const ref = state.effectTracking?.contexts[Number(id)]?.source.cardRef;
-          const box = ref ? boxOf(cardEl(ref)) ?? rects.current.get(ref) : null;
+          const box = ref && !hidden.has(next.cards.get(ref)?.seat ?? -1) ? boxOf(cardEl(ref)) ?? rects.current.get(ref) : null;
           if (box) { used += 1; glow(box, "155 126 255", 1.3); ring(box, "155 126 255"); }
         }
       }
@@ -194,7 +197,7 @@ export function RemoteFx({ state, webcamOnly, seq, last, chainNo }: { state: Rem
     document.querySelectorAll<HTMLElement>("[data-zone] [data-ref], [data-zone][data-ref]").forEach(el => {
       const ref = el.getAttribute("data-ref"); const box = boxOf(el); if (ref && box) rects.current.set(ref, box);
     });
-  }, [state, webcamOnly, seq, last, chainNo]);
+  }, [state, webcamOnly, hiddenKey, seq, last, chainNo]);
 
   return <div ref={layer} className={s.fxl} aria-hidden="true" data-testid="remote-fx" />;
 }

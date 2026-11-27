@@ -789,6 +789,32 @@
 .rescan{display:inline-flex;align-items:center;gap:5px}.rescan[data-sent]{border-color:rgb(232 185 79/.55);color:var(--gold-ink)}
 .vbeta{padding:1px 4px;border:1px solid rgb(232 185 79/.55);border-radius:3px;color:var(--gold-ink);font:700 9px/1.2 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;letter-spacing:.04em;vertical-align:1px}
 .vtog:focus-visible,.swapcam:focus-visible{outline:2px solid var(--gold);outline-offset:1px}
+/* Board On / Off: this seat's own switch for the virtual board (1v1). Pressed = the board shows. */
+.vboard b{font-weight:800;color:var(--gold-ink)}
+.vboard:disabled{opacity:.55;cursor:not-allowed}
+.vboard[aria-pressed="false"]{border-style:dashed}.vboard[aria-pressed="false"] b{color:var(--ink3)}
+/* The seam between the webcam and the board (1v1): a thin handle over the gap under the webcam. Drag it, or focus it and use Up and Down.
+   The seat then holds --split, the webcam's share of its body, and the board takes what is left. The handle is hidden on a wide seat (side by side) and on a phone. */
+.fside:has(>.splitter){position:relative}
+.splitter{position:absolute;z-index:6;left:0;right:0;top:-10px;height:12px;display:flex;align-items:center;justify-content:center;cursor:row-resize;touch-action:none;user-select:none;-webkit-user-select:none;border-radius:6px}
+.splitter>i{display:block;width:48px;height:4px;border-radius:2px;background:var(--ink2);opacity:0;transition:opacity .15s,background .15s,width .15s}
+.splitter:hover>i,.splitter:focus-visible>i,.splitter[data-dragging]>i{opacity:.8;width:64px}
+.splitter[data-set]>i{opacity:.28}.splitter[data-set]:hover>i,.splitter[data-set]:focus-visible>i{opacity:.8}
+.splitter[data-dragging]>i{background:var(--gold)}
+.splitter:focus-visible{outline:2px solid var(--gold);outline-offset:-2px}
+@media (pointer:coarse){.splitter{top:-14px;height:20px}.splitter>i{opacity:.4;height:5px}}
+@media (min-width:901px){@container seat (max-aspect-ratio:1.549){
+.seat[data-split]:not([data-view="field"]):not([data-wc]) .feedcol{flex:0 0 calc(var(--split) * 100%)}
+.seat[data-split]:not([data-view="field"]):not([data-wc]) .fside{flex:1 1 auto}
+.seat[data-split]:not([data-view="field"]):not([data-wc]) .fwrap{--fh:max(96px,calc((100cqh - 48px) * (1 - var(--split)) - 158px - var(--scanh,0px)))}
+}}
+.seat[data-split]:not([data-swapping]) .feedcol,.seat[data-split]:not([data-swapping]) .fwrap{transition:none}
+/* The Enlarge field preset is the smallest share the seam allows (30 % of the seat body), so the first drag out of it does not jump. */
+@media (min-width:901px){@container seat (max-aspect-ratio:1.549){
+  .seat[data-view="field"]:not([data-wc]) .feedcol,.seat[data-view="field"]:not([data-wc]) .feedcol:has(.camsel){flex:0 0 30%}
+}}
+@container seat (min-aspect-ratio:1.55){.splitter{display:none}}
+@media (max-width:900px){.splitter{display:none}}
 .swapcam{position:absolute;inset:0;z-index:2;padding:0;border:0;background:transparent;cursor:zoom-in}
 .seat[data-view="camera"] .fwrap{cursor:zoom-in}
 .seat[data-view="field"]{--thumb:clamp(64px,24cqh,160px)}
