@@ -12,7 +12,8 @@ import { COLORS } from "./model";
 import { isTournamentTable } from "@/lib/remote/tournament-detection";
 import type { RemoteTournamentLink } from "@/lib/remote-tournament-link";
 import type { RoomController } from "./use-remote-room";
-import { deckFailedKey, remoteFormatName, remoteMatchTimeLabel, remoteTableHref, REMOTE_MATCH_TIME_CHOICES, REMOTE_TIME_TIE_CHOICES, useSavedDecks } from "./create";
+import { deckFailedKey, remoteFormatName, remoteMatchTimeLabel, remoteTableHref, REMOTE_MATCH_TIME_CHOICES, useSavedDecks } from "./create";
+import { MATCH_TIME_RULE } from "./match-model";
 import { LobbyDeckList } from "./lobby-deck-list";
 import LobbyCameraPreview, { type CameraMode } from "./lobby-camera-preview";
 import { useVideoHub } from "./video-hub";
@@ -210,8 +211,12 @@ export function RemoteLobbyRoom({ ctl, room, voiceRecognition = false, tournamen
               <SheetSelect label="Match length" value={bestOf} testId="room-best-of"
                 choices={[{ value: "1", label: "Best of 1 (one game)" }, { value: "3", label: "Best of 3 (side decking between games)" }]}
                 onChange={setBestOf} />
-              <SheetSelect label="Match time" value={String(matchTime)} choices={REMOTE_MATCH_TIME_CHOICES} onChange={value => setMatchTimeDraft(Number(value) as RemoteMatchMinutes)} testId="room-match-time" />
-              {matchTime > 0 ? <SheetSelect label="Tie after time" value={room.state.match.clock?.tie ?? "draw"} choices={REMOTE_TIME_TIE_CHOICES} testId="room-time-tie" /> : null}
+              {host && !rulesLocked
+                ? <div><SheetSelect label="Match time" value={String(matchTime)} choices={REMOTE_MATCH_TIME_CHOICES} onChange={value => setMatchTimeDraft(Number(value) as RemoteMatchMinutes)} testId="room-match-time" />
+                  <p className={cx(ui.hint, r.below)} data-testid="room-match-time-hint">{matchTime > 0 ? MATCH_TIME_RULE : "No match timer. The table plays as long as it needs."}</p></div>
+                : <div data-testid="room-match-time-readonly"><span className={ui.label}>Match time</span>
+                  <p className={r.readValue}>{remoteMatchTimeLabel(savedMatchTime)}</p>
+                  <p className={cx(ui.hint, r.below)}>{savedMatchTime > 0 ? MATCH_TIME_RULE : "No match timer."}</p></div>}
               <SheetSelect label="Who goes first" value={firstPlayer} testId="room-first-player"
                 choices={[{ value: "dice", label: "Digital dice (the table rolls)" }, { value: "own", label: "Roll your own dice (on camera)" }]}
                 onChange={value => setFirstPlayerDraft(value as RemoteFirstPlayerMode)} />

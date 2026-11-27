@@ -8,7 +8,6 @@ export const remoteTableHref = (slug: string) => `/duels/remote/${slug}`;
 export const REMOTE_SEAT_CHOICES: readonly Choice<number>[] = [{ value: 2, label: "1v1" }, { value: 3, label: "3-way" }, { value: 4, label: "4-way" }];
 export const remoteMatchTimeLabel = (minutes: RemoteMatchMinutes) => minutes === 0 ? "Off" : `${minutes} min`;
 export const REMOTE_MATCH_TIME_CHOICES = REMOTE_MATCH_MINUTES.map(minutes => ({ value: String(minutes), label: remoteMatchTimeLabel(minutes) }));
-export const REMOTE_TIME_TIE_CHOICES = [{ value: "draw", label: "Draw (Swiss)" }, { value: "sudden-death", label: "Sudden death", disabled: true }];
 
 /** Remote format ids. They are the duel type of the create screen plus the Genesys toggle. */
 const REMOTE_FORMAT_NAMES: Record<string, string> = { normal: "Advanced", domain: "Domain", genesys: "Genesys", "genesys-domain": "Genesys Domain" };

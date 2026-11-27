@@ -6,7 +6,8 @@ import { cx, SheetSegmented } from "@/components/duel/sheet-ui";
 import { ThemedSelect as SheetSelect } from "@/components/ui/themed-select";
 import ui from "@/components/duel/sheet-ui.module.css";
 import styles from "@/components/duel/creator.module.css";
-import { REMOTE_MATCH_TIME_CHOICES, REMOTE_SEAT_CHOICES, REMOTE_TIME_TIE_CHOICES } from "./create";
+import { MATCH_TIME_RULE } from "./match-model";
+import { REMOTE_MATCH_TIME_CHOICES, REMOTE_SEAT_CHOICES } from "./create";
 
 type SavedDecks = { data?: { decks: { id: number; name: string }[] }; error?: Error; isLoading: boolean };
 
@@ -42,8 +43,10 @@ export function RemoteSetupSection({ formatControls, seats, onSeats, solo, onSol
           <p className={cx(ui.hint, styles.below)}>{seats === 2 ? "One against one." : "Free for all."} Others join with the link of the room.</p>
         </div>
         {visibility}
-        <SheetSelect label="Match time" value={String(matchTime)} choices={REMOTE_MATCH_TIME_CHOICES} onChange={value => onMatchTime(Number(value) as RemoteMatchMinutes)} testId="create-match-time" />
-        {matchTime > 0 ? <SheetSelect label="Tie after time" value="draw" choices={REMOTE_TIME_TIE_CHOICES} testId="create-time-tie" /> : null}
+        <div className={styles.wide}>
+          <SheetSelect label="Match time" value={String(matchTime)} choices={REMOTE_MATCH_TIME_CHOICES} onChange={value => onMatchTime(Number(value) as RemoteMatchMinutes)} testId="create-match-time" />
+          <p className={cx(ui.hint, styles.below)}>{matchTime > 0 ? MATCH_TIME_RULE : "No match timer."}</p>
+        </div>
         <div className={styles.wide}>
           <label className={styles.toggle}>
             <input type="checkbox" checked={solo} onChange={(event) => onSolo(event.target.checked)} data-testid="create-solo" />
