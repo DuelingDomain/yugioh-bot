@@ -4,6 +4,12 @@ import type { EmbeddingModelSpec, GameProfile } from './types';
 
 export const DUELSIGHT_CONFIDENT = { score:.80, margin:.12 } as const;
 export const DUELSIGHT_RULE = { score:.68, margin:.06 } as const;
+/**
+ * A first read under either value is borderline: DuelSight sees the whole card, so a colour cast or a washed-out
+ * frame (monitor light on a small card) can put a card of another frame colour just above the released gate.
+ * Such a read stands only if the art-box reader names the same card.
+ */
+export const DUELSIGHT_CONFIDENT = { score:.80, margin:.12 } as const;
 export const duelSightModel:EmbeddingModelSpec = {
   id:'duelsight-862aec0f937da326', referenceTag:'duelsight-862aec0f937da326',
   url:'/dev/vision-assets/hybrid/recognizer.onnx',

@@ -142,6 +142,14 @@ test('a strong competitor in the other orientation defeats the first gate and Li
   assert.equal(r.reader?.stage,'second');assert.equal(r.reader?.model,lightModel.id);assert.ok((r.reader?.first?.margin??1)<.001);
   assert.equal(r.candidates[0].cardId,'B');assert.equal(r.tier,'sure');assert.ok(f.count.second>0);
 });
+test('a borderline first read needs the same name from Light (tinted Spell read as a Link monster, room ci6zgroa)',async()=>{
+  // Real read: DuelSight .706 with margin .067 for the wrong card; Light named the correct card.
+  const wrong=fixture([.74],.2),r=await wrong.pipeline.recognize([image],{card,preclean:false});
+  assert.ok(acceptsFirst([{cardId:'A',score:r.reader!.first!.score},{cardId:'B',score:r.reader!.first!.runnerUp}]));
+  assert.equal(r.reader?.stage,'second');assert.equal(r.reader?.reason,'borderline first read not confirmed by second reader');assert.equal(r.candidates[0].cardId,'B');
+  const same=fixture([.74],.95),ok=await same.pipeline.recognize([image],{card,preclean:false});
+  assert.equal(ok.reader?.stage,'first');assert.equal(ok.candidates[0].cardId,'A');assert.ok(same.count.second>0);assert.ok(ok.reader?.second);
+});
 test('weak first read escalates and the second retains the product score floor',async()=>{
   const f=fixture([Math.SQRT1_2],Math.SQRT1_2);const r=await f.pipeline.recognize([image],{card,preclean:false});
   assert.equal(r.reader?.stage,'second');assert.equal(r.tier,'low match');assert.equal(f.count.current,0);
