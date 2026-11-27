@@ -114,6 +114,7 @@ export function CameraToolsMenu({ seat, name, you, scan, advice, warn, onToken, 
   const need = scan && scan.ready && !scan.scanning ? advice.reason : null;
   const who = you ? "my" : `${name}'s`;
   const hasCamera = grid.ownSeat !== null && !!hub.sourceFor(grid.ownSeat);
+  const seatLive = !!hub.sourceFor(seat);
   const canZones = hasCamera && !!grid.calibrate && grid.ownSeat !== null;
   const calibrate = () => { close(); grid.calibrate?.(); };
   return <>
@@ -138,8 +139,8 @@ export function CameraToolsMenu({ seat, name, you, scan, advice, warn, onToken, 
         {scan ? <Row icon="scan" hint={scan.ready ? "S" : undefined} aria-disabled={scan.scanning || !scan.ready} aria-keyshortcuts="S" data-testid="field-scan" data-need={need ? "" : undefined} data-scan-ms={advice.last?.totalMs} data-scan-sweep-ms={advice.last?.sweepMs}
           sub={scan.scanning ? "Scanning…" : scan.ready ? (need ?? "Use when a card is not read.") : "Turn the camera on to scan the field."}
           onClick={() => { if (scan.ready && !scan.scanning) { scan.scan?.(); close(); } }}>{scan.scanning ? "Scanning field…" : "Scan field now"}</Row> : null}
-        {you ? <Row icon="eye" hint="R" aria-keyshortcuts="R" data-testid={`camera-read-${seat}`} sub="Freezes the picture, then reads every card" onClick={() => { close(); feedTool(seat, "read"); }}>Read board</Row> : null}
-        <Row icon="snow" hint="F" aria-keyshortcuts="F" data-testid={`camera-freeze-${seat}`} onClick={() => { close(); feedTool(seat, "freeze"); }}>Freeze picture</Row>
+        {you ? <Row icon="card" hint="R" aria-keyshortcuts="R" disabled={!seatLive} data-testid={`camera-read-${seat}`} sub={seatLive ? "Freezes the picture, then reads every card" : "Turn the camera on to read the board."} onClick={() => { close(); feedTool(seat, "read"); }}>Read board</Row> : null}
+        <Row icon="snow" hint="F" aria-keyshortcuts="F" disabled={!seatLive} data-testid={`camera-freeze-${seat}`} sub={seatLive ? undefined : "Turn the camera on to freeze the picture."} onClick={() => { close(); feedTool(seat, "freeze"); }}>Freeze picture</Row>
         <Row icon="hand" role="menuitemcheckbox" aria-checked={hoverFreeze} pill={onOff(hoverFreeze)} sub="Freezes the frame when the pointer rests on a camera." data-testid={you ? "hover-freeze" : `hover-freeze-${seat}`} onClick={() => writeHoverFreeze(!hoverFreeze)}>Freeze while hovering a card</Row>
         {onToken ? <Row icon="coin" data-testid={`camera-token-${seat}`} onClick={() => { close(); onToken(); }}>{`Token on ${who} field`}</Row> : null}
         {!you && onRescan ? <Row icon="refresh" data-testid={`field-rescan-${seat}`} data-sent={note || undefined} sub={note || undefined} onClick={() => { if (!note) void onRescan().then(setNote); }}>{`Ask ${name} to scan again`}</Row> : null}

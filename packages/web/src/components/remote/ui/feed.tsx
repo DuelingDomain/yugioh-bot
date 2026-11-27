@@ -102,7 +102,7 @@ function FirstRunHint({ camRef }: { camRef: { current: HTMLElement | null } }) {
     return () => document.removeEventListener("pointerdown", onPress, true);
   }, [shown, dismiss, camRef]);
   if (!shown) return null;
-  return <div className={s.firstHint} role="status" data-testid="first-run-hint"><span>Click a card to see it and act</span><button type="button" onClick={dismiss} aria-label="Dismiss hint" data-testid="first-run-hint-close">Got it</button></div>;
+  return <div className={s.firstHint} role="status" data-testid="first-run-hint"><span><span className={s.hintClick}>Click a card to see it and act</span><span className={s.hintTap}>Tap a card to see it and act</span></span><button type="button" onClick={dismiss} aria-label="Dismiss hint" data-testid="first-run-hint-close">Got it</button></div>;
 }
 
 export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLive, onAbort, onPoint, onMiss, onSearch, onSelect, onAdd, onReset, onReadBoard, holdSelection, extra, onZoneCard, onPick, hoverTip, silentHover, onHoverEnd, onCardMenu, below, emptyText, emptyAction, prereadScope, announcedMode, tournament = false, openZones }: {

@@ -115,7 +115,7 @@ export function MatchResultScreen({ room, match, mySeat, name, final, busy, erro
   return <div ref={rootRef} className={cx(duelFontClasses, resultStyles.root, s.resultRoot)} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}
     data-testid="match-result" data-final={final || undefined} data-outcome={outcome === "spectator" ? "ended" : outcome} data-title={outcome === "win" ? "win" : outcome === "lose" ? "lose" : "calm"}
     data-phase={settled ? "settled" : "play"} data-reduced={reduced ? "true" : "false"} onClick={() => { if (!settled) setSkipped(true); }}>
-    <div className={resultStyles.backdrop} aria-hidden="true" />
+    <div className={cx(resultStyles.backdrop, s.resultScrim)} aria-hidden="true" />
     <div className={resultStyles.flash} aria-hidden="true" />
     <div className={resultStyles.scroll}><div className={resultStyles.col}>
       <div className={resultStyles.hero}>
@@ -493,7 +493,7 @@ export function SpectatorEndScreen({ room, match, name, onLeave }: { room: Remot
   const reason = winner !== null ? `${name(winner)} won${match.bestOf >= 3 ? " the match" : ""}.` : "Nobody won.";
   return <div ref={rootRef} className={cx(duelFontClasses, resultStyles.root, s.resultRoot)} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}
     data-testid="spectator-end" data-phase="settled" data-reduced="true" data-title="calm" data-outcome="ended">
-    <div className={resultStyles.backdrop} aria-hidden="true" />
+    <div className={cx(resultStyles.backdrop, s.resultScrim)} aria-hidden="true" />
     <div className={resultStyles.scroll}><div className={resultStyles.col}>
       <div className={resultStyles.hero}>
         <div className={resultStyles.light} aria-hidden="true" />

@@ -162,7 +162,7 @@ export function SeatPanel(p: SeatPanelProps) {
       {p.eliminated ? <span className={s.tag}>OUT</span> : null}
       <span className={s.micI}><Icon name="mic" /></span><span className={s.sp} />
       {p.onBoard ? <button type="button" className={`${s.vtog} ${s.vboard}`} data-testid={`seat-board-${p.seat}`} aria-pressed={!compact} disabled={!!p.boardOff} onClick={() => p.onBoard?.(compact)}
-        title={p.boardOff ? "This seat uses Tap mode, so its board is off for everyone." : compact ? `Show the virtual board under ${p.you ? "my" : `${p.name}'s`} webcam` : `Hide the virtual board under ${p.you ? "my" : `${p.name}'s`} webcam. The board keeps running`}>Board <b>{compact ? "Off" : "On"}</b></button> : null}
+        title={p.boardOff ? "This seat uses Tap mode, so its board is off for everyone." : compact ? `Show the virtual board under ${p.you ? "my" : `${p.name}'s`} webcam` : `Hide the virtual board under ${p.you ? "my" : `${p.name}'s`} webcam. The board keeps running`}>Board <i className={s.swMini} aria-hidden="true" /><b className={s.srOnly}>{compact ? "Off" : "On"}</b></button> : null}
       {compact || p.focus ? null : <button type="button" className={s.vtog} data-testid={`view-toggle-${p.seat}`} onClick={() => setFieldView(!fieldView)}
         title={fieldView ? "Show the camera large again" : "Show the virtual field large and the camera small"}>{fieldView ? "Camera view" : "Enlarge field"}</button>}
       <button type="button" className={`${s.hl} ${s[p.health.q] ?? ""}`} aria-haspopup="dialog" aria-expanded={p.healthOpen} data-hl={p.seat} title={`${p.health.label}${p.health.detail ? `, ${p.health.detail}` : ""}`}

@@ -3,7 +3,7 @@
 
 .resultRoot { z-index: 200; }
 /* The scrim lets the board show through a little, and long names wrap (also on a phone) instead of being cut. */
-.resultRoot > div:first-child { background: radial-gradient(70% 62% at 50% 38%, rgb(12 17 30 / 0.85), rgb(3 5 10 / 0.85) 86%); }
+.resultRoot .resultScrim { background: radial-gradient(70% 62% at 50% 38%, rgb(12 17 30 / 0.85), rgb(3 5 10 / 0.85) 86%); }
 .resultRoot :is([class*="name"], [class*="scoreName"], [class*="reason"]) { white-space: normal; overflow-wrap: anywhere; text-overflow: clip; }
 .kicker {
   margin: 0; color: var(--ink-3); font-size: 13px; font-weight: 600; letter-spacing: 0.16em; text-transform: uppercase;

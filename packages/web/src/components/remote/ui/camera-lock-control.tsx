@@ -9,9 +9,10 @@ export function CameraLockControl({ lock }: { lock: ReturnType<typeof useCameraL
   return <div className={s.control} data-testid="camera-lock">
     <p className={s.note}>Keeps brightness, colour and focus fixed so card reading stays steady.</p>
     <div className={s.row}>
-      <button type="button" className={s.button} aria-label="Camera lock" aria-pressed={lock.enabled} aria-describedby={hint}
-        disabled={!lock.available || lock.busy} onClick={() => void lock.setEnabled(!lock.enabled)}>
-        Camera lock: {lock.enabled ? 'On' : 'Off'}{!lock.supported && lock.available ? ' (not supported)' : lock.available && lock.enabled && !lock.locked && !lock.busy ? ' (on auto)' : ''}
+      <button type="button" className={`${s.button} ${s.switchBtn}`} aria-label="Camera lock" aria-pressed={lock.enabled} aria-describedby={hint}
+        disabled={!lock.available || lock.busy || (!lock.supported && lock.available)} onClick={() => void lock.setEnabled(!lock.enabled)}>
+        <span>Camera lock</span><i className={s.sw} aria-hidden="true" />
+        <span className={s.srOnly}>: {lock.enabled ? 'On' : 'Off'}{!lock.supported && lock.available ? ' (not supported)' : lock.available && lock.enabled && !lock.locked && !lock.busy ? ' (on auto)' : ''}</span>
       </button>
       {lock.supported ? <button type="button" className={s.button} disabled={!lock.available || !lock.enabled || lock.busy} onClick={() => void lock.relock()}>Re-lock</button> : null}
     </div>

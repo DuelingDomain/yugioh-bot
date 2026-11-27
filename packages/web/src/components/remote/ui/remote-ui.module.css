@@ -111,7 +111,7 @@
 .phases{position:relative;flex:1;min-width:0;display:flex;align-items:center;justify-content:space-between;gap:4px;list-style:none;margin:0;padding:0 6px}
 .phases::before{content:"";position:absolute;left:24px;right:24px;top:50%;height:2px;transform:translateY(-50%);background:linear-gradient(90deg,var(--pen-deep),var(--pen) 50%,var(--pen-deep));opacity:.45;box-shadow:0 0 14px rgb(167 139 255/.5)}
 .phases li{position:relative;z-index:1}
-.ph{position:relative;display:flex;align-items:center;gap:8px;height:40px;padding:0 15px 0 11px;background:var(--p0);border:1px solid var(--line);color:var(--ink3);border-radius:999px;font:600 calc(15*var(--u))/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;white-space:nowrap;transition:background .25s,color .25s,box-shadow .25s,border-color .25s}
+.ph{position:relative;display:flex;align-items:center;gap:8px;height:calc(40*var(--u));padding:0 15px 0 11px;background:var(--p0);border:1px solid var(--line);color:var(--ink3);border-radius:999px;font:600 calc(15*var(--u))/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;white-space:nowrap;transition:background .25s,color .25s,box-shadow .25s,border-color .25s}
 .ph .dot{width:15px;height:15px;border-radius:50%;border:2px solid var(--ink3);background:var(--p0);flex:none;transition:.3s var(--ease)}
 .ph:hover:not(:disabled):not([aria-disabled]){color:var(--ink);border-color:var(--pen)}
 .ph:disabled,.ph[aria-disabled]{cursor:default}
@@ -345,7 +345,7 @@
 .lpbar{height:5px;border-radius:3px;background:var(--p3);overflow:hidden}.lpbar i{display:block;height:100%;background:linear-gradient(90deg,var(--pen-deep),var(--pen));transition:width .6s var(--ease)}
 .lpbar.low i{background:linear-gradient(90deg,var(--lossd),var(--loss))}
 .lpbtn{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:5px}
-.lpbtn button{height:34px;border:1px solid var(--line2);border-radius:6px;background:var(--p0);font:600 calc(14*var(--u))/1 var(--font-duel-display),Oxanium,sans-serif;color:var(--ink2);padding:0}
+.lpbtn button{height:calc(34*var(--u));border:1px solid var(--line2);border-radius:6px;background:var(--p0);font:600 calc(14*var(--u))/1 var(--font-duel-display),Oxanium,sans-serif;color:var(--ink2);padding:0}
 .lpbtn button.m:hover{border-color:var(--lossd);color:var(--loss)}.lpbtn button.p:hover{border-color:var(--gold);color:var(--gold-ink)}
 
 /* Seat layout: the camera comes first and takes all the spare height and the full width its shape allows.
@@ -388,7 +388,7 @@
 .lpn{order:1;--lp-size:clamp(32px,min(4.5cqw,7cqh),48px)}
 .lpd{order:2;font-size:calc(14*var(--u))}
 .lpbtn{order:3;flex:0 0 auto;margin-left:auto;min-width:0;display:flex;gap:6px}
-.lpbtn button{flex:none;width:72px;min-width:0;height:32px;font-size:calc(14*var(--u));max-height:none}
+.lpbtn button{flex:none;width:72px;min-width:0;height:calc(32*var(--u));font-size:calc(14*var(--u));max-height:none}
 .lpin{order:1;margin:0;flex:0 0 auto;width:120px;height:34px;font-size:calc(16*var(--u));border-color:var(--gold)}
 .lpbar{position:absolute;left:2px;right:2px;bottom:0;height:3px}
 .thinkrow{order:-1;flex:none;display:flex;align-items:center}
@@ -408,7 +408,7 @@
   .sh{min-height:30px;padding:4px 10px}.sh .nm{font-size:calc(16*var(--u))}
   .lpn{--lp-size:30px}
   .lpin{height:26px;width:84px}
-  .lpbtn button{height:26px;font-size:calc(12*var(--u))}
+  .lpbtn button{height:calc(26*var(--u));font-size:calc(12*var(--u))}
   .fwrap{--fh:calc(100cqh - 144px - var(--scanh,0px))}
   /* Too short for a button row: an icon-only button sits in the empty top-left corner of the board (the top right holds the Banished zone). */
   .fwrap[data-rail]{--scanh:0px}.fboard{position:relative}
@@ -906,7 +906,7 @@
   .seat:is([data-wc],[data-nocam]) .lpn{--lp-size:clamp(32px,min(4.5cqw,7cqh),48px)}
   .seat:is([data-wc],[data-nocam]) .lpd{font-size:calc(18*var(--u))}
   .seat:is([data-wc],[data-nocam]) .lpbtn{flex:0 0 auto;margin-left:auto;gap:6px}
-  .seat:is([data-wc],[data-nocam]) .lpbtn button{flex:none;width:72px;height:32px;font-size:calc(14*var(--u))}
+  .seat:is([data-wc],[data-nocam]) .lpbtn button{flex:none;width:72px;height:calc(32*var(--u));font-size:calc(14*var(--u))}
   .seat:is([data-wc],[data-nocam]) .lpbar{left:0;right:0;bottom:-9px;height:4px;border-radius:0}
   .seat:is([data-wc],[data-nocam]) .lpin{width:150px;height:32px;margin-left:auto}
   /* Narrow ledge: short phase names; -1000 only on a ledge 640 px or wider; the middle steps go below 520 px. */
@@ -923,10 +923,10 @@
     .seat[data-wc] .lpl{order:0;padding:0;align-self:center}
     .seat[data-wc] .lpn{order:1;--lp-size:clamp(30px,5cqw,44px)}
     .seat[data-wc] .lpd{order:2;font-size:calc(14*var(--u))}
-    .seat[data-wc] .lpin{order:1;width:120px;height:34px}
+    .seat[data-wc] .lpin{order:1;width:120px;height:calc(34*var(--u))}
     .seat[data-wc] .fside>.ptrack{order:3;flex:1 1 0;min-width:0;gap:4px}
     .seat[data-wc] .lpbtn{order:4;margin-left:0}
-    .seat[data-wc] .lpbtn button{height:32px;font-size:calc(14*var(--u))}
+    .seat[data-wc] .lpbtn button{height:calc(32*var(--u));font-size:calc(14*var(--u))}
     .seat[data-wc] .pbox{height:32px;font-size:calc(12.5*var(--u));border-radius:6px}
     .seat[data-wc] .pfull{display:none}.seat[data-wc] .pabbr{display:inline}
     .seat[data-wc] .fside>.htray{order:5;flex:1 1 100%;padding-top:0}
@@ -1816,7 +1816,7 @@
 @media (min-width:901px){.drawer.tdr{width:var(--tdr-w)}}
 @media (min-width:1100px){
   .app[data-drawer] .shell{width:calc(100% - var(--tdr-w));margin-left:var(--tdr-w)}
-  .app[data-drawer] .drawer.tdr{top:0}
+  .app[data-drawer] .drawer.tdr,.app[data-drawer] .drawer.insp{top:0}
 }
 /* The pushed drawer leaves the bar about 340 px less room, so a laptop window gets the same short bar as a small window. */
 /* Same for the top bar: Settings is the last button, so it must never be the one that gets clipped. */
@@ -1909,4 +1909,36 @@
   .lpbtn{position:static;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px;margin-top:6px;width:100%}
   .lpbtn button,.lpbtn button.x{display:inline-flex;align-items:center;justify-content:center;width:auto;height:44px;font-size:calc(14*var(--u))}
   .lpmain{min-height:0}
+}
+
+/* Round 4b: the card status line ("Reading on") hides in the split and field views and on short cameras. */
+.seat:is([data-view="field"],[data-split]) .statusExtra{display:none}
+@container feed (max-height:360px){.statusExtra{display:none}}
+
+/* One switch look everywhere: grey off, green on. The word stays for screen readers. */
+.srOnly{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.swMini{display:inline-block;position:relative;flex:none;width:calc(26*var(--u));height:calc(15*var(--u));margin-left:4px;vertical-align:middle;border-radius:999px;border:1px solid var(--line2);background:var(--p1)}
+.swMini::after{content:"";position:absolute;top:calc(2*var(--u));left:calc(2*var(--u));width:calc(9*var(--u));height:calc(9*var(--u));border-radius:50%;background:var(--ink3);transition:transform .15s,background .15s}
+:is(.vboard,.boardtog)[aria-pressed=true] .swMini{border-color:var(--ok);background:rgb(95 208 138/.22)}
+:is(.vboard,.boardtog)[aria-pressed=true] .swMini::after{transform:translateX(calc(11*var(--u)));background:var(--ok)}
+
+/* Round 4b: phone and touch. */
+@media (max-width:900px){
+  /* 3-way / 4-way phone: my tile comes first among the tiles. */
+  .app:is([data-mode="3"],[data-mode="4"]) .stage>.seat[data-mine]{order:-1}
+  /* "REVEALED IN HAND None" is not cut by the count buttons: the count drops to its own line when the row is tight. */
+  .handrow{flex-wrap:wrap;height:auto;row-gap:2px}
+  .handmain{flex:1 1 160px;height:37px}
+  .hnone{white-space:nowrap}
+}
+@media (pointer:coarse){.zaKey{display:none}.hintClick{display:none}}
+@media (pointer:fine){.hintTap{display:none}}
+.firstHint button{flex:none;white-space:nowrap}
+.firstHint{width:max-content}
+@media (max-width:900px){.firstHint{bottom:auto;top:calc(52*var(--u))}}
+.seat:has(.seatDock:not([data-count="0"])) .firstHint,.seat:has([data-attention]) .firstHint{display:none}
+/* Phone top bar: Card, Log and Settings show a short label under the icon. */
+@media (max-width:480px){
+  .top .tb:not(.boardtog):not(.tbStatus){flex-direction:column;justify-content:center;gap:1px;height:calc(40*var(--u));padding:2px 5px}
+  .top .tb:not(.boardtog):not(.tbStatus) .lbl{display:block;font-size:calc(9*var(--u));font-weight:700;line-height:1;letter-spacing:.02em}
 }
