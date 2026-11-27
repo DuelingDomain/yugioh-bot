@@ -43,7 +43,8 @@ it("shows the giver their controlled card on the opponent's camera with or witho
     </FeedCardsProvider>
   );
   const fallback = render(view(() => undefined));
-  expect(screen.getByTestId("feed-proxy-fallback")).toHaveTextContent("Main Monster Zone 4 · Angelechy Seneschal · Controlled (owned by Giver)");
+  expect(screen.getByTestId("feed-proxy-fallback").querySelector("li")).toHaveAttribute("title", "Main Monster Zone 4 · Angelechy Seneschal · Controlled (owned by Giver)");
+  expect(screen.getByTestId("feed-proxy-fallback")).toHaveTextContent("Angelechy Seneschal · Controlled (owned by Giver)");
   fallback.unmount();
   render(view(() => calibration));
   expect(screen.getByTestId("feed-proxy")).toHaveAttribute("data-zone", "M4");
