@@ -1,6 +1,6 @@
 import { RecognitionPipeline } from './pipeline';
 import { emptyLearning, type LearningSnapshot } from './learning';
-import { DUELSIGHT_RULE, duelSightModel, lightModel } from './hybrid-models';
+import { DUELSIGHT_CONFIDENT, DUELSIGHT_RULE, duelSightModel, lightModel } from './hybrid-models';
 import { isCovered, validateBoard } from './board';
 import { validateOptions } from './options';
 import { mergeCandidates } from './search';
@@ -17,6 +17,11 @@ export function distinctScores(candidates:Candidate[]):Candidate[] {
 export function acceptsFirst(candidates:Candidate[]):boolean {
   const [a,b]=distinctScores(candidates);
   return Boolean(a&&b&&a.score>=DUELSIGHT_RULE.score&&a.score-b.score>=DUELSIGHT_RULE.margin);
+}
+/** False for an accepted first read that is too near the released gate to stand without a second opinion. */
+export function confidentFirst(candidates:Candidate[]):boolean {
+  const [a,b]=distinctScores(candidates);
+  return Boolean(a&&b&&a.score>=DUELSIGHT_CONFIDENT.score&&a.score-b.score>=DUELSIGHT_CONFIDENT.margin);
 }
 const stats=(result:RecognitionResult,ms:number):ReaderStageDiagnostics=>{
   const [a,b]=distinctScores(result.raw?.visual??result.candidates);
@@ -54,6 +59,7 @@ export class HybridPipeline extends RecognitionPipeline {
     let first:Awaited<ReturnType<RecognitionPipeline['recognize']>>|undefined;
     let firstStats:ReaderStageDiagnostics|undefined;
     let firstReason='first read below released gate';
+    let borderline:string|undefined;
     // Untagged vectors and server learning are in the current model's space. Never compare them to Light or DuelSight.
     const compatibility=opts.includeFeedback?'feedback':this.hasFullArt?'whole-card references':
       this.learningState.references.length||this.learningState.confusions.length?'saved corrections':
@@ -79,11 +85,8 @@ export class HybridPipeline extends RecognitionPipeline {
         // The name can pass while placement is still unsafe (covered, partial, full-art, ...).
         // Keep the pipeline's uncertain tier and all of its quality evidence in that case.
         if(agrees&&acceptsFirst(raw.visual)) {
-          first.candidates=first.candidates.slice(0,opts.k??5);
-          if(!opts.includeRaw)delete first.raw;
-          first.reader={selected:'hybrid',stage:'first',model:duelSightModel.id,first:firstStats,ms:performance.now()-start};
-          first.timingsMs.total=first.reader.ms;
-          return first;
+          if(confidentFirst(raw.visual))return this.answerFirst(first,opts,start,firstStats);
+          borderline=raw.winnerId;firstReason='borderline first read not confirmed by second reader';
         }
       }
       const t=performance.now();
@@ -93,6 +96,9 @@ export class HybridPipeline extends RecognitionPipeline {
       const result=await next.recognize(frames,{...opts,card,includeRaw:true,
         gallery:compatibility?opts.gallery?.filter(e=>!e.embedding.modelId):opts.gallery?.filter(e=>e.embedding.modelId===lightModel.id)});
       const second=stats(result,performance.now()-t);
+      // Two readers with different inputs (whole card, art box) that give the same name confirm a borderline first read.
+      if(first&&borderline&&!result.quality.faceDown&&distinctScores(result.raw?.visual??result.candidates)[0]?.cardId===borderline)
+        return this.answerFirst(first,opts,start,firstStats,second);
       if(!opts.includeRaw)delete result.raw;
       result.reader={selected:'hybrid',stage:'second',model:compatibility?'current':lightModel.id,reason:compatibility??(needsLight?'Light session gallery':firstReason),first:firstStats,second,ms:performance.now()-start};
       result.timingsMs.total=result.reader.ms;
@@ -101,6 +107,13 @@ export class HybridPipeline extends RecognitionPipeline {
       this.failed=true;this.notify('Hybrid reader failed. Using the current reader. Switch readers to retry.');
       return this.fallback(frames,opts,start);
     }
+  }
+  private answerFirst(first:RecognitionResult,opts:RecognizeOptions,start:number,firstStats?:ReaderStageDiagnostics,second?:ReaderStageDiagnostics) {
+    first.candidates=first.candidates.slice(0,opts.k??5);
+    if(!opts.includeRaw)delete first.raw;
+    first.reader={selected:'hybrid',stage:'first',model:duelSightModel.id,first:firstStats,second,ms:performance.now()-start};
+    first.timingsMs.total=first.reader.ms;
+    return first;
   }
   private async fallback(frames:RGBAImage[],opts:RecognizeOptions,start:number) {
     const t=performance.now(),result=await this.current.recognize(frames,{...opts,includeRaw:true});
