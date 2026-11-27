@@ -1,4 +1,4 @@
-import { remoteHandTrapCandidates, searchCandidates, type RemoteActionProposal, type RemoteKnownHandCard, type RemoteRoom, type RemoteState } from "@yugidraft/shared/remote";
+import { pendingRemoteHandActivations, remoteHandTrapCandidates, searchCandidates, type RemoteActionProposal, type RemoteKnownHandCard, type RemoteRoom, type RemoteState } from "@yugidraft/shared/remote";
 import { behaviourOf } from "@/lib/remote/card-behaviour";
 import { cardInfo } from "./catalog";
 
@@ -15,22 +15,25 @@ export type HandSource = RemoteKnownHandCard["source"];
 /** The effect card behind an addition. */
 export type HandBy = NonNullable<RemoteKnownHandCard["by"]>;
 /** A card of a hand that all players know about: added by an effect, or returned from the field. */
-export type KnownHandCard = { id: string; cardId: number; name: string; source: HandSource; by?: string; at: number };
+export type KnownHandCard = { id: string; cardId: number; name: string; source: HandSource; by?: string; at: number; /** A hand activation the table has not placed yet: the strip says "activated". */ activating?: boolean };
 /** `source` is the physical origin the plan gives (Deck, Graveyard or Banished). */
 export type HandCandidate = { cardId: number; name: string; source?: "deck" | "gy" | "banish" };
 /** A camera read with no search behind it: the owner decides (local only, never sent). */
 export type HandSuggestion = { id: string; cardId: number; name: string; actorSeat: number };
 
 /** Short text for where the card came from: "from Deck · by Man with the Mark". */
-export function sourceText(card: Pick<KnownHandCard, "source" | "by">): string {
+export function sourceText(card: Pick<KnownHandCard, "source" | "by" | "activating">): string {
+  if (card.activating) return "activated";
   const from = card.source === "field" ? "returned from field" : card.source === "unknown" ? "added to hand" : `from ${{ deck: "Deck", gy: "Graveyard", banish: "Banished", extra: "Extra Deck" }[card.source]}`;
   return card.by ? `${from} \u00b7 by ${card.by}` : from;
 }
 
 /** Cards the table knows are in a hand. The catalog gives the names (the server sends card ids). */
 export function knownHandOf(state: RemoteState, seat: number): KnownHandCard[] {
+  const activating = new Set(pendingRemoteHandActivations(state, seat).map(entry => entry.knownId));
   return (state.seats[seat]?.knownHand ?? []).filter(entry => !entry.revealExpired).map(entry => ({
     id: entry.id, cardId: entry.cardId, name: cardInfo(entry.cardId)?.name ?? `Card ${entry.cardId}`, source: entry.source, by: entry.by?.name, at: entry.at,
+    ...(activating.has(entry.id) ? { activating: true } : {}),
   }));
 }
 

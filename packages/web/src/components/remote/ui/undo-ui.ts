@@ -46,7 +46,10 @@ export function shortUndoLabel(event: { action: unknown }, cardName: (seat: numb
       const moved = a.setRef ? cardName(a.seat, a.setRef) : undefined;
       return `${a.name ?? moved ?? cardName(a.seat, a.cardRef) ?? "Card"} → ${zoneShort(a.zone, a.slot)}`;
     }
-    case "twin.place": return `${a.card.name ?? cardName(a.seat, a.card.ref) ?? "Card"} placed → ${zoneShort(a.zone, a.card.slot)}`;
+    case "twin.place":
+      // The timer put an activated hand card in its pile: name what happened, as the toast does.
+      if (a.fromActivation) return `${a.card.name ?? cardName(a.seat, a.card.ref) ?? "Card"} activated from hand → ${zoneShort(a.zone, a.card.slot)}`;
+      return `${a.card.name ?? cardName(a.seat, a.card.ref) ?? "Card"} placed → ${zoneShort(a.zone, a.card.slot)}`;
     case "twin.flip": return `${cardName(a.seat, a.cardRef) ?? "Card"} flipped ${a.faceUp ? "up" : "down"}`;
     case "twin.remove": return `${cardName(a.seat, a.cardRef) ?? "Card"} removed`;
     case "monsters.tribute": return `Tribute (${a.targets.length})`;

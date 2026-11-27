@@ -51,7 +51,7 @@ export function UndoSection({ recognition = true, spokenUndo = true, label, enab
   recognition?: boolean; spokenUndo?: boolean; label: string; enabled: boolean; reason?: string; flash: number; histOpen: boolean; onUndo: () => void; onHist: (el: HTMLElement) => void;
 }) {
   return <section className={`${s.dk} ${s.undo}`} aria-label="Undo">
-    <button type="button" className={`${s.ubtn} ${flash ? s.flash : ""}`} key={flash} disabled={!enabled} onClick={onUndo} data-testid="undo" title={enabled ? `Undo: ${label}` : "Nothing to undo"}>
+    <button type="button" className={`${s.ubtn} ${flash ? s.flash : ""}`} key={flash} disabled={!enabled} onClick={onUndo} data-testid="undo" title={enabled ? `Undo: ${label}` : "Nothing to undo"} aria-label={enabled ? `Undo: ${label}` : "Nothing to undo"}>
       <Icon name="undo" /><span className={s.ut}><span className={s.ul} data-testid="undo-label">{enabled ? `Undo: ${label}` : "Nothing to undo"}</span>
         <span className={s.usub}>{reason ? `${reason} · ` : ""}<kbd>Ctrl</kbd> <kbd>Z</kbd>{recognition && spokenUndo ? " · or say “undo”" : ""}</span></span>
     </button>
