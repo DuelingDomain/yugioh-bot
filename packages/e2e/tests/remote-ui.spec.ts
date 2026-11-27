@@ -486,6 +486,73 @@ test.describe("remote duels screen, solo", () => {
     });
   }
 
+  // 1v1 with the virtual board on: each seat can hide its own board, and the seam between the webcam and the board drags.
+  test("each seat hides its own board, and the webcam / board seam drags, steps, resets and takes the Enlarge field preset", async ({ browser }) => {
+    test.setTimeout(240_000);
+    const url = process.env.E2E_REMOTE_UI_URL!;
+    const alice = await browser.newContext({ baseURL: url, viewport: { width: 1920, height: 1080 }, permissions: ["camera", "microphone"] }); const bob = await browser.newContext({ baseURL: url, viewport: { width: 1920, height: 1080 } });
+    try {
+      for (const [context, userId] of [[alice, 101], [bob, 102]] as const) await authenticatePlayer(context.request, { userId }, process.env.E2E_AUTH_SECRET!, url);
+      await bothView(alice);
+      // The dev server builds each route on its first call, so the first table can time out. A new table is started until one stands.
+      let slug = ""; await expect(async () => { slug = await startTwoPlayerTable(alice.request, bob.request); }).toPass({ timeout: 150_000 });
+      const page = await alice.newPage(); await fakeCamera(page, "16:9"); await page.goto(`/duels/remote/${slug}`);
+      const height = (id: string) => page.getByTestId(id).evaluate(el => el.getBoundingClientRect().height);
+      await expect(page.getByTestId("fwrap-0")).toBeVisible(); await expect(page.getByTestId("fwrap-1")).toBeVisible();
+      // Per seat: the opponent's board goes and mine stays, then the other way, and the choice is remembered. The webcam "..." menu has the same switch.
+      await expect(page.getByTestId("seat-board-1")).toHaveAttribute("aria-pressed", "true");
+      await page.getByTestId("seat-board-1").click();
+      await expect(page.getByTestId("fwrap-1")).toBeHidden(); await expect(page.getByTestId("feed-box-1")).toBeVisible(); await expect(page.getByTestId("fwrap-0")).toBeVisible();
+      await expect(page.getByTestId("seat-board-1")).toHaveAttribute("aria-pressed", "false");
+      await page.reload(); await expect(page.getByTestId("fwrap-1")).toBeHidden(); await expect(page.getByTestId("fwrap-0")).toBeVisible();
+      await openCameraMenu(page, 1); await page.getByTestId("camera-board-1").click(); await expect(page.getByTestId("fwrap-1")).toBeVisible();
+      await page.getByTestId("seat-board-0").click(); await expect(page.getByTestId("fwrap-0")).toBeHidden(); await expect(page.getByTestId("fwrap-1")).toBeVisible();
+      // The last board off turns the table's Virtual board off, and one board back on turns it on again with the other seat still hidden.
+      await page.getByTestId("seat-board-1").click(); await expect(page.getByTestId("fwrap-1")).toBeHidden(); await expect(page.getByTestId("view-board")).toHaveAttribute("aria-pressed", "false");
+      await page.getByTestId("seat-board-0").click(); await expect(page.getByTestId("fwrap-0")).toBeVisible(); await expect(page.getByTestId("fwrap-1")).toBeHidden(); await expect(page.getByTestId("view-board")).toHaveAttribute("aria-pressed", "true");
+      await page.getByTestId("seat-board-1").click(); await expect(page.getByTestId("fwrap-1")).toBeVisible();
+
+      // The seam: a separator that drags (mouse, with pointer capture) and steps with the arrow keys.
+      const handle = page.getByTestId("split-0"); await expect(handle).toHaveAttribute("role", "separator"); await expect(handle).toHaveAttribute("aria-valuenow", /^\d+$/);
+      const camBefore = await height("feed-box-0"); const boardBefore = await height("fwrap-0");
+      const grab = async (dy: number) => { const box = (await handle.boundingBox())!; const x = box.x + box.width / 2, y = box.y + box.height / 2;
+        await page.mouse.move(x, y); await page.mouse.down(); await page.mouse.move(x, y + dy / 2, { steps: 6 }); await page.mouse.move(x, y + dy, { steps: 6 }); await page.mouse.up(); };
+      await grab(-90);
+      await expect(page.getByTestId("seat-0")).toHaveAttribute("data-split", "");
+      await expect.poll(() => height("feed-box-0")).toBeLessThan(camBefore - 40); await expect.poll(() => height("fwrap-0")).toBeGreaterThan(boardBefore + 15);
+      await expect(page.getByTestId("seat-0")).toHaveAttribute("data-view", "camera"); await expect(page.getByTestId("seat-1")).not.toHaveAttribute("data-split", "");
+      const small = await height("feed-box-0"); const valueSmall = Number(await handle.getAttribute("aria-valuenow"));
+      // The ratio is clamped: a long drag up stops at 30 % of the seat body.
+      await grab(-600); await expect.poll(async () => Number(await handle.getAttribute("aria-valuenow"))).toBeGreaterThanOrEqual(30); expect(Number(await handle.getAttribute("aria-valuenow"))).toBeLessThan(valueSmall);
+      const floor = await height("feed-box-0"); expect(floor).toBeLessThan(small); await grab(+60); await expect.poll(() => height("feed-box-0")).toBeGreaterThan(floor + 20);
+      // Keyboard: the handle takes focus, Up gives the board more room, Down gives the camera more.
+      await handle.focus(); const before = Number(await handle.getAttribute("aria-valuenow"));
+      await page.keyboard.press("ArrowUp"); await expect.poll(async () => Number(await handle.getAttribute("aria-valuenow"))).toBeLessThan(before);
+      await page.keyboard.press("ArrowDown"); await page.keyboard.press("ArrowDown"); await expect.poll(async () => Number(await handle.getAttribute("aria-valuenow"))).toBeGreaterThan(before - 1);
+      // Remembered per seat on this device.
+      const kept = await height("feed-box-0"); await page.reload(); await expect(page.getByTestId("seat-0")).toHaveAttribute("data-split", ""); expect(Math.abs((await height("feed-box-0")) - kept)).toBeLessThan(3);
+      // Enlarge field is a preset: the camera becomes the small strip, and a second click brings the ratio back.
+      await page.getByTestId("view-toggle-0").click(); await expect(page.getByTestId("seat-0")).toHaveAttribute("data-view", "field");
+      await expect.poll(() => height("feed-box-0")).toBeLessThan(kept - 20);
+      await page.getByTestId("view-toggle-0").click(); await expect(page.getByTestId("seat-0")).toHaveAttribute("data-view", "camera");
+      await expect.poll(async () => Math.abs((await height("feed-box-0")) - kept)).toBeLessThan(3);
+      // A double click brings the default back.
+      await page.getByTestId("split-0").dblclick(); await expect(page.getByTestId("seat-0")).not.toHaveAttribute("data-split", ""); await expect.poll(async () => Math.abs((await height("feed-box-0")) - camBefore)).toBeLessThan(3);
+
+      // The layout holds at the laptop and big screen sizes, with the drawer open and closed: the board stays inside its seat.
+      const inside = async () => { const [seat, board, cam] = await Promise.all([page.getByTestId("seat-0").boundingBox(), page.getByTestId("fwrap-0").boundingBox(), page.getByTestId("feed-box-0").boundingBox()]);
+        return !!seat && !!board && !!cam && board.y + board.height <= seat.y + seat.height + 1 && cam.y + cam.height <= board.y + 1 && cam.height > 60; };
+      for (const [w, h, drawer] of [[1366, 768, false], [1366, 768, true], [2560, 1440, false]] as const) {
+        await page.setViewportSize({ width: w, height: h });
+        if (drawer) await openDrawer(page, "log"); else if (await page.locator('[data-testid="log-drawer"]:not([aria-hidden="true"])').count()) await page.keyboard.press("Escape");
+        await expect(handle).toBeVisible(); await expect.poll(inside).toBe(true);
+        await handle.focus(); await page.keyboard.press("ArrowUp"); await page.keyboard.press("ArrowUp"); await expect.poll(inside).toBe(true);
+        await page.keyboard.press("End"); await expect.poll(inside).toBe(true);
+        await page.keyboard.press("Enter"); await expect(page.getByTestId("seat-0")).not.toHaveAttribute("data-split", "");
+      }
+    } finally { await alice.close(); await bob.close(); }
+  });
+
   test("F freezes the frame and outlines the cards", async ({ page, context }) => {
     test.skip(!FRAME || !HAVE_VISION_DATA, "needs a camera picture of cards (E2E_FAKE_FRAME) and vision data (VISION_DATA_DIR)");
     test.setTimeout(240_000);
