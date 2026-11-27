@@ -7,7 +7,7 @@ import { fieldZoneLocation, hasExtraMonsterZones, type FieldFormat, type FieldZo
  */
 export type FieldZoneFacts = { id?:number; type:string; frameType?:string; race?:string|null; effectText?:string|null; level?:number|null };
 /** `trapZone`: a Trap Monster keeps this Spell & Trap Zone occupied while it is a monster. */
-type FieldTwin = { ref:string; zone:string; slot?:number; trapZone?:number; token?:unknown };
+type FieldTwin = { ref:string; zone:string; slot?:number; trapZone?:number; token?:unknown; ownerSeat?:number };
 /** `check`: the card stays where the camera saw it, but the zone is unusual for it ("Check zone?"). */
 /** `moved`: the camera row was not legal for this card; it went to the nearest legal zone ("Trap → S3"). */
 /** `shiftTo`: a plain monster stands in a Spell & Trap Zone. It stays there; this is the Monster Zone it would belong in (the caller asks Move / Keep and counts it toward the grid check). */
@@ -175,7 +175,7 @@ export function freeFieldZones(twins:readonly FieldTwin[],facts?:FieldZoneFacts,
   const row=(prefix:'M'|'S')=>([1,2,3,4,5] as const).map(slot=>`${prefix}${slot}` as FieldZone).filter(zone=>!zoneTaken(twins,zone));
   const kind=cardKind(facts);
   if(faceDown||!kind.known)return [...row('M'),...row('S')];
-  if(kind.field)return zoneTaken(twins,'FIELD')?[]:['FIELD'];
+  if(kind.field)return zoneTaken(twins.filter(twin=>twin.ownerSeat!==undefined),'FIELD')?[]:['FIELD'];
   if(kind.trapMonster)return [...row('M'),...row('S')];
   if(!kind.monster)return row('S');
   const extra=(['EMZ1','EMZ2'] as const).filter(zone=>format&&hasExtraMonsterZones(format)&&zoneVerdict(facts,zone,undefined,{}).legal==='ok'&&!zoneTaken(twins,zone));
