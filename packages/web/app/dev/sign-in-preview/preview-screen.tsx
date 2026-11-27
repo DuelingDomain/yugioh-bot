@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { waitlistHref } from "@/components/auth/marketing-links";
 import { AccountUnavailableStep } from "@/components/auth/steps/account-unavailable-step";
 import { CodeStep } from "@/components/auth/steps/code-step";
@@ -17,6 +18,20 @@ import type { PreviewStep } from "./steps";
 const EMAIL = "sam@example.com";
 const WAITLIST = waitlistHref(undefined);
 const noop = () => {};
+
+/** "Check this email" on the not-invited card, answered the way the real flow would: refused, a network banner, or never. */
+function CheckPreview({ outcome }: { outcome: "refused" | "trouble" | "pending" }) {
+  const [identifier, setIdentifier] = useState(EMAIL);
+  const [state, setState] = useState<{ pending: boolean; banner: { tone: "bad"; body: string } | null }>({ pending: false, banner: null });
+  const onCheck = async (email: string) => {
+    setState({ pending: true, banner: null });
+    if (outcome === "pending") return new Promise<void>(() => {});
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    if (outcome === "refused") { setIdentifier(email); setState({ pending: false, banner: null }); }
+    else setState({ pending: false, banner: { tone: "bad", body: "Sign-in is having trouble. Try again in a moment." } });
+  };
+  return <NotInvitedStep identifier={identifier} pending={state.pending} banner={state.banner} onRetry={noop} onCheck={onCheck} />;
+}
 
 /** One step card with static props and no-op handlers. Handlers cannot cross the server boundary, so this is a client file. */
 export function PreviewScreen({ step, resendAvailableAt }: { step: PreviewStep; resendAvailableAt: number }) {
@@ -69,6 +84,12 @@ export function PreviewScreen({ step, resendAvailableAt }: { step: PreviewStep; 
       return <NotInvitedStep identifier={EMAIL} onRetry={noop} onCheck={noop} previewPhase="limited" />;
     case "err-invite-failed":
       return <NotInvitedStep identifier={EMAIL} onRetry={noop} onCheck={noop} previewPhase="failed" />;
+    case "err-invite-check-refused":
+      return <CheckPreview outcome="refused" />;
+    case "err-invite-check-trouble":
+      return <CheckPreview outcome="trouble" />;
+    case "err-invite-check-pending":
+      return <CheckPreview outcome="pending" />;
     case "err-invite-username":
       return <NotInvitedStep identifier="cardshark" onRetry={noop} />;
     case "err-signup":
