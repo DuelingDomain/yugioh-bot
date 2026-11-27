@@ -11,7 +11,7 @@ import { fieldSummonKind } from '@/lib/remote/field-summons';
 import { isFieldSpell } from '@/lib/remote/field-legality';
 import { recentReadsFor } from '@/lib/remote/recent-reads';
 import { playerStamp } from '@/lib/remote/field-timing';
-import type { QuickMove } from './quick-moves';
+import { SEND_LABELS, type QuickMove } from './quick-moves';
 import s from './remote-ui.module.css';
 
 
@@ -36,7 +36,7 @@ export function ZoneActions({ tokenOnly, room, seat, zone, at, deck, targetRef, 
   const topChanged = !!pick && card?.ref !== topRef;
   const actorSeat = room.solo ? seat : room.mySeat;
   const action = (proposal: ZoneCardAction) => onAction({ ...proposal, cam: playerStamp('zone-actions') });
-  const names = (c: TwinCard) => c.token ? (c.name ?? 'Token') : (c.name ?? info(cardCode(c))?.name ?? (c.faceUp ? 'Card' : 'Face-down card'));
+  const names = (c: TwinCard) => c.token ? (c.name ?? 'Token') : (c.name ?? info(cardCode(c))?.name ?? (c.faceUp ? 'Unidentified card' : 'Face-down card'));
   if (pick && (!card || topChanged)) return <PopupFrame at={at} layer="zone" label="Zone changed" testid="zone-changed-error"><p role="alert">This zone changed. Close and open it again.</p><button type="button" className={s.btn} onClick={onClose}>Close</button></PopupFrame>;
   if (pick && card) {
     const summon = fieldSummonKind(info(pick.cardId));
@@ -102,7 +102,7 @@ export function ZoneActions({ tokenOnly, room, seat, zone, at, deck, targetRef, 
           {set ? <Row icon="cardback" disabled={busy} onClick={onSet}>Set a card here</Row> : null}
         </>}
         {!tokenOnly && card && sends.length ? <div className={s.zaSend} role="group" aria-label="Send the card to"><span>Send to</span>
-          {sends.map(m => <button type="button" key={m.id} className={`${s.btn} ${s.sm} ${s.q}`} disabled={busy} onClick={() => go(m)} data-testid={`zone-${m.id}`}>{m.label.replace('To ', '')}</button>)}</div> : null}
+          {sends.map(m => <button type="button" key={m.id} className={`${s.btn} ${s.sm} ${s.q}`} disabled={busy} onClick={() => go(m)} data-testid={`zone-${m.id}`}>{SEND_LABELS[m.id] ?? m.label}</button>)}</div> : null}
         {!tokenOnly && remove ? <Row icon="x" disabled={busy} onClick={() => go(remove)} data-testid={card?.ownerSeat === undefined ? "zone-remove" : "zone-remove-proxy"}>{remove.label}</Row> : null}
         {!tokenOnly || /^m[1-5]$/.test(zone) ? <Row icon="coin" next primary={tokenOnly} data-autofocus={tokenOnly ? "" : undefined} disabled={busy} onClick={onToken} data-testid="zone-token">{!card && /^m[1-5]$/.test(zone) ? 'Add token here' : 'Add token'}</Row> : null}
         {tokenOnly && onGive ? <Row icon="hand" next primary={!/^m[1-5]$/.test(zone)} data-autofocus={/^m[1-5]$/.test(zone) ? undefined : ""} disabled={busy} onClick={() => { onClose(); onGive(); }} data-testid="zone-give-hand">Give a card from my hand here</Row> : null}
