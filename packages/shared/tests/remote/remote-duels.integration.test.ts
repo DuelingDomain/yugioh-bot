@@ -4520,6 +4520,9 @@ it('gives a card to an opponent as a proxy: the owner keeps it, the camera never
   expect(service.get(slug, 'g', b).state.seats[1].twin.find(card => card.ref === 'kaiju')).toEqual(proxy());
   const paper = { ...kaiju, ref: 'paper', faceUp: true };
   expect(() => send(b, 1, { type: 'twin.place', seat: 1, zone: 'monster', source: 'auto', card: paper })).toThrow('This zone has Gameciel (proxy). Move your card to a free zone.');
+  // Recorded placements could reuse a proxy before proxyPlacementGuard was persisted.
+  const legacyPlacement = remoteActionSchema.parse({ type: 'twin.place', actorSeat: 1, seat: 1, zone: 'monster', source: 'auto', card: paper, idempotencyKey: 'legacy-proxy-placement' });
+  expect(ygoModule.reduce(state(), legacyPlacement, { replay: true, givenCards: 1, twinPlacementGuard: 9 }).seats[1].twin).toMatchObject([{ ref: 'kaiju', slot: 2, ownerSeat: 0 }]);
   send(b, 1, { type: 'twin.place', seat: 1, zone: 'monster', source: 'auto', card: { ...paper, slot: 3 } });
   expect(state().seats[1].twin).toEqual([expect.objectContaining({ ref: 'kaiju', ownerSeat: 0, slot: 2 }), expect.objectContaining({ ref: 'paper', slot: 3 })]);
   expect(service.replay(slug, 'g', a)).toEqual(state());
