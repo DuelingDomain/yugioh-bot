@@ -2554,7 +2554,10 @@ test.describe("remote duels screen, tokens and the camera", () => {
     await page.getByTestId("token-clash-remove").click();
     const cell = async () => (await mine()).filter(c => c.startsWith("monster:3:"));
     await expect.poll(cell).toEqual(["monster:3:card"]);
-    await page.getByRole("button", { name: "Undo", exact: true }).click();
+    // The Undo notice stays past the old 5 s, and a hover on it keeps it: the first click lands.
+    const undo = page.getByRole("button", { name: "Undo", exact: true }).first();
+    await page.waitForTimeout(5500); await undo.hover(); await page.waitForTimeout(4000); await expect(undo).toBeVisible();
+    await undo.click();
     // The whole board is back: the token in M3, the first card in M4, no card in M3.
     await expect.poll(mine).toEqual(["monster:3:token", "monster:4:card"]);
   });

@@ -137,6 +137,9 @@ const physicalZonePattern=/^(?:M[1-5]|S[1-5]|EMZ[12]|FIELD)$/;
 const PILE_EXIT_MS=10_000;
 /** How long a card shown from the hand stays linked to the play that follows it (field or pile placement, one Undo). */
 const HAND_ACTIVATION_MS=10_000;
+/** A notice shows 5 s; one with Undo shows at least 8 s, and at most this many notices stack (the newest on top). */
+const NOTICE_MS=5000,UNDO_NOTICE_MS=8000,NOTICE_STACK=3;
+type KeptNotice={text:string;undoId:string;left:number};
 /** An Equip effect on this field makes a monster in a Spell & Trap Zone plausible (an Equip Card). */
 const equipSourceOn=(twins:readonly TwinCard[])=>equipSourceOnField(twins,c=>cardInfo(cardCode(c)));
 /** The slow-camera hint shows once per page load. */
@@ -240,6 +243,9 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   /** A plain monster that stands in a Spell & Trap Zone: Move / Keep. `rowKept` holds the refs the player kept there. */
   const [rowPrompts,setRowPrompts]=useState<{ref:string;name:string}[]>([]),rowKept=useRef(new Set<string>());
   const [tokenPrompt,setTokenPrompt]=useState<{event:FieldEvent;token:TwinCard;zone:FieldZone;name:string;facts?:ReturnType<typeof cardInfo>;choosing?:boolean}|null>(null);
+  const [kept,setKept]=useState<KeptNotice[]>([]),[noticeHeld,setNoticeHeld]=useState(false);
+  /** The notice on screen and when it came up; a new notice pushes an Undo notice that still has time into `kept`. */
+  const shownNotice=useRef<{text:string;undoId:string;at:number}|null>(null),noticeExpired=useRef(false),settledUndo=useRef(new Set<string>());
   const [notice,setNotice]=useState(''),[undoId,setUndoId]=useState(''),[pending,setPending]=useState(false),[recovery,setRecovery]=useState<StaleFieldPlacementError|null>(null);
   const heldTimers=useRef(new Map<string,ReturnType<typeof setInterval>>()),departureTimers=useRef(new Map<string,ReturnType<typeof setTimeout>>());
   /** Monsters out of view during the departure wait (track id): an Extra Deck summon in that window takes them as materials. */
@@ -2323,7 +2329,20 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   useEffect(()=>()=>hub.publishFieldTracks({type:'field.tracks',cards:[]}),[hub.publishFieldTracks]);
   useEffect(()=>{for(const [id,away] of tokenAway.current)if(!tokenInCell(room.state.seats[seat].twin,away.cell))tokenAway.current.delete(id);},[room.state.seats,seat]);
   useEffect(()=>{if(!tokenPrompt)return;if(!room.state.seats[seat].twin.some(c=>c.ref===tokenPrompt.token.ref)||!watch.getTrack(tokenPrompt.event.track.id)||watch.isRemoved(tokenPrompt.event.track.id))setTokenPrompt(null);},[room.state.seats,tokenPrompt,seat,watch]);
-  useEffect(()=>{if(!notice)return;const timer=setTimeout(()=>{setNotice('');setDeparture(null);setUndoId('');},5000);return()=>clearTimeout(timer);},[notice,undoId]);
+  // The timer stops while the pointer or the keyboard is on a notice, and an Undo notice stays longer.
+  useEffect(()=>{if(!notice||noticeHeld)return;const timer=setTimeout(()=>{noticeExpired.current=true;setNotice('');setDeparture(null);setUndoId('');},undoId?UNDO_NOTICE_MS:NOTICE_MS);return()=>clearTimeout(timer);},[notice,undoId,noticeHeld]);
+  // A new notice never kicks out an Undo notice that still has time: it moves down the stack and keeps its Undo.
+  useEffect(()=>{
+    const prev=shownNotice.current;shownNotice.current=notice?{text:notice,undoId,at:prev&&prev.text===notice&&prev.undoId===undoId?prev.at:Date.now()}:null;
+    if(!prev?.undoId||prev.undoId===undoId&&prev.text===notice)return;
+    if(noticeExpired.current){noticeExpired.current=false;return;}
+    if(settledUndo.current.has(prev.undoId)||prev.undoId===undoId)return;
+    const left=UNDO_NOTICE_MS-(Date.now()-prev.at);if(left<=0)return;
+    setKept(list=>[{text:prev.text,undoId:prev.undoId,left:Math.max(left,2000)},...list.filter(item=>item.undoId!==prev.undoId)].slice(0,NOTICE_STACK-1));
+  },[notice,undoId]);
+  useEffect(()=>{if(!kept.length||noticeHeld)return;const timer=setInterval(()=>setKept(list=>list.map(item=>({...item,left:item.left-500})).filter(item=>item.left>0)),500);return()=>clearInterval(timer);},[kept.length,noticeHeld]);
+  // The hold ends with the last notice: a notice that goes away under the pointer sends no pointer-leave.
+  useEffect(()=>{if(!notice&&!kept.length)setNoticeHeld(false);},[notice,kept.length]);
   const glareTracks=watch.enabled&&!syncHold?watch.snapshot.tracks.filter(track=>track.glare):[];
   const shownGlare=useRef(new Set<string>());
   useEffect(()=>{shownGlare.current.clear();},[room.slug]);
@@ -2390,6 +2409,10 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     const selector=`[data-testid="field-${index}"] [data-zone="${zone}"]`;
     return [`${selector}>div:first-child{animation:none;background:linear-gradient(110deg,#233c3b 20%,#507b70 45%,#233c3b 70%)}${selector}>div:first-child>span{font-size:0}${selector}>div:first-child>span::after{content:"Identify card";font-size:10px;color:#e5f5ef}`];
   })).join('');
+  /** Undo from a notice: the one on screen, or an older one kept in the stack. It ends with the card changes of that notice only. */
+  const undoNotice=(id:string)=>{const isCurrent=id===undoId;void queueHuman('undo',async act=>{clipAction('undo',{actionId:id});const departed=isCurrent?departureRef.current?.ref:undefined,link=undoChain.current.after===id?undoChain.current:undefined,chain=link?.ids??[];undoChain.current={after:'',ids:[]};let updated=await act({type:'undo',actorSeat:seat,targetActionId:id});for(const id of chain)if(updated)updated=await act({type:'undo',actorSeat:seat,targetActionId:id})??updated;if(updated){settledUndo.current.add(id);if(link?.rebind){bindings.current.set(link.rebind.trackId,link.rebind.ref);watch.confirm(link.rebind.trackId,undefined,link.rebind.ref,false);readerRemovals.current.delete(link.rebind.ref);}if(departed&&updated.state.seats[seat].twin.some(card=>card.ref===departed&&publicField(card.zone)))watch.dismiss(departed);if(isCurrent)setDeparture(null);if(isCurrent){setNotice('Automatic field change undone');setUndoId('');}else setKept(list=>list.map(item=>item.undoId===id?{text:'Automatic field change undone',undoId:'',left:2500}:item));}});};
+  /** The Undo button shows while the table still holds that action as undoable; a newer action elsewhere does not take it away. */
+  const undoOk=(id:string)=>{const history=room.state.undoHistory;return history?history.some(entry=>entry.actionId===id&&!entry.undone&&!entry.reason):room.state.undo?.actionId===id;};
   return <>
     <style>{readingStyles}</style>
     <FieldWatcherUI keepUnresolved zoneSeat={seat} changes={syncHold?[]:changes} onChanged={zone=>requestManualZone({seat,zone,actions:true})} onWrong={id=>{const event=activePrompts.find(p=>p.track.id===id);if(event)requestManualZone({seat,zone:event.track.zone,ref:bindings.current.get(id)??event.bindRef??id,faceDown:event.track.faceDown});}} onNotACard={id=>{
@@ -2422,7 +2445,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
           if(card&&!card.token&&publicField(card.zone))await act({type:'twin.remove',actorSeat:seat,seat,cardRef:ref});
         });
       }}
-      noticeTestId={departure?'field-departure-toast':undefined}
+      noticeTestId={departure?'field-departure-toast':undefined} onNoticeHold={setNoticeHeld} kept={kept.filter(item=>!item.undoId||undoOk(item.undoId)).map(item=>({key:item.undoId||item.text,node:<>{item.text}{item.undoId?<button type="button" onClick={()=>undoNotice(item.undoId)}>Undo</button>:null}</>}))}
       notice={tokenPrompt?.choosing?<span data-testid="token-clash-zones">Which zone is the card in?
         {freeFieldZones(room.state.seats[seat].twin,tokenPrompt.facts,tokenPrompt.event.track.faceDown).map(zone=><button type="button" key={zone} disabled={pending} data-testid={`token-clash-zone-${zone}`} onClick={()=>{const {event,zone:cell}=tokenPrompt;setTokenPrompt(null);tokenAway.current.set(event.track.id,{cell,zone});void queue(act=>apply(event,act),event);}}>{zone}</button>)}
         <button type="button" onClick={()=>setTokenPrompt({...tokenPrompt,choosing:false})}>Back</button></span>:tokenPrompt?<span data-testid="token-clash">A token is in {tokenPrompt.zone}. Tribute/remove the token and place {tokenPrompt.name} here?
@@ -2431,7 +2454,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
         <button type="button" disabled={pending} data-testid="monster-in-st-move" onClick={()=>moveFromSpellTrap(rowPrompts[0])}>Move to {rowTarget??'a Monster Zone'}</button>
         <button type="button" data-testid="monster-in-st-keep" onClick={()=>{const first=rowPrompts[0];rowKept.current.add(first.ref);setRowPrompts(list=>list.filter(p=>p.ref!==first.ref));}}>Keep (equipped or placed by a card)</button></span>:failedUpdate?<>{notice||'Could not save the field update.'}<button type="button" disabled={pending} onClick={()=>void queue(failedUpdate.work,failedUpdate.event,failedUpdate.humanChoice)}>Retry field update</button></>:recovery?<>{recovery.message}<button type="button" onClick={recover}>Remove stale placement</button></>:leaveChoice?<span data-testid="leave-choice">The camera saw a card {leaveChoice.zone==='banished'?`banished${leaveChoice.faceUp?'':' face-down'}`:'in the Graveyard'}. Which card was it?{leaveChoice.options.map(o=><button type="button" key={o.ref} disabled={pending} onClick={()=>chooseLate(o.ref)}>{o.name}</button>)}<button type="button" onClick={()=>{choiceClosed.current.add(leaveChoice.twinRef);setLeaveChoice(null);}}>Neither</button></span>:syncHold?<span data-testid="sync-board-hold">Auto-detect is on. The board keeps its cards until you sync it.<button type="button" onClick={()=>{scanField();}}>Sync board to camera</button></span>:shiftHint?<span data-testid="zone-shift-hint">Zones look shifted — Recalibrate?<button type="button" onClick={()=>{setShiftHint(false);setCalibrating(true);}}>Recalibrate</button><button type="button" onClick={()=>setShiftHint(false)}>Dismiss</button></span>:notice?<>{notice}{departure?<span data-leave-tags> → {fieldLeaveLabel(departure.zone,!departure.down)} {attachTargets.map(t=><button type="button" key={`attach-${t.ref}`} disabled={pending} onClick={()=>attachTo(t)}>Attach to {t.name}</button>)}{destinations.map(d=><button type="button" key={d.title} disabled={pending||d.zone===departure.zone&&(d.zone!=='banished'||('down' in d)===!!departure.down)} onClick={()=>redirect(d.zone,'down' in d)}>{d.title}</button>)}</span>:null}
         {departure?.zone==='pending'?<button type="button" disabled={pending} onClick={()=>redirect('hand')}>Retry removal</button>:null}
-        {undoId&&room.state.undo?.actionId===undoId&&serverNow()<=room.state.undo.at+5000?<button type="button" onClick={()=>void queueHuman('undo',async act=>{clipAction('undo',{actionId:undoId});const departed=departureRef.current?.ref,link=undoChain.current.after===undoId?undoChain.current:undefined,chain=link?.ids??[];undoChain.current={after:'',ids:[]};let updated=await act({type:'undo',actorSeat:seat,targetActionId:undoId});for(const id of chain)if(updated)updated=await act({type:'undo',actorSeat:seat,targetActionId:id})??updated;if(updated){if(link?.rebind){bindings.current.set(link.rebind.trackId,link.rebind.ref);watch.confirm(link.rebind.trackId,undefined,link.rebind.ref,false);readerRemovals.current.delete(link.rebind.ref);}if(departed&&updated.state.seats[seat].twin.some(card=>card.ref===departed&&publicField(card.zone)))watch.dismiss(departed);setDeparture(null);setNotice('Automatic field change undone');setUndoId('');}})}>Undo</button>:null}</>:heldPick?<span data-testid="held-pick">Which card did you hold up?
+        {undoId&&undoOk(undoId)?<button type="button" onClick={()=>undoNotice(undoId)}>Undo</button>:null}</>:heldPick?<span data-testid="held-pick">Which card did you hold up?
         {heldPick.options.map(o=><button type="button" key={o.cardId} disabled={pending} data-testid="held-pick-card" onClick={()=>{const pick=heldPick;setHeldPick(null);void queueHuman('held-pick',act=>commitHeld(act,o.cardId,o.name,`${pick.id}-pick`,performance.now(),`${pick.id}-pick`));}}>{o.name}</button>)}
         <button type="button" data-testid="held-pick-none" onClick={()=>setHeldPick(null)}>Not an activation</button></span>:tapOffer?<span data-testid="tap-identify-offer">{tournament?'This computer is slow for live tracking. Switch to tap-to-identify? Your opponent will see the switch.':'This computer is slow for live tracking. Switch to tap-to-identify?'}<button type="button" onClick={()=>answerTapOffer('switch')}>Switch</button><button type="button" onClick={()=>answerTapOffer('keep')}>Keep</button></span>:videoOfferShowing?<span data-testid="video-fps-offer">Your computer is struggling with video. Switch to 15 fps to reduce lag?<button type="button" onClick={()=>answerVideoOffer(15)}>Switch</button><button type="button" onClick={()=>answerVideoOffer(30)}>Keep</button></span>:lightHintShowing?<span data-testid="low-light-hint">Camera is slow — add light or turn off auto exposure<button type="button" onClick={()=>setLightHint(false)}>Dismiss</button></span>:softHintShowing?<span data-testid="soft-camera-hint">Camera is out of focus — tap to focus or move closer<button type="button" onClick={()=>setSoftDismissed(true)}>Dismiss</button></span>:undefined}/>
     {calibrating?<FieldCalibrationControl defaultSide={defaultSideFor(phone?'phone':'webcam')} video={video} initialCalibration={watch.calibration} placed={watch.placed} format={room.format?.id??room.state.deckChecks.format.id} detectCalibrationCards={async frame=>{const result=await detectCards(await createImageBitmap(frame));if(result.status!=='ready')throw new Error(result.note);return result.cards;}} onSave={grid=>{updateCalibration(grid,true);setCalibrating(false);}} onCancel={()=>{if(watch.calibrationNeeded&&!watch.calibration?.orientation)setDetection(false);setCalibrating(false);}}/>:null}
