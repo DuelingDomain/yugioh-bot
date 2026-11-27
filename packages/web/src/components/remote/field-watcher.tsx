@@ -589,9 +589,16 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
         console.info('[remote field] write result',proposal.type,updated?.lastSeq??'not saved');
         if(!updated)return null;
         current.current.room=updated;holdReplacedFieldCards(before,updated.state.seats[seat].twin);prunePhysical();
-        // The server can return the current room for obsolete evidence without saving an event.
+        // A camera write without an event may be obsolete or may have kept a confirmed name.
         if(proposal.cam?.by==='camera'&&['twin.place','twin.move','twin.flip','twin.remove','card.identified'].includes(proposal.type)&&
-          !updated.events.some(e=>e.id===actionId))return null;
+          !updated.events.some(e=>e.id===actionId)){
+          if(proposal.type==='card.identified'&&proposal.source==='auto'){
+            const ref=proposal.cardRef;
+            const confirmed=updated.state.seats[seat].twin.some(c=>c.ref===ref&&c.identityConfirmed);
+            if(confirmed&&stillValid())return updated;
+          }
+          return null;
+        }
         return updated;
       };
       await work(apply);console.info('[remote field] flushed',event?.type,event?.track.id,current.current.room.lastSeq);workKeys.current.delete(work);setFailedUpdate(previous=>previous?.work===work?null:previous);
