@@ -139,9 +139,12 @@ function FeedStats({ seat, frame, format, read }: { seat: number; frame: CSSProp
     return `Controlled (owned by ${data?.ownerName?.(card.ownerSeat) ?? `Seat ${card.ownerSeat + 1}`})`;
   };
   if (!frame || !calibration?.orientation) return proxies.length ? <ul className={t.proxyFallback} aria-label="Controlled cards" data-testid="feed-proxy-fallback">
-    {proxies.map(({ key, card, zone }) => <li key={key}>
-      {fieldZoneLabel(zone)} · {card.faceUp ? cardName(card, data?.info(cardCode(card))) : "Face-down card"} · {controlLabel(card)}
-    </li>)}
+    {proxies.map(({ key, card, zone }) => {
+      const name = card.faceUp ? cardName(card, data?.info(cardCode(card))) : "Face-down card";
+      return <li key={key} title={`${fieldZoneLabel(zone)} · ${name} · ${controlLabel(card)}`}>
+        <span className={t.zLong}>{fieldZoneLabel(zone)}</span><span className={t.zShort}>{zone}</span> · {name} · <span className={t.ctl}>{controlLabel(card)}</span>
+      </li>;
+    })}
   </ul> : null;
   if (!(items.length || proxies.length)) return null;
   const tokens = items.filter(item => item.card.token);

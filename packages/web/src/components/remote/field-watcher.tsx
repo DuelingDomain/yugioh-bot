@@ -241,7 +241,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   /** A plain monster that stands in a Spell & Trap Zone: Move / Keep. `rowKept` holds the refs the player kept there. */
   const [rowPrompts,setRowPrompts]=useState<{ref:string;name:string}[]>([]),rowKept=useRef(new Set<string>());
   const [tokenPrompt,setTokenPrompt]=useState<{event:FieldEvent;token:TwinCard;zone:FieldZone;name:string;facts?:ReturnType<typeof cardInfo>;choosing?:boolean}|null>(null);
-  const [proxyClashes,setProxyClashes]=useState<{event:FieldEvent;zone:FieldZone;proxy:TwinCard;holder:number;destination?:FieldZone}[]>([]);
+  const [proxyClashes,setProxyClashes]=useState<{event:FieldEvent;zone:FieldZone;proxy:TwinCard;holder:number}[]>([]);
   const proxyBlockedTracks=useRef(new Map<string,FieldZone>());
   const proxyMarkers=useRef(new Set<string>());
   const proxyPrompt=proxyClashes[0];
@@ -717,7 +717,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     setProxyClashes(list=>{
       const previous=list.find(p=>p.event.track.id===event.track.id);
       if(previous?.proxy.ref===occupant.proxy.ref&&previous.zone===zone&&previous.event.track.zone===event.track.zone&&previous.event.track.revision===event.track.revision&&previous.event.type===event.type)return list;
-      const clash={event,zone,...occupant,...(previous?.zone===zone?{destination:previous.destination}:{})};
+      const clash={event,zone,...occupant};
       return previous?list.map(p=>p===previous?clash:p):[...list,clash];
     });
     return true;
@@ -2536,8 +2536,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
         {departure?.zone==='pending'?<button type="button" disabled={pending} onClick={()=>redirect('hand')}>Retry removal</button>:null}
         {undoId&&room.state.undo?.actionId===undoId&&serverNow()<=room.state.undo.at+5000?<button type="button" onClick={()=>void queueHuman('undo',async act=>{clipAction('undo',{actionId:undoId});const departed=departureRef.current?.ref,link=undoChain.current.after===undoId?undoChain.current:undefined,chain=link?.ids??[];undoChain.current={after:'',ids:[]};let updated=await act({type:'undo',actorSeat:seat,targetActionId:undoId});for(const id of chain)if(updated)updated=await act({type:'undo',actorSeat:seat,targetActionId:id})??updated;if(updated){if(link?.rebind){bindings.current.set(link.rebind.trackId,link.rebind.ref);watch.confirm(link.rebind.trackId,undefined,link.rebind.ref,false);readerRemovals.current.delete(link.rebind.ref);}if(departed&&updated.state.seats[seat].twin.some(card=>card.ref===departed&&publicField(card.zone)))watch.dismiss(departed);setDeparture(null);setNotice('Automatic field change undone');setUndoId('');}})}>Undo</button>:null}</>:proxyPrompt?<span data-testid="proxy-clash">
         {proxyClashLabel(proxyAt(proxyPrompt.zone)?.proxy??proxyPrompt.proxy)}
-        {proxyPrompt.destination?<span> Move your card to {fieldZoneLabel(proxyPrompt.destination)}.</span>:null}
-        {proxyOptions.map(zone=><button type="button" key={zone} disabled={pending} aria-pressed={proxyPrompt.destination===zone} onClick={()=>setProxyClashes(list=>list.map(p=>p===proxyPrompt?{...p,destination:zone}:p))}>{fieldZoneLabel(zone)}</button>)}
+        {proxyOptions.length?<span> Free zones: {proxyOptions.join(', ')}.</span>:null}
         {proxyPrompt.holder===seat||proxyPrompt.proxy.ownerSeat===seat?<button type="button" disabled={pending} onClick={()=>replaceProxy(proxyPrompt)}>Remove proxy and place here</button>:null}
         <button type="button" disabled={pending} onClick={()=>leaveProxyMarker(proxyPrompt.event.track.id)}>Leave it (marker)</button>
       </span>:heldPick?<span data-testid="held-pick">Which card did you hold up?

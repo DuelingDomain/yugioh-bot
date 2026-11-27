@@ -58,6 +58,8 @@ export const landingLabel = (land: Landing): string => {
 };
 
 export const proxyClashLabel = (card: TwinCard) => remoteProxyClashMessage(card, cardInfo(cardCode(card))?.name);
+/** A manual drop is refused on the spot, so it says where to drop instead of where to move. */
+const proxyDropLabel = (card: TwinCard) => proxyClashLabel(card).replace("Move your card to a free zone.", "Drop your card in a free zone.");
 
 /** Legacy row cards can take a drawn cell even with no saved slot. */
 export function proxyAtLanding(twin: readonly TwinCard[], land: Landing, extraZones: boolean, exceptRef?: string): TwinCard | undefined {
@@ -85,7 +87,7 @@ export function judgeMove(args: {
   if (cell) {
     const holder = cellsFor(twin, extraZones)[cell].card;
     const proxy = remoteProxyInSlot(twin, land, card.ref) ?? (holder && holder.ref !== card.ref && holder.ownerSeat !== undefined ? holder : undefined);
-    if (proxy) return { kind: "refuse", message: proxyClashLabel(proxy) };
+    if (proxy) return { kind: "refuse", message: proxyDropLabel(proxy) };
     if (holder && holder.ref === card.ref) return { kind: "same" };
     if (holder) return { kind: "refuse", message: `${labelOfCell(land)} is taken. Move that card first.` };
     // Pendulum Zones 1/2 are S1/S5, so a held S1/S5 also blocks them.
@@ -95,7 +97,7 @@ export function judgeMove(args: {
     if (land.zone === "extra-monster" && land.slot) {
       const shared = facing?.twin.find(other => other.zone === "extra-monster" && other.slot === mirrorEmz(land.slot!));
       const proxy = facing && proxyAtLanding(facing.twin,{ zone: "extra-monster", slot: mirrorEmz(land.slot) },extraZones,card.ref);
-      if (proxy) return { kind: "refuse", message: proxyClashLabel(proxy) };
+      if (proxy) return { kind: "refuse", message: proxyDropLabel(proxy) };
       if (shared) return { kind: "refuse", message: `That Extra Monster Zone is shared with ${facing!.name} and taken.` };
     }
   } else if (card.zone === land.zone && (land.zone === "graveyard" || land.zone === "banished" || land.zone === "hand" || land.zone === "extra" || land.zone === "deck")) return { kind: "same" };

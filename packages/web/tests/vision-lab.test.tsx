@@ -750,12 +750,10 @@ it.each(['move','replace'] as const)('holds a physical card on a controlled prox
   const prompt=await screen.findByTestId('proxy-clash');
   expect(prompt).toHaveTextContent(message);
   expect(fixture.post).not.toHaveBeenCalled();
-  expect(judgeMove({card:{...proxy,ref:'paper',ownerSeat:undefined,slot:2},info:undefined,land:{zone:'monster',slot:4},twin:[proxy],extraZones:true})).toEqual({kind:'refuse',message});
-  expect(within(prompt).queryByRole('button',{name:'Main Monster Zone 4'})).toBeNull();
+  expect(judgeMove({card:{...proxy,ref:'paper',ownerSeat:undefined,slot:2},info:undefined,land:{zone:'monster',slot:4},twin:[proxy],extraZones:true})).toEqual({kind:'refuse',message:message.replace('Move your card to a free zone.','Drop your card in a free zone.')});
+  expect(prompt).toHaveTextContent(/Free zones: .*M2/);
+  expect(prompt).not.toHaveTextContent('M4');
   if(resolution==='move'){
-   fireEvent.click(within(prompt).getByRole('button',{name:'Main Monster Zone 2'}));
-   expect(prompt).toHaveTextContent('Move your card to Main Monster Zone 2.');
-   expect(fixture.post).not.toHaveBeenCalled();
    Object.assign(fixture.track,{zone:'M2',revision:1});
    await fixture.emit({type:'moved'});
   }else{
