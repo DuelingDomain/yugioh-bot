@@ -158,7 +158,7 @@ export function RecognitionTray({ tray, deckIds, inDeck, onPick, onClose, onRemo
       {ai.note ? <p className={s.bnote} role="status" data-testid="ask-ai-note">{ai.status === "off" ? "AI second opinion is not available for this account." : ai.note}</p> : null}
     </div>
     <div className={s.bbar}>
-      <span className={s.bhint}>{!current && !found ? <>Click a card or type its name · <kbd>Esc</kbd></> : alone ? <><kbd>Enter</kbd> confirm · <kbd>Esc</kbd></> : <><kbd>1</kbd>–<kbd>5</kbd> pick · <kbd>←</kbd><kbd>→</kbd> preview · <kbd>Enter</kbd> confirm · <kbd>Esc</kbd></>}</span>
+      <span className={s.bhint}>{!current && !found ? <>Pick a card or search · <kbd>Esc</kbd></> : alone ? <><kbd>Enter</kbd> confirm · <kbd>Esc</kbd></> : <><kbd>1</kbd>–<kbd>5</kbd> pick · <kbd>←</kbd><kbd>→</kbd> preview · <kbd>Enter</kbd> confirm · <kbd>Esc</kbd></>}</span>
       <span className={s.sp} />
       {canAsk ? <span data-testid="ask-ai-row"><button type="button" className={`${s.btn} ${s.sm} ${s.q}`} onClick={() => void askAi()} disabled={ai.status === "asking"} data-testid="ask-ai">{ai.status === "asking" ? "Asking the AI…" : "Ask AI"}</button></span> : null}
       {alone ? <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} onClick={() => { setWrong(true); setCursor(null); }} data-testid="wrong-card">Wrong card?</button> : null}
