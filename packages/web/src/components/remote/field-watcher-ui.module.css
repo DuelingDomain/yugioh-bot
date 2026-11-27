@@ -43,6 +43,8 @@
 .corner{position:absolute;display:grid;place-items:center;width:24px;height:24px;transform:translate(-50%,-50%);border-radius:50%;background:var(--gold);color:#1b1204;font-weight:700;pointer-events:none}
 @media(max-width:600px){.backdrop:has([data-large]){padding:0}.backdrop{padding:12px}.calibration{max-height:calc(100dvh - 24px)}.prompt{width:calc(100vw - 16px)}.choices button{min-height:44px}}
 
+.chip[data-tone="off"]{border-color:var(--line2,#3a2f55);color:var(--ink3,#8d83a3)}
+.chip[data-tone="weak"]{border-color:rgb(240 178 79/.55);color:var(--warn,#f0b24f)}
 .chip[data-attention]{max-width:200px;border-color:var(--gold,#e8b94f);background:rgb(232 185 79/.16);color:var(--gold-ink,#f6dc9a);animation:attention 1.6s ease-in-out infinite}
 button.chip{cursor:pointer;font-family:inherit}
 @keyframes attention{50%{box-shadow:0 0 0 3px rgb(232 185 79/.28)}}

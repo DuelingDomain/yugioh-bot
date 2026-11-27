@@ -61,7 +61,7 @@
 .tb:hover{border-color:var(--pen);color:var(--ink)}
 .tb[aria-pressed=true],.tb[aria-expanded=true]{border-color:var(--gold);color:var(--gold-ink)}
 .hdot{width:8px;height:8px;border-radius:50%;background:var(--ok);box-shadow:0 0 8px currentColor;color:var(--ok)}
-.hdot.warn{background:var(--warn);color:var(--warn)}.hdot.bad{background:var(--lossd);color:var(--lossd)}
+.hdot.off{background:var(--ink3);color:var(--ink3);box-shadow:none}.hdot.warn{background:var(--warn);color:var(--warn)}.hdot.bad{background:var(--lossd);color:var(--lossd)}
 .tb.tbSurrender{border-color:color-mix(in srgb,var(--lossd) 55%,transparent);color:var(--loss)}.tb.tbSurrender:hover{border-color:var(--lossd);color:var(--loss)}
 .leaveGrp{display:flex;align-items:center;gap:8px;flex:none}
 .tb.leaveBtn{height:34px;padding:0 15px;font-size:14px;font-weight:700;border-color:color-mix(in srgb,var(--lossd) 70%,transparent);background:color-mix(in srgb,var(--lossd) 14%,var(--p0));color:var(--loss)}
@@ -1866,3 +1866,23 @@
 .camMenu .zaTip{font-size:11.5px}
 @media(pointer:coarse),(max-width:720px){.cmGrid .zaRow,.cmActs>.zaRow{min-height:44px}.cmTools .ibtn{width:40px;height:40px}.camMenu .bname{padding-right:92px}}
 @media(max-width:900px){.pop.big.show.camMenu{left:8px!important;right:8px;top:auto!important;bottom:max(8px,env(safe-area-inset-bottom));width:auto;max-height:84dvh;padding:10px 12px 12px;border-radius:14px 14px 12px 12px;justify-items:stretch}.camMenu .btext{max-height:min(220px,30dvh)}}
+
+/* One control scale (desktop). Top bar buttons are 36 px, bottom bar buttons are 36 px (Pass turn 40), phase boxes 32, LP buttons 72 x 32, hand -/+ 28 (44 on touch).
+   Controls have 8 px corners and panels 12 px. Type is 12 / 14 / 16, never under 11. */
+.tb{height:36px;border-radius:8px;font-size:14px}
+.tb.leaveBtn{height:36px}
+.btn{border-radius:8px}
+.vtog{height:28px;border-radius:8px;font-size:12px}
+@media (min-width:901px){
+  .bar .btn.sm{height:36px;padding:0 12px;font-size:13px;border-radius:8px}
+  .bar .ubtn,.bar .hbtn{height:36px}.bar .hbtn{width:36px}.bar .dk.undo{height:36px}
+  .bar .pback{height:36px;border-radius:8px}
+  .bar .pass{height:40px;border-radius:8px}
+  .bar .bmic{width:36px;height:36px}
+  /* Surrender and Quit sit at the far left with a divider, away from Pass turn. */
+  .bover>.bmenu{order:-1;padding-right:14px;border-right:1px solid var(--line)}
+}
+.hcount button{width:28px;height:28px;border-radius:8px}
+.hcount .hgive{height:28px}
+@media (pointer:coarse){.hcount button{width:44px;height:44px}.hcount .hgive{height:44px}}
+@media (pointer:coarse){.bar kbd,.vtog kbd,.fzbtn kbd,.btn kbd{display:none}}

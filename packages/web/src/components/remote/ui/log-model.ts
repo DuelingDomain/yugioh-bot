@@ -120,7 +120,7 @@ export function buildLog(input: LogInput): LogTurn[] {
     else if (action.type === "phase.advance") row.badge = "PH";
     else if (action.type === "turn.end") row.badge = "END";
     else if (row.cat === "phase" || row.cat === "other") row.badge = row.cat === "phase" ? "PH" : "·";
-    else if (!card.id) row.badge = row.cat === "chain" ? "CH" : row.cat === "move" ? "·" : undefined;
+    else if (!card.id) row.badge = action.type === "random.roll" ? "RNG" : row.cat === "chain" ? "CH" : row.cat === "move" ? "·" : undefined;
     if (action.type === "card.identified" && card.id && notInDecklist(input.room, action.seat, card.id)) row.notInDeck = { seat: action.seat, cardId: card.id };
     group.rows.push(row);
   }

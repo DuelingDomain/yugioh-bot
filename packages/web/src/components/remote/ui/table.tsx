@@ -107,7 +107,7 @@ const MARK_LIFE_MS = 4000; // an outline and its label on the feed fade after th
 const BEGIN_RETICLE = "begin";
 const FIND_LIMIT_MS = 15_000; // a click search for the card under the pointer
 const READ_LIMIT_MS = 75_000; // a card read: longer than the 60 s wait for a paired phone in video-hub.tsx
-const fmtTime = (at: number) => new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+const fmtTime = (at: number) => new Date(at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false });
 const typing = isTypingTarget;
 
 type ReadCtx = { from?: CardSource; cardRef?: string; seat: number; x: number; y: number; quad?: { x: number; y: number }[]; at: PopAt; id: number; ref?:string; frozenFrame?:HTMLCanvasElement; copyWitnesses?:FeedHit["copyWitnesses"]; capturedAt?:number; tier?: Tier; covered?: boolean; token?: number; guesses?: Guess[]; bestMatch?: boolean; placedRef?: string; invalidatePreread?: () => void;
@@ -1908,7 +1908,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
         feeds: healthRows.map(row => ({ ...row, color: row.color, mode: isTournamentTable(room) && row.seat !== mySeat ? stateMode(room.state, row.seat) ?? "unknown" : undefined })), extras,
         declare: declareResult,
         extra: !solo && !adminAccess ? <VisionFeedbackSetting promptOnly onChange={onFeedbackPref} /> : undefined }}
-      settings={<SettingsTab room={room} webcamOnly={webcamOnly} onView={setWebcamOnly} viewLocked={seatCount > 2 || solo && seatCount > 2}
+      settings={<SettingsTab room={room}
         voice={voiceRecognition ? { mics: mic.devices, micId: mic.micId, onMic: mic.pickMic, ptt, onPtt: on => { setPtt(on); setHeld(false); }, recognition: voiceRecognition,
           method: <VoiceControls method={voice.method} onMethod={method => { setProposal(null); voice.pickMethod(method); }} logging={room.voiceDiagnosticsEnabled === true && !muted && live} last={diagnostics.last} recentIds={diagnostics.recentIds} onMark={diagnostics.mark} /> } : null} />}
       adminPanel={<AdminTab room={room} isAdmin={adminAccess === true} />} />

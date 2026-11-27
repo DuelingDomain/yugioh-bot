@@ -1095,8 +1095,6 @@ test.describe("remote duels screen, moving cards by hand", () => {
     await expect(page.getByTestId("reticle")).toHaveCount(0); await expect(page.getByTestId("no-card")).toHaveCount(0);
     await expect(page.getByTestId("view-board")).toHaveAttribute("aria-pressed", "true"); await page.getByTestId("view-board").click();
     await expect(page.getByTestId("view-board")).toHaveAttribute("aria-pressed", "false");
-    // The drawer switch (Settings, View) shares the same state as the top bar toggle.
-    await openDrawer(page, "settings"); await expect(page.getByTestId("drawer-view-board")).toHaveAttribute("aria-checked", "false"); await page.keyboard.press("Escape");
     await expect(page.getByTestId("fwrap-0")).toBeHidden(); await expect(page.getByTestId("feed-box-0")).toBeVisible();
     // A bot seat has no camera to read, so it keeps its board.
     await expect(page.getByTestId("feed-box-1")).toBeVisible(); await expect(page.getByTestId("fwrap-1")).toBeVisible();
@@ -1136,7 +1134,7 @@ test.describe("remote duels screen, moving cards by hand", () => {
     await page.keyboard.press("w"); await expect(page.getByTestId("fwrap-0")).toBeVisible(); await expect(page.getByTestId("view-board")).toContainText("ON");
     await page.getByTestId("view-board").click(); await expect(page.getByTestId("fwrap-0")).toBeHidden();
     await page.getByTestId("view-board").click(); await expect(page.getByTestId("fwrap-0")).toBeVisible();
-    await openDrawer(page, "settings"); await page.getByTestId("drawer-view-board").click(); await page.keyboard.press("Escape"); await expect(page.getByTestId("fwrap-0")).toBeHidden();
+    await page.getByTestId("view-board").click(); await expect(page.getByTestId("fwrap-0")).toBeHidden();
     await page.getByTestId("view-board").click(); await expect(page.getByTestId("fwrap-0")).toBeVisible();
     // Both view: notices dock beside the player's own field, can be dragged, and fold into a chip with a count.
     await page.keyboard.press("Control+z"); const mine = page.getByTestId("notify-dock-0");

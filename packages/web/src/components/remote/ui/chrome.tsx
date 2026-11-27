@@ -48,7 +48,7 @@ export function TopBar({ crumb, tournament = null, chip, startedAt = null, ended
       title={webcamOnly ? "Show the virtual board under each webcam, beta (W)" : "Hide the virtual board. The webcams get the space (W)"}>
       <Icon name="layers" /><span className={s.lbl}>Virtual board</span> <span className={s.vbeta}>Beta</span> <b className={s.boardst}>{webcamOnly ? "OFF" : "ON"}</b></button> : null}
     <button type="button" className={`${s.tb} ${s.tbStatus} ${health.q === "warn" ? s.warnc : health.q === "bad" ? s.badc : ""}`} aria-haspopup="dialog" aria-expanded={healthOpen} aria-label={`Feeds: ${health.text}`} title={health.text} data-layer-opener data-testid="health-chip" onClick={e => onHealth(e.currentTarget)}>
-      <span className={`${s.hdot} ${health.q === "warn" ? s.warn : health.q === "bad" ? s.bad : ""}`} /><span>{health.text}</span></button>
+      <span className={`${s.hdot} ${health.q === "warn" ? s.warn : health.q === "bad" ? s.bad : health.q === "off" ? s.off : ""}`} /><span>{health.text}</span></button>
     <button type="button" className={s.tb} aria-haspopup="dialog" aria-expanded={cardOpen} data-layer-opener data-testid="card-button" onClick={e => onCard(e.currentTarget)}>
       <Icon name="card" /><span className={s.lbl}>Card</span></button>
     <button type="button" className={s.tb} aria-haspopup="dialog" aria-expanded={logOpen} aria-label="Log" title="Log: what happened at this table" data-layer-opener data-testid="log-button" onClick={e => onLog(e.currentTarget)}>
