@@ -2,14 +2,21 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createFieldWatcher,type FieldEvent,type KnownFieldCard} from './field-watcher';
 import {createFieldIdentityGallery} from './field-gallery';
+import {createFieldCalibration,fieldMatPoint,fieldZoneCells} from './field-zones';
 import {yugioh} from './games/yugioh';
 import type {DetectedQuad,RecognitionResult} from './types';
 
-function rig(backgroundReread=true,placeUnsure=false,margin=.15,readCostMs=0,quiet=false) {
+function rig(backgroundReread=true,placeUnsure=false,margin=.15,readCostMs=0,quiet=false,pile?:'GY'|'BANISHED') {
   const gallery=createFieldIdentityGallery();let known:KnownFieldCard[]=[];
   let at=0,hand=false,motion=0,visible=true,tier:RecognitionResult['tier']='low match',identity='A',pending:Promise<void>|undefined;
   let look:number[]=Array(12).fill(.6);
   const card:DetectedQuad={kind:'face-up',confidence:.95,partial:false,quad:[{x:.3,y:.3},{x:.4,y:.3},{x:.4,y:.45},{x:.3,y:.45}]};
+  const calibration=pile&&createFieldCalibration([{x:0,y:0},{x:1,y:1}]);
+  if(calibration){
+    const cell=fieldZoneCells('normal',calibration.zoneSpacing,calibration.zones).find(c=>c.zone===pile)!;
+    const center=fieldMatPoint({x:cell.x+cell.w/2,y:cell.y+cell.h/2},calibration),w=cell.w*.65,h=cell.h*.65;
+    card.quad=[{x:center.x-w/2,y:center.y-h/2},{x:center.x+w/2,y:center.y-h/2},{x:center.x+w/2,y:center.y+h/2},{x:center.x-w/2,y:center.y+h/2}];
+  }
   const width=96,height=140,data=new Uint8ClampedArray(width*height*4);
   for(let y=0;y<height;y++)for(let x=0;x<width;x++){
     const u=x/width,v=y/height;
@@ -24,6 +31,7 @@ function rig(backgroundReread=true,placeUnsure=false,margin=.15,readCostMs=0,qui
       return {identityEmbedding:{space:'art-box',values:capturedIdentity==='B'?[0,1]:[1,0]},candidates:[{cardId:capturedIdentity,score:capturedTier==='sure'?.95:.65},{cardId:'RUNNER',score:.65-margin}],tier:capturedTier,quality:{detected:true,cornersFound:true,framesUsed:1,selectedFrameIndices:[0],sharpness:20,fallback:false},timingsMs:{sharpness:0,detect:0,warp:0,embed:0,search:0,total:228},backend:'wasm'};
     }},analyze:()=>({scene:quiet?{moving:0,sinceMark:0,mark(){}}:undefined,motion:()=>motion,sharpness:()=>20,crop:()=>frame,appearance:()=>look,halo:()=>Array(12).fill(.8),touched:()=>hand?.5:0,occluded:()=>hand})});
   watcher.subscribe(e=>events.push(e));
+  if(calibration)watcher.setCalibration(calibration);
   const tick=async(ms=100)=>{at+=ms;await watcher.tick();await new Promise<void>(r=>setImmediate(r));};
   return {watcher,gallery,events,reads,tick,set look(v:number[]){look=v;},set known(value:KnownFieldCard[]){known=value;},set hand(v:boolean){hand=v;},set motion(v:number){motion=v;},set visible(v:boolean){visible=v;},set glare(on:boolean){
     data.set(clear);
@@ -50,6 +58,37 @@ test('a removed reading placeholder does not cycle through new refs in the same 
     r.sure();
     for(let i=0;i<25;i++)await r.tick();
     assert.ok(r.events.some(e=>e.type==='placed'&&e.track.id!==first.track.id));
+  }finally{r.watcher.dispose();}
+});
+
+for(const release of ['Scan field','expiry'] as const)test(`retired outlines are released by ${release}`,async()=>{
+  const r=rig(false);
+  try{
+    await r.untilPrompt();
+    const first=r.watcher.getSnapshot().tracks[0].id;
+    r.watcher.forget(first);
+    r.sure();
+    r.watcher.scanNow({gentle:true});
+    for(let i=0;i<10;i++)await r.tick();
+    assert.equal(r.events.filter(e=>e.type==='placed').length,0);
+    if(release==='Scan field')r.watcher.scanNow();
+    else for(let i=0;i<90;i++)await r.tick();
+    for(let i=0;i<25&&!r.events.some(e=>e.type==='placed');i++)await r.tick();
+    assert.ok(r.events.some(e=>e.type==='placed'&&e.track.id!==first));
+  }finally{r.watcher.dispose();}
+});
+
+for(const pile of ['GY','BANISHED'] as const)test(`forgetting a ${pile} outline leaves the next arrival readable`,async()=>{
+  const r=rig(false,false,.15,0,false,pile);
+  try{
+    r.sure();
+    for(let i=0;i<25&&!r.events.some(e=>e.type==='placed');i++)await r.tick();
+    const first=r.events.find(e=>e.type==='placed');
+    assert.equal(first?.track.zone,pile);
+    r.watcher.forget(first.track.id);
+    r.sure('B');
+    for(let i=0;i<25&&!r.events.some(e=>e.track.cardId==='B');i++)await r.tick();
+    assert.ok(r.events.some(e=>e.type==='placed'&&e.track.zone===pile&&e.track.cardId==='B'));
   }finally{r.watcher.dispose();}
 });
 

@@ -52,6 +52,7 @@ export function createManualCorrections(storage: Pick<Storage, 'getItem' | 'setI
     observe(next: readonly CorrectionObservation[], now: number) {
       observations = next;
       let changed = false;
+      const releasedTracks: string[] = [];
       for (const [ref, hold] of holds) {
         const eligible = next.filter(t => !hold.coveredIds?.includes(t.id) && !(t.ref !== ref && hold.refs?.includes(t.ref)));
         const bound = eligible.find(t => t.id === hold.physical?.id) ?? eligible.find(t => t.ref === ref);
@@ -64,7 +65,10 @@ export function createManualCorrections(storage: Pick<Storage, 'getItem' | 'setI
             const value = `removed:${track.id}`;
             const before = changing.get(ref);
             if (before?.value !== value) changing.set(ref, { value, since: now });
-            else if (now - before.since >= 1500) { holds.delete(ref); changing.delete(ref); changed = true; }
+            else if (now - before.since >= 1500) {
+              holds.delete(ref); changing.delete(ref); changed = true;
+              if (hold.departure === 'remove') releasedTracks.push(track.id);
+            }
           }
           continue;
         }
@@ -85,9 +89,13 @@ export function createManualCorrections(storage: Pick<Storage, 'getItem' | 'setI
         const value = JSON.stringify([track.zone, track.slot, track.faceDown, track.position, track.cardId]);
         const before = changing.get(ref);
         if (!before || before.value !== value) changing.set(ref, { value, since: now });
-        else if (now - before.since >= 2000) { holds.delete(ref); changing.delete(ref); changed = true; }
+        else if (now - before.since >= 2000) {
+          holds.delete(ref); changing.delete(ref); changed = true;
+          if (hold.departure === 'remove') releasedTracks.push(physical.id);
+        }
       }
       if (changed) save();
+      return releasedTracks;
     },
     blocks(refs: readonly string[], at?: Location) {
       return [...holds.values()].some(h => refs.includes(h.ref) || h.refs?.some(ref => refs.includes(ref)) || !!at && (field(at.zone)||h.departure==='remove'&&watchedPile(at.zone)) &&

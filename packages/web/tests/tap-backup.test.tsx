@@ -71,8 +71,9 @@ it('a player removal of a camera card sticks through a brief missing sample and 
   holds.observe([moved],3000);
   expect(holds.blocks(['new-ref'],{zone:'monster',slot:2})).toBe(true);
   const departure={...moved,removed:true,resting:false};
-  holds.observe([departure],3500);
-  holds.observe([departure],5000);
+  expect(holds.observe([departure],3500)).toEqual([]);
+  expect(holds.observe([departure],5000)).toEqual(['new-outline']);
+  expect(holds.observe([departure],5100)).toEqual([]);
   expect(holds.blocks(['another-ref'],{zone:'monster',slot:2})).toBe(false);
 });
 

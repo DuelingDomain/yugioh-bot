@@ -527,7 +527,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
         const actionId=idempotencyKey??saved?.key??crypto.randomUUID();
         // A Trap that the camera sees go from S/T to a Monster Zone is a Trap Monster: it keeps its S/T zone.
         let proposal=input;if(input.type==='twin.move'&&input.faceUp!==false&&input.trapMonster===undefined){const moving=current.current.room.state.seats[seat].twin.find(c=>c.ref===input.cardRef);if(becomesTrapMonster(moving,cardInfo(moving&&cardCode(moving)),input.zone))proposal={...input,trapMonster:true};}
-        const observedAt=event?.type==='removed'?event.removedAt??event.track.removedFrameAt??event.track.lastSeen:event?.track.lastSeen;
+        const observedAt=event&&event.type!=='removed'?event.track.lastSeen:performance.now();
         if(!proposal.cam)proposal={...proposal,cam:humanChoice?fieldCameraStamp(event?.timing,'player',event?.reason==='card-presence'?'set-card':'prompt-choice',observedAt):fieldCameraStamp(event?.timing,'camera',proposal.type==='undo'?'auto-undo':undefined,observedAt)};
         if(event?.track.setEvidence&&proposal.cam)proposal={...proposal,cam:{...proposal.cam,set:event.track.setEvidence}};
         // A Retry of this work reuses the saved key AND the saved proposal (its stamp too): the server compares a repeated key field by field.
@@ -727,7 +727,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     // This intermediate removal belongs to the reader, so the room update
     // must not forget and suppress the live track before its identity is saved.
     readerRemovals.current.add(ref);
-    try{if(card&&!await act({type:'twin.remove',source:'auto',actorSeat:seat,seat,cardRef:ref,...(retired?{}:{cam:fieldCameraStamp(undefined,'camera','replace-placeholder')})})){readerRemovals.current.delete(ref);return false;}}
+    try{if(card&&!await act({type:'twin.remove',source:'auto',actorSeat:seat,seat,cardRef:ref,...(retired?{}:{cam:fieldCameraStamp(undefined,'camera','replace-placeholder',track?.lastSeen??performance.now())})})){readerRemovals.current.delete(ref);return false;}}
     catch(error){readerRemovals.current.delete(ref);throw error;}
     if(retired&&!correctionsFor(current.current.room,seat).has(ref))watch.forget(id);
     placeholders.current.delete(id);bindings.current.delete(id);return true;
@@ -1671,7 +1671,8 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   },[watch.enabled,watch.calibrationNeeded,syncHold,room.state,seat]);
   const restingReads=useRef(new Map<string,FieldEvent>());
   function observeCorrections(tracks:readonly FieldTrack[]){
-    correctionsFor(current.current.room,seat).observe(tracks.map(t=>({id:t.id,ref:bindings.current.get(t.id)??t.id,...fieldZoneLocation(t.zone),faceDown:t.faceDown,position:t.position,cardId:t.cardId,removed:t.removed,resting:!!t.visible&&t.restSince!==undefined})),performance.now());
+    const released=correctionsFor(current.current.room,seat).observe(tracks.map(t=>({id:t.id,ref:bindings.current.get(t.id)??t.id,...fieldZoneLocation(t.zone),faceDown:t.faceDown,position:t.position,cardId:t.cardId,removed:t.removed,resting:!!t.visible&&t.restSince!==undefined})),performance.now());
+    for(const id of released)watch.forget(id,{suppress:false});
   }
   function publishReadings(){
     const key=String(seat),holds=correctionsFor(current.current.room,seat);
@@ -2157,7 +2158,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
         const unnamedSet=strict&&!card.faceUp&&!cardCode(card)&&card.ref.startsWith('fw-');
         const proposal=unnamedSet?{type:'twin.remove' as const,source:'auto' as const,actorSeat:seat,seat,cardRef:card.ref}:fieldDepartureProposal(card,seat,seen?{zone:seen.zone,faceUp:seen.faceUp}:undefined,cardInfo(code));if(!proposal)continue;
         const key=`remove:${ref}`;if(!tryFix(key))continue;
-        const updated=await write(key,proposal,proofAt??currentSnap?.lastFullAt??since);
+        const updated=await write(key,proposal,now);
         if(updated&&seen){const adopted=await adoptPileCard(act,seen,ref,lastUndo);if(adopted)lastUndo=adopted.undoTarget;}
       }
       const text=`Board re-synced (${changes} change${changes===1?'':'s'})`;

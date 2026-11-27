@@ -203,6 +203,7 @@ const PILE_LIFT_MS=2000;
 const SHADOW_SHARE=.05,SHADOW_SETTLE_MS=500;
 /** Repeated sharp, hand-free misses can outlast a moving shadow, never actual blur. */
 const DEPARTURE_HOLD_MS=1500,DEPARTURE_SCANS=3;
+const OUTLINE_SUPPRESSION_MS=10_000;
 /** A candidate with no outline for this long, or an outline larger than ~2 zones, expires. */
 /** A candidate with no outline expires after 1.5 s; while a hand or arm is over its cell it waits up to 6 s, keeping its rest and read progress. */
 const CANDIDATE_EXPIRE_MS=1500,CANDIDATE_ARM_MS=6000,MAX_ZONE_AREAS=2.5;
@@ -736,12 +737,12 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
   let softCamera=false,softHinted=false,softTrack:InternalTrack|undefined;
   let gridOffPasses=0,gridOffAt=-Infinity,gridShift:{gap:number;outside:number;suspect:boolean}|undefined,lastMotionAt:number|undefined,untracked=0,debugAt=0,debugTick='',emptySince:number|undefined,emptyPasses=0,emptyPassAt=-Infinity;
   const debugPath=(path:string,at:number)=>{debugTick=path;debugAt=at;};
-  const suppressed:{id:string;zone:FieldZone;card:DetectedQuad;appearance?:number[];halo?:number[];moved?:boolean;clearAt?:number;samples:number}[]=[];let guarded=false;
+  const suppressed:{id:string;zone:FieldZone;card:DetectedQuad;appearance?:number[];halo?:number[];moved?:boolean;retiredAt:number;clearAt?:number;samples:number}[]=[];let guarded=false;
   const retireOutline=(t:InternalTrack,zone=t.view.zone,card=t.announcedZone===zone?t.announced??t.view.card:t.restQuad??t.view.card)=>{
     const {id}=t.view;
-    if(suppressed.some(q=>q.id===id&&q.zone===zone))return;
+    if(publicPile(zone)||suppressed.some(q=>q.id===id&&q.zone===zone))return;
     const moved=zone!==t.view.zone;
-    suppressed.push({id,zone,card,appearance:t.identityAppearance??t.appearance,halo:moved?latestEvidence?.halo?.(card):t.halo,moved,samples:0});
+    suppressed.push({id,zone,card,appearance:t.identityAppearance??t.appearance,halo:moved?latestEvidence?.halo?.(card):t.halo,moved,retiredAt:now(),samples:0});
     if(suppressed.length>maxTracks)suppressed.shift();
   };
   const session=globalThis.crypto?.randomUUID?.()??Math.random().toString(36).slice(2);
@@ -1113,6 +1114,8 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
   const fieldActivityWindow=()=>Math.max(FIELD_ACTIVITY_WINDOW_MS,1.5*sampleIntervalMs);
   async function tick() {
     if(disposed||inFlight)return;
+    const at=now();
+    for(let i=suppressed.length-1;i>=0;i--)if(at-suppressed[i].retiredAt>=OUTLINE_SUPPRESSION_MS)suppressed.splice(i,1);
     if(hidden()){status='hidden';metrics.skipped++;interruptWindow();notify();return;}
     const urgent=urgentTick(now()),busy=idle(urgent),tracked=tracks.some(t=>t.view.state==='identified'&&!t.view.removed),empty=!tracks.some(t=>!t.view.removed);
     if(busy&&empty){status='busy';metrics.skipped++;interruptWindow();notify();return;}
@@ -3059,8 +3062,13 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
     /** "Scan field": the next sample runs a full-frame detector pass at once. `gentle` (automatic scans) keeps every player dismissal quiet. */
     // Every dismissed card in view reads again, including player dismissals. The shared
     // gallery persists its cleared unnamed entries through its change callback.
-    scanNow({gentle=false}:{gentle?:boolean}={}){if(!gentle)gallery.clearDismissed();scanSweep=2;lastScanAt=-Infinity;lastScanBacks=[];lastScanOffFrame=[];scanBacks.clear();scanPiles.clear();scanPileSeen.clear();for(const t of tracks){t.scanHit=false;t.nameZoomed=false;t.nameRest=undefined;if(t.view.state==='dismissed'&&!t.view.removed){if(gentle&&t.userDismissed)continue;t.rearms=0;rearm(t,'Scan field');}else if(t.view.state==='candidate'&&!t.read){t.needsRead=true;t.unsureReads=0;t.handWaitAt=undefined;t.faceWaitAt=undefined;}}for(const miss of twinMisses.values()){miss.emits=0;miss.emittedAt=undefined;}scanRequested=true;wake();},
-    forget(id:string){const i=tracks.findIndex(t=>t.view.id===id);if(i>=0){retireOutline(tracks[i]);tracks.splice(i,1);}pruneFrames();notify();},
+    scanNow({gentle=false}:{gentle?:boolean}={}){if(!gentle){gallery.clearDismissed();suppressed.length=0;}scanSweep=2;lastScanAt=-Infinity;lastScanBacks=[];lastScanOffFrame=[];scanBacks.clear();scanPiles.clear();scanPileSeen.clear();for(const t of tracks){t.scanHit=false;t.nameZoomed=false;t.nameRest=undefined;if(t.view.state==='dismissed'&&!t.view.removed){if(gentle&&t.userDismissed)continue;t.rearms=0;rearm(t,'Scan field');}else if(t.view.state==='candidate'&&!t.read){t.needsRead=true;t.unsureReads=0;t.handWaitAt=undefined;t.faceWaitAt=undefined;}}for(const miss of twinMisses.values()){miss.emits=0;miss.emittedAt=undefined;}scanRequested=true;wake();},
+    forget(id:string,{suppress=true}={}){
+      if(!suppress)for(let i=suppressed.length-1;i>=0;i--)if(suppressed[i].id===id)suppressed.splice(i,1);
+      const i=tracks.findIndex(t=>t.view.id===id);
+      if(i>=0){if(suppress)retireOutline(tracks[i]);tracks.splice(i,1);}
+      pruneFrames();notify();
+    },
   };
 }
 export type FieldWatcher=ReturnType<typeof createFieldWatcher>;
