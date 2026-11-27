@@ -256,6 +256,23 @@ test.describe("remote duels screen, solo", () => {
     }
   });
 
+  test("3-way: my seat without a camera keeps its board, and placing a token brings back a bot seat's board", async ({ page, context }) => {
+    const slug = await soloTable(context.request, 3), path = `/api/remote/${slug}`;
+    const mode = await context.request.patch(`${path}/phone`, { data: { mode: "manual" } });
+    expect(mode.ok(), await mode.text()).toBe(true);
+    await page.goto(`/duels/remote/${slug}`);
+    const visibleBoards = () => page.locator('[data-testid="field-0"]:visible, [data-testid="field-1"]:visible, [data-testid="field-2"]:visible').count();
+    await expect(page.getByTestId("field-0")).toBeVisible();
+    expect(await visibleBoards()).toBe(1);
+    const placed = await postAction(context.request, path, { type: "twin.place", actorSeat: 0, seat: 0, zone: "monster", card: { ref: "dl", cardId: 15341821, name: "Dandylion", slot: 1, faceUp: true, position: "attack" } });
+    expect(placed.status(), await placed.text()).toBe(200);
+    await page.getByTestId("next-step-go").click();
+    await expect(page.getByTestId("token-bar")).toBeVisible();
+    await expect(page.getByTestId("field-1")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("field-1")).toBeHidden();
+  });
+
   test("click on the live feed opens the card popup, it stays open while the card is read, Esc closes it", async ({ page, context }) => {
     test.skip(!FRAME || !HAVE_VISION_DATA, "needs a camera picture of cards (E2E_FAKE_FRAME) and vision data (VISION_DATA_DIR)");
     test.setTimeout(240_000);
