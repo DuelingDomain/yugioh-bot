@@ -846,6 +846,8 @@
   .vlong,.rslabel{display:none}.vhide kbd{display:none}.viewseg .vbeta,.vhide .vbeta{display:none}
   .viewseg button{padding:6px 9px}
   .wcbattle{top:8px}
+  /* The pile sheet sits under the fixed seat dock; hide the dock while it is open. */
+  .app[data-open-layer="pile"] .seatDock{display:none}
 }
 
 /* ============ phone ============ */
