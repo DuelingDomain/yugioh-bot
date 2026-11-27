@@ -19,8 +19,8 @@ async function postAction(request: APIRequestContext, path: string, action: Reco
     if (response.status() !== 409 || attempt >= 4) return response;
   }
 }
-// A click on your own card opens the card popup. More actions opens its zone menu, and Card details there leads to the Set candidate picker for a Set card with a known origin.
-const cardDetails = async (page: Page, cell: Locator) => { await cell.click(); await page.getByTestId("card-more").click(); await page.getByRole("button", { name: "Card details" }).click(); };
+// A click on your own card opens the card popup. For a Set card with a known origin, its Choose Set card action opens the Set candidate picker.
+const cardDetails = async (page: Page, cell: Locator) => { await cell.click(); await page.getByTestId("card-popover").getByTestId("card-choose-set").click(); };
 
 const SHOTS = process.env.E2E_SHOTS ?? "";
 // A still picture of two cards on a table, served as the camera. Chrome's fake-file camera is not reliable between tests.
@@ -1276,7 +1276,7 @@ test("private Set candidate pick, public reveal and a soft mismatch note",async(
   await page.route("**/api/cards/*/image**",route=>route.fulfill({status:204}));
   await page.goto(`/duels/remote/${slug}`);
   await page.getByTestId("field-0").locator('[data-zone="s1"]').click();
-  await page.getByTestId("card-more").click();
+  await page.getByTestId("card-popover").getByTestId("card-more").click();
   await page.getByTestId("zone-activate").click();
   await page.getByRole("button",{name:"Set face-down",exact:true}).click();
   const set=page.getByTestId("field-0").locator('[data-zone="s2"]');
@@ -1599,7 +1599,7 @@ test.describe("remote duels, spectators", () => {
       await expect(c.getByTestId("lp-value-1")).toHaveText("7500");
       await act({ type: "lp.change", seat: 0, delta: -100, reason: "Battle" });
       await expect(c.getByTestId("lp-value-0")).toHaveText("7900");
-      // Both (the default): each player's virtual board, read only. A Set card is a back with no name; a public card opens the card popup.
+      // Both (the default): each player's virtual board, read only. A Set card is a back with no name; a public card opens the left inspector.
       const board = c.getByTestId("fwrap-0");
       await expect(board).toBeVisible();
       await expect(board.locator('[data-ref][data-up="0"]')).toHaveCount(2);
@@ -1607,8 +1607,8 @@ test.describe("remote duels, spectators", () => {
       await board.locator('[data-ref][data-up="0"]').first().click();
       await expect(c.getByTestId("inspector")).toHaveAttribute("aria-hidden", "true");
       await board.getByRole("button", { name: /Origin fixture 1/ }).click();
-      await expect(c.getByTestId("card-popover")).toContainText("Origin fixture 1");
-      await expect(c.getByTestId("card-popover").locator("button", { hasText: /Wrong card|Attack|Flip|Move|Activate/ })).toHaveCount(0);
+      await expect(c.getByTestId("inspector")).toContainText("Origin fixture 1");
+      await expect(c.getByTestId("inspector").locator("button", { hasText: /Wrong card|Attack|Flip|Move|Activate/ })).toHaveCount(0);
       await c.keyboard.press("Escape");
       // Webcam only keeps the public card list and the Set count.
       await c.getByTestId("field-toggle-0").click();
@@ -2267,7 +2267,7 @@ test('field watcher automatic: Set backs, deck stacks, and revealed Sets keep fa
   await expect(page.getByTestId('set-marker')).toHaveCount(0);
   await shots('set-flipped-same-slot');
   const faceUpCell=page.getByTestId('field-0').locator('[data-zone="m3"]');
-  await faceUpCell.click();await expect(page.getByTestId('card-popover')).not.toContainText('Revealed');await page.keyboard.press('Escape');
+  await faceUpCell.click();await expect(page.getByTestId('card-popover')).toBeVisible();await expect(page.getByTestId('card-popover')).not.toContainText('Revealed');await page.keyboard.press('Escape');
   const resetTiming=await change(true);
   await expect.poll(async()=>(await room()).state.seats[0].twin[0]?.faceUp,{timeout:15_000,intervals:[25]}).toBe(false);
   const reset=await room();
@@ -2291,6 +2291,7 @@ test('field watcher automatic: Set backs, deck stacks, and revealed Sets keep fa
   await expect(page.getByTestId('field-watcher-prompt')).toHaveCount(0);
   await shots('revealed-set-same-slot');
   await cell.click();
+  await expect(page.getByTestId('card-popover')).toBeVisible();
   await expect(page.getByTestId('card-popover')).not.toContainText('Revealed');
   await page.keyboard.press('Escape');
   // Normal repeated reveal must save once, without a conflict/retry.

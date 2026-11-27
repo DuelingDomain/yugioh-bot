@@ -83,6 +83,8 @@ export type CardActions = {
   quick?: QuickMove[];
   /** Opens the zone menu of this card (a card on top, a token, materials). */
   onMore?: () => void;
+  /** A face-down card with a known origin (a Set from a trap): pick which card it is. */
+  onChooseSet?: () => void;
   onWrong?: () => void; onPin?: () => void;
   onForgetHand?: () => void;
   /** A remembered card: read the camera again. */
@@ -151,6 +153,7 @@ function Actions({ a, subject }: { a: CardActions; subject: Subject }) {
       {a.undo ? <button type="button" className={`${BTN} ${a.undo.reason ? s.cblocked : ""}`} aria-disabled={!!a.undo.reason} aria-describedby={a.undo.reason ? "card-undo-reason" : undefined}
         onClick={a.undo.onUndo} data-testid="card-undo" title={a.undo.label}>Undo last change</button> : null}
       {a.onWrong ? <button type="button" className={BTN} onClick={a.onWrong}>Wrong card?</button> : null}
+      {a.onChooseSet ? <button type="button" className={BTN} onClick={a.onChooseSet} data-testid="card-choose-set">Choose Set card{"\u2026"}</button> : null}
       {a.onMore ? <button type="button" className={BTN} onClick={a.onMore} data-testid="card-more">More actions{"\u2026"}</button> : null}
       {a.onForgetHand ? <button type="button" className={BTN} onClick={a.onForgetHand}>Remove from revealed hand</button> : null}
       {a.onPin ? <button type="button" className={BTN} onClick={a.onPin} data-testid="pin-inspector">Pin to inspector</button> : null}
@@ -181,8 +184,10 @@ function MoveGroup({ edit, quick }: { edit: CardEdit; quick?: QuickMove[] }) {
     <i className={s.dgbreak} />
     {edit.zone === "monster" || edit.zone === "spell-trap" ? [1, 2, 3, 4, 5].map(n => { const label = `${edit.zone === "monster" ? "M" : "S"}${n}`;
       return <button type="button" key={label} className={BTN} disabled={edit.slot === n} data-testid={`card-cell-${label}`} aria-label={`Move to ${label}`} onClick={() => edit.onCell(`${edit.zone === "monster" ? "m" : "s"}${n}` as ZoneKey)}>{label}</button>; }) : null}
-    <button type="button" className={`${BTN} ${s.dremove}`} onClick={edit.onRemove} data-testid="card-remove">{removeLabel}</button>
-    {edit.onNotACard?<button type="button" className={`${BTN} ${s.dremove}`} onClick={edit.onNotACard} data-testid="card-not-a-card">Not a card</button>:null}
+    <span className={s.dreds}>
+      <button type="button" className={`${BTN} ${s.dremove}`} onClick={edit.onRemove} data-testid="card-remove">{removeLabel}</button>
+      {edit.onNotACard?<button type="button" className={`${BTN} ${s.dremove}`} onClick={edit.onNotACard} data-testid="card-not-a-card">Not a card</button>:null}
+    </span>
   </Group></>;
 }
 
@@ -192,9 +197,10 @@ export function CardPopover({ subject, info, at, warning, actions, onClose }: {
 }) {
   const name = info?.name ?? subject.name ?? (subject.cardId ? `Card ${subject.cardId}` : "Unidentified card");
   const viewOnly = subject.from === "camera";
-  return <PopupFrame at={at} layer="card" label={`${name}, card details`} testid="card-popover" className={`${s.bigCard} ${subject.from === "pile" ? s.fromPile : ""} ${subject.from === "board" ? s.fromBoard : ""}`}>
+  return <PopupFrame at={at} layer="card" label={`${name}, card details`} testid="card-popover" className={`${s.bigCard} ${subject.from === "pile" ? s.fromPile : ""} ${subject.from === "board" ? s.fromBoard : ""} ${subject.cardId ? "" : s.noArt}`}>
     <button type="button" className={`${s.ibtn} ${s.bclose}`} aria-label="Close card" onClick={onClose}><Icon name="x" /></button>
-    <BigArt id={subject.cardId || null} label={name} />
+    {actions.onPin ? <button type="button" className={`${s.ibtn} ${s.bpin}`} aria-label="Pin to inspector" title="Pin to inspector" onClick={actions.onPin} data-testid="pin-inspector"><Icon name="pin" /></button> : null}
+    {subject.cardId ? <BigArt id={subject.cardId} label={name} /> : null}
     <div className={s.bmain}>
       {!subject.cardId ? <><h2 className={s.bname} data-testid="popover-name">{name}</h2><div className={s.bfacts}><p className={s.bdetails}>Not identified.</p></div></> : null}
       {subject.cardId ? <CardText id={subject.cardId} info={info} name={subject.name} fallbackName={`Card ${subject.cardId}`}>
@@ -216,8 +222,7 @@ export function CardPopover({ subject, info, at, warning, actions, onClose }: {
         </Group> : null}
         {actions.onReadAgain ? <button type="button" className={BTN} onClick={actions.onReadAgain} data-testid="card-read-again">Read again</button> : null}
         {actions.onWrong ? <button type="button" className={BTN} onClick={actions.onWrong}>Wrong card?</button> : null}
-        {actions.onPin ? <button type="button" className={BTN} onClick={actions.onPin} data-testid="pin-inspector">Pin to inspector</button> : null}
-      </> : <Actions a={actions} subject={subject} />}
+      </> : <Actions a={{ ...actions, onPin: undefined }} subject={subject} />}
     </div>
   </PopupFrame>;
 }

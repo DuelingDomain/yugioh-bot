@@ -1430,6 +1430,11 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
   const actions: CardActions = {
     // A card sent away from the board popup closes it, so the board shows where the card went.
     quick: quickFor(subject?.seat ?? mySeat, subjectCard).map(move => subject?.from === "board" ? { ...move, run: () => { move.run(); layers.close(); } } : move),
+    // A face-down card with a known origin (Set by a trap): the Set candidate picker.
+    ...(subject && subjectCard && !subjectCard.faceUp && live && (solo || subject.seat === mySeat) ? (() => {
+      const origin = state.effectTracking?.origins.find(o => o.seat === subject.seat && o.ref === subjectCard.ref);
+      return origin ? { onChooseSet: () => { setEffectOrigin(origin.id); layers.open("effect"); } } : {};
+    })() : {}),
     // The zone menu keeps what the card popup does not list: a card on top, a token, materials.
     ...(subject && subjectCard && live && !subjectCard.token && (solo || subject.seat === mySeat) && !state.seats[subject.seat]?.eliminated ? (() => {
       const entry = Object.entries(cellsFor(state.seats[subject.seat].twin, extraZones)).find(([, cell]) => cell.card?.ref === subjectCard.ref);
@@ -1493,12 +1498,13 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     // The owner of a proxy edits it on the other field too (position, move, send away).
     ...(subject && subjectCard && live && (solo || subject.seat === mySeat || subjectCard.ownerSeat === mySeat) ? { edit: {
       faceUp: subjectCard.faceUp !== false, zone: subjectCard.zone, slot: subjectCard.slot, extraZones,
-      onCell: (key: ZoneKey) => { tryMove(subject.seat, subjectCard, landOf(subjectCard, key)); },
+      onCell: (key: ZoneKey) => { tryMove(subject.seat, subjectCard, landOf(subjectCard, key)); if (subject.from === "board") layers.close(); },
       onMove: (zone: string) => {
         // A move into the Extra Monster Zones picks a slot the facing seat has not taken. Pendulum Zones use the outer Spell/Trap cells.
         const slot = zone === "extra-monster" ? freeEmzSlot(subject.seat, state.seats) : zone === "pendulum" ? [1, 2].find(n => !state.seats[subject.seat].twin.some(c => c.zone === "pendulum" && c.slot === n)) : undefined;
         if (zone === "extra-monster" && !slot) { toast("Both Extra Monster Zones are taken."); return; }
         announceManualMove({ slug: room.slug, seat: subject.seat, ref: subjectCard.ref });
+        if (subject.from === "board") layers.close();
         void act({ type: "twin.move", actorSeat: solo ? subject.seat : mySeat, seat: subject.seat, zone, cardRef: subjectCard.ref, ...(slot ? { slot } : {}), ...(pileEntryFace(subjectCard.zone, zone) !== undefined ? { faceUp: pileEntryFace(subjectCard.zone, zone) } : {}), ...leavePosition(subjectCard, zone) });
       },
       // A card turned face down in a Monster Zone is a Set monster, in Defense (like the camera's face-down proposal).
@@ -1766,7 +1772,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
       onAction={action => void saveZoneActions(latest => [zoneCardAction(latest, zonePicker.key, action)])} onSet={() => { const ref = crypto.randomUUID(); void saveZoneActions(latest => [zoneSet(latest, zonePicker.seat, zonePicker.key, ref)]); }}
       onToken={() => tokens.create(zonePicker.seat, /^m[1-5]$/.test(zonePicker.key) && !cellsFor(state.seats[zonePicker.seat].twin, extraZones)[zonePicker.key]?.card ? zonePicker.key : undefined)}
       onGive={zonePicker.tokenOnly && control.canGive ? () => control.giveHere(zonePicker.seat, zonePicker.key) : undefined}
-      onDetails={card => openSubject(card, "board", undefined, true)} quick={quickFor(zonePicker.seat, cellsFor(state.seats[zonePicker.seat].twin, extraZones)[zonePicker.key]?.card)} onClose={() => layers.close('zone')} /> : null}
+      onDetails={card => openSubject(card)} details={(() => { const c = cellsFor(state.seats[zonePicker.seat].twin, extraZones)[zonePicker.key]?.card; return !!c && !c.faceUp && !!state.effectTracking?.origins.some(o => o.seat === zonePicker.seat && o.ref === c.ref); })()} quick={quickFor(zonePicker.seat, cellsFor(state.seats[zonePicker.seat].twin, extraZones)[zonePicker.key]?.card)} onClose={() => layers.close('zone')} /> : null}
     <InspectorDrawer open={layers.layer === "insp"} onClose={() => layers.close("insp")}>
       <InspectorBody subject={subjectDetails} info={subjectInfo} warning={subject ? deckFlag(room, subject.seat)?.message : undefined} actions={shownActions}
         sourceLine={subject ? `Identified by ${subject.via} on ${name(subject.seat)}'s side` : ""} />

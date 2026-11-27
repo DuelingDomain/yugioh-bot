@@ -20,11 +20,12 @@ function Row({ icon, next, primary, children, ...rest }: { icon: IconName; next?
   return <button type="button" className={`${s.zaRow} ${primary ? s.zaPrimary : ''}`} {...rest}><Icon name={icon} /><span>{children}</span>{next ? <Icon name="chev" className={s.zaNext} /> : null}</button>;
 }
 
-export function ZoneActions({ tokenOnly, room, seat, zone, at, deck, targetRef, startPicker=false, initialFaceUp, busy, error, onPick, onAction, onSet, onToken, onGive, onDetails, onClose, quick = [] }: {
+export function ZoneActions({ tokenOnly, room, seat, zone, at, deck, targetRef, startPicker=false, initialFaceUp, busy, error, onPick, onAction, onSet, onToken, onGive, onDetails, onClose, quick = [], details = true }: {
   room: RemoteRoom; seat: number; zone: ZoneKey; at: PopAt; deck: number[]; targetRef?: string; initialFaceUp?: boolean;
   busy: boolean; error: string; startPicker?: boolean; onPick(pick: ZonePick): void; onAction(action: ZoneCardAction): void;
   onSet(): void; onToken(): void; /** An empty zone of another player's field: the menu only offers a token and a card from my hand. */ tokenOnly?: boolean; /** Give a card from my hand to this zone (the opponent's field only). */ onGive?: () => void; onDetails(card: TwinCard): void; onClose(): void;
   /** The same card moves as the camera popup. */ quick?: QuickMove[];
+  /** Card details row: only a face-down card with a known origin has anything the card popup lacks. */ details?: boolean;
 }) {
   const twins = room.state.seats[seat].twin;
   const card = cellsFor(twins, hasExtraZones(room.format?.id))[zone]?.card;
@@ -106,7 +107,7 @@ export function ZoneActions({ tokenOnly, room, seat, zone, at, deck, targetRef, 
         {!tokenOnly && remove ? <Row icon="x" disabled={busy} onClick={() => go(remove)} data-testid={card?.ownerSeat === undefined ? "zone-remove" : "zone-remove-proxy"}>{remove.label}</Row> : null}
         {!tokenOnly || /^m[1-5]$/.test(zone) ? <Row icon="coin" next primary={tokenOnly} data-autofocus={tokenOnly ? "" : undefined} disabled={busy} onClick={onToken} data-testid="zone-token">{!card && /^m[1-5]$/.test(zone) ? 'Add token here' : 'Add token'}</Row> : null}
         {tokenOnly && onGive ? <Row icon="hand" next primary={!/^m[1-5]$/.test(zone)} data-autofocus={/^m[1-5]$/.test(zone) ? undefined : ""} disabled={busy} onClick={() => { onClose(); onGive(); }} data-testid="zone-give-hand">Give a card from my hand here</Row> : null}
-        {card && !tokenOnly ? <Row icon="info" next disabled={busy} onClick={() => onDetails(card)}>Card details</Row> : null}
+        {card && !tokenOnly && details ? <Row icon="info" next disabled={busy} onClick={() => onDetails(card)}>Card details</Row> : null}
       </div>
       {card?.materials?.length ? <section className={s.zmMats} aria-label="Materials">
         <h3>Materials <b>{card.materials.length}</b></h3>
