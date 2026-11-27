@@ -5010,24 +5010,80 @@ describe("remote hand activation (a card held up from the hand)", () => {
     expect(s.room.state.seats[0].handCount).toBe(count);
   });
 
-  it("needs two agreeing sure reads of a lifted card, and gives a one-tap pick when the read is not sure", async () => {
+  it.each(["timed", "pile read", "late banished read", "reveal expired"])("settles one linked hand discard with one Undo (%s)", mode => {
+    const s = mode === "reveal expired" ? deckSession("normal") : originSession(true);
+    if (mode === "reveal expired") {
+      s.service.configure(s.room.slug, "g", s.users[0], { format: "normal", revealedHand: "one-turn" }, 2000);
+      s.select(s.save(originDeck).id);
+      s.start();
+    }
+    const before = s.room.state.seats[0].handCount!;
+    s.act({ type: "effect.activated", actorSeat: 1, source: { cardId: CARD } });
+    const first = s.room.events.at(-1)!;
+    s.act({ type: "effect.activated", fromHand: true, source: { cardId: 5318639 } });
+    const response = s.room.events.at(-1)!;
+    expect(response.action).toMatchObject({ respondsTo: first.id, handDestination: "graveyard" });
+    expect(s.room.state.seats[0].knownHand).toContainEqual(expect.objectContaining({ cardId: 5318639 }));
+    const discard = (ref: string, timed: boolean) => s.act({
+      type: "twin.place", seat: 0, source: "auto", zone: "graveyard", fromActivation: response.id,
+      ...(timed ? { handFallback: true } : {}), card: { ref, cardId: 5318639 },
+    });
+    if (mode !== "pile read") {
+      expect(() => discard("too-early", true)).toThrow("Invalid hand activation placement");
+      if (mode === "reveal expired") {
+        s.act({ type: "turn.end" });
+        expect(s.service.snapshot(s.room.slug, "g").state.seats[0].knownHand).toEqual([]);
+      }
+      s.wait(response.at + 4000);
+    }
+    discard("placed", mode !== "pile read");
+    const placement = s.room.events.at(-1)!;
+    s.wait(response.at + 5000);
+    discard("retry", true);
+    expect(s.room.events.at(-1)?.id).toBe(placement.id);
+    expect(s.room.state.seats[0].handCount).toBe(before - 1);
+    expect(s.room.state.seats[0].twin.filter(c => c.zone === "graveyard").map(c => c.ref)).toEqual(["placed"]);
+    expect(s.room.state.seats[0].knownHand ?? []).toEqual([]);
+    expect(s.service.replay(s.room.slug, "g", s.users[0])).toEqual(s.room.state);
+
+    if (mode === "late banished read") {
+      s.act({ type: "twin.place", seat: 0, source: "auto", zone: "banished", fromActivation: response.id, fromRef: "placed",
+        card: { ref: "placed", cardId: 5318639 } });
+      expect(s.room.state.seats[0].twin).toMatchObject([{ ref: "placed", zone: "banished" }]);
+      expect(s.room.state.seats[0].handCount).toBe(before - 1);
+    }
+    s.act({ type: "undo", targetActionId: s.room.events.at(-1)!.id });
+    expect(s.room.events.at(-1)?.action).toMatchObject({ alsoUndid: mode === "late banished read" ? [placement.id, response.id] : [response.id] });
+    expect(s.room.state.seats[0]).toMatchObject({ handCount: before, twin: [] });
+    expect(s.room.state.seats[0].knownHand ?? []).toEqual([]);
+    expect(s.service.replay(s.room.slug, "g", s.users[0])).toEqual(s.room.state);
+  });
+
+  it("uses one urgent read for a high-margin decklist match and two or a pick for other lifted cards", async () => {
     const vision = await import(new URL("../../../vision/src/field-watcher.ts", import.meta.url).pathname);
     const frame = { width: 640, height: 480, data: new Uint8ClampedArray(0) };
     const card = { kind: "face-up", confidence: .99, partial: false, quad: [{ x: .05, y: .03 }, { x: .12, y: .03 }, { x: .12, y: .16 }, { x: .05, y: .16 }] };
     const evidence = { motion: () => 0, sharpness: () => 100, touched: () => .03, appearance: () => [.1, .2, .3], halo: () => [] };
     const lifted = () => ({ ok: false, hard: true, text: "held: size 1.5x" });
-    const run = async (tier: string, ids: string[]) => {
+    const run = async (tier: string, ids: string[], decklist: string[] = [], runnerScore = .5) => {
       const sure: Record<string, unknown>[] = [], unsure: Record<string, unknown>[] = [];
       let read = 0;
-      const reader = vision.createHeldCardReader({ profile: { cardBack: { cardId: "back" } }, clone: async () => frame,
-        recognizer: { recognize: async () => ({ tier, candidates: [{ cardId: ids[Math.min(read++, ids.length - 1)], score: .9 }, { cardId: "2", score: .5 }, { cardId: "3", score: .4 }, { cardId: "4", score: .3 }],
-          quality: { fallback: false, faceDown: false, partial: false }, timingsMs: {} }) },
+      const reader = vision.createHeldCardReader({ profile: { cardBack: { cardId: "back" } }, clone: async () => frame, getPriors: () => ({ decklist }),
+        recognizer: { recognize: async (_frames: unknown, opts: { priority: string }) => {
+          expect(opts.priority).toBe("high");
+          const top = { cardId: ids[Math.min(read++, ids.length - 1)], score: .9 };
+          return { tier, candidates: [top, { cardId: "2", score: runnerScore }, { cardId: "3", score: .4 }, { cardId: "4", score: .3 }],
+            raw: { visual: [top, { cardId: "runner", score: runnerScore }] }, quality: { fallback: false, faceDown: false, partial: false }, timingsMs: {} };
+        } },
         onHeldCard: (event: Record<string, unknown>) => sure.push(event), onHeldUnsure: (event: Record<string, unknown>) => unsure.push(event) });
       for (const at of [0, 200, 450, 700, 950]) await reader.observe([card], frame, evidence, at, undefined, undefined, false, [], lifted).read;
-      return { sure, unsure };
+      return { sure, unsure, read };
     };
     const agree = await run("sure", ["1", "1"]);
     expect(agree.sure).toEqual([expect.objectContaining({ type: "held", cardId: "1", lifted: true })]);
+    expect(agree.read).toBe(2);
+    expect(await run("sure", ["1"], ["1"])).toMatchObject({ sure: [expect.objectContaining({ cardId: "1" })], read: 1 });
+    expect((await run("sure", ["1"], ["1"], .87)).read).toBe(2);
     const split = await run("sure", ["1", "2", "3"]);
     expect(split.sure).toEqual([]);
     expect(split.unsure).toEqual([expect.objectContaining({ type: "held-unsure", lifted: true, candidates: expect.arrayContaining([expect.objectContaining({ cardId: "3" })]) })]);

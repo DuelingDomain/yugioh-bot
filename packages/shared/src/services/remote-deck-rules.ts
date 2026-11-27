@@ -14,7 +14,7 @@ import { deckEngineDataDirectory, loadArtworkIdentityCatalog } from "./card-artw
 import { createInsightCatalog } from "./card-insight-catalog.js";
 import { deriveRemoteEffectPlans, remoteEffectMatches, REMOTE_SEARCH_SOURCE_ZONES, type RemoteEffectSource } from "../remote/effect-filters.js";
 import type { TwinCard } from "../remote/actions.js";
-import { remoteActivationLimit, remoteAssert } from "../remote/actions.js";
+import { remoteActivationKey, remoteActivationLimit, remoteAssert } from "../remote/actions.js";
 import { pinnedVisionIndexDirectory, visionDataDirectory } from '../vision-assets.js';
 
 // Cache catalog inputs, not results: current state and each seat's deck still filter every request.
@@ -65,7 +65,7 @@ export function createRemoteDeckRules(db: Database.Database, directory = deckEng
         return searchCandidates(state, seat, recentCardId, knowledge);
       } finally { catalog.close(); }
     },
-    effect(source: {cardId?:number;name?:string;cardRef?:string}, main: readonly number[] | undefined, twin:readonly TwinCard[]=[]) {
+    effect(source: {cardId?:number;name?:string;cardRef?:string}, main: readonly number[] | undefined, twin:readonly TwinCard[]=[], fromHand = false) {
       const catalog=createInsightCatalog(db,directory);
       try {
         const candidate=source.cardId ? catalog.candidate(source.cardId) : source.name ? catalog.byName(source.name) : undefined;
@@ -84,7 +84,12 @@ export function createRemoteDeckRules(db: Database.Database, directory = deckEng
           }
           return {...plan,pool:[...pool.values()].sort((a,b)=>a.cardId-b.cardId)};
         });
-        return {source:resolved,plans};
+        const { card } = candidate;
+        const handDestination = !fromHand ? undefined : /\bbanish this card\b/i.test(card.text ?? '') ? 'banished' as const : 'graveyard' as const;
+        const namedLimit = card.text?.match(/\byou can only use this effect of ["“]([^"”]+)["”] once per turn\b/i)?.[1];
+        const handLimit = fromHand ? remoteActivationLimit(card.name, card.text) ??
+          (namedLimit && remoteActivationKey(namedLimit) === remoteActivationKey(card.name) ? card.name : undefined) : undefined;
+        return {source:resolved,plans,handDestination,handLimit};
       } finally {catalog.close();}
     },
     inspect(format: RemoteFormat, deck: DuelDeck): DuelDeckValidation {

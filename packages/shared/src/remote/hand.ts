@@ -3,7 +3,49 @@ import { remoteAssert, type RemoteAction, type RemoteActionProposal, type TwinCa
 import {remotePublicCard, type RemoteReductionContext} from './deck-checks.js';
 import {searchCandidates} from './search-candidates.js';
 import { remoteFieldZone } from './twin-placement.js';
-import type { RemoteKnownHandCard, RemoteState } from './types.js';
+import { remoteUndoneActionIds } from './chain.js';
+import type { RemoteEvent, RemoteKnownHandCard, RemoteState } from './types.js';
+
+export const HAND_ACTIVATION_LINK_MS = 10_000;
+export const HAND_ACTIVATION_FALLBACK_MS = 4_000;
+
+export function remoteHandActivationAction(actorSeat: number, cardId: number): RemoteActionProposal {
+  return { type: 'effect.activated', actorSeat, source: { cardId }, fromHand: true };
+}
+
+/** Recent actions the named, still-revealed card can be linked to. The timeout can catch up when a table is reopened. */
+export function pendingRemoteHandActivations(state: RemoteState, seat: number) {
+  if (state.ended || state.match.phase !== 'duel' || state.seats[seat]?.eliminated !== false) return [];
+  return (state.undoHistory ?? []).flatMap(entry => {
+    const a = entry.action;
+    if (entry.actorSeat !== seat || entry.undone || entry.handPlacementId || a.type !== 'effect.activated' || !a.fromHand ||
+        !a.handDestination || !a.source.cardId || !entry.handKnownId ||
+        !state.seats[seat].knownHand?.some(card => card.id === entry.handKnownId)) return [];
+    return [{ actionId: entry.actionId, at: entry.at, cardId: a.source.cardId, name: a.source.name, destination: a.handDestination, knownId: entry.handKnownId }];
+  }).sort((a, b) => b.at - a.at);
+}
+
+export type RemoteHandCandidate = { cardId: number; name: string; uses: number };
+
+/** Unique Main Deck cards, ranked by that seat's non-undone hand activations in the supplied event history. */
+export function remoteHandTrapCandidates(state: RemoteState, seat: number, events: readonly RemoteEvent[],
+  lookup: (cardId: number) => { name: string; frameType: string; race?: string | null; effectText?: string | null; handQuick?: boolean } | undefined,
+): RemoteHandCandidate[] {
+  const undone = remoteUndoneActionIds(events), uses = new Map<number, number>();
+  for (const event of events) {
+    const a = event.action;
+    if (event.actorSeat === seat && !undone.has(event.id) && a.type === 'effect.activated' && a.fromHand && a.source.cardId)
+      uses.set(a.source.cardId, (uses.get(a.source.cardId) ?? 0) + 1);
+  }
+  return [...new Set(state.deckChecks.registrations[seat]?.deck.main ?? [])].flatMap(cardId => {
+    const card = lookup(cardId);
+    if (!card) return [];
+    const handTrap = /^trap/i.test(card.frameType) && /activat\w*\s+(?:it|this card)\s+from (?:your|the) hand/i.test(card.effectText ?? '');
+    const quickPlay = /^spell/i.test(card.frameType) && /^quick[- ]play$/i.test(card.race ?? '');
+    const monster = !/^(spell|trap)/i.test(card.frameType) && card.handQuick;
+    return monster || quickPlay || handTrap ? [{ cardId, name: card.name, uses: uses.get(cardId) ?? 0 }] : [];
+  }).sort((a, b) => b.uses - a.uses);
+}
 
 /** A face-down card keeps its identity for its owner while another player controls it (the controller never sees it). */
 export function restoreOwnerIdentity(card: TwinCard): void {
@@ -55,9 +97,9 @@ export function initializeRemoteHandCounts(state: RemoteState): void {
 function remember(state: RemoteState, seat: number, cardId: number, source: RemoteKnownHandCard['source'], id: string, by?: RemoteKnownHandCard['by']) {
   (state.seats[seat].knownHand ??= []).push({id, cardId, source, ...(by ? {by: structuredClone(by)} : {}), at: state.updatedAt, revealed: true});
 }
-function forgetCopy(state: RemoteState, seat: number, code?: number) {
+function forgetCopy(state: RemoteState, seat: number, code?: number, knownId?: string) {
   const known = state.seats[seat].knownHand;
-  const index = known?.findIndex(c => c.cardId === code) ?? -1;
+  const index = known?.findIndex(c => knownId ? c.id === knownId : c.cardId === code) ?? -1;
   if (index >= 0) known!.splice(index, 1);
 }
 export function reduceRemoteHandAction(state: RemoteState, action: Extract<RemoteAction, {type: 'hand.add' | 'hand.reveal' | 'hand.forget' | 'hand.count' | 'hand.draw' | 'deck.count'}>, context?:RemoteReductionContext): boolean {
@@ -146,7 +188,8 @@ export function applyRemoteGive(next: RemoteState, giverSeat: number, code: numb
   s.handCount = Math.max(0, s.handCount! - 1);
 }
 /** Compare physical exits once, after the board and deck checks have updated. */
-export function applyRemoteHand(next: RemoteState, before: RemoteState, action: RemoteAction, context?: RemoteReductionContext): void {
+export function applyRemoteHand(next: RemoteState, before: RemoteState, action: RemoteAction, context?: RemoteReductionContext, spentKnownId?: string): string | undefined {
+  let activatedKnownId: string | undefined;
   if (context?.replay && context.handKnowledge !== 1) return;
   const reviewed=!context?.replay||context.handReview===1;
   if(reviewed&&next.turn!==before.turn) {
@@ -177,7 +220,7 @@ export function applyRemoteHand(next: RemoteState, before: RemoteState, action: 
     for (const card of old.twin) if (card.zone === 'hand' && !card.inspectionFrom) {
       const moved = s.twin.find(c => c.ref === card.ref);
       if (!moved || moved.zone !== 'hand') {
-        forgetCopy(next, s.seat, codeOf(card));
+        forgetCopy(next, s.seat, codeOf(card), action.type === 'twin.place' && s.seat === action.seat && moved?.ref === action.card.ref ? spentKnownId : undefined);
         counts(next, s.seat,reviewed).handCount = Math.max(0, s.handCount! - 1);
       }
     }
@@ -194,7 +237,7 @@ export function applyRemoteHand(next: RemoteState, before: RemoteState, action: 
       (!!action.summon||action.zone==='extra-monster'||fact?.section==='extra'||!!(fact?.type&&fact.type&(0x40|0x2000|0x800000|0x4000000|0x4000)));
     if (action.type === 'twin.place' && !fromOutsideHand && action.seat === s.seat && (remoteFieldZone(action.zone) || ['graveyard','banished'].includes(action.zone) && s.knownHand?.some(c=>c.cardId===(action.card.cardId??action.card.passcode))) &&
         s.twin.some(c => c.ref === action.card.ref) && !old.twin.some(c => c.ref === action.card.ref)) {
-      forgetCopy(next, s.seat, action.card.cardId ?? action.card.passcode);
+      forgetCopy(next, s.seat, placementCode, spentKnownId);
       counts(next, s.seat,reviewed).handCount = Math.max(0, s.handCount! - 1);
     }
     // An anonymous Set keeps its possible hand identity private until it turns face-up.
@@ -211,7 +254,11 @@ export function applyRemoteHand(next: RemoteState, before: RemoteState, action: 
   // A card held up from the hand becomes public and stays in the hand, so a later play or discard from it counts exactly.
   if (action.type === 'effect.activated' && action.fromHand && action.source.cardId !== undefined) {
     const own = next.seats[action.actorSeat];
-    if (own && !own.knownHand?.some(c => c.cardId === action.source.cardId)) remember(next, action.actorSeat, action.source.cardId, 'unknown', action.idempotencyKey);
+    const claimed = action.handDestination ? new Set(pendingRemoteHandActivations(before, action.actorSeat).map(entry => entry.knownId)) : undefined;
+    const known = own?.knownHand?.find(c => c.cardId === action.source.cardId && !claimed?.has(c.id));
+    if (own && !known) remember(next, action.actorSeat, action.source.cardId, 'unknown', action.idempotencyKey);
+    else if (known && action.handDestination) { known.publicIdentity = true; delete known.revealExpired; }
+    if (action.handDestination) activatedKnownId = known?.id ?? action.idempotencyKey;
   }
   // A held-card/voice addition completes the same pending search as the picker.
   if (action.type === 'hand.add' && (action.source==='deck'||reviewed&&['gy','banish'].includes(action.source)) && action.by) {
@@ -245,7 +292,12 @@ export function applyRemoteHand(next: RemoteState, before: RemoteState, action: 
       origin.handRecorded=true;
     }
   }
-  if (next.turn !== before.turn && next.revealedHand === 'one-turn') next.seats[before.turnSeat].knownHand = [];
+  if (next.turn !== before.turn && next.revealedHand === 'one-turn') {
+    const pending = new Set(pendingRemoteHandActivations(before, before.turnSeat).map(entry => entry.knownId));
+    next.seats[before.turnSeat].knownHand = (next.seats[before.turnSeat].knownHand ?? [])
+      .filter(card => pending.has(card.id)).map(card => ({ ...card, revealExpired: true }));
+  }
+  return activatedKnownId;
 }
 
 /** UI adapters can forward the held-card read without retaining source pixels. */
@@ -283,5 +335,5 @@ export function remoteHandActivationDecision(state:RemoteState,actorSeat:number,
   if(!decision||decision.type!=='hand.suggest'||opts.fieldReadPending)return decision;
   const main=state.deckChecks.registrations[actorSeat]?.deck.main;
   if(opts.activatable===false||main&&!main.includes(read.cardId))return decision;
-  return {type:'effect.activated',actorSeat,source:{cardId:read.cardId},fromHand:true};
+  return remoteHandActivationAction(actorSeat, read.cardId);
 }

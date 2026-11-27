@@ -32,3 +32,4 @@ export * from "./hand.js";
 export * from "./search-candidates.js";
 export * from "./delta.js";
 export * from "./history.js";
+export * from "./chain.js";

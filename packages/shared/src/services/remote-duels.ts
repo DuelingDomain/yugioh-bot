@@ -4,13 +4,14 @@ import { readRemoteState, writeRemoteState, readRemoteEffects, writeRemoteEffect
 import { REMOTE_RESPOND_COOLDOWN_MS, REMOTE_SIGNAL_COOLDOWN_MS } from "../remote/actions.js";
 import { freezeRemoteValue } from "../remote/position.js";
 import type { RemoteRevealedHand, RemoteVisibility } from "../remote/types.js";
-import { remoteUndoLabel } from "../remote/undo.js";
+import { remoteUndoLabel, remoteUndoLinkedIds } from "../remote/undo.js";
 import { projectRemoteSnapshot, projectRemoteSpectator, projectRemoteState, projectRemoteTable } from "../remote/privacy.js";
 import { randomInt, randomUUID } from "node:crypto";
 import { setImmediate } from "node:timers/promises";
 import { applyRemoteFormat, REMOTE_REDUCTION_VERSIONS, initialDeckChecks, isInRemoteDeck, normalizeRemoteFormat, proposeRemoteDeckAddition, REMOTE_OPEN_FORMATS, type RemoteDeckRegistration, type RemoteFormat, type RemoteReductionContext } from "../remote/deck-checks.js";
 import { createSavedDeckService } from "./saved-decks.js";
 import { createRemoteDeckRules } from "./remote-deck-rules.js";
+import { openRemoteChainLink, remoteAliveSeats, REMOTE_CHAIN_EVENT_WINDOW } from "../remote/chain.js";
 import { deleteRemoteRooms, pruneRemoteSessions } from "./remote-cleanup.js";
 import { captureRemoteTournamentEvidence } from "./tournament-remote-evidence.js";
 import { initializeRemoteHandCounts } from "../remote/hand.js";
@@ -675,6 +676,8 @@ export function createRemoteDuelService(db: Database.Database, options: {
         const parsed = remoteActionSchema.safeParse(input.action); remoteAssert(parsed.success, "Invalid remote action");
         // A coin or die result is the server's: whatever the client sent is replaced.
         const command = parsed.data.type === "random.roll" ? { ...parsed.data, result: parsed.data.kind === "coin" ? randomInt(1, 3) : randomInt(1, 7) } : parsed.data;
+        if (command.type === "effect.activated") { delete command.respondsTo; delete command.handDestination; }
+        if (command.type === "undo") delete command.alsoUndid;
         const delegatedBot = row.solo && row.created_by === userId && seats(row).some(seat => seat.seat === command.actorSeat && seat.bot && seat.userId === null);
         remoteAssert(command.actorSeat === s.seat || delegatedBot, "Actor seat does not match session or an owned solo bot", 403, "ACTOR_SEAT_MISMATCH");
         remoteAssert(!command.idempotencyKey.startsWith("sys:"), "Reserved idempotency key");
@@ -684,6 +687,8 @@ export function createRemoteDuelService(db: Database.Database, options: {
           const { at: _time, ...newAction } = command;
           // A retried roll has a new random result; the first one stands.
           if (oldAction.type === "random.roll") { delete oldAction.result; delete (newAction as { result?: number }).result; }
+          if (oldAction.type === "effect.activated") { delete oldAction.respondsTo; delete oldAction.handDestination; }
+          if (oldAction.type === "undo") delete oldAction.alsoUndid;
           remoteAssert(old.user_id === userId && JSON.stringify(oldAction) === JSON.stringify(newAction), "Idempotency key was used for a different action", 409, "IDEMPOTENCY_CONFLICT");
           return room(row, userId);
         }
@@ -691,11 +696,16 @@ export function createRemoteDuelService(db: Database.Database, options: {
         // have handled it; a stale sequence must never turn that race into an error.
         const timeoutState = command.type === "side.timeout" ? readState(row) : undefined;
         if (timeoutState && (row.status !== "active" || !remoteSideTimeoutDue(timeoutState, now))) return room(row, userId, undefined, timeoutState);
+        const handFallback = command.type === "twin.place" && command.handFallback;
+        if (command.type === "twin.place" && handFallback)
+          remoteAssert(command.source === "auto" && command.fromActivation && command.seat === command.actorSeat && !command.give && !command.card.token,
+            "Invalid timed hand activation placement", 409);
+        if (handFallback && row.status !== "active") return room(row, userId);
         remoteAssert(Number.isSafeInteger(input.baseSeq) && input.baseSeq >= 0, "Invalid base sequence");
         // Admin watch notifications and player notes leave the board unchanged.
         // Quitting and conceding are final choices: another action in flight must not turn them into a refused click.
         // A response, Thinking and OK are public signals like a note: they neither waits for the board to settle nor makes other writes stale.
-        if (command.type !== "side.timeout" && command.type !== "player.leave" && command.type !== "player.concede" && command.type !== "chain.respond" && command.type !== "chain.thinking" && command.type !== "chain.ok" && command.type !== "random.roll") {
+        if (!handFallback && command.type !== "side.timeout" && command.type !== "player.leave" && command.type !== "player.concede" && command.type !== "chain.respond" && command.type !== "chain.thinking" && command.type !== "chain.ok" && command.type !== "random.roll") {
           remoteAssert(input.baseSeq === row.last_seq || (input.baseSeq < row.last_seq && !db.prepare(
             "select 1 from remote_events where table_id=? and seq>? and json_extract(action_json,'$.type') not in ('admin.watching','log.note','chain.respond','chain.thinking','chain.ok','random.roll') limit 1",
           ).get(row.id, input.baseSeq)), "Stale sequence; fetch state and retry", 409, "STALE_SEQUENCE");
@@ -712,9 +722,11 @@ export function createRemoteDuelService(db: Database.Database, options: {
           "select 1 from remote_events where table_id=? and actor_seat=? and json_extract(action_json,'$.type') in ('chain.thinking','chain.ok') and created_at>? limit 1",
         ).get(row.id, command.actorSeat, now - REMOTE_SIGNAL_COOLDOWN_MS), "Too fast. Wait a moment.", 409, "SIGNAL_COOLDOWN");
         const before = timeoutState ?? readState(row);
+        if (handFallback && (before.ended || before.match.phase !== "duel" || before.seats[command.actorSeat]?.eliminated))
+          return room(row, userId, undefined, before);
         // `now` was read before this write lock. A request that waited for another writer (a second web worker or the sweep) can carry a time just before the state it now sees; the reducer refuses a time before the state, which would drop a valid move. Event time never goes backward.
         const stamp = Math.max(now, before.updatedAt);
-        const action = { ...command, at: stamp };
+        let action = { ...command, at: stamp };
         const effects: RemoteReductionContext = {...REMOTE_REDUCTION_VERSIONS,showCardsSetFromDeck:before.showCardsSetFromDeck};
         const target = 'cardRef' in command && 'seat' in command
           ? before.seats[command.seat]?.twin.find(c => c.ref === command.cardRef) : undefined;
@@ -737,9 +749,21 @@ export function createRemoteDuelService(db: Database.Database, options: {
         }
         if(command.type==="effect.choose") effects.publicEffectChoice=before.showCardsSetFromDeck!==false;
         if(command.type==="effect.activated") {
+          remoteAssert(!command.fromHand || !command.source.cardRef, "Choose a card from hand without a board ref", 409);
           const twin=command.source.cardRef ? before.seats[command.actorSeat].twin.find(c=>c.ref===command.source.cardRef) : undefined;
           remoteAssert(!command.source.cardRef || twin,"Unknown source card",409);
-          effects.effect=deckRules.effect({...command.source,...(twin ? {cardId:twin.cardId ?? twin.passcode ?? command.source.cardId,name:twin.name ?? command.source.name} : {})},before.deckChecks.registrations[command.actorSeat]?.deck.main,before.seats[command.actorSeat].twin);
+          const { handDestination, handLimit, ...effect } = deckRules.effect({...command.source,...(twin ? {cardId:twin.cardId ?? twin.passcode ?? command.source.cardId,name:twin.name ?? command.source.name} : {})},before.deckChecks.registrations[command.actorSeat]?.deck.main,before.seats[command.actorSeat].twin, command.fromHand);
+          effects.effect = effect;
+          const recent = db.prepare("select seq,idempotency_key,actor_seat,action_json,created_at from remote_events where table_id=? and seq>? order by seq")
+            .all(row.id, Math.max(0, row.last_seq - REMOTE_CHAIN_EVENT_WINDOW)) as EventRow[];
+          const link = openRemoteChainLink(recent.map(e => ({ id: e.idempotency_key, seq: e.seq, actorSeat: e.actor_seat, userId: null, at: e.created_at, action: JSON.parse(e.action_json) })),
+            remoteAliveSeats(before), command.actorSeat, stamp);
+          action = { ...command, at: stamp, ...(handDestination ? { handDestination } : {}), ...(link ? { respondsTo: link.event.id } : {}) };
+          if (handLimit) effects.spellTrapPlay = { activationLimit: handLimit };
+        }
+        if (command.type === "undo") {
+          const alsoUndid = remoteUndoLinkedIds(before, command.targetActionId);
+          if (alsoUndid.length) action = { ...command, at: stamp, alsoUndid };
         }
         const recognized: { cardId?: number; passcode?: number }[] = command.type === "card.identified" ? [command] : command.type === "cards.identified" ? command.cards :
           command.type === "twin.flip" && command.faceUp && command.cardId ? [{cardId:command.cardId}] : command.type === "twin.place" ? [command.card] : command.type === "deck.add" ? [command] :
@@ -752,7 +776,7 @@ export function createRemoteDuelService(db: Database.Database, options: {
         effects.facts = deckRules.facts(format(row), [...new Set([...codes, ...deckCodes, ...twinCodes])]);
         if (played) {
           const code = played.cardId ?? ('passcode' in played ? played.passcode : undefined);
-          if (code || played.name) effects.spellTrapPlay = deckRules.spellTrapPlay({ cardId: code, name: played.name, type: code ? effects.facts[code]?.type : undefined });
+          if (code || played.name) effects.spellTrapPlay ??= deckRules.spellTrapPlay({ cardId: code, name: played.name, type: code ? effects.facts[code]?.type : undefined });
         }
         if (command.type === "side.swap") {
           const registration = registrations[command.actorSeat];

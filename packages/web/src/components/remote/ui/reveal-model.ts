@@ -1,5 +1,14 @@
-import { searchCandidates, type RemoteActionProposal, type RemoteKnownHandCard, type RemoteState } from "@yugidraft/shared/remote";
+import { remoteHandTrapCandidates, searchCandidates, type RemoteActionProposal, type RemoteKnownHandCard, type RemoteRoom, type RemoteState } from "@yugidraft/shared/remote";
+import { behaviourOf } from "@/lib/remote/card-behaviour";
 import { cardInfo } from "./catalog";
+
+/** Uses the same catalog data the table loads for the owner's registered deck. */
+export function handTrapCandidatesOf(room: RemoteRoom, seat: number) {
+  return remoteHandTrapCandidates(room.state, seat, room.events, id => {
+    const card = cardInfo(id);
+    return card && { ...card, handQuick: behaviourOf(id)?.handQuick };
+  });
+}
 
 /** Added-to-hand UI model. Contract: docs/remote-duels/added-to-hand.md (seat.knownHand, handCount, hand.add / hand.count). */
 export type HandSource = RemoteKnownHandCard["source"];
@@ -20,7 +29,7 @@ export function sourceText(card: Pick<KnownHandCard, "source" | "by">): string {
 
 /** Cards the table knows are in a hand. The catalog gives the names (the server sends card ids). */
 export function knownHandOf(state: RemoteState, seat: number): KnownHandCard[] {
-  return (state.seats[seat]?.knownHand ?? []).map(entry => ({
+  return (state.seats[seat]?.knownHand ?? []).filter(entry => !entry.revealExpired).map(entry => ({
     id: entry.id, cardId: entry.cardId, name: cardInfo(entry.cardId)?.name ?? `Card ${entry.cardId}`, source: entry.source, by: entry.by?.name, at: entry.at,
   }));
 }

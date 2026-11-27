@@ -4,7 +4,7 @@ import {announceNotACard} from '@/lib/remote/set-card-diagnostics';
 import { REMOTE_TABLE_TALK } from "@/lib/remote/table-talk";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
-import { REMOTE_FORMATS, REMOTE_HAND_SUGGESTION_EVENT, type RemoteHandSuggestionEvent, matchCardsByName, previousYgoPhase, normalizeRemoteFormat, remoteOwnFirstPending, remoteRecognitionRef, remoteRecognitionRefs, type RemoteActionProposal, type RemoteEvent, type RemoteRoom, type RemoteUndoEntry } from "@yugidraft/shared/remote";
+import { HAND_ACTIVATION_FALLBACK_MS, REMOTE_FORMATS, REMOTE_HAND_SUGGESTION_EVENT, type RemoteHandSuggestionEvent, matchCardsByName, pendingRemoteHandActivations, previousYgoPhase, normalizeRemoteFormat, remoteHandActivationAction, remoteOwnFirstPending, remoteRecognitionRef, remoteRecognitionRefs, type RemoteActionProposal, type RemoteEvent, type RemoteRoom, type RemoteUndoEntry } from "@yugidraft/shared/remote";
 import { useSeatFocus } from "./seat-focus";
 import { cardInfo, isLinkInfo, isMonsterInfo, loadCards, searchCards, useCardInfo } from "./catalog";
 import { EffectControls, EffectPicker } from "./effect-controls";
@@ -90,13 +90,13 @@ import {distinctFieldQuads,fieldReadingPlaceholder,rememberFieldObservation} fro
 import {SUMMON_WINDOW_MS} from '@/lib/remote/field-summons';
 import { useCardMenu } from "./card-menu";
 import { FeedCardsProvider } from "./feed-cards";
-import { ChainBadges, chainMarksOf } from "./chain-marks";
+import { ChainBadges, chainMarksOf, useOpenChainLink } from "./chain-marks";
 import { useTokens } from "./token-ui";
 import { useControlChange } from "./control-ui";
 import { useNextStep } from "./next-step-chip";
 import { quickMoves } from "./quick-moves";
 import { controlOffer, equipsItself } from "@/lib/remote/card-logic";
-import { handAdd, handCount, handCountOf, handReveal, knownHandOf, openSearch, SEARCH_WINDOW_MS, type HandBy, type HandCandidate, type HandSource, type HandSuggestion, type KnownHandCard } from "./reveal-model";
+import { handAdd, handCount, handCountOf, handReveal, handTrapCandidatesOf, knownHandOf, openSearch, SEARCH_WINDOW_MS, type HandBy, type HandCandidate, type HandSource, type HandSuggestion, type KnownHandCard } from "./reveal-model";
 import type { HandProps } from "./hand-ui";
 import { isTypingTarget } from "@/lib/typing-target";
 import { playerStamp } from "@/lib/remote/field-timing";
@@ -225,6 +225,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
   }, [pendingThink, thinking]);
   const chain = useMemo(() => chainOf(room.events, aliveSeats(state)), [room.events, state]);
   const chainMarks = useMemo(() => chainMarksOf(chain), [chain]);
+  const respondTo = useOpenChainLink(room.events, aliveSeats(state), live ? mySeat : -1);
   const [peek, setPeek] = useState<PeekState>(null); const peekTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const showPeek = useCallback((kind: LogKind, text: ReactNode) => {
     if (R.current.layer === "log") return;
@@ -346,6 +347,29 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     if(updated&&proposal.type!=='cards.identified'){setSelected(null);camHover.current=null;}
     return updated;
   },[ctl.action,toast]);
+  // The same timer runs for manual and camera activations. The transaction lets already-queued pile reads finish first.
+  useEffect(() => {
+    if (!live || mySeat < 0) return;
+    const ownSeats = solo ? state.seats.map(s => s.seat) : [mySeat];
+    const pending = ownSeats.flatMap(seat => pendingRemoteHandActivations(state, seat).map(entry => ({ ...entry, seat })))
+      .sort((a, b) => a.at - b.at)[0];
+    if (!pending) return;
+    let stopped = false;
+    const key = crypto.randomUUID(), ref = crypto.randomUUID();
+    let timer: ReturnType<typeof setTimeout>;
+    const settle = async () => {
+      const updated = await ctl.transaction(async (latest, send) => {
+        if (stopped || latest.slug !== room.slug || latest.status !== "active" ||
+            !pendingRemoteHandActivations(latest.state, pending.seat).some(entry => entry.actionId === pending.actionId)) return latest;
+        return send({ type: "twin.place", actorSeat: pending.seat, seat: pending.seat, source: "auto", zone: pending.destination,
+          fromActivation: pending.actionId, handFallback: true, card: { ref, cardId: pending.cardId, name: pending.name, faceUp: true, position: "attack" } }, key);
+      }).catch(() => null);
+      if (!stopped && !updated) timer = setTimeout(() => void settle(), 1000);
+    };
+    // The HTTP Date estimate can be up to a second ahead of the server clock.
+    timer = setTimeout(() => void settle(), Math.max(0, pending.at + HAND_ACTIVATION_FALLBACK_MS + 999 - serverNow()));
+    return () => { stopped = true; clearTimeout(timer); };
+  }, [ctl.transaction, live, mySeat, room.slug, solo, state]);
   /** `tokenOnly`: an empty Main Monster Zone of another player's field. Its menu has just "Add token", and the view stays as it is. */
   const openZonePicker = (seat: number, key: ZoneKey, targetRef?: string, initialFaceUp=true, startPicker=false, tokenOnly=false) => {
     if (!live || !(solo || seat === mySeat || tokenOnly && mySeat >= 0 && !room.spectator) || state.seats[seat]?.eliminated || isPile(key)) return;
@@ -1438,6 +1462,20 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     setTray({ seat, ownerName: name(seat), status: "empty", guesses: [], note: "Search for the card to add to your hand.", reader: "none", at, intent: "hand", originId, by, source });
     layers.open("tray");
   }, [layers, name, popAt]);
+  const handActivationPending = useRef(false);
+  const sendHandActivation = useCallback(async (seat: number, cardId: number) => {
+    if (handActivationPending.current) return;
+    handActivationPending.current = true;
+    try { return await act(remoteHandActivationAction(seat, cardId)); }
+    finally { handActivationPending.current = false; }
+  }, [act]);
+  const searchForHandActivation = useCallback((seat: number) => {
+    const at: PopAt = popAt;
+    const guesses = handTrapCandidatesOf(R.current.room, seat).slice(0, 5).map(card => ({ cardId: card.cardId, name: card.name, score: null }));
+    ctx.current = { seat, x: .5, y: .5, at, id: ++readCounter.current };
+    setTray({ seat, ownerName: name(seat), status: "empty", guesses, note: "Search for the card to activate from your hand.", reader: "none", at, intent: "hand-activation" });
+    layers.open("tray");
+  }, [layers, name, popAt]);
   // The contract sends card ids only: load the names, then draw again.
   const [, setNames] = useState(0);
   const knownIds = state.seats.flatMap(item => ((item as unknown as { knownHand?: { cardId: number }[] }).knownHand ?? []).map(card => card.cardId)).join(",");
@@ -1583,7 +1621,11 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     voice: voiceRecognition,
     canAttack: !!subjectCard && !block, attackHint: block || "Pick this monster as the attacker", onAttack: () => subjectCard && subject && startAttack(subject.seat, subjectCard),
     onWrong: () => { if (subject) wrongCard(subject, popAt); },
-    onActivate: subject && subject.cardId && live && subjectCard?.zone !== "deck" && subjectCard?.zone !== "extra" && (solo || subject.seat===mySeat) ? () => void act({type:"effect.activated",actorSeat:subject.seat,source:{cardId:subject.cardId,...(subject.ref ? {cardRef:subject.ref} : {})}}).then(done=>{if(done) layers.close();}) : undefined,
+    onActivate: subject && subject.cardId && live && subjectCard?.zone !== "deck" && subjectCard?.zone !== "extra" && (solo || subject.seat===mySeat) ? () => {
+      const activation = subject.from === "hand" ? sendHandActivation(subject.seat, subject.cardId) :
+        act({ type: "effect.activated", actorSeat: subject.seat, source: { cardId: subject.cardId, ...(subject.ref ? { cardRef: subject.ref } : {}) } });
+      void activation.then(done => { if (done) layers.close(); });
+    } : undefined,
     onReveal: subject && subjectCard && !subjectCard.faceUp && (solo || subject.seat===mySeat) ? () => void act({type:"twin.flip",actorSeat:subject.seat,seat:subject.seat,cardRef:subjectCard.ref,faceUp:true}) : undefined,
     ...(subject?.from === "camera" && !pinnable ? {} : { onPin: pinCard }),
     // Control change: take an opponent's monster or revived card, or hand a taken card back. Never guessed; the player presses the button.
@@ -1594,6 +1636,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     ...(subject && subjectCard?.ownerSeat !== undefined && !state.seats[subjectCard.ownerSeat]?.eliminated && control.may(subject.seat) ? { control: { label: "Return control", onClick: () => { control.giveBack(subject.seat, subjectCard); } } } : {}),
     ...(subject && subjectCard && subject.seat === mySeat && !subjectCard.token && control.canGive && ["monster", "extra-monster", "spell-trap"].includes(subjectCard.zone) ? { give: { label: "Give to opponent", onClick: () => { if (control.give(subjectCard)) { layers.close(); setSubject(null); } } } } : {}),
     ...(live && (solo || mySeat >= 0) ? { onAddToHand: () => searchForHand(solo ? (subject?.seat ?? mySeat) : mySeat) } : {}),
+    ...(live && maySignal(state, mySeat) ? { onActivateFromHand: () => searchForHandActivation(mySeat) } : {}),
     undo: cardUndo,
     ...(subject && subjectCard?.materials?.length ? { materials: subjectCard.materials.flatMap(ref => {
       const material = state.seats[subject.seat]?.twin.find(c => c.ref === ref); if (!material) return [];
@@ -1811,7 +1854,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     if (isPile(key)) return false;
     const card = cellsFor(state.seats[seat]?.twin ?? [], extraZones)[key]?.card; return card ? openCardActions(card) : tokens.create(seat, key);
   });
-  return <FeedCardsProvider seats={state.seats} info={info} marks={chainMarks}><div ref={appRef} className={`${duelFontClasses} ${s.app}`} data-drawer={layers.layer === "log" ? drawerTab : undefined} data-mode={mode} data-wc={webcamOnly ? "1" : undefined} data-testid="remote-table" data-status={room.status} {...cardMenu}>
+  return <FeedCardsProvider seats={state.seats} info={info} marks={chainMarks}><div ref={appRef} className={`${duelFontClasses} ${s.app}`} data-drawer={layers.layer === "log" ? drawerTab : undefined} data-mode={mode} data-wc={webcamOnly ? "1" : undefined} data-testid="remote-table" data-status={room.status} data-open-chain-link={respondTo?.event.id} {...cardMenu}>
     <AutoFieldWatcher dock={seatDocks[mySeat] ?? null} room={room} transaction={ctl.transaction} diagnosticsAllowed={feedbackPref?.isAdmin===true && feedbackPref.collectionEnabled} />
     <a className={s.skip} href="#stage">Skip to the table</a>
     <div className={s.shell}>
@@ -1927,7 +1970,15 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
       } : {})} /> : null}
     {layers.layer === "card" && subjectDetails ? <CardPopover subject={subjectDetails} info={subjectInfo} at={popAt} warning={deckFlag(room, subjectDetails.seat)?.message} actions={shownActions} onClose={() => layers.close("card")} /> : null}
     {tray ? <RecognitionTray dock={seatDocks[tray.seat] ?? null} key={readCounter.current} tray={tray} aiAllowed={aiAllowed} onClose={closeTray} onRemovePlaced={ref => { void act({ type: "twin.remove", actorSeat: solo ? tray.seat : mySeat, seat: tray.seat, cardRef: ref, cam: playerStamp("popup-remove") }); closeTray(); setSubject(null); }} saying={false}
-      inDeck={id => { const flag = flagFor(tray.seat, id); return flag === null ? null : !flag; }} onPick={pick => { if (tray.intent === "hand") { addToHand(tray.seat, { cardId: pick.cardId, name: pick.name }, tray.originId ? tray.source ?? "deck" : "unknown", tray.by, tray.originId); closeTray(); return; } void identify(pick, pick.via === "typed" ? "typed" : pick.via); }} /> : null}
+      inDeck={id => { const flag = flagFor(tray.seat, id); return flag === null ? null : !flag; }} onPick={pick => {
+        if (tray.intent === "hand-activation") {
+          const id = readCounter.current;
+          void sendHandActivation(tray.seat, pick.cardId).then(done => { if (done && id === readCounter.current) closeTray(); });
+          return;
+        }
+        if (tray.intent === "hand") { addToHand(tray.seat, { cardId: pick.cardId, name: pick.name }, tray.originId ? tray.source ?? "deck" : "unknown", tray.by, tray.originId); closeTray(); return; }
+        void identify(pick, pick.via === "typed" ? "typed" : pick.via);
+      }} /> : null}
     {layers.layer==="effect" && effectOrigin ? (()=>{
       const origin=state.effectTracking?.origins.find(o=>o.id===effectOrigin);
       if(!origin) return null;

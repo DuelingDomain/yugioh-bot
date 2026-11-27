@@ -91,6 +91,45 @@ async function soloTable(api: APIRequestContext, seatCount: 2 | 3 | 4, registere
 test.describe("remote duels screen, solo", () => {
   test.beforeEach(async ({ context }) => { await authenticatePlayer(context.request, { userId: 101 }, process.env.E2E_AUTH_SECRET!, (process.env.E2E_REMOTE_UI_URL ?? "http://localhost:3310")); });
 
+  test("a manual hand activation joins the chain, goes to the Graveyard, and has one Undo", async ({ page, context }) => {
+    const slug = await soloTable(context.request, 2, true);
+    const path = `/api/remote/${slug}`;
+    const room = async () => (await context.request.get(path)).json();
+    const before = (await room()).state.seats[0].handCount;
+    await page.goto(`/duels/remote/${slug}`);
+    await expect(page.getByTestId("remote-table")).toBeVisible();
+    const first = await postAction(context.request, path, {
+      type: "effect.activated", actorSeat: 1, source: { cardId: 73628505 },
+    });
+    expect(first.ok(), await first.text()).toBe(true);
+    const opponent = (await first.json()).events.at(-1);
+    await expect(page.getByTestId("remote-table")).toHaveAttribute("data-open-chain-link", opponent.id);
+
+    await page.getByTestId("card-button").click();
+    await page.getByTestId("activate-from-hand").click();
+    const search = page.getByRole("textbox", { name: "Search any card" });
+    await search.fill("Mystical Space Typhoon");
+    await expect(page.getByRole("option", { name: /Mystical Space Typhoon/ })).toBeVisible();
+    await search.press("Enter");
+    await expect(page.getByTestId("hand-activation")).toContainText("Mystical Space Typhoon");
+    const activated = await room();
+    const activation = activated.events.findLast((event: { action: { fromHand?: boolean } }) => event.action.fromHand);
+    expect(activation.action.respondsTo).toBe(opponent.id);
+    expect(activated.state.seats[0].knownHand).toContainEqual(expect.objectContaining({ cardId: 5318639 }));
+
+    const graveyard = page.getByTestId("field-0").locator('[data-zone="gy"]');
+    await expect(graveyard).toHaveAttribute("aria-label", /top card Mystical Space Typhoon/);
+    const settled = (await room()).state.seats[0];
+    expect(settled.handCount).toBe(before - 1);
+    expect(settled.knownHand ?? []).toHaveLength(0);
+    await page.getByTestId("undo").click();
+    await expect(graveyard).not.toHaveAttribute("aria-label", /top card Mystical Space Typhoon/);
+    const undone = await room();
+    expect(undone.state.seats[0].handCount).toBe(before);
+    expect(undone.state.seats[0].knownHand ?? []).toHaveLength(0);
+    expect(undone.events.findLast((event: { action: { type: string } }) => event.action.type === "undo").action.alsoUndid).toEqual([activation.id]);
+  });
+
   test("Scan field now sits in the webcam ... menu and the S key runs it", async ({ page, context }) => {
     test.setTimeout(120_000);
     const slug = await soloTable(context.request, 2);

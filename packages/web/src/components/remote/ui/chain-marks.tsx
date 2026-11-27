@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useReducer } from "react";
-import type { RemoteEvent } from "@yugidraft/shared/remote";
+import { openRemoteChainLink, REMOTE_CHAIN_GAP_MS, type RemoteEvent } from "@yugidraft/shared/remote";
 import { serverNow } from "./api";
 import type { chainOf } from "./think-model";
 
@@ -15,7 +15,20 @@ export type ChainMark = { ref: string; n: number; at: number; seat: number };
 /** The "Effect activated · Chain N" label shows this long, then only the small "Chain N" badge stays. */
 export const MARK_FRESH_MS = 1200;
 /** A chain nobody closed is dropped from the screen after this long. */
-export const MARK_LIFE_MS = 30_000;
+export const MARK_LIFE_MS = REMOTE_CHAIN_GAP_MS;
+
+/** The opponent link available to a Respond control, including expiry while the table is idle. */
+export function useOpenChainLink(events: readonly RemoteEvent[], alive: readonly number[], seat: number) {
+  const [, tick] = useReducer((n: number) => n + 1, 0);
+  const current = openRemoteChainLink(events, alive, seat, serverNow());
+  const expires = current?.expiresAt;
+  useEffect(() => {
+    if (expires === undefined) return;
+    const timer = setTimeout(tick, Math.max(0, expires - serverNow()) + 30);
+    return () => clearTimeout(timer);
+  }, [expires]);
+  return current;
+}
 
 export function chainMarksOf(chain: ReturnType<typeof chainOf>): ChainMark[] {
   const marks: ChainMark[] = [];

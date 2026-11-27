@@ -18,7 +18,7 @@ export type TrayState = {
   /** "hand": the chosen card is added to the hand, not placed on the board. */
   /** The card this read just added to the board. "Wrong card?" can take it off again. */
   placedRef?: string;
-  intent?: "hand"; originId?: string; source?: "deck" | "gy" | "banish"; by?: { cardId: number; name: string };
+  intent?: "hand" | "hand-activation"; originId?: string; source?: "deck" | "gy" | "banish"; by?: { cardId: number; name: string };
 };
 import type { FeedbackSource } from "./recognizer";
 /** `feedback` names how a person chose this card; set only for an explicit choice, so it can be saved as a training sample. */
@@ -32,7 +32,9 @@ export type Pick = { cardId: number; name: string; via: "click" | "typed" | "voi
 export function RecognitionTray({ tray, inDeck, onPick, onClose, onRemovePlaced, onSay, saying, aiAllowed, dock }: {
   onRemovePlaced?: (ref: string) => void; dock?: HTMLElement | null; tray: TrayState; aiAllowed: boolean; inDeck: (cardId: number) => boolean | null; onPick: (pick: Pick) => void; onClose: () => void; onSay?: () => void; saying: boolean;
 }) {
-  const [query, setQuery] = useState(""); const [found, setFound] = useState<Guess[] | null>(null); const [, tick] = useState(0);
+  const [query, setQuery] = useState("");
+  const [search, setSearch] = useState<{ query: string; guesses: Guess[] } | null>(null);
+  const [, tick] = useState(0);
   const [cursor, setCursor] = useState(0); const [wrong, setWrong] = useState(false);
   const input = useRef<HTMLInputElement>(null);
   const hub = useVideoHub();
@@ -48,15 +50,17 @@ export function RecognitionTray({ tray, inDeck, onPick, onClose, onRemovePlaced,
   const guessKey = tray.guesses.map(g => g.cardId).join(",");
   useEffect(() => { void loadCards(tray.guesses.map(g => g.cardId)).then(() => tick(n => n + 1)); setCursor(0); setWrong(false); }, [guessKey, tray.guesses]);
   useEffect(() => {
-    const text = query.trim(); if (text.length < 2) { setFound(null); return; }
+    const text = query.trim(); if (text.length < 2) { setSearch(null); return; }
     let live = true; const timer = setTimeout(() => {
-      void searchCards(text).then(list => { if (live) { setFound(list.map(card => ({ cardId: card.id, name: card.name, score: null }))); setCursor(0); } });
+      void searchCards(text).then(list => { if (live) { setSearch({ query: text, guesses: list.map(card => ({ cardId: card.id, name: card.name, score: null })) }); setCursor(0); } });
     }, 220);
     return () => { live = false; clearTimeout(timer); };
   }, [query]);
 
   const base = ai.guess ? [ai.guess, ...tray.guesses.filter(g => g.cardId !== ai.guess?.cardId)].slice(0, 5) : tray.guesses;
-  const list = found ?? base;
+  const found = search?.guesses ?? null;
+  const awaitingSearch = tray.intent === "hand-activation" && !!query.trim() && search?.query !== query.trim();
+  const list = awaitingSearch ? [] : found ?? base;
   const nameOf = (g: Guess) => g.name || cardInfo(g.cardId)?.name || `Card ${g.cardId}`;
   const choose = (g: Guess, via: Pick["via"]) => onPick({ cardId: g.cardId, name: nameOf(g), via, feedback: g.source === "ai" ? "ai" : found ? "search" : "pick" });
   const current = list[Math.min(cursor, list.length - 1)];

@@ -7,7 +7,7 @@ import {useSendHealth} from '@/lib/remote/send-health-store';
 import {markVideoOfferShown,readVideoChoice,VIDEO_OFFER_MS,videoOfferShown} from '@/lib/remote/video-rate';
 import {createSlowWatch,isWeakDevice,markTapOfferShown,noteTapReason,readTapChoice,saveTapChoice,tapOfferShown,TAP_OFFER_MS,type TapChoice} from '@/lib/remote/tap-offer';
 import {isTournamentTable,readTournamentMode,saveTournamentMode,stateMode,ownDetectionMode,type TournamentMode,type TournamentModeReason} from '@/lib/remote/tournament-detection';
-import {RemoteDuelError,remoteActivationLimit,remoteActivationNotice,remoteHandActivationDecision,remoteHandReadDecision,remotePhysicalSlot,REMOTE_HAND_SUGGESTION_EVENT,recentFieldDeparture,REMOTE_UNREAD_PILE_MS,type RemoteRoom,type RemoteSummonKind,type RemoteUndoEntry,type TwinCard} from '@yugidraft/shared/remote';
+import {HAND_ACTIVATION_LINK_MS,pendingRemoteHandActivations,RemoteDuelError,remoteActivationLimit,remoteActivationNotice,remoteHandActivationDecision,remoteHandReadDecision,remotePhysicalSlot,REMOTE_HAND_SUGGESTION_EVENT,recentFieldDeparture,REMOTE_UNREAD_PILE_MS,type RemoteRoom,type RemoteSummonKind,type RemoteUndoEntry,type TwinCard} from '@yugidraft/shared/remote';
 import {laneOf,PILE_LANES} from '@/lib/remote/room-mutations';
 import type {RoomMutation,RoomTransaction} from '@/lib/remote/room-mutations';
 import {NOT_A_CARD_EVENT} from '@/lib/remote/set-card-diagnostics';
@@ -136,7 +136,6 @@ const physicalZonePattern=/^(?:M[1-5]|S[1-5]|EMZ[12]|FIELD)$/;
 /** A hand over the GY/banished pile counts as exit evidence for a card that shows on the field up to 10 s later. */
 const PILE_EXIT_MS=10_000;
 /** How long a card shown from the hand stays linked to the play that follows it (field or pile placement, one Undo). */
-const HAND_ACTIVATION_MS=10_000;
 /** An Equip effect on this field makes a monster in a Spell & Trap Zone plausible (an Equip Card). */
 const equipSourceOn=(twins:readonly TwinCard[])=>equipSourceOnField(twins,c=>cardInfo(cardCode(c)));
 /** The slow-camera hint shows once per page load. */
@@ -235,7 +234,6 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   const tokenAway=useRef(new Map<string,{cell:FieldZone;zone:FieldZone}>());
   const tokenUndo=useRef<{trackId:string;actionId:string}>(undefined);
   /** The last card held up and shown to the table. If it is then played, the placement joins it (one notice, one Undo). */
-  const handActivation=useRef<{cardId:number;actionId:string;at:number}>(undefined);
   /** A held card the camera could not name: the best few to pick from (one tap), or "not an activation". */
   const [heldPick,setHeldPick]=useState<{id:string;options:{cardId:number;name:string}[]}|null>(null);
   /** A plain monster that stands in a Spell & Trap Zone: Move / Keep. `rowKept` holds the refs the player kept there. */
@@ -726,6 +724,56 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     const after=watch.getTrack(event.track.id);
     if(!after||after.removed||after.revision!==event.track.revision)await removePlaceholder(event.track.id,act);
   }
+  function recentHandActivation(code?:number) {
+    const now=serverNow(),state=current.current.room.state;
+    return pendingRemoteHandActivations(state,seat).find(entry=>now-entry.at<HAND_ACTIVATION_LINK_MS&&
+      (code===undefined||entry.cardId===code));
+  }
+  const handObservedAt=(track:FieldTrack)=>serverNow()-Math.max(0,performance.now()-track.firstSeen);
+  function recentHandFallback(event:FieldEvent,track:FieldTrack,code?:number) {
+    const state=current.current.room.state,twins=state.seats[seat].twin,history=state.undoHistory??[];
+    const observedAt=handObservedAt(track);
+    for(const entry of history){
+      const action=entry.action;
+      if(action.type!=='twin.place'||!action.handFallback||action.seat!==seat||code!==undefined&&action.card.cardId!==code||
+        event.bindRef&&event.bindRef!==action.card.ref&&twins.some(c=>c.ref===event.bindRef))continue;
+      const activation=history.find(item=>item.actionId===action.fromActivation);
+      if(!activation||observedAt<activation.at-1000||serverNow()-activation.at>=HAND_ACTIVATION_LINK_MS||
+        [...bindings.current].some(([id,ref])=>id!==event.track.id&&ref===action.card.ref))continue;
+      const card=twins.find(c=>c.ref===action.card.ref&&['graveyard','banished'].includes(c.zone));
+      if(card)return { action, card };
+    }
+  }
+  async function linkHandPile(act:RoomMutation,event:FieldEvent,track:FieldTrack,zone:'graveyard'|'banished',code?:number) {
+    if(code===undefined&&(pendingDepartures.current.size||lateDefaults.current.size))return false;
+    const fallback=recentHandFallback(event,track,code);
+    if(fallback){
+      const {action:auto,card}=fallback, ref=card.ref;
+      if(card.zone!==zone){
+        const updated=await act({type:'twin.place',source:'auto',actorSeat:seat,seat,zone,fromActivation:auto.fromActivation,fromRef:ref,
+          card:{ref,cardId:auto.card.cardId,name:auto.card.name,faceUp:true,position:'attack'}});
+        if(!updated?.state.seats[seat].twin.some(c=>c.ref===ref&&c.zone===zone))return true;
+        setUndoId(updated.state.undo?.actionId??'');
+      }
+      bindings.current.set(event.track.id,ref);watch.confirm(event.track.id,track.cardId,ref,false);
+      return true;
+    }
+    if(event.bindRef&&current.current.room.state.seats[seat].twin.some(c=>c.ref===event.bindRef))return false;
+    const shown=recentHandActivation(code);
+    if(!shown||handObservedAt(track)<shown.at-1000||!pileEntry(track,code!==undefined))return false;
+    const ref=bindings.current.get(event.track.id)??event.track.id;
+    const updated=await act({type:'twin.place',source:'auto',actorSeat:seat,seat,zone,fromActivation:shown.actionId,
+      card:{ref,cardId:shown.cardId,name:shown.name,faceUp:true,position:'attack'}});
+    const placement=updated?.state.undoHistory?.find(entry=>entry.undoWith===shown.actionId);
+    if(placement?.action.type==='twin.place'){
+      const bound=placement.action.card.ref;
+      bindings.current.set(event.track.id,bound);pileWrites.current.set(bound,performance.now());
+      watch.confirm(event.track.id,track.cardId,bound,false);
+      setNotice(`${shown.name??'Card'} activated from hand, then sent to the ${zone==='graveyard'?'GY':'banished pile'} · auto`);
+      setUndoId(placement.actionId);
+    }
+    return true;
+  }
   async function apply(event:FieldEvent,act:RoomMutation,chosen?:string,attempt=0,slideUntil?:number,factsWaited=false) {
     if(givenHold(event.track))return;
     console.info('[remote field] identify',event.track.id,chosen??event.track.cardId,event.track.zone,event.type);
@@ -757,9 +805,11 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     if(replacedSet&&!humanChoice&&event.type!=='flipped'&&
       (face.current.held(replacedSet.ref)||!face.current.allows(replacedSet.ref,performance.now())))return;
     const facts=cardInfo(code), fieldSpell=!track.faceDown&&isFieldSpell(facts);
-    const held=handActivation.current;
-    const fromActivation=held&&code===held.cardId&&performance.now()-held.at<HAND_ACTIVATION_MS?held.actionId:undefined;
+    const physicalPile=!track.faceDown&&(track.zone==='GY'?'graveyard':track.zone==='BANISHED'?'banished':undefined);
+    if(physicalPile&&code&&await linkHandPile(act,event,track,physicalPile,code))return;
     const physicalCell=fieldZoneLocation(track.zone);
+    const lateHand=code&&!track.faceDown&&['spell-trap','field','pendulum'].includes(physicalCell.zone)?recentHandFallback(event,track,code):undefined;
+    const fromActivation=code&&!track.faceDown&&!piles.has(track.zone)?lateHand?.action.fromActivation??recentHandActivation(code)?.actionId:undefined;
     if(!humanChoice&&!piles.has(track.zone)&&twins.some(c=>c.ref===track.id&&c.zone==='graveyard')&&keepsManual(track.id,physicalCell,track.position))return;
     // A catalog-sure reveal can still carry Best match when it is outside the
     // deck list. A mismatched Set already passed the same read check above.
@@ -797,7 +847,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     track={...track,id:bindings.current.get(event.track.id)??event.track.id};
     const resolved=resolveExisting(event,track,entry,twins);
     if(resolved.blocked){abstain(event,'Another physical card owns this ref. Check the field.');return;}
-    existing=resolved.existing??pileExit(track,entry,twins);
+    existing=resolved.existing??lateHand?.card??pileExit(track,entry,twins);
     if(existing&&['GY','BANISHED'].includes(track.zone)&&existing.zone===location.zone&&existing.faceUp===!track.faceDown&&entry&&sameObservedCard(existing,{cardId:catalogCardId(entry),name:entry.name})){
       bindings.current.set(event.track.id,existing.ref);watch.confirm(event.track.id,track.cardId,existing.ref,false);
       // The cards that lay above it left the pile: to the hand, in one undoable action.
@@ -825,7 +875,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       if(updated){bindings.current.set(event.track.id,material.ref);watch.confirm(event.track.id,track.cardId,material.ref,false);setNotice(`${material.name??'Material'} detached · auto`);setUndoId(updated.state.undo?.actionId??'');}
       return;
     }
-    existing=freshBinding.existing??pileExit(track,entry,twins);
+    existing=freshBinding.existing??lateHand?.card??pileExit(track,entry,twins);
     if(!piles.has(track.zone)&&!track.faceDown&&(!existing?.faceUp||!publicField(existing.zone))){
       const notice=remoteActivationNotice(current.current.room.state,seat,facts&&remoteActivationLimit(facts.name,facts.effectText),fromActivation);
       if(notice){setNotice(notice);return;}
@@ -1042,12 +1092,8 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       if(existing&&!originReturn&&(track.faceDown||atomicReveal&&!track.bestMatch)){if(wasLeaving)setNotice('');if(projected.moved||projected.shiftTo)noteRowFix(target.card.ref);return;}
       setNotice(summon?`${fieldSummonNotice(summon.kind,entry?.name??'Card',summon.materialRefs.map(materialName))} · auto`:`${track.bestMatch?'Best match · ':''}${track.faceDown?'Face-down card':entry?.name} placed${projected.moved?` · ${projected.moved}`:''} · auto`);setUndoId(updated?.state.undo?.actionId??'');
       if(tokenUndo.current?.trackId===event.track.id&&updated?.state.undo?.actionId){undoChain.current={after:updated.state.undo.actionId,ids:[tokenUndo.current.actionId]};tokenUndo.current=undefined;}
-      // The card was held up and shown first: the placement joins that activation, so one notice and one Undo cover both.
-      const activated=handActivation.current,placedId=updated?.state.undo?.actionId;
-      if(activated&&placedId&&!summon&&entry&&!['monster','extra-monster'].includes(location.zone)&&catalogCardId(entry)===activated.cardId&&performance.now()-activated.at<HAND_ACTIVATION_MS&&undoChain.current.after!==placedId){
-        handActivation.current=undefined;undoChain.current={after:placedId,ids:[activated.actionId]};
-        setNotice(`${entry.name} activated from hand, then placed · auto`);
-      }
+      if(fromActivation&&updated?.state.undoHistory?.some(item=>item.actionId===updated.state.undo?.actionId&&item.undoWith===fromActivation))
+        setNotice(`${entry?.name??'Card'} activated from hand, then placed · auto`);
       if(projected.moved||projected.shiftTo)noteRowFix(target.card.ref);
       // A monster that stays in a Spell & Trap Zone is asked about once: the player knows if it is equipped or placed by a card.
       if(projected.shiftTo&&projected.zone?.startsWith('S')&&!rowKept.current.has(target.card.ref))setRowPrompts(list=>list.some(p=>p.ref===target.card.ref)?list:[...list,{ref:target.card.ref,name:entry?.name??'Monster'}]);
@@ -1072,11 +1118,6 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     const updated=await act(decision,key.slice(0,100));
     const actionId=updated?.state.undo?.actionId;
     if(!updated||!actionId)return;
-    if(decision.type==='effect.activated'){
-      handActivation.current={cardId,actionId,at:performance.now()};
-      // Later plays of another copy do not join this one once its window is over.
-      setTimeout(()=>{if(handActivation.current?.actionId===actionId)handActivation.current=undefined;},HAND_ACTIVATION_MS);
-    }
     setNotice(decision.type==='effect.activated'?`${name} activated from hand · auto`:`${name} added to hand · auto`);setUndoId(actionId);
   }
   function handleHeld(event:HeldCardEvent) {
@@ -1287,28 +1328,12 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
           const overlapsMove=stamp?.seenAt!==undefined&&firstSeen>=stamp.seenAt-1000&&firstSeen<=stamp.sentAt;
           if(top&&(event.bindRef===top.ref||overlapsMove)){bindings.current.set(event.track.id,top.ref);return;}
           if(!pileEntry(event.track)){if(top)bindings.current.set(event.track.id,top.ref);return;}
-          // A card that was just shown from the hand and then reaches a pile unread is that card: name it, so the hand count stays exact.
-          const active=handActivation.current,mine=current.current.room.state.seats[seat];
-          // Only while the shown card is still in the known hand (a field play already took it out) and no field departure is waiting.
-          const shown=active&&performance.now()-active.at<HAND_ACTIVATION_MS&&mine.knownHand?.some(c=>c.cardId===active.cardId)&&pendingDepartures.current.size+lateDefaults.current.size===0?active:undefined;
-          const place=(named:boolean)=>act({type:'twin.place',source:'auto',actorSeat:seat,seat,zone,card:{ref,faceUp:true,position:'attack',...(named&&shown?{cardId:shown.cardId}:{})}});
-          const inPile=(state:{seats:{twin:readonly {ref:string;zone:string}[]}[]})=>state.seats[seat].twin.filter(c=>c.zone===zone).length;
-          const before=inPile(current.current.room.state);
-          let updated=await place(true);
-          const linked=!!shown&&!!updated&&updated.state.seats[seat].twin.some(c=>c.ref===ref&&c.zone===zone);
-          // The named place can merge into a departed copy (no card added) or move another copy into this pile (one more card, a different ref).
-          // Only when the pile did not grow is the pile card placed again unnamed, as before hand activation, so the pile count stays exact.
-          const grew=!!updated&&inPile(updated.state)>before;
-          if(shown&&!linked){
-            handActivation.current=undefined;
-            if(updated&&!grew)updated=await place(false)??updated;
-          }
+          if(await linkHandPile(act,event,observed,zone))return;
+          const updated=await act({type:'twin.place',source:'auto',actorSeat:seat,seat,zone,card:{ref,faceUp:true,position:'attack'}});
           if(updated){
             bindings.current.set(event.track.id,ref);pileWrites.current.set(ref,performance.now());
-            const pileId=updated.state.undo?.actionId;
-            if(linked&&pileId){handActivation.current=undefined;undoChain.current={after:pileId,ids:[shown.actionId]};setNotice(`${cardInfo(shown.cardId)?.name??'Card'} activated from hand, then sent to the ${zone==='graveyard'?'GY':'banished pile'} · auto`);}
-            else if(updated.state.seats[seat].twin.some(c=>c.ref===ref&&c.zone===zone))setNotice(`Unknown card added to the ${zone==='graveyard'?'GY':'banished pile'} · name it`);
-            setUndoId(pileId??'');
+            if(updated.state.seats[seat].twin.some(c=>c.ref===ref&&c.zone===zone))setNotice(`Unknown card added to the ${zone==='graveyard'?'GY':'banished pile'} · name it`);
+            setUndoId(updated.state.undo?.actionId??'');
           }
         },event);
         offer(event);

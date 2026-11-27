@@ -55,7 +55,8 @@ export const remoteActionSchema = z.discriminatedUnion("type", [
     value: z.number().int().min(0).max(999999).optional() })
     .refine(a => (a.delta !== undefined) !== (a.value !== undefined), "Choose either a hand count delta or value"),
   /** `fromHand`: a card the player held up from the hand. The card stays in the hand; it becomes public and the log says so. */
-  z.strictObject({ ...meta, type: z.literal("effect.activated"), source: effectSource, fromHand: z.literal(true).optional() }),
+  z.strictObject({ ...meta, type: z.literal("effect.activated"), source: effectSource, fromHand: z.literal(true).optional(),
+    respondsTo: id.optional(), handDestination: z.enum(["graveyard", "banished"]).optional() }),
   z.strictObject({ ...meta, type: z.literal("effect.choose"), originId: z.string().min(1).max(110), cardId }),
   z.strictObject({ ...meta, type: z.literal("effect.announce"), originId: z.string().min(1).max(110) }),
   z.strictObject({ ...meta, type: z.literal("effect.context.clear") }),
@@ -80,8 +81,9 @@ export const remoteActionSchema = z.discriminatedUnion("type", [
     .refine(a => (!!a.keepInstanceId && !!a.removeInstanceId && !a.keepRef && !a.removeRef) ||
       (!!a.keepRef && !!a.removeRef && !a.keepInstanceId && !a.removeInstanceId), "Choose two instance IDs or two twin refs"),
   z.strictObject({ ...meta, type: z.literal("twin.place"), seat: remoteSeatSchema, zone, card: twinCardSchema, source: z.literal("auto").optional(),
-    /** The camera already showed this activation from the hand. */
+    /** Links a physical placement or a timed pile move to an accepted hand activation. */
     fromActivation: id.optional(),
+    handFallback: z.literal(true).optional(),
     /** A camera card that the zone rules put in another row than seen ("Trap → S3"). Log text only. */ zoneRule: z.string().trim().min(1).max(80).optional(),
     /** Same-identity physical cards visible together in one camera frame, in epoch milliseconds. */
     copyProof: z.strictObject({ simultaneousQuads: z.number().int().min(2).max(100), at: z.number().int().nonnegative() }).optional(),
@@ -146,14 +148,14 @@ export const remoteActionSchema = z.discriminatedUnion("type", [
   z.strictObject({ ...meta, type: z.literal("chain.ok") }),
   /** A coin flip or a die roll for a card effect. The server picks `result` (coin: 1 Heads, 2 Tails; die: 1-6) and stores it, so a replay never rolls again. A client sends no result. Public signal only. */
   z.strictObject({ ...meta, type: z.literal("random.roll"), kind: z.enum(["coin", "die"]), result: z.number().int().min(1).max(6).optional() }),
-  z.strictObject({ ...meta, type: z.literal("undo"), targetActionId: id }),
+  z.strictObject({ ...meta, type: z.literal("undo"), targetActionId: id, alsoUndid: z.array(id).min(1).max(2).optional() }),
   z.strictObject({ ...meta, type: z.literal("player.concede") }),
   /** Quit the match. 1v1: the opponent wins the match. FFA: only this seat leaves for good. It cannot be undone. */
   z.strictObject({ ...meta, type: z.literal("player.leave") }),
 ]);
 export type RemoteAction = z.infer<typeof remoteActionSchema>;
 // Distribute over the union so parser proposals retain phase/LP/card-specific fields.
-type Proposal<T> = T extends unknown ? Omit<T, "idempotencyKey" | "at"> : never;
+type Proposal<T> = T extends unknown ? Omit<T, "idempotencyKey" | "at" | "respondsTo" | "handDestination" | "alsoUndid"> : never;
 export type RemoteActionProposal = Proposal<RemoteAction>;
 
 export const remoteActivationKey = (name: string) => `card:${name.normalize("NFKC").trim().replace(/\s+/g, " ").toLowerCase()}`;

@@ -18,7 +18,11 @@ export function describeEvent(event: RemoteEvent, name: (seat: number) => string
     case "effect.activated": {
       const sourceName = (action: RemoteAction | RemoteSystemAction) => action.type === "effect.activated" ? action.source.name ?? card(action.source.cardId) ?? "a card effect" : "a card effect";
       const base = `${who} activated ${sourceName(a)}${a.fromHand ? " from hand" : ""}`;
-      return {kind:"CD",text:link?.of && link.n > 1 ? `Chain ${link.n}: ${base} in response to ${sourceName(link.of.action)}` : base,undoable:true};
+      const response = link?.of;
+      const text = response && response.actorSeat !== null
+        ? `${who} activates ${sourceName(a)} in response to ${name(response.actorSeat)}'s ${sourceName(response.action)}`
+        : base;
+      return { kind: "CD", text, undoable: true };
     }
     case "effect.choose": return {kind:"CD",text:event.messages?.join("; ") ?? "Updated a private card choice",undoable:true};
     case "effect.announce": return {kind:"CD",text:`${who} announced a searched card`,undoable:true};
