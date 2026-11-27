@@ -430,12 +430,14 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
   /** A candidate that lost its outline (or never was card-sized) expires; a provisional placeholder is taken back. */
   const expireCandidate=(t:InternalTrack,why:string)=>{
     note(t,why);t.best=undefined;t.read=undefined;
+    const dismissed=t.view.state==='dismissed';
     if(t.placeholder&&!t.view.removed&&fieldSlot(t.view.zone)){
+      if(!dismissed)retireOutline(t);
       t.view.removed=true;t.view.visible=false;t.view.state='dismissed';t.dismissedMissAt=now();
       emit('removed',t);
-      return;
     }
-    if(t.placeholder&&t.view.removedAt!==undefined&&now()-t.view.removedAt<DISMISSED_EXPIRE_MS)return;
+    // A dismissal that has already met the full-scan absence window can expire immediately.
+    if(!dismissed&&t.placeholder&&t.view.removedAt!==undefined&&now()-t.view.removedAt<DISMISSED_EXPIRE_MS)return;
     const i=tracks.indexOf(t);if(i>=0)tracks.splice(i,1);
   };
   // "Resting on the mat": depth cues from one webcam. Through the mat homography a card ON the mat has the same size
@@ -737,12 +739,12 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
   let softCamera=false,softHinted=false,softTrack:InternalTrack|undefined;
   let gridOffPasses=0,gridOffAt=-Infinity,gridShift:{gap:number;outside:number;suspect:boolean}|undefined,lastMotionAt:number|undefined,untracked=0,debugAt=0,debugTick='',emptySince:number|undefined,emptyPasses=0,emptyPassAt=-Infinity;
   const debugPath=(path:string,at:number)=>{debugTick=path;debugAt=at;};
-  const suppressed:{id:string;zone:FieldZone;card:DetectedQuad;appearance?:number[];halo?:number[];moved?:boolean;retiredAt:number;clearAt?:number;samples:number}[]=[];let guarded=false;
-  const retireOutline=(t:InternalTrack,zone=t.view.zone,card=t.announcedZone===zone?t.announced??t.view.card:t.restQuad??t.view.card)=>{
-    const {id}=t.view;
+  const suppressed:{id:string;zone:FieldZone;card:DetectedQuad;appearance?:number[];halo?:number[];retiredAt:number;clearAt?:number;samples:number}[]=[];let guarded=false;
+  const retireOutline=(t:InternalTrack)=>{
+    const {id,zone}=t.view;
     if(publicPile(zone)||suppressed.some(q=>q.id===id&&q.zone===zone))return;
-    const moved=zone!==t.view.zone;
-    suppressed.push({id,zone,card,appearance:t.identityAppearance??t.appearance,halo:moved?latestEvidence?.halo?.(card):t.halo,moved,retiredAt:now(),samples:0});
+    const card=t.announcedZone===zone?t.announced??t.view.card:t.restQuad??t.view.card;
+    suppressed.push({id,zone,card,appearance:t.identityAppearance??t.appearance,halo:t.halo,retiredAt:now(),samples:0});
     if(suppressed.length>maxTracks)suppressed.shift();
   };
   const session=globalThis.crypto?.randomUUID?.()??Math.random().toString(36).slice(2);
@@ -831,11 +833,9 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
   const beatsLock=(lock:{score:number},result?:RecognitionResult)=>!!result&&result.tier==='sure'&&(result.candidates[0]?.score??0)>=lock.score+LOCK_MARGIN;
   const emit=(type:FieldEvent['type'],t:InternalTrack,extra:Partial<FieldEvent>={})=>{
     note(t,`${type}${extra.reason?` (${extra.reason})`:''}`);
-    if(type==='moved'&&t.announced&&t.announcedZone&&fieldSlot(t.announcedZone)&&t.announcedZone!==t.view.zone)
-      retireOutline(t,t.announcedZone,t.announced);
     // The last detector sighting can predate removal by several seconds. Retries keep the original removal time.
     if(type==='removed'&&fieldSlot(t.view.zone)){
-      if(extra.reason==='phantom'||t.placeholder&&t.view.state!=='identified')retireOutline(t);
+      if(extra.reason==='phantom'||t.placeholder&&(t.view.state==='candidate'||t.view.state==='prompt'))retireOutline(t);
       const cell=zoomCells.get(t.view.zone);
       clearEmptyZoom(cell);
       if(cell&&t.view.removedAt===undefined)cell.emptyZooms=cell.missedLook=undefined;
@@ -1074,7 +1074,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       const card=pose.card,position=fieldOrientation(card,width,height,calibration);
       t.view.zone=settledZone(t,card,[]);t.view.card=card;t.view.position=position;t.view.lastSeen=at;t.view.visible=true;t.view.removed=false;
       t.anchor=card;t.kind=card.kind;t.position=position;t.appearance=pixels;t.halo=evidence.halo?.(card);t.missed=false;t.reappeared=false;t.stableSince=pose.cleanAt;t.observations=pose.samples;resetAbsence(t);
-      emit('moved',t);t.pose=undefined;t.announced=card;t.announcedZone=t.view.zone;t.announcedPosition=position;t.moveAt=undefined;
+      t.pose=undefined;t.announced=card;t.announcedZone=t.view.zone;t.announcedPosition=position;t.moveAt=undefined;emit('moved',t);
     }
     if(pending)for(const t of tracks)if(t.view.visible&&evidence.motion(t.view.card)>.025)t.view.visible=false;
     return pending;
@@ -1800,13 +1800,9 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
         if(retired.length){
           const look=evidence.appearance?.(c);
           // Unreliable colour or a brief detector gap cannot turn the old box into a new card.
-          if(retired.some(q=>{
-            const current=q.moved?tracks.find(t=>t.view.id===q.id&&!t.view.removed&&t.announced&&t.announcedZone!==zone):undefined;
-            if(current?.announced&&sameRotatedFieldAppearance(current.identityAppearance,look)&&clearFieldTransfer(evidence,current.announced,c,current.halo))return false;
-            return !q.appearance?.length||!look?.length||c.partial||c.covered||handNear(evidence,c)||
+          if(retired.some(q=>!q.appearance?.length||!look?.length||c.partial||c.covered||handNear(evidence,c)||
               evidence.motion(c)>.025||fieldAppearanceDistance(q.appearance,look)<.025||
-              sameRotatedFieldAppearance(q.appearance,look)||sameShadedFieldAppearance(q.appearance,look);
-          }))return false;
+              sameRotatedFieldAppearance(q.appearance,look)||sameShadedFieldAppearance(q.appearance,look)))return false;
         }
         if(!options.zoomSets||!setFollowUpZone(zone)||c.kind!=='face-down'||c.partial||handNear(evidence,c)||evidence.motion(c)>.025)return true;
         const settled=tracks.find(t=>!t.view.removed&&t.view.zone===zone&&t.view.faceDown&&t.view.setEvidence?.decision==='committed'&&quadIou(t.view.card,c)>=.5);
