@@ -1110,6 +1110,7 @@
 .bbar{grid-column:1 / -1;display:flex;align-items:center;flex-wrap:wrap;gap:8px;border-top:1px solid var(--line);padding-top:10px}
 .bbar .dact{margin:0}
 .bbar .btn.go{margin-left:auto}
+.bbar .bhintRow{flex:1 0 100%}
 .bhint{color:var(--ink3);font-size:12px;display:inline-flex;gap:5px;align-items:center;flex-wrap:wrap}
 /* A card opened from a pile: the text sits right of the art and gets the height. Small art and a wider popup show a long Pendulum text without a scroll; only the very longest scrolls inside the text block. */
 @media (min-width:901px){
