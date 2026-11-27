@@ -1328,7 +1328,7 @@ test('review F: uncalibrated M2/M4 columns stay absolute when other cards appear
 });
 
 test('review E: a removed monster reappearing on GY moves its original ref, never places another',async()=>{
- const r=fieldRig();for(let i=0;i<7;i++)await r.tick();const id=r.watcher.getSnapshot().tracks[0].id;r.watcher.confirm(id,'A');r.outlines=[];for(let i=0;i<6;i++)await r.tick(100);
+ const r=fieldRig();for(let i=0;i<7;i++)await r.tick();const {id,zone}=r.watcher.getSnapshot().tracks[0];r.watcher.confirm(id,'A');r.known=[{id,zone,cardId:'A'}];r.outlines=[];for(let i=0;i<6;i++)await r.tick(100);
  r.outlines=[card(.84,.3)];for(let i=0;i<7;i++)await r.tick();assert.equal(r.events.filter(e=>e.type==='placed').length,1);assert.equal(r.events.filter(e=>e.type==='moved'&&e.track.id===id&&e.track.zone==='GY').length,1);r.watcher.dispose();
 });
 test('review S3: forgetting a placement suppresses auto reapply for the same physical evidence',async()=>{
@@ -1463,6 +1463,53 @@ test('owner live move: two clean frames 100 ms apart settle an unchanged identit
  assert.equal(r.events.filter(e=>e.type==='moved').length,1);assert.equal(r.events.at(-1)?.track.id,id);assert.equal(r.reads,before);r.watcher.dispose();
 });
 
+test('a lost M2 track cannot follow a new outline in Banished by appearance',async t=>{
+ const r=fieldRig();t.after(()=>r.watcher.dispose());
+ for(let i=0;i<8;i++)await r.tick();
+ const original=r.events.find(e=>e.type==='placed')!.track;
+ assert.equal(original.zone,'M2');r.watcher.confirm(original.id,'A');
+ const look=Array.from({length:12},(_,i)=>i%2?.6:.2),mat=Array(12).fill(.2);
+ r.appearanceAt=c=>zones.fieldCenter(c).x>.8?look:mat;
+ r.outlines=[card(.86,.11)];r.watcher.scanNow();await r.tick(100);
+ const snapshot=r.watcher.getSnapshot();
+ assert.equal(snapshot.tracks.find(track=>track.id===original.id)?.zone,'M2');
+ assert.ok(snapshot.tracks.some(track=>track.zone==='BANISHED'&&track.id!==original.id));
+});
+test('Banished commits a back read only when the resting sleeve differs from the mat',async t=>{
+ for(const sleeve of [true,false]){
+  const r=fieldRig();t.after(()=>r.watcher.dispose());
+  r.watcher.setCalibration(zones.createFieldCalibration([{x:0,y:0},{x:1,y:1}]));
+  r.appearance=Array(12).fill(sleeve?.7:.2);
+  r.outlines=[{...card(.86,.08,.10,.15),kind:'face-down'}];
+  for(let i=0;i<10;i++)await r.tick(100);
+  const placed=r.events.find(e=>e.type==='placed'&&e.track.zone==='BANISHED');
+  if(sleeve){
+   assert.equal(placed?.track.setEvidence?.decision,'committed');
+   assert.equal(placed?.track.setEvidence?.positive,true);
+  }else assert.equal(placed,undefined);
+ }
+});
+test('a fresh Banished read of a known field ref preserves its result after tracker restart',async t=>{
+ const r=fieldRig();t.after(()=>r.watcher.dispose());
+ r.known=[{id:'field-card',zone:'M2',cardId:'A'}];
+ r.outlines=[card(.86,.08)];
+ for(let i=0;i<10;i++)await r.tick(100);
+ const move=r.events.find(e=>e.type==='moved'&&e.track.id==='field-card'&&e.track.zone==='BANISHED');
+ assert.equal(move?.result?.candidates[0].cardId,'A');
+});
+test('a GY outline keeps its track when its centre jitters just into Banished',async t=>{
+ const r=fieldRig();t.after(()=>r.watcher.dispose());
+ r.watcher.setCalibration(zones.createFieldCalibration([{x:0,y:0},{x:1,y:1}]));
+ r.outlines=[card(.86,.28,.10,.15)];
+ for(let i=0;i<8;i++)await r.tick();
+ const original=r.events.find(e=>e.type==='placed')!.track;
+ assert.equal(original.zone,'GY');r.watcher.confirm(original.id,'A');
+ r.outlines=[card(.86,.25,.10,.15)];r.watcher.scanNow();await r.tick(100);
+ const snapshot=r.watcher.getSnapshot();
+ assert.equal(snapshot.tracks.find(track=>track.id===original.id)?.zone,'GY');
+ assert.equal(snapshot.tracks.find(track=>track.id===original.id)?.lastSeen,r.at);
+ assert.ok(!snapshot.tracks.some(track=>track.zone==='BANISHED'));
+});
 test('a verified read reconnects a rotated card across the mat to its acknowledged live ref',async()=>{
  const r=fieldRig();r.embedding=[1,0];for(let i=0;i<8;i++)await r.tick();const original=r.events[0].track;r.watcher.confirm(original.id,'A');r.known=[{id:original.id,zone:original.zone,cardId:'A'}];
  const pattern=Array.from({length:12},(_,i)=>i%2),mat=Array(12).fill(.2);r.appearanceAt=c=>zones.fieldCenter(c).x>.6?pattern:mat;
@@ -1537,7 +1584,7 @@ test('duel gallery reuses confirmed and dismissed embeddings without stealing ph
  restored.remember(vector,'B');assert.deepEqual(restored.resolve(vector),{kind:'match',cardId:'B'});
 });
 
-test('tracker follows slides, quarter turns and GY entry without another identity read',async()=>{
+test('tracker follows quarter turns locally and reads a cross-mat GY arrival before reusing the ref',async()=>{
  const r=fieldRig();r.watcher.setCalibration(zones.createFieldCalibration([{x:0,y:0},{x:1,y:1}]));
  const pixels=Array.from({length:288},(_,i)=>((Math.floor(i/3)*17+(i%3)*31)%251)/255);
  r.appearance=pixels;for(let i=0;i<8;i++)await r.tick();const original=r.events[0].track;r.watcher.confirm(original.id,'A');
@@ -1546,13 +1593,14 @@ test('tracker follows slides, quarter turns and GY entry without another identit
  const turn=Array.from({length:288},(_,i)=>{const p=Math.floor(i/3),x=p%8,y=Math.floor(p/8),sx=Math.round(y/11*7),sy=Math.round((1-x/7)*11);return pixels[(sy*8+sx)*3+i%3];});
  r.outlines=[card(.32,.3,.25,.15)];r.appearance=turn;r.motion=.2;await r.tick(100);r.motion=0;for(let i=0;i<4;i++)await r.tick(100);
  assert.ok(r.events.some(e=>e.type==='moved'&&e.track.position==='defense'));assert.equal(r.reads,before);
- // Non-overlapping transfer: the old footprint is empty, exactly one incoming card.
+ r.known=[{id:original.id,zone:r.watcher.getSnapshot().tracks[0].zone,cardId:'A'}];
+ // A GY arrival from another field cell is read before it can take the old ref.
  r.appearanceAt=c=>zones.fieldCenter(c).x>.8?turn:Array(288).fill(.2);r.outlines=[card(.84,.3,.14,.2)];
- const from=r.at;r.motion=.2;await r.tick(100);assert.equal(r.watcher.getSnapshot().tracks.length,1,'motion frame reserves the incoming outline rather than birthing a second copy');r.motion=0;for(let i=0;i<4&&!r.events.some(e=>e.type==='moved'&&e.track.zone==='GY');i++)await r.tick(100);
- const gy=r.events.find(e=>e.type==='moved'&&e.track.zone==='GY');assert.ok(gy);assert.equal(gy.track.id,original.id);assert.ok(r.at-from<=500);assert.equal(r.reads,before);assert.equal(r.events.filter(e=>e.type==='placed').length,1);assert.equal(r.events.some(e=>e.type==='prompt'),false);r.watcher.dispose();
+ r.motion=.2;await r.tick(100);assert.ok(!r.events.some(e=>e.type==='moved'&&e.track.zone==='GY'));r.motion=0;for(let i=0;i<12&&!r.events.some(e=>e.type==='moved'&&e.track.zone==='GY');i++)await r.tick(100);
+ const gy=r.events.find(e=>e.type==='moved'&&e.track.zone==='GY');assert.ok(gy);assert.equal(gy.track.id,original.id);assert.equal(gy.result?.candidates[0].cardId,'A');assert.equal(r.reads,before+1);assert.equal(r.events.filter(e=>e.type==='placed').length,1);assert.equal(r.events.some(e=>e.type==='prompt'),false);r.watcher.dispose();
  for(const destination of [card(.84,.3,.14,.2),card(.38,.3)]){const covered=fieldRig();covered.appearance=pixels;for(let i=0;i<8;i++)await covered.tick();const id=covered.events[0].track.id;covered.watcher.confirm(id,'A');
  covered.outlines=[];covered.appearance=Array(288).fill(.8);covered.motion=.2;await covered.tick(100);covered.motion=0;covered.appearanceAt=c=>c.quad[0].x===destination.quad[0].x?pixels:Array(288).fill(.8);covered.outlines=[destination];for(let i=0;i<8;i++)await covered.tick(100);
- assert.equal(covered.events.some(e=>e.type==='moved'&&e.track.id===id),true,'without simultaneous copy proof, matching incoming pixels follow the existing ref');covered.watcher.dispose();}
+ assert.equal(covered.events.some(e=>e.type==='moved'&&e.track.id===id),destination.quad[0].x<.8,'only the field target can follow the ref while the source is covered');covered.watcher.dispose();}
 });
 
 test('owner Fenrir: M3 -> GY -> back to M3 face-up with a white Set in M2 and an arm moving at the side',async t=>{
@@ -1608,6 +1656,7 @@ test('owner Fenrir: M3 -> GY -> back to M3 face-up with a white Set in M2 and an
  assert.ok(r.events.some(e=>e.track.id===s3Set.track.id&&!e.track.faceDown&&e.track.cardId==='C'),'Infinite Impermanence revealed on its Set ref');
  r.watcher.confirm(s3Set.track.id,'C');
  r.known=[{id:'gy-old',zone:'GY',cardId:'B'},{id,zone:'M3',cardId:'A'},{id:s3Set.track.id,zone:'S3',cardId:'C'}];
+ r.identityAt=c=>{const p=zones.fieldCenter(c);return p.x>.8||p.y>.6?'C':'A';};
  r.appearanceAt=c=>{const p=zones.fieldCenter(c);return p.x>.8?imperm:p.x>.4&&p.x<.5&&p.y<.6?fenrir:p.x<.4&&p.x>.25&&p.y<.6?white:mat;};
  r.outlines=[{...gy},{...m3},set];r.motion=.2;await r.tick(100);r.motion=0;
  for(let i=0;i<15&&!r.events.some(e=>e.type==='moved'&&e.track.id===s3Set.track.id&&e.track.zone==='GY');i++)await r.tick(100);

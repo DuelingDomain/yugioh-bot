@@ -399,18 +399,14 @@ it("automatic placement preserves calibrated main, spell and EMZ slots and DEF o
   }
 });
 
-it('cards that leave the field while a hand works a pile all go to that pile, never the hand or a prompt',async()=>{
-  const {fieldDepartureProposal,fieldPileDepartureProposal,fieldPileUnderTop}=await import('../src/lib/remote/field-proposals');
+it('cards that leave the field while a hand works the GY can go to the GY automatically',async()=>{
+  const {fieldDepartureProposal,fieldGyDepartureProposal}=await import('../src/lib/remote/field-proposals');
   const monster=(ref:string,name:string)=>({ref,cardId:1,name,zone:'monster',slot:2,faceUp:true,position:'attack'}) as const;
-  // Two monsters lifted in one carry: each one's own proposal is the GY (banished only when only that pile moved).
+  // Two monsters lifted in one carry each go to the GY.
   for(const card of [monster('a','Man with the Mark'),monster('b','Effect Veiler')])
-    expect(fieldPileDepartureProposal(fieldDepartureProposal(card,0)!,'GY')).toMatchObject({cardRef:card.ref,zone:'graveyard',faceUp:true,name:card.name});
-  expect(fieldPileDepartureProposal(fieldDepartureProposal(monster('a','X'),0)!,'BANISHED')).toMatchObject({zone:'banished',faceUp:true});
-  // The covered card lies directly under the named top card, also when the named card was written first.
-  expect(fieldPileUnderTop(['x','man','valor'],'valor','man')).toEqual(['x','valor','man']);
-  expect(fieldPileUnderTop(['x','valor','man'],'valor','man')).toBeUndefined();
+    expect(fieldGyDepartureProposal(fieldDepartureProposal(card,0)!)).toMatchObject({cardRef:card.ref,zone:'graveyard',faceUp:true,name:card.name});
   // An Extra Deck default keeps its own destination.
-  expect(fieldPileDepartureProposal(fieldDepartureProposal(monster('c','Y'),0,undefined,{type:'Xyz Monster'})!,'GY').zone).toBe('extra');
+  expect(fieldGyDepartureProposal(fieldDepartureProposal(monster('c','Y'),0,undefined,{type:'Xyz Monster'})!).zone).toBe('extra');
 });
 
 it('departures leave field zones once with a named atomic move and retain physical refs for destinations',async()=>{
@@ -548,7 +544,7 @@ it('sideways cards: Defense, Set, banished and GY read from the mat; a pile neve
  expect([true,false].map(sideways=>needsMove('banished','defense',lying('BANISHED',sideways,.1,0,3)))).toEqual([false,false]);
  expect(needsMove('monster','attack',lying('M3',true,.1,0,3))).toBe(true);
  // Seen-first rule: a face-down banished card is where a departed card went only when the camera saw it arrive; without it the card goes to the hand.
- const seen=lying('BANISHED',true,.2,0,5,true),owns=(t:any)=>t.id,wait={ref:seen.id,zone:'banished',faceUp:false,position:'attack'} as any;
+ const seen={...lying('BANISHED',true,.2,0,5,true),restSince:950,setEvidence:{decision:'committed'}} as import('@yugidraft/vision').FieldTrack,owns=(t:any)=>t.id,wait={ref:seen.id,zone:'banished',faceUp:false,position:'attack'} as any;
  expect(fieldPileEvidence({twins:[wait],tracks:[seen],lastSeen:900,owns})).toMatchObject({zone:'banished',faceUp:false});
  expect(fieldPileEvidence({twins:[],tracks:[],lastSeen:900,owns})).toBeUndefined();
 });
@@ -1130,23 +1126,61 @@ it('the Attach to tag lists face-up Xyz Monsters of both sides, those that attac
   expect(xyzAttachTargets(seats,facts,'gone').map(t=>[t.seat,t.ref])).toEqual([[1,'infinity'],[0,'plain']]);
 });
 
+it('uses GY when both piles had contact, even if Banished was touched later',async()=>{
+  const {changedPile}=await import('../src/lib/remote/field-proposals');
+  const changed=(pileContactAt:{GY?:number;BANISHED?:number},since=1000)=>changedPile({pileContactAt} as import('@yugidraft/vision').FieldSnapshot,
+    1000,since,[],t=>t.id,()=>undefined,()=>false,1000);
+  expect(changed({GY:1000,BANISHED:1200})).toEqual({zone:'GY'});
+  expect(changed({BANISHED:1200})).toEqual({zone:'BANISHED'});
+  expect(changed({GY:400,BANISHED:1200},400)?.zone).toBe('GY');
+  const gy={id:'new-gy',zone:'GY',visible:true,firstSeen:1000,restSince:1100,card:{kind:'face-up'}} as import('@yugidraft/vision').FieldTrack;
+  const snapshot={pileContactAt:{BANISHED:1200},tracks:[gy]} as import('@yugidraft/vision').FieldSnapshot;
+  expect(changedPile(snapshot,1000,1000,[],t=>t.id,()=>undefined,()=>false,1000)).toEqual({zone:'GY',ask:true});
+});
+
+it('rejects Banished evidence from a re-detected top, stale rest or an unconfirmed back',async()=>{
+  const {fieldPileTrackEvidence}=await import('../src/lib/remote/field-proposals');
+  const top={ref:'old',zone:'banished',faceUp:true,position:'attack',cardId:7} as const;
+  const track={id:'new-box',zone:'BANISHED',state:'identified',visible:true,faceDown:false,removed:false,firstSeen:2000,restSince:2100,card:{kind:'face-up'}} as import('@yugidraft/vision').FieldTrack;
+  const proof={twins:[top],lastSeen:2000,owns:(t:typeof track)=>t.id,cardId:'7'};
+  expect(fieldPileTrackEvidence({...proof,tracks:[{...track,cardId:'7'}]})).toBeUndefined();
+  expect(fieldPileTrackEvidence({...proof,cardId:'8',tracks:[{...track,cardId:'8',pileLookMatch:'old'}]})).toBeUndefined();
+  expect(fieldPileTrackEvidence({...proof,cardId:'8',tracks:[{...track,cardId:'8',restSince:999}]})).toBeUndefined();
+  expect(fieldPileTrackEvidence({...proof,tracks:[{...track,faceDown:true}]})).toBeUndefined();
+  expect(fieldPileTrackEvidence({...proof,cardId:'8',tracks:[{...track,cardId:'8'}]})).toMatchObject({zone:'banished',faceUp:true});
+});
+
+it('requires a fresh read naming a different card on a Banished move',async()=>{
+  const {fieldNamedBanish}=await import('../src/lib/remote/field-proposals');
+  const track={id:'mover',zone:'BANISHED',state:'identified',visible:true,faceDown:false,cardId:'8',firstSeen:2000,lastSeen:2200,restSince:2100,card:{kind:'face-up'}} as import('@yugidraft/vision').FieldTrack;
+  const moved={type:'moved',track,source:'auto'} as const,owns=(t:typeof track)=>t.id;
+  const top={ref:'old',zone:'banished',faceUp:true,position:'attack',cardId:7} as const;
+  const result={tier:'sure',candidates:[{cardId:'8',score:.95}],quality:{}} as import('@yugidraft/vision').RecognitionResult;
+  expect(fieldNamedBanish(moved,track,[top],owns,[track])).toBe(false);
+  expect(fieldNamedBanish({...moved,result},track,[{...top,cardId:8}],owns,[track])).toBe(false);
+  expect(fieldNamedBanish({...moved,result},{...track,restSince:1900},[top],owns,[track])).toBe(false);
+  expect(fieldNamedBanish({...moved,result},track,[top],owns,[track])).toBe(true);
+});
+
 it('camera evidence for a departed card: an unread GY top or a face-down banished card is where it went; two candidates are a guess',async()=>{
   const {fieldPileEvidence}=await import('../src/lib/remote/field-proposals');
   const track=(id:string,zone:string,firstSeen=1000)=>({id,zone,visible:true,removed:false,firstSeen,card:{kind:'face-up'}}) as any;
   const stand=(ref:string,zone:string,faceUp:boolean)=>({ref,zone,faceUp,position:'attack'}) as any;
   const base={lastSeen:900,owns:(t:any)=>t.id};
+  const back={...track('fw-2','BANISHED'),faceDown:true,restSince:1100,setEvidence:{decision:'committed'}};
   expect(fieldPileEvidence({...base,twins:[stand('fw-1','graveyard',true)],tracks:[track('fw-1','GY')]})).toMatchObject({zone:'graveyard',faceUp:true});
-  expect(fieldPileEvidence({...base,twins:[stand('fw-2','banished',false)],tracks:[track('fw-2','BANISHED')]})).toMatchObject({zone:'banished',faceUp:false});
+  expect(fieldPileEvidence({...base,twins:[stand('fw-2','banished',false)],tracks:[back]})).toMatchObject({zone:'banished',faceUp:false});
+  expect(fieldPileEvidence({...base,twins:[stand('fw-2','banished',true)],tracks:[track('fw-2','BANISHED')]})).toBeUndefined();
   // Nothing seen, a named card, an old pile arrival, or two candidates: no evidence (the hand stays).
   expect(fieldPileEvidence({...base,twins:[],tracks:[]})).toBeUndefined();
   expect(fieldPileEvidence({...base,twins:[{...stand('fw-1','graveyard',true),name:'Known'}],tracks:[track('fw-1','GY')]})).toBeUndefined();
   expect(fieldPileEvidence({...base,twins:[stand('fw-1','graveyard',true)],tracks:[track('fw-1','GY',-20000)]})).toBeUndefined();
-  expect(fieldPileEvidence({...base,twins:[stand('fw-1','graveyard',true),stand('fw-2','banished',false)],tracks:[track('fw-1','GY'),track('fw-2','BANISHED')]})).toBeUndefined();
+  expect(fieldPileEvidence({...base,twins:[stand('fw-1','graveyard',true),stand('fw-2','banished',false)],tracks:[track('fw-1','GY'),back]})).toBeUndefined();
   // A slow reader has not named the pile card yet, so the board has no card for it: one resting GY box is the evidence; a Normal Spell defaults to the GY, not the hand.
   const {fieldPileTrackEvidence,fieldDefaultDestination}=await import('../src/lib/remote/field-proposals');
   const resting=(id:string,zone:string,firstSeen=1000)=>({...track(id,zone,firstSeen),state:'candidate',faceDown:false,restSince:firstSeen+300}) as any;
   expect(fieldPileTrackEvidence({...base,twins:[],tracks:[resting('t-1','GY')]})).toMatchObject({zone:'graveyard',faceUp:true});
-  expect(fieldPileTrackEvidence({...base,twins:[],tracks:[resting('t-1','GY'),resting('t-2','BANISHED')]})).toBeUndefined();
+  expect(fieldPileTrackEvidence({...base,twins:[],tracks:[resting('t-1','GY'),back]})).toBeUndefined();
   expect(fieldPileTrackEvidence({...base,twins:[],tracks:[{...resting('t-1','GY'),restSince:undefined}]})).toBeUndefined();
   expect(fieldPileTrackEvidence({...base,twins:[],tracks:[resting('t-1','GY',-20000)]})).toBeUndefined();
   const waitingTop={...resting('next','GY'),visible:false},oldTop={...resting('old','GY',100),lastSeen:950,removed:true};
