@@ -575,7 +575,13 @@
 .bar .pass,.bar .pback{height:38px}
 .bar .pconfirm{bottom:calc(100% + 10px)}
 /* Own dice: the first-player prompt floats above the bar, like a pending confirm. */
-.firstpick{position:absolute;z-index:40;left:50%;bottom:calc(100% + 10px);transform:translateX(-50%);display:flex;align-items:center;justify-content:center;gap:10px;flex-wrap:wrap;max-width:calc(100vw - 24px);padding:8px 12px 8px 14px;border:1.5px solid var(--gold);border-radius:10px;background:#1b1229;color:var(--ink);font-size:15px;box-shadow:0 10px 30px rgb(0 0 0/.6),0 0 24px rgb(232 185 79/.25)}
+.firstpick{position:absolute;z-index:42;left:50%;top:50%;transform:translate(-50%,-50%);display:flex;align-items:center;justify-content:center;gap:12px;flex-wrap:wrap;width:min(420px,calc(100% - 24px));padding:20px 20px 18px;border:1.5px solid var(--gold);border-radius:12px;background:rgb(11 7 22);color:var(--ink);font-size:16px;box-shadow:0 18px 50px rgb(0 0 0/.65),0 0 24px rgb(232 185 79/.25)}
+.firstpick .firstq{flex:1 0 100%;text-align:center}
+.firstpick .btn{width:160px;height:44px;font-size:15px}
+/* Once somebody is chosen the card shrinks to a strip at the bottom of the table, so the field stays visible. */
+.firstpick[data-done]{top:auto;bottom:12px;transform:translateX(-50%);width:auto;padding:8px 12px;font-size:14px}
+.firstpick[data-done] .firstq{flex:0 1 auto}
+.firstpick[data-done] .btn{width:auto;height:32px;font-size:13px}
 .firstpick b{color:var(--gold-ink)}
 .firstpick [aria-pressed="true"]{outline:2px solid var(--gold);outline-offset:1px}
 .firstq{min-width:0}
@@ -1737,10 +1743,7 @@
   .seat[data-nocam] .fside>.fboard{order:0;flex:1 1 0;min-height:0;justify-content:center}
   .seat[data-nocam] .fside>.ptrack{order:1}.seat[data-nocam] .fside>.lp{order:2}
   .seat[data-nocam] .fwrap{--fw:calc(100cqw - 24px);--fh:calc(100cqh - 52px - var(--ledge-h) + 40px)}
-  /* The 3-way table: one large seat on the left, two small seats stacked on the right. */
-  .app[data-mode="3"] .stage{grid-template-columns:minmax(0,2.45fr) minmax(0,1fr);grid-template-rows:repeat(2,minmax(0,1fr));grid-template-areas:none}
-  .app[data-mode="3"] .stage>.seat{grid-area:auto;grid-column:2}
-  .app[data-mode="3"] .stage>.seat[data-big]{grid-column:1;grid-row:1/span 2}
+  /* The 3-way table: three equal webcam tiles (the default grid), my own tile is never smaller. */
   .seat .nm[data-pick]{cursor:pointer}.seat .nm[data-pick]:hover{color:var(--gold-ink)}
   /* Board on (1v1): the ledge sits right under the webcam, the board under the ledge. */
   .seat:not([data-wc]):not([data-nocam]) .fside>.lp{order:-1}
@@ -1886,3 +1889,6 @@
 .hcount .hgive{height:28px}
 @media (pointer:coarse){.hcount button{width:44px;height:44px}.hcount .hgive{height:44px}}
 @media (pointer:coarse){.bar kbd,.vtog kbd,.fzbtn kbd,.btn kbd{display:none}}
+/* Status colours: grey = no picture, green = live. The camera tag dot is not red any more. */
+.cams .ctag i{background:var(--ink3);box-shadow:none}
+.cams:has(video) .ctag i{background:var(--ok);box-shadow:0 0 6px var(--ok)}

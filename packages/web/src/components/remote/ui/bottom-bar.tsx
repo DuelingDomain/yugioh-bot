@@ -20,8 +20,7 @@ export type BarVoice = {
  * The one bottom bar of the table. Left: whose turn it is and Undo. Centre: the Think and OK signals. Right: the mic with its voice popover, Back and Pass turn.
  * The phases are not here: each player has their own phase boxes between their camera and their virtual field.
  */
-export function BottomBar({ first, players, turnSeat, turn, phase, canAct, nextSeat, passHot, mine, turnIn, backTo, ask, onAsk, onAskYes, onAskNo, onPass, dockRef, undo, center, voice, onSurrender, onQuit }: {
-  /** Own-dice tables: the "who goes first" strip that floats above the bar until the first turn action. */ first?: ReactNode;
+export function BottomBar({ players, turnSeat, turn, phase, canAct, nextSeat, passHot, mine, turnIn, backTo, ask, onAsk, onAskYes, onAskNo, onPass, dockRef, undo, center, voice, onSurrender, onQuit }: {
   players: Player[]; turnSeat: number; turn: number; phase: string; canAct: boolean; nextSeat: number; passHot: boolean;
   /** The turn is mine (never true on a solo test table, where one person plays every seat). */ mine: boolean; turnIn: boolean;
   /** The phase before this one in this turn (`previousYgoPhase`), or null on the first phase. */ backTo: string | null;
@@ -53,7 +52,6 @@ export function BottomBar({ first, players, turnSeat, turn, phase, canAct, nextS
   }, [more]);
   const micLabel = voice ? (voice.muted ? "Unmute microphone" : "Mute microphone") : "";
   return <div ref={dockRef} className={`${s.bar} ${mine ? s.mine : ""}`} data-testid="rail" data-mine={mine || undefined} role="group" aria-label="Turn, undo and voice">
-    {first}
     <span className={s.sr} role="status" aria-live="polite" data-testid="rail-live">{mine ? "Your turn. " : ""}{current?.name ?? "Table"}&apos;s turn, turn {turn}, {PHASE_LONG[phase] ?? phase}.</span>
     <div className={s.bturn}>
       <span className={s.pip} style={{ "--c": current?.color } as React.CSSProperties} />

@@ -435,7 +435,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     const other = seatCount === 2 ? (mySeat === 0 ? 1 : 0) : -1;
     const chosen = ownFirst.chosenSeat;
     const picking = chosen === undefined || changingFirst;
-    return <div className={s.firstpick} data-testid="first-pick" role="group" aria-label="Who goes first">
+    return <div className={s.firstpick} data-done={picking ? undefined : ""} data-testid="first-pick" role="group" aria-label="Who goes first">
       {picking
         ? <><span className={s.firstq}>{canPick ? "Roll your dice on camera — who goes first?" : "Waiting for the players to say who goes first."}</span>
           {canPick ? <>
@@ -576,12 +576,10 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
   const tapSeats = useSyncExternalStore(subscribeTap, () => room.seats.filter(item => item.seat !== room.mySeat && seatBoardOff({ stateMode: stateMode(room.state, item.seat), tracksTap: hub.tapMode(item.seat), visionTap: hub.peerVision(item.seat)?.detect === "tap" })).map(item => item.seat).join(","), () => "");
   const ownBoardOff = room.mySeat >= 0 && !!detection && !detection.autoDetect && hub.cameraOn;
   const zoneGrid = useZoneGrid();
-  /** The mat zones of this seat's camera are known (the same test as `zoneAtPoint`): a click on its feed can name a zone. */
-  const zonesOnCamera = (seat: number) => !!(zoneGrid.ownSeat === seat ? zoneGrid.calibration : hub.trackedCalibration?.(seat))?.orientation;
-  /** A bot, manual or Scan mode seat has no camera to read: its board twin is the only view of its cards, so it stays on (also on a 3-way or 4-way table).
-   *  So does every board while a zone click is the next step (token, give control), except on a 3-way or 4-way table: there the click lands on the camera's zone grid, unless its zones are not known yet. */
+  /** A bot, manual or Scan mode seat has no camera to read: its board twin is the only view of its cards, so it stays on at a 1v1 table. So does every board while a zone click is the next step (token, give control).
+   *  A 3-way or 4-way table never shows a virtual board: a seat without a camera shows the no-camera panel and its list of cards. */
   const noCamera = (seat: number) => !!room.seats.find(item => item.seat === seat)?.bot || hub.manual(seat) || hub.health(seat).label === "Scan mode";
-  const needsBoard = (seat: number) => noCamera(seat) || ((tokens.placing || control.giving) && !(multi && zonesOnCamera(seat)));
+  const needsBoard = (seat: number) => !multi && (noCamera(seat) || tokens.placing || control.giving);
   const seatFocus = useSeatFocus({ seatCount, mySeat, turnSeat: turnShown, nextSeat, turn: state.turn, seats: seatIds, hasCamera: seat => !noCamera(seat), eliminated: seat => !!state.seats[seat]?.eliminated, playing: seat => !!hub.sourceFor(seat) });
   const boardOff = (seat: number) => !needsBoard(seat) && (seat === room.mySeat ? ownBoardOff : tapSeats.split(",").includes(String(seat)));
   const flagFor = (seat: number, id: number) => hasDeck(room, seat) ? !deckIdsOf(room, seat).includes(id) : null;
@@ -1836,6 +1834,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
         webcamOnly={webcamOnly} onView={multi ? undefined : setWebcamOnly} />
       <AdminWatchStrip names={(room.adminWatchers ?? []).map(watcher => watcher.name)} />
       <main className={s.stage} id="stage" tabIndex={-1} aria-label="Duel table" ref={stage}>
+        {firstPick}
         <LpStrip players={players} turnSeat={turnShown} lp={lpOf} onJump={seat => document.querySelector(`[data-testid="seat-${seat}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" })} />
         {room.status === "ended" || (state.ended && !state.match) ? <div className={s.ended} role="status" data-testid="table-ended">
           <b>This table has ended.</b>
@@ -1881,7 +1880,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
             emptyFeedText={hub.manual(seat) ? `No camera (manual). Use ${voiceRecognition ? "voice, " : ""}typing and your board twin.` : hub.health(seat).label === "Scan mode" ? "Scan mode · follow the board twin and log." : bot ? "Test opponent. No camera." : seat === mySeat ? (hub.starting ? "Starting your camera…" : "Your camera is off.") : `Waiting for ${name(seat)}'s camera.`} />;
         })}
       </main>
-      <BottomBar first={firstPick} players={players} turnSeat={turnShown} turn={state.turn} phase={state.phase} canAct={live && myTurn && !state.attack && !ownFirstPending} nextSeat={nextSeat} passHot={state.phase === "end"} mine={!solo && mySeat === turnShown} turnIn={turnIn}
+      <BottomBar players={players} turnSeat={turnShown} turn={state.turn} phase={state.phase} canAct={live && myTurn && !state.attack && !ownFirstPending} nextSeat={nextSeat} passHot={state.phase === "end"} mine={!solo && mySeat === turnShown} turnIn={turnIn}
         backTo={previousYgoPhase(state)} ask={phaseAsk.ask} onAsk={phaseAsk.setAsk} onAskYes={id => { phaseAsk.setAsk(null); phaseBack(id); }} onAskNo={() => phaseAsk.setAsk(null)} onPass={passTurn} dockRef={dockRef}
         undo={{ spokenUndo: false, recognition: voiceRecognition, label: undoText, enabled: canUndo, reason: newestUndo?.reason, flash, histOpen: layers.layer === "hist", onUndo: () => void doUndo(), onHist: el => layers.toggle("hist", el) }}
         center={<>
