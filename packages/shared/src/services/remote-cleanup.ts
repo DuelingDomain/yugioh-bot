@@ -4,6 +4,8 @@ import { readRemoteState, writeRemoteState } from "../remote/storage.js";
 import { captureRemoteTournamentEvidence } from "./tournament-remote-evidence.js";
 import { getRemoteGame } from "../remote/index.js";
 import { REMOTE_REDUCTION_VERSIONS } from "../remote/deck-checks.js";
+import { applyRemoteTimeEvent, remoteTimeResultAfterGame } from "../remote/match-clock.js";
+import type { RemoteTimeEvent } from "../remote/match-contract.js";
 import type { RemoteAction } from "../remote/actions.js";
 import type { RemoteSystemAction } from "../remote/types.js";
 import type Database from "better-sqlite3";
@@ -46,13 +48,19 @@ export function pruneRemoteSessions(db: Database.Database, now: number): void {
   }
 }
 
-export function deleteUserRemoteData(db: Database.Database, userId: number, deletedName = "Deleted player"): { deleted: number; tables: {slug: string; guildId: string}[] } {
+export function deleteUserRemoteData(db: Database.Database, userId: number, deletedName = "Deleted player", now = Date.now()): { deleted: number; tables: {slug: string; guildId: string}[] } {
   if (!db.inTransaction) throw new Error("Remote privacy deletion requires a transaction");
   const rooms = db.prepare(`select id,slug,guild_id,game_id,seat_count,status,created_by from remote_tables t where created_by=?
     or exists(select 1 from remote_seats s where s.table_id=t.id and s.user_id=?)
     or exists(select 1 from remote_events e where e.table_id=t.id and e.user_id=?)`)
     .all(userId, userId, userId) as {id:number;slug:string;guild_id:string;game_id:string;seat_count:number;status:string;created_by:number|null}[];
-  const now = Date.now();
+  const appendEvent = db.prepare(`insert into remote_events(table_id,seq,idempotency_key,actor_seat,user_id,action_json,effects_json,created_at)
+    select id,last_seq+1,?,?,null,?,?,? from remote_tables where id=?`);
+  const advanceSeq = db.prepare("update remote_tables set last_seq=last_seq+1 where id=?");
+  const appendTimeEvent = (tableId: number, action: RemoteTimeEvent, at: number) => {
+    appendEvent.run(`sys:${randomUUID()}`, null, JSON.stringify(action), null, at, tableId);
+    advanceSeq.run(tableId);
+  };
   for (const room of rooms) {
     const seat = db.prepare("select seat from remote_seats where table_id=? and user_id=?").get(room.id,userId) as {seat:number} | undefined;
     // Historical actors have no live seat to vacate. Ended rooms keep their original outcome.
@@ -60,6 +68,8 @@ export function deleteUserRemoteData(db: Database.Database, userId: number, dele
     let action: RemoteSystemAction | RemoteAction;
     let effects: string | null = null;
     let ended = false;
+    let at = now;
+    let timeResult: ReturnType<typeof remoteTimeResultAfterGame>;
     const idempotencyKey = `sys:${randomUUID()}`;
     if (room.status === "lobby" && room.created_by !== userId) {
       db.prepare("delete from remote_seats where table_id=? and user_id=?").run(room.id,userId);
@@ -71,13 +81,16 @@ export function deleteUserRemoteData(db: Database.Database, userId: number, dele
     } else if (room.status === "active" && room.seat_count > 2) {
       const {state_json} = db.prepare("select state_json from remote_tables where id=?").get(room.id) as {state_json:string};
       const before = readRemoteState(db,state_json);
-      action = {type:"player.concede",actorSeat:seat.seat,idempotencyKey,at:now};
+      at = Math.max(now, before.updatedAt);
+      action = {type:"player.concede",actorSeat:seat.seat,idempotencyKey,at};
       const context = {...REMOTE_REDUCTION_VERSIONS,accountDeletion:1,showCardsSetFromDeck:before.showCardsSetFromDeck} as const;
-      const state = getRemoteGame(room.game_id).reduce(before,action,context);
+      let state = getRemoteGame(room.game_id).reduce(before,action,context);
+      timeResult = remoteTimeResultAfterGame(before, state);
+      if (timeResult) state = applyRemoteTimeEvent(state, timeResult, at);
       effects = JSON.stringify(context);
       ended = state.match.phase === "done";
       db.prepare("update remote_tables set state_json=?,status=?,ended_at=?,end_reason=? where id=?")
-        .run(writeRemoteState(db,room.id,state),ended ? "ended" : "active",ended ? now : null,ended ? "game" : null,room.id);
+        .run(writeRemoteState(db,room.id,state),ended ? "ended" : "active",ended ? at : null,ended ? "game" : null,room.id);
     } else {
       // A 1v1 concession can leave a best-of-three table waiting for the deleted player.
       const reason = room.status === "lobby" ? "creator-left" : "account-deleted";
@@ -85,11 +98,10 @@ export function deleteUserRemoteData(db: Database.Database, userId: number, dele
       ended = true;
       db.prepare("update remote_tables set status='ended',ended_at=?,end_reason=? where id=?").run(now,reason,room.id);
     }
-    db.prepare(`insert into remote_events(table_id,seq,idempotency_key,actor_seat,user_id,action_json,effects_json,created_at)
-      select id,last_seq+1,?,?,null,?,?,? from remote_tables where id=?`)
-      .run(idempotencyKey,seat.seat,JSON.stringify(action),effects,now,room.id);
-    db.prepare("update remote_tables set last_seq=last_seq+1,last_event_at=?,idle_warning_at=null where id=?").run(now,room.id);
-    if (ended) captureRemoteTournamentEvidence(db,room.id,now);
+    appendEvent.run(idempotencyKey,seat.seat,JSON.stringify(action),effects,at,room.id);
+    db.prepare("update remote_tables set last_seq=last_seq+1,last_event_at=max(last_event_at,?),idle_warning_at=null where id=?").run(at,room.id);
+    if (timeResult) appendTimeEvent(room.id, timeResult, at);
+    if (ended) captureRemoteTournamentEvidence(db,room.id,at);
   }
   // Capture any new end evidence before scrubbing identity and authored text.
   anonymizeRemoteData(db,userId,deletedName,rooms.map(room=>room.id));

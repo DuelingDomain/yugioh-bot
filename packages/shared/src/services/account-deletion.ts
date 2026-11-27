@@ -7,6 +7,7 @@ import { userHistory } from "./user-history.js";
 import { clearDiscordSubject } from "../discord-admin/privacy.js";
 import { deleteCreatorGrantsForUser } from "./creator-access.js";
 import { deleteUserRemoteData } from "./remote-cleanup.js";
+import { createRemoteDuelService } from "./remote-duels.js";
 
 /** What every kept row of a deleted account says in place of the person's name. */
 export const DELETED_PLAYER_NAME = "Deleted player";
@@ -86,7 +87,9 @@ export function deleteUserAccount(db: Database.Database, userId: number, known?:
     const note = (key: string, changes: number) => { if (changes > 0) counts[key] = changes; };
     if (!user) return { userId, mode: "removed", counts };
     // Remote opponents keep the game and replay; detach identity and remove authored private text.
-    const remote = deleteUserRemoteData(db, userId, DELETED_PLAYER_NAME);
+    const now = Date.now();
+    createRemoteDuelService(db).sweepMatchTime(now, userId);
+    const remote = deleteUserRemoteData(db, userId, DELETED_PLAYER_NAME, now);
     remoteTables = remote.tables;
     note("remote_tables", remote.deleted);
     note("vision_samples", db.prepare("delete from vision_samples where user_id=?").run(userId).changes);

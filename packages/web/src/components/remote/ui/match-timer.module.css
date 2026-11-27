@@ -1,0 +1,30 @@
+/* The info panel under the chip: same panel look as the coin and die menu. */
+.pop{position:fixed;z-index:46;display:flex;flex-direction:column;gap:8px;padding:12px 14px;border:1px solid var(--line2,#3a3052);border-radius:12px;background:var(--p0,#0d0819);color:var(--ink,#f1ead9);box-shadow:0 12px 36px #0008;max-height:calc(100dvh - 16px);overflow:auto}
+.pop[data-floating]{z-index:140}
+.pop h3{margin:0;font:700 calc(11*var(--u))/1 var(--font-duel-ui,"Sofia Sans Semi Condensed",system-ui,sans-serif);letter-spacing:.18em;text-transform:uppercase;color:var(--ink2,#b9b0cc)}
+.pop p{margin:0}
+.state{font:800 calc(18*var(--u))/1.2 var(--font-duel-display,Oxanium,sans-serif);letter-spacing:.03em;font-variant-numeric:tabular-nums}
+.state[data-tone=amber]{color:var(--warn)}
+.state[data-tone=red]{color:var(--loss)}
+.state[data-tone=muted]{color:var(--ink3)}
+.rule{font-size:calc(13*var(--u));line-height:1.45;color:var(--ink2,#b9b0cc)}
+
+/* Turn off match timer: asks first. Inline in the panel and in the settings tab. */
+.confirm{display:flex;flex-direction:column;gap:8px;padding:10px 12px;border:1px solid color-mix(in srgb,var(--lossd) 55%,transparent);border-radius:10px;background:color-mix(in srgb,var(--lossd) 9%,var(--p0,#0d0819))}
+.confirm p{margin:0;font-size:calc(13*var(--u));line-height:1.4;color:var(--ink,#f1ead9)}
+.confirmRow{display:flex;flex-wrap:wrap;gap:8px}
+@media (max-width:720px){.confirmRow button{min-height:44px;flex:1}.pop button{min-height:44px}}
+
+/* The "Time!" banner: centred on the table, about 4 s, never takes clicks. */
+.overlay{position:absolute;inset:0;z-index:44;pointer-events:none;display:grid;place-items:center;animation:timeLife 4s linear both;animation-delay:var(--spent,0ms)}
+.overlay[data-floating]{position:fixed;z-index:130}
+.banner{box-sizing:border-box;max-width:calc(100% - 32px);display:flex;flex-direction:column;align-items:center;gap:8px;padding:22px 40px 20px;border-radius:18px;border:1px solid var(--line2,#3a2f55);background:rgb(11 7 22);box-shadow:0 18px 48px rgb(0 0 0/.6),0 0 0 1px rgb(232 185 79/.12);text-align:center;animation:timePop 4s cubic-bezier(.2,.7,.25,1) both;animation-delay:var(--spent,0ms)}
+.banner small{font:700 11px/1.3 var(--font-duel-ui,"Sofia Sans Semi Condensed",system-ui,sans-serif);letter-spacing:.24em;color:var(--ink2,#b9b0cc);text-transform:uppercase}
+.banner b{font:700 56px/1.05 var(--font-duel-display,Oxanium,sans-serif);letter-spacing:.08em;color:var(--gold-ink,#f5d98a);text-shadow:0 0 18px rgb(232 185 79/.5)}
+.banner p{margin:0;max-width:30ch;font:600 18px/1.35 var(--font-duel-ui,"Sofia Sans Semi Condensed",system-ui,sans-serif);color:var(--ink,#f1ead9);overflow-wrap:anywhere}
+.banner .next{font-size:14px;font-weight:500;color:var(--ink2,#b9b0cc)}
+/* The phone table scrolls, so the stage is taller than the screen: centre on the screen instead. */
+@media (max-width:720px){.overlay{position:fixed;z-index:130}.banner{padding:18px 24px 16px}.banner b{font-size:44px}.banner p{font-size:16px}}
+@keyframes timeLife{0%{opacity:0}6%{opacity:1}88%{opacity:1}100%{opacity:0}}
+@keyframes timePop{0%{transform:scale(.92) translateY(8px)}8%{transform:none}100%{transform:none}}
+@media (prefers-reduced-motion:reduce){.banner{animation:none}}

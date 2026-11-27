@@ -17,7 +17,7 @@ import { handCountOf, knownHandOf } from "./reveal-model";
 import { CardPopover, InspectorBody, type CardActions, type Subject } from "./card-view";
 import { HoloField } from "./holo-field";
 import { ZoneGridOverlay } from "./zone-grid";
-import { Rail, LpStrip } from "./chrome";
+import { Rail, LpStrip, MatchTimer } from "./chrome";
 import { tabId } from "./api";
 import { describeEvent } from "./describe";
 import { SidingScreen, SpectatorEndScreen } from "./match-ui";
@@ -41,6 +41,7 @@ import s from "./remote-ui.module.css";
 import v from "./spectator-table.module.css";
 import { OkBanner, ThinkingCallout, ThinkingChip, useOkHold } from "./think";
 import { RollOverlay, useRollHold } from "./coin-die";
+import { TimeCallOverlay, useTimeCallHold } from "./match-timer";
 import { aliveSeats, chainOf, thinkingSeats } from "./think-model";
 
 const NO_ACTIONS: CardActions = { readOnly: true, canAdd: false, adding: false, onAdd: () => undefined, canAttack: false, attackHint: "", onAttack: () => undefined };
@@ -174,6 +175,7 @@ function SpectatorTable({ room }: { room: RemoteRoom }) {
   const lp = (seat: number) => state.seats[seat]?.resources.lp ?? 0;
   const okHold = useOkHold(room.events);
   const rollHold = useRollHold(room.events);
+  const timeCallHold = useTimeCallHold(room.events);
   const thinking = useMemo(() => thinkingSeats(room.events, room.status === "active" && !state.ended && match.phase === "duel"), [room.events, room.status, state.ended, match.phase]);
   const chain = useMemo(() => chainOf(room.events, aliveSeats(state)), [room.events, state]);
   const chainLinks = chain.links;
@@ -289,12 +291,14 @@ function SpectatorTable({ room }: { room: RemoteRoom }) {
     <ThinkingCallout thinking={thinking} name={name} pointer={seatCount > 2} />
     <OkBanner hold={okHold} name={name} />
     <RollOverlay hold={rollHold} name={name} />
+    <TimeCallOverlay hold={timeCallHold} name={name} />
     <div className={s.shell} inert={covered ? true : undefined}>
       <header className={s.top}>
         <a className={s.logo} href="/duels" aria-label="Stop watching and return to the Duels page" onClick={() => void stopWatching(room.slug)}><span className={s.gem} /><b>Dueling Domain</b></a>
         <span className={`${s.crumb} ${v.hideNarrow}`}><b>Remote Duel</b> · Table {room.slug.slice(0, 8)}</span>
         <span className={v.badge} data-testid="spectator-badge">Spectator</span>
         <span className={`${s.cchip} ${v.hideNarrow}`}>{formatLabel} · {seatCount} players</span>
+        {match.clock ? <MatchTimer match={match} turn={state.turn} endedAt={room.endedAt} info /> : null}
         <span className={v.watching} data-testid="spectator-count">{room.spectatorCount ?? 0} watching</span>
         <span className={s.sp} />
         <button type="button" className={s.tb} aria-haspopup="dialog" aria-expanded={layers.layer === "log"} data-layer-opener data-testid="log-button" onClick={event => layers.toggle("log", event.currentTarget)}><Icon name="log" /><span className={s.lbl}>Log</span></button>

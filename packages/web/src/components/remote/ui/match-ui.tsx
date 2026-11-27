@@ -18,8 +18,9 @@ import {
   hasMarks, isExtraDeckType, isMarkedIn, isMarkedOut, NO_MARKS, planSideDeck, toggleIn, toggleOut, type SideMarks, type SwapSection,
 } from "@/components/duel/side-deck-model";
 import {
-  attachedDeck, clock, HEADLINE, matchScore, outcomeFor, reasonLine, seatDeadline, SIDE_DECK_MS, SIDE_MS, winsBySeat, type Match,
+  attachedDeck, clock, HEADLINE, matchScore, matchTimeReason, outcomeFor, reasonLine, seatDeadline, SIDE_DECK_MS, SIDE_MS, winsBySeat, type Match,
 } from "./match-model";
+import { MatchTimer } from "./chrome";
 import s from "./match-ui.module.css";
 
 /** The longest title animation ends near 1.0 s; the buttons wake up just after it. */
@@ -77,18 +78,22 @@ function useNow(now: () => number, on = true): number {
   return value;
 }
 
+/** The Life Points of each seat, for the "won on LP" reason line. */
+const lpOf = (room: RemoteRoom) => ({ of: (seat: number) => room.state.seats[seat]?.resources.lp ?? 0, seats: room.seatCount, out: (seat: number) => !!room.state.seats[seat]?.eliminated });
+
 /**
  * The result of a game, or of the whole match. It uses the simulator's result screen look: the big word, the reason,
  * the Life Points tray and the match score. A game that did not decide the match offers Continue to side decking;
  * the final screen names the match winner.
  */
-export function MatchResultScreen({ room, match, mySeat, name, final, busy, error, undo, tournamentResult, rematch, onContinue, onLeave, onClose }: {
+export function MatchResultScreen({ room, match, mySeat, name, final, busy, error, undo, tournamentResult, rematch, matchTimeControl, onContinue, onLeave, onClose }: {
   room: RemoteRoom; match: Match; mySeat: number; name: (seat: number) => string; final: boolean; busy: boolean;
   /** The last action was refused: shown here, above the result. */ error?: string | null;
   /** A wrong result is fixed with Undo; null when there is nothing to undo. */ undo: { label: string; onUndo: () => void } | null;
   /** The tournament's Confirm or Dispute panel, under the scoreboard, for a tournament match. */ tournamentResult?: ReactNode;
   /** The rematch of a finished match, for a seated player: null when there is none (spectator, solo, tournament). */
   rematch?: { busy: boolean; onAnswer: (answer: "request" | "accept" | "decline") => void } | null;
+  matchTimeControl?: ReactNode;
   onContinue: () => void; onLeave: () => void; onClose: () => void;
 }) {
   const rootRef = useRef<HTMLDivElement>(null);
@@ -107,7 +112,7 @@ export function MatchResultScreen({ room, match, mySeat, name, final, busy, erro
   const wins = winsBySeat(match, seatCount);
   const gameNumber = game?.n ?? match.games.length;
   const reason = final
-    ? (outcome === "win" ? "You won the match." : outcome === "lose" ? `${name(decided as number)} won the match.` : outcome === "draw" ? "Nobody won the match." : decided === null ? "Nobody won the match." : `${name(decided)} won the match.`)
+    ? matchTimeReason(match, name, lpOf(room)) ?? (outcome === "win" ? "You won the match." : outcome === "lose" ? `${name(decided as number)} won the match.` : outcome === "draw" ? "Nobody won the match." : decided === null ? "Nobody won the match." : `${name(decided)} won the match.`)
     : reasonLine(game, name, mySeat, game?.winnerSeat ?? null);
   const titleId = "match-result-title";
   const seats = room.seats.map(seat => seat.seat);
@@ -148,6 +153,7 @@ export function MatchResultScreen({ room, match, mySeat, name, final, busy, erro
       </ul>
 
       {tournamentResult}
+      {!final && match.clock ? <div><MatchTimer match={match} turn={room.state.turn} /> {matchTimeControl}</div> : null}
       {error ? <p className={s.resultError} role="alert" data-testid="match-error">{error}</p> : null}
       {final && rematch && mySeat >= 0 ? <RematchPanel room={room} mySeat={mySeat} name={name} busy={rematch.busy} onAnswer={rematch.onAnswer} /> : null}
       <div className={resultStyles.actions} data-count={final || undo ? 2 : 1}>
@@ -243,11 +249,12 @@ export function declareChoices(seats: { seat: number; name: string; out?: boolea
  * the player can also swap cards between Main, Extra and Side like the simulator. When every player is Ready or the clock ends, the
  * next game starts. The loser of the last game chooses who goes first.
  */
-export function SidingScreen({ room, match, mySeat, name, now, act, error: outsideError, readOnly, onLeave }: {
+export function SidingScreen({ room, match, mySeat, name, now, act, error: outsideError, readOnly, onLeave, matchTimeControl }: {
   room: RemoteRoom; match: Match; mySeat: number; name: (seat: number) => string; now: () => number; act: Act;
   /** A spectator: the clock, the ready rows and the score, with no deck and no way to act. */ readOnly?: boolean;
   /** A spectator's only button: stop watching. The screen covers the table, so it must offer a way out. */ onLeave?: () => void;
   /** The last action was refused (the table passes the server's reason). */ error?: string | null;
+  matchTimeControl?: ReactNode;
 }) {
   const rootRef = useRef<HTMLDivElement>(null);
   useDialogFocus(rootRef);
@@ -404,6 +411,7 @@ export function SidingScreen({ room, match, mySeat, name, now, act, error: outsi
     {mixed ? <span className={s.timerNote} data-testid="siding-mixed">{deck ? "Players without a deck list have 2 minutes less." : "Players with a deck list have 2 more minutes."}</span> : null}
     <span className={s.timerBar} aria-hidden="true"><i style={{ width: `${Math.max(0, Math.min(100, (left / total) * 100))}%` }} /></span>
   </div>;
+  const matchTimer = match.clock ? <div><MatchTimer match={match} turn={room.state.turn} /> {matchTimeControl}</div> : null;
 
   if (!deck) {
     return <div ref={rootRef} className={cx(sheetRoot, s.sidingRoot, s.plainRoot)} role="dialog" aria-modal="true" aria-label="Side decking" tabIndex={-1} data-testid="siding" data-deck="false" data-readonly={readOnly ? "true" : undefined}>
@@ -411,6 +419,7 @@ export function SidingScreen({ room, match, mySeat, name, now, act, error: outsi
         <p className={betweenStyles.eyebrow}>Between games{score ? ` · Score ${score}` : ""}</p>
         <h1 className={s.plainTitle}>Game {gameNo}{match.bestOf === 3 ? " of 3" : ""} is next</h1>
         {timer}
+        {matchTimer}
         {readyRows}
         <div className={s.sticky}>
           {firstChoice}
@@ -448,6 +457,7 @@ export function SidingScreen({ room, match, mySeat, name, now, act, error: outsi
       <div className={betweenStyles.chips}>
         {score ? <span className={betweenStyles.chip}>Score <b>{score}</b></span> : null}
         <span className={betweenStyles.chip} data-tone="gold">Starts in <b>{clockText}</b></span>
+        {matchTimer}
       </div>
     </header>
     <div className={betweenStyles.body}>
@@ -485,12 +495,12 @@ export function SidingScreen({ room, match, mySeat, name, now, act, error: outsi
 export function SpectatorEndScreen({ room, match, name, onLeave }: { room: RemoteRoom; match: Match; name: (seat: number) => string; onLeave: () => void }) {
   const rootRef = useRef<HTMLDivElement>(null);
   useDialogFocus(rootRef);
-  const winner = match.winnerSeat ?? room.state.winnerSeat ?? null;
+  const winner = match.winnerSeat !== undefined ? match.winnerSeat : room.state.winnerSeat;
   const seats = room.seats.map(seat => seat.seat);
   const wins = winsBySeat(match, room.seatCount);
   const series = match.bestOf >= 3 || match.games.length > 1;
   const titleId = "spectator-end-title";
-  const reason = winner !== null ? `${name(winner)} won${match.bestOf >= 3 ? " the match" : ""}.` : "Nobody won.";
+  const reason = matchTimeReason(match, name, lpOf(room)) ?? (winner !== null ? `${name(winner)} won${match.bestOf >= 3 ? " the match" : ""}.` : "Nobody won.");
   return <div ref={rootRef} className={cx(duelFontClasses, resultStyles.root, s.resultRoot)} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}
     data-testid="spectator-end" data-phase="settled" data-reduced="true" data-title="calm" data-outcome="ended">
     <div className={cx(resultStyles.backdrop, s.resultScrim)} aria-hidden="true" />

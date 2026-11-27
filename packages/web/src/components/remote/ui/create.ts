@@ -1,11 +1,13 @@
 import useSWR from "swr";
-import type { RemoteRoom, RemoteVisibility } from "@yugidraft/shared/remote";
+import { REMOTE_MATCH_MINUTES, type RemoteMatchMinutes, type RemoteRoom, type RemoteVisibility } from "@yugidraft/shared/remote";
 import type { Choice } from "@/components/duel/sheet-ui";
 import { remoteApi } from "./api";
 
 /** The table page is cross-origin isolated (COOP/COEP), so we reach it with a full document load. */
 export const remoteTableHref = (slug: string) => `/duels/remote/${slug}`;
 export const REMOTE_SEAT_CHOICES: readonly Choice<number>[] = [{ value: 2, label: "1v1" }, { value: 3, label: "3-way" }, { value: 4, label: "4-way" }];
+export const remoteMatchTimeLabel = (minutes: RemoteMatchMinutes) => minutes === 0 ? "Off" : `${minutes} min`;
+export const REMOTE_MATCH_TIME_CHOICES = REMOTE_MATCH_MINUTES.map(minutes => ({ value: String(minutes), label: remoteMatchTimeLabel(minutes) }));
 
 /** Remote format ids. They are the duel type of the create screen plus the Genesys toggle. */
 const REMOTE_FORMAT_NAMES: Record<string, string> = { normal: "Advanced", domain: "Domain", genesys: "Genesys", "genesys-domain": "Genesys Domain" };
@@ -29,11 +31,11 @@ export const deckFailedKey = (slug: string) => `remote:deck-failed:${slug}`;
  * undo the room (a retry would make a second room). The message goes to the setup room through sessionStorage.
  */
 export async function createRemoteRoom(input: {
-  seatCount: number; solo: boolean; format: string; savedDeckId?: number | null; showCardsSetFromDeck?: boolean; rules?: unknown; visibility?: RemoteVisibility;
+  seatCount: number; solo: boolean; format: string; savedDeckId?: number | null; showCardsSetFromDeck?: boolean; rules?: unknown; visibility?: RemoteVisibility; matchTimeMinutes?: RemoteMatchMinutes;
 }): Promise<RemoteRoom> {
   const room = await remoteApi<RemoteRoom>("", {
     gameId: "ygo", seatCount: input.seatCount, solo: input.solo, format: input.format,
-    showCardsSetFromDeck: input.showCardsSetFromDeck, visibility: input.solo ? undefined : input.visibility, ...(input.rules ? { rules: input.rules } : {}),
+    showCardsSetFromDeck: input.showCardsSetFromDeck, visibility: input.solo ? undefined : input.visibility, matchTimeMinutes: input.matchTimeMinutes, ...(input.rules ? { rules: input.rules } : {}),
   });
   if (input.savedDeckId) {
     await remoteApi(`/${room.slug}/deck`, { savedDeckId: input.savedDeckId }).catch((error: unknown) => {

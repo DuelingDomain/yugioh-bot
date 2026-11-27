@@ -17,7 +17,7 @@ import s from "./coin-die.module.css";
  * The table root (`.app`), found from a hidden marker that sits where the caller renders. A roll or a menu drawn there is laid out against the screen, not against the
  * board or the bar around the marker (a transformed or pushed ancestor cannot move it), and it still has the table colours. Without a table root it is the page body.
  */
-function useTableRoot(area?: string) {
+export function useTableRoot(area?: string) {
   const [root, setRoot] = useState<Element | null>(null);
   const marker = useCallback((node: HTMLElement | null) => { setRoot(node ? (area ? node.closest(area) : null) ?? node.closest(`.${r.app}`) ?? document.body : null); }, [area]);
   return [root, marker] as const;

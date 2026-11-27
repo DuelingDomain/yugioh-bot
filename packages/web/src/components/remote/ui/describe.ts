@@ -1,4 +1,4 @@
-import type { RemoteAction, RemoteEvent, RemoteSystemAction } from "@yugidraft/shared/remote";
+import { REMOTE_EXTRA_TURNS, type RemoteAction, type RemoteEvent, type RemoteSystemAction } from "@yugidraft/shared/remote";
 import { PHASE_LONG, sg } from "./model";
 import { landingLabel } from "./placement";
 import { MERGED } from "./twins";
@@ -75,6 +75,15 @@ export function describeEvent(event: RemoteEvent, name: (seat: number) => string
       return { kind: "PH", text: `Die roll${opening.rounds.length > 1 ? ` (${opening.rounds.length} rounds)` : ""}: ${rolls} · ${name(opening.winnerSeat)} chooses who goes first`, undoable: false };
     }
     case "match.first": return { kind: "PH", text: a.seatGoesFirst === a.actorSeat ? `${who} chose to go first` : `${who} chose that ${name(a.seatGoesFirst)} goes first`, undoable: false };
+    case "time.called": return { kind: "PH", text: a.seat === null ? "Time! The match is decided on games won." : `Time! This is Turn 0, ${name(a.seat)}’s turn. ${REMOTE_EXTRA_TURNS} extra turns follow.`, undoable: false };
+    case "time.extraTurn": return { kind: "PH", text: `Extra turn ${a.extraTurn}/${REMOTE_EXTRA_TURNS}, ${name(a.seat)}’s turn`, undoable: false };
+    case "time.result": {
+      // describeEvent does not know the seat count: a 1v1 LP result is decided on games, so only a tie among 3+ seats names the basis.
+      const tied = a.tiedSeats?.length ? ` on Life Points between ${a.tiedSeats.map(name).join(", ")}` : a.reason === "game-ended" || a.reason === "between-games" ? " on games won" : "";
+      const won = a.reason === "game-ended" || a.reason === "between-games" ? " on games won" : "";
+      return { kind: "PH", text: a.winnerSeat === null ? `Time is over. Draw${tied}.` : `Time is over. ${name(a.winnerSeat)} wins the match${won}.`, undoable: false };
+    }
+    case "time.off": return { kind: "PH", text: `${who} turned off the match timer.`, undoable: false };
     case "table.ended": return { kind: "PH", text: "The table closed", undoable: false };
     default: return null;
   }

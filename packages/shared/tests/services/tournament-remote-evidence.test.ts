@@ -55,6 +55,22 @@ function setup(bestOf: 1 | 3 = 1, start = true) {
   return {db,service,actors,room,tableId,matchId,act,evidence,removeGameEvents};
 }
 
+it('proposes the timed winner and captures LP and extra turns in tournament evidence', () => {
+  const s = setup();
+  const deadline = 1003 + 40 * 60_000;
+  for (let at = 300_000; at < deadline; at += 300_000) s.service.touch(s.room.slug, 'g', s.actors[0].userId, at);
+  s.act({type:'lp.change',seat:1,delta:-200,reason:'damage'}, 0, deadline - 1);
+  for (let extra = 0; extra <= 3; extra++) s.act({type:'turn.end'}, extra % 2, deadline + extra);
+  expect(s.db.prepare('select status,result_source,winner_player_id from tournament_remote_matches where tournament_match_id=?').get(s.matchId))
+    .toEqual({status:'proposed',result_source:'lp',winner_player_id:s.actors[0].playerId});
+  const evidence = s.db.prepare('select games_json,result_events_json,final_lp_json from tournament_remote_evidence where tournament_match_id=?').get(s.matchId) as
+    {games_json:string;result_events_json:string;final_lp_json:string};
+  expect(JSON.parse(evidence.games_json)).toMatchObject([{reason:'timeout',winnerSeat:0}]);
+  expect(JSON.parse(evidence.result_events_json).filter((event: {action:{type:string}}) => event.action.type.startsWith('time.')))
+    .toMatchObject(['time.called','time.extraTurn','time.extraTurn','time.extraTurn','time.result'].map(type => ({action:{type}})));
+  expect(JSON.parse(evidence.final_lp_json)).toMatchObject([{seats:[{lp:8000},{lp:7800}]}]);
+});
+
 it.each(['purge', 'idle', 'act'] as const)('keeps %s successful when a tournament log is missing a game end', operation => {
   const s = setup(operation === 'purge' ? 1 : 3);
   const ended = s.act({type:'player.concede'}, 1);

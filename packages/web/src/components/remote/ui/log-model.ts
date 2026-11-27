@@ -30,6 +30,7 @@ const CAT: Record<string, LogCat> = {
   "effect.activated": "chain", "chain.respond": "chain", "chain.ok": "chain", "chain.thinking": "chain", "random.roll": "chain",
   "lp.change": "lp",
   "phase.set": "phase", "phase.advance": "phase", "turn.end": "phase", "table.started": "phase", "match.first": "phase",
+  "time.called": "phase", "time.extraTurn": "phase", "time.result": "phase", "time.off": "phase",
 };
 const MOVES = /^(twin\.|card\.identified|cards\.identified|deck\.|pile\.|monsters\.|attack\.|effect\.(choose|announce))/;
 const catOf = (type: string): LogCat => CAT[type] ?? (MOVES.test(type) ? "move" : "other");
@@ -83,6 +84,7 @@ export function buildLog(input: LogInput): LogTurn[] {
   const { events, name } = input;
   const sorted = [...events].sort((a, b) => b.seq - a.seq);
   const byId = new Map(events.map(event => [event.id, event]));
+  const bySeq = new Map(events.map(event => [event.seq, event.action]));
   const undone = remoteUndoneActionIds(events);
   const lpRunning = new Map<number, number>();
   const turns: LogTurn[] = []; let cur = Math.max(1, input.turn);
@@ -96,9 +98,12 @@ export function buildLog(input: LogInput): LogTurn[] {
   const turnOfAt: { at: number; turn: number }[] = [];
   for (const event of sorted) {
     const action = event.action as RemoteAction | RemoteSystemAction;
-    const ends = action.type === "turn.end" && !undone.has(event.id);
-    if (ends) cur = Math.max(1, cur - 1);
-    const group = groupFor(cur, ends ? event.actorSeat : null);
+    const following = bySeq.get(event.seq + 1);
+    const endedOnTime = following?.type === "time.result" && following.reason === "lp";
+    const ends = !undone.has(event.id) && !endedOnTime && (action.type === "turn.end" || action.type === "phase.advance" && following?.type === "time.extraTurn");
+    if (ends) cur = Math.max(1, (following?.type === "time.extraTurn" ? following.turn : cur) - 1);
+    const timedTurn = action.type === "time.called" || action.type === "time.extraTurn" ? action : undefined;
+    const group = groupFor(timedTurn?.turn ?? cur, timedTurn?.seat ?? (ends ? event.actorSeat : null));
     turnOfAt.push({ at: event.at, turn: cur });
     const link = input.chain.get(event.id);
     const response = action.type === "effect.activated" && action.respondsTo ? byId.get(action.respondsTo) : undefined;

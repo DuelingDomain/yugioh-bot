@@ -2,7 +2,8 @@ import type Database from "better-sqlite3";
 import { getRemoteGame, remoteActionSchema, type RemoteAction, type RemoteSeatState, type RemoteSystemAction, type SeatCount } from "../remote/index.js";
 import { applyRemoteFormat } from "../remote/deck-checks.js";
 import { initializeRemoteHandCounts } from "../remote/hand.js";
-import { applyRemoteOpening, applyRemoteOwnFirst, initialRemoteMatch } from "../remote/match.js";
+import { applyRemoteOpening, applyRemoteOwnFirst, initialRemoteMatch, remoteFirstPending } from "../remote/match.js";
+import { applyRemoteTimeEvent, startRemoteMatchClock } from "../remote/match-clock.js";
 import { readRemoteEffects, readRemoteState } from "../remote/storage.js";
 
 const DAY = 86_400_000;
@@ -85,6 +86,8 @@ function captureEvidence(db: Database.Database, tableId: number, now: number): v
         case 'player.concede': case 'player.leave': resultAction={type:action.type}; break;
         case 'match.declare': resultAction={type:action.type,winnerSeat:action.winnerSeat}; break;
         case 'match.confirm': resultAction={type:action.type,declarationSeq:sequences.get(action.declarationId) ?? null,accept:action.accept}; break;
+        case 'time.called': case 'time.extraTurn': case 'time.result': resultAction=action; break;
+        case 'time.off': resultAction={type:action.type}; break;
         case 'undo': resultAction={type:action.type,targetSeq:sequences.get(action.targetActionId) ?? null}; break;
         case 'detection.mode': {
           resultAction={type:action.type,mode:action.mode,reason:action.reason};
@@ -114,6 +117,7 @@ function captureEvidence(db: Database.Database, tableId: number, now: number): v
         state=game.reduce(state,action as RemoteAction,{...effects,replay:true});
       } else if (action.type === 'table.created') {
         state.match=initialRemoteMatch(row.seat_count,action.bestOf ?? 1);
+        if (action.matchTimeMinutes !== undefined) state.match.clock={ minutes:action.matchTimeMinutes, tie:'draw' };
         if (action.format) state=applyRemoteFormat(state,action.format);
         state.showCardsSetFromDeck=action.showCardsSetFromDeck ?? false;
         state.revealedHand=action.revealedHand ?? 'until-played';
@@ -121,10 +125,17 @@ function captureEvidence(db: Database.Database, tableId: number, now: number): v
       } else if (action.type === 'table.configured') {
         state=applyRemoteFormat(state,action.format); state.deckChecks.registrations=action.registrations;
         if (action.bestOf !== undefined) state.match=initialRemoteMatch(row.seat_count,action.bestOf);
+        if (action.matchTimeMinutes !== undefined) state.match.clock={ minutes:action.matchTimeMinutes, tie:'draw' };
         state.showCardsSetFromDeck=action.showCardsSetFromDeck ?? state.showCardsSetFromDeck ?? true;
         state.revealedHand=action.revealedHand ?? state.revealedHand ?? 'until-played';
         state.firstPlayer=action.firstPlayer ?? state.firstPlayer ?? 'dice';
-      } else if (action.type === 'table.started' && action.handCounts === 1) { initializeRemoteHandCounts(state); if (action.opening) applyRemoteOpening(state, action.opening); if (action.ownFirst) applyRemoteOwnFirst(state); }
+      } else if (action.type === 'table.started' && action.handCounts === 1) {
+        initializeRemoteHandCounts(state);
+        if (action.opening) applyRemoteOpening(state, action.opening);
+        if (action.ownFirst) applyRemoteOwnFirst(state);
+        if (!remoteFirstPending(state.match)) startRemoteMatchClock(state.match, event.created_at);
+      }
+      else if (action.type === 'time.called' || action.type === 'time.result') state=applyRemoteTimeEvent(state,action,event.created_at);
       else if (action.type === 'seat.deck') { state.deckChecks.registrations[action.seat]=action.registration; state.undo=null; delete state.undoHistory; }
       else if (action.type === 'seat.left') delete state.deckChecks.registrations[action.seat];
       // Concede/LP clear the eliminated seat's twins. Keep only its last public cards.

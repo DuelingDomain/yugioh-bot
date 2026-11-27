@@ -49,7 +49,7 @@ export async function remoteDuelsForViewer() {
   return (await remoteDuelViewerId()) !== null;
 }
 export function remoteJson(value: unknown, status = 200) {
-  return NextResponse.json(value, { status, headers: { "cache-control": "private, no-store" } });
+  return NextResponse.json(value, { status, headers: { "cache-control": "private, no-store", "x-remote-server-time": String(Date.now()) } });
 }
 export async function requireRemoteActor() {
   if (!remoteDuelsEnabled()) return { ok: false as const, response: remoteJson({ error: "Not found" }, 404) };
@@ -86,7 +86,7 @@ export async function remoteMutation(request: Request, context: RemoteRouteConte
   const actor = await requireRemoteActor(); if (!actor.ok) return actor.response;
   try {
     const { slug } = await context.params;
-    const keys = { rematch: ["answer"], seat: ["seat"], leave: [], activity: [], ready: ["ready"], start: [], actions: ["baseSeq", "action"], deck: ["savedDeckId", "seat"], format: ["format", "bestOf", "rules", "showCardsSetFromDeck", "revealedHand", "firstPlayer"] };
+    const keys = { rematch: ["answer"], seat: ["seat"], leave: [], activity: [], ready: ["ready"], start: [], actions: ["baseSeq", "action"], deck: ["savedDeckId", "seat"], format: ["format", "bestOf", "rules", "showCardsSetFromDeck", "revealedHand", "firstPlayer", "matchTimeMinutes"] };
     // Empty bodies are accepted for the bodyless operations.
     const body = operation === "leave" || operation === "start" || operation === "activity" ? {} : await remoteBody(request, keys[operation]);
     let result;
@@ -98,7 +98,7 @@ export async function remoteMutation(request: Request, context: RemoteRouteConte
         remoteAssert(body.revealedHand === undefined || body.revealedHand === 'until-played' || body.revealedHand === 'one-turn', 'Invalid revealed hand setting');
         remoteAssert(body.firstPlayer === undefined || body.firstPlayer === "dice" || body.firstPlayer === "own", "Invalid first player setting");
         remoteAssert(body.showCardsSetFromDeck === undefined || typeof body.showCardsSetFromDeck === "boolean", "Invalid Deck publicity setting");
-        result = actor.remote.configure(slug, actor.guildId, actor.userId, { format: body.format, bestOf: bestOf.data, rules: body.rules, showCardsSetFromDeck: body.showCardsSetFromDeck as boolean | undefined, revealedHand: body.revealedHand as RemoteRevealedHand | undefined, firstPlayer: body.firstPlayer as RemoteFirstPlayerMode | undefined }); break;
+        result = actor.remote.configure(slug, actor.guildId, actor.userId, { format: body.format, bestOf: bestOf.data, rules: body.rules, showCardsSetFromDeck: body.showCardsSetFromDeck as boolean | undefined, revealedHand: body.revealedHand as RemoteRevealedHand | undefined, firstPlayer: body.firstPlayer as RemoteFirstPlayerMode | undefined, matchTimeMinutes: body.matchTimeMinutes }); break;
       }
       case "deck":
         remoteAssert(body.savedDeckId === null || (typeof body.savedDeckId === "number" && Number.isSafeInteger(body.savedDeckId) && body.savedDeckId > 0), "Invalid saved deck");

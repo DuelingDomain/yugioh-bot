@@ -220,6 +220,9 @@ function restoredPosition(state: RemoteState, entry: RemoteUndoEntry): RemotePos
 export function remoteUndoReason(state: RemoteState, entry: RemoteUndoEntry, actorSeat: number, restore = true, linked = false): string | undefined {
   const gameNumber = (position: RemotePosition) => position.match.games.length + (position.ended ? 0 : 1);
   if (state.match?.phase === "siding" || (entry.before?.match && gameNumber(entry.before) !== gameNumber(state))) return "Undo cannot cross games";
+  const clock = state.match.clock;
+  if (clock?.offAt === undefined && clock?.called?.turn != null && entry.before && entry.after &&
+    entry.before.turn < clock.called.turn && entry.after.turn >= clock.called.turn) return "Undo cannot change which turn time was called";
   if (entry.actorSeat !== actorSeat) return "You can only undo your own actions";
   if (entry.undone) return "This action has already been undone";
   if (entry.turn < state.turn - 1 || entry.turn > state.turn) return "Undo is limited to the current and previous turn";

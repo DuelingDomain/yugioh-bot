@@ -88,7 +88,7 @@ function projectEvent(event:RemoteEvent,seats:ReadonlySet<number>):RemoteEvent {
  * cards are filtered like a player's view. Private hand contents, notes, undo history and deck data are omitted.
  * Allow list for events: a new action type shows as a private line until it is added here.
  */
-const SPECTATOR_EVENTS:ReadonlySet<string>=new Set(["table.created","table.configured","table.started","table.ended","idle.warning","admin.watching","seat.joined","seat.left","seat.ready","seat.deck",
+const SPECTATOR_EVENTS:ReadonlySet<string>=new Set(["table.created","table.configured","table.started","table.ended","idle.warning","admin.watching","seat.joined","seat.left","seat.ready","seat.deck","time.called","time.extraTurn","time.result","time.off",
   "phase.set","phase.advance","turn.end","lp.change","detection.mode","attack.declare","attack.resolve","player.concede","player.leave","match.declare","match.confirm","match.continue","match.first","side.ready","side.unready","side.timeout",
   "hand.draw","hand.count","twin.place","twin.move","twin.flip","twin.remove","twin.attach","twin.detach","twin.counters","twin.equip","twin.control","monsters.tribute","pile.lift","pile.order","effect.activated","card.identified","cards.identified","chain.respond","chain.thinking","chain.ok","random.roll"]);
 const PUBLIC_ZONE = (card: TwinCard) => card.faceUp !== false && !["hand", "deck", "extra"].includes(card.zone) ||

@@ -119,6 +119,129 @@ function deckSession(format: "normal" | "domain" | "genesys" | "genesys-domain" 
   return { db, users, service, save, select, start, act, place, wait, get room() { return room; } };
 }
 
+describe("remote match timer", () => {
+  function timedTable(seatCount: SeatCount, bestOf: 1 | 3 = 1) {
+    const { db, users, service } = setup();
+    let room = service.create({ guildId: "g", userId: users[0], displayName: "Alice", gameId: "ygo", seatCount, bestOf }, 2_000);
+    for (let seat = 1; seat < seatCount; seat++) service.join(room.slug, "g", users[seat], `Player ${seat + 1}`, seat, 2_001);
+    const start = () => {
+      for (const user of users.slice(0, seatCount)) service.ready(room.slug, "g", user, true, 2_002);
+      return room = service.start(room.slug, "g", users[0], 2_003);
+    };
+    let serial = 0;
+    const act = (seat: number, input: Record<string, unknown>, at: number) => room = service.act(room.slug, "g", users[seat], {
+      baseSeq: room.lastSeq, action: remoteActionSchema.parse({ actorSeat: seat, idempotencyKey: `timer-${++serial}`, ...input }),
+    }, at);
+    const refresh = (seat = 0) => room = service.get(room.slug, "g", users[seat]);
+    const keepAlive = (until: number) => {
+      for (let at = room.lastEventAt + 300_000; at < until; at += 300_000) service.touch(room.slug, "g", users[0], at);
+      service.touch(room.slug, "g", users[0], until);
+    };
+    return { db, users, service, start, act, refresh, keepAlive, get room() { return room; } };
+  }
+
+  it.each([[2, false], [2, true], [3, false], [4, true]] as const)("calls Turn 0 and plays three extra turns at a %i-seat table (LP tied: %s)", (seatCount, tied) => {
+    const t = timedTable(seatCount, 3);
+    expect(t.room.state.match.clock).toMatchObject({ minutes: 40, tie: "draw" });
+    t.start();
+    const deadline = 2_003 + 40 * 60_000;
+    expect(t.room.state.match.clock?.startedAt).toBe(2_003);
+    t.keepAlive(deadline - 1_000);
+    expect(t.service.sweepMatchTime(deadline - 1)).toEqual([]);
+    if (seatCount === 2) {
+      // An action at the exact deadline calls time before changing whose turn it is.
+      t.act(0, { type: "turn.end" }, deadline);
+    } else {
+      expect(t.service.sweepMatchTime(deadline)).toHaveLength(1);
+      expect(t.service.sweepMatchTime(deadline)).toEqual([]);
+      t.refresh();
+      expect(t.room.state.match.clock?.called).toEqual({ at: deadline, turn: 1, seat: 0 });
+      // A request queued before the sweep still applies after the committed call.
+      t.act(0, { type: "turn.end" }, deadline - 1);
+    }
+    expect(t.room.events.find(event => event.action.type === "time.called")?.action).toMatchObject({ turn: 1, seat: 0 });
+    expect(t.room.events.find(event => event.action.type === "time.extraTurn")?.at).toBe(deadline);
+    const turn = () => t.room.state.turnSeat;
+    t.act(turn(), { type: "turn.end" }, deadline + 2);
+    t.act(turn(), { type: "turn.end" }, deadline + 3);
+    expect(t.room.state.turn).toBe(4);
+    expect(t.room.events.filter(event => event.action.type === "time.extraTurn").map(event => event.action)).toMatchObject([
+      { extraTurn: 1 }, { extraTurn: 2 }, { extraTurn: 3 },
+    ]);
+    if (!tied) t.act(turn(), { type: "lp.change", seat: 0, delta: 100, reason: "gain" }, deadline + 4);
+    if (seatCount === 4) for (const seat of [2, 3]) t.act(turn(), { type: "lp.change", seat, delta: -100, reason: "damage" }, deadline + 4);
+    t.act(turn(), { type: "phase.set", phase: "end" }, deadline + 5);
+    t.act(turn(), { type: "phase.advance" }, deadline + 6);
+    const winnerSeat = tied ? null : 0;
+    expect(t.room).toMatchObject({ status: "ended", state: { turn: 4, match: { phase: "done", winnerSeat, games: [{ winnerSeat, reason: "timeout" }] } } });
+    expect(t.room.events.filter(event => event.action.type === "time.result").map(event => event.action)).toEqual([
+      { type: "time.result", reason: "lp", winnerSeat, ...(seatCount === 4 ? { tiedSeats: [0, 1] } : {}) },
+    ]);
+    expect(t.service.replay(t.room.slug, "g", t.users[0])).toEqual(t.refresh(0).state);
+  });
+
+  it("only lets the host turn off the clock and keeps it off in the opponent's room and replay", () => {
+    const t = timedTable(2);
+    expect(() => t.service.configure(t.room.slug, "g", t.users[1], { matchTimeMinutes: 30 }, 2_001)).toThrow(/host/i);
+    t.service.configure(t.room.slug, "g", t.users[0], { matchTimeMinutes: 30 }, 2_001);
+    expect(t.refresh(1).state.match.clock?.minutes).toBe(30);
+    t.start();
+    const deadline = 2_003 + 30 * 60_000;
+    expect(() => t.act(1, { type: "time.off" }, 2_004)).toThrow(/host/i);
+    t.act(0, { type: "time.off" }, 2_005);
+    expect(t.refresh(1).state.match.clock).toMatchObject({ startedAt: 2_003, offAt: 2_005 });
+    expect(t.room.events.filter(event => event.action.type === "time.off")).toHaveLength(1);
+    t.keepAlive(deadline - 1_000);
+    expect(t.service.sweepMatchTime(deadline)).toEqual([]);
+    expect(t.act(0, { type: "turn.end" }, deadline + 1).state.match.clock?.called).toBeUndefined();
+    expect(t.service.replay(t.room.slug, "g", t.users[1])).toEqual(t.refresh(1).state);
+  });
+
+  it.each(["siding", "duel"] as const)("ends a best-of-three when time is called in %s without playing a new game", phase => {
+    const t = timedTable(2, 3);
+    t.start();
+    const deadline = 2_003 + 40 * 60_000;
+    t.keepAlive(deadline - 20_000);
+    t.act(1, { type: "player.concede" }, deadline - 15_000);
+    t.act(0, { type: "match.continue" }, deadline - 14_000);
+    if (phase === "duel") {
+      t.act(0, { type: "side.ready", seat: 0 }, deadline - 10_000);
+      t.act(1, { type: "side.ready", seat: 1 }, deadline - 9_000);
+      t.keepAlive(deadline - 1);
+      // The sweep missed the earlier next-game deadline and must apply it before calling time.
+      t.service.sweepMatchTime(deadline);
+      expect(t.refresh().state.match.clock?.called).toMatchObject({ turn: 1, seat: 1 });
+      expect(t.room.state.match.clock?.startedAt).toBe(2_003);
+      expect(t.room.lastEventAt).toBe(deadline - 1);
+      t.act(0, { type: "player.concede" }, deadline + 1);
+    } else {
+      // Expiry also wins the race against any side-deck action at the deadline.
+      t.act(1, { type: "side.ready", seat: 1 }, deadline);
+      expect(t.room.state.match.clock?.called).toMatchObject({ turn: null, seat: null });
+    }
+    expect(t.room).toMatchObject({ status: "ended", state: { match: { phase: "done", winnerSeat: phase === "duel" ? null : 0 } } });
+    expect(t.room.state.match.games.map(game => game.winnerSeat)).toEqual(phase === "duel" ? [0, 1] : [0]);
+    expect(t.service.replay(t.room.slug, "g", t.users[0])).toEqual(t.refresh(0).state);
+  });
+
+  it.each(["duel", "result"] as const)("settles expired time before an FFA account deletion in %s", phase => {
+    const t = timedTable(3, 3);
+    t.start();
+    const deadline = 2_003 + 40 * 60_000;
+    t.keepAlive(deadline - 10);
+    t.act(2, { type: "player.concede" }, deadline - 2);
+    if (phase === "result") t.act(1, { type: "player.concede" }, deadline - 1);
+    const clock = vi.spyOn(Date, "now").mockReturnValue(deadline);
+    try { deleteUserAccount(t.db, t.users[phase === "duel" ? 1 : 0]); }
+    finally { clock.mockRestore(); }
+    const keeper = phase === "duel" ? 0 : 1;
+    expect(t.refresh(keeper)).toMatchObject({ status: "ended", state: { match: { winnerSeat: 0, clock: {
+      result: phase === "duel" ? "game-ended" : "between-games",
+    } } } });
+    expect(t.service.replay(t.room.slug, "g", t.users[keeper])).toEqual(t.room.state);
+  });
+});
+
 it('limits named Spell/Trap card activations per seat and turn and restores them on Undo', () => {
   const s = deckSession('normal'); s.start();
   const play = (ref: string, cardId = 80101899, seat = 0, faceUp = true, fromActivation?: string) => s.act({

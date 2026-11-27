@@ -74,13 +74,26 @@ const remoteEvents = remoteAccess ? registerRemoteEventHandlers(io, {
   },
 }) : null;
 if (remoteAccess && remoteEvents) {
+  const publishTimers = (tables: ReturnType<typeof remoteAccess.sweepMatchTime>) => {
+    for (const table of tables) {
+      remoteEvents.publish(table.slug, table.guildId);
+      if (table.status === "ended" && table.endReason === "game" && table.tournamentMatchId) {
+        const slug = remoteAccess.tournamentSlug(table.tournamentMatchId, table.guildId);
+        if (slug) io.to(`tournament:${slug}`).emit("tournament:match-updated", {});
+      }
+    }
+  };
   const sweep = () => {
-    try { for (const table of remoteAccess.sweepIdle()) remoteEvents.publish(table.slug, table.guildId); }
+    try { publishTimers(remoteAccess.sweepIdle()); }
     catch { log("warn", "[ws] Remote idle sweep unavailable"); }
   };
   const timer = setInterval(sweep, 30_000); timer.unref();
+  const matchTimer = setInterval(() => {
+    try { publishTimers(remoteAccess.sweepMatchTime()); }
+    catch { log("warn", "[ws] Remote match timer sweep unavailable"); }
+  }, 1000); matchTimer.unref();
   sweep();
-  httpServer.on("close", () => { clearInterval(timer); remoteAccess.close(); });
+  httpServer.on("close", () => { clearInterval(timer); clearInterval(matchTimer); remoteAccess.close(); });
 }
 
 httpServer.listen(WS_PORT, () => {

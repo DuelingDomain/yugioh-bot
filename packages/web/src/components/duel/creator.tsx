@@ -1,6 +1,6 @@
 "use client";
 
-import { REMOTE_DEFAULT_VISIBILITY } from "@yugidraft/shared/remote";
+import { DEFAULT_REMOTE_MATCH_MINUTES, REMOTE_DEFAULT_VISIBILITY, type RemoteMatchMinutes } from "@yugidraft/shared/remote";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
@@ -24,7 +24,7 @@ import {
   type DuelMode,
   type DuelSettings,
 } from "@yugidraft/shared/duels";
-import { createRemoteRoom, remoteFormatId, remoteFormatName, remoteTableHref, useSavedDecks } from "@/components/remote/ui/create";
+import { createRemoteRoom, remoteFormatId, remoteFormatName, remoteMatchTimeLabel, remoteTableHref, useSavedDecks } from "@/components/remote/ui/create";
 import { createDuel, DuelRequestError, type DuelPlayerOption } from "./api";
 import { OpponentPicker } from "./opponent-picker";
 import { HostedTableNotice } from "./hosted-table-notice";
@@ -138,6 +138,7 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
   const [remoteSolo, setRemoteSolo] = useState(false);
   const [remoteDeck, setRemoteDeck] = useState("");
   const [remoteShowSet, setRemoteShowSet] = useState(true);
+  const [remoteMatchTime, setRemoteMatchTime] = useState<RemoteMatchMinutes>(DEFAULT_REMOTE_MATCH_MINUTES);
   const savedDecks = useSavedDecks(remote);
   const [sent, setSent] = useState<{ slug: string; opponent: string; shareUrl: string } | null>(null);
   const [copied, setCopied] = useState(false);
@@ -237,7 +238,7 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
     try {
       if (remote) {
         const room = await createRemoteRoom({
-          seatCount: remoteSeats, solo: remoteSolo, format: remoteFormatKey, savedDeckId: remoteDeck ? Number(remoteDeck) : null, showCardsSetFromDeck: remoteShowSet, visibility: remoteVisibility,
+          seatCount: remoteSeats, solo: remoteSolo, format: remoteFormatKey, savedDeckId: remoteDeck ? Number(remoteDeck) : null, showCardsSetFromDeck: remoteShowSet, visibility: remoteVisibility, matchTimeMinutes: remoteMatchTime,
           rules: remoteGenesys && cap.ok ? { genesys: { pointCap: cap.value } } : undefined,
         });
         navigatedToRoom.current = true;
@@ -410,6 +411,7 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
 
             {remote ? (
               <RemoteSetupSection formatControls={formatControls(false)} seats={remoteSeats} onSeats={setRemoteSeats} solo={remoteSolo} onSolo={setRemoteSolo}
+                matchTime={remoteMatchTime} onMatchTime={setRemoteMatchTime}
                 deck={remoteDeck} onDeck={setRemoteDeck} showSet={remoteShowSet} onShowSet={setRemoteShowSet} decks={savedDecks}
                 visibility={<div className={styles.wide}>
                   <SheetSegmented label="Visibility" value={remoteSolo ? "private" : remoteVisibility} choices={VISIBILITY} onChange={setRemoteVisibility} disabled={remoteSolo} full />
@@ -627,7 +629,7 @@ export function DuelCreator({ focusOpponent = false, multiplayerTables = false, 
                 <p className={styles.kind}>Remote Duel · {remoteFormatName(remoteFormatKey)} · {remoteSeats === 2 ? "1v1" : `${remoteSeats}-way`}</p>
                 <dl className={styles.rows}>
                   {([["Play", "Physical cards over webcam"], ["Format", remoteFormatName(remoteFormatKey)], ...(genesys && remoteGenesys ? [["Point cap", `${genesysCapShort(genesys)} per duelist`] as [string, string]] : []), ["Seats", `${remoteSeats} · ${remoteSeats === 2 ? "1v1" : "free for all"}`],
-                    ["Set from Deck", remoteShowSet ? "Shown to all" : "Hidden"], ["Visibility", remoteSolo || remoteVisibility === "private" ? "Invite only" : "Public"],
+                    ["Match time", remoteMatchTimeLabel(remoteMatchTime)], ["Set from Deck", remoteShowSet ? "Shown to all" : "Hidden"], ["Visibility", remoteSolo || remoteVisibility === "private" ? "Invite only" : "Public"],
                     ["Players", remoteSolo ? `Solo test, ${remoteSeats - 1} bot${remoteSeats === 2 ? "" : "s"}` : remoteVisibility === "private" ? "You and invited players" : "Open to others"],
                     ["Deck", savedDecks.data?.decks.find((deck) => String(deck.id) === remoteDeck)?.name ?? "No deck"]] as [string, string][]).map(([label, value]) => (
                     <div key={label}><dt>{label}</dt><dd>{value}</dd></div>

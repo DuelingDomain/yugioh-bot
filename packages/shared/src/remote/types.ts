@@ -3,7 +3,7 @@ import type { AttackHints, AttackResolution } from "./attack-resolver.js";
 import type { RemoteDeckChecks, RemoteDeckRegistration, RemoteFormat, RemoteReductionContext } from "./deck-checks.js";
 
 import type { RemoteEffectTracking } from "./effect-tracking.js";
-import type { RemoteBestOf, RemoteFirstPlayerMode, RemoteMatch, RemoteOpening } from "./match-contract.js";
+import type { RemoteBestOf, RemoteFirstPlayerMode, RemoteMatch, RemoteMatchMinutes, RemoteOpening, RemoteTimeEvent } from "./match-contract.js";
 
 export type SeatCount = 2 | 3 | 4;
 export type RemoteRevealedHand = 'until-played' | 'one-turn';
@@ -94,8 +94,8 @@ export interface GameModule {
 export type RemoteStatus = "lobby" | "active" | "ended";
 export type RemoteSeat = { seat: number; userId: number | null; bot: boolean; displayName: string; ready: boolean; deckRegistered?: boolean; deck?: RemoteDeckRegistration | null };
 export type RemoteSystemAction =
-  | { type: "table.created"; gameId: string; seatCount: SeatCount; tournament?: boolean; bestOf?: RemoteBestOf; solo?: boolean; format?: RemoteFormat; showCardsSetFromDeck?: boolean; revealedHand?: RemoteRevealedHand; firstPlayer?: RemoteFirstPlayerMode }
-  | { type: "table.configured"; format: RemoteFormat; bestOf?: RemoteBestOf; registrations: RemoteDeckChecks["registrations"]; showCardsSetFromDeck?: boolean; revealedHand?: RemoteRevealedHand; firstPlayer?: RemoteFirstPlayerMode }
+  | { type: "table.created"; gameId: string; seatCount: SeatCount; tournament?: boolean; bestOf?: RemoteBestOf; solo?: boolean; format?: RemoteFormat; showCardsSetFromDeck?: boolean; revealedHand?: RemoteRevealedHand; firstPlayer?: RemoteFirstPlayerMode; matchTimeMinutes?: RemoteMatchMinutes }
+  | { type: "table.configured"; format: RemoteFormat; bestOf?: RemoteBestOf; registrations: RemoteDeckChecks["registrations"]; showCardsSetFromDeck?: boolean; revealedHand?: RemoteRevealedHand; firstPlayer?: RemoteFirstPlayerMode; matchTimeMinutes?: RemoteMatchMinutes }
   | { type: "seat.deck"; seat: number; registration: RemoteDeckRegistration | null }
   | { type: "seat.joined"; seat: number; userId: number | null; bot?: boolean }
   | { type: "seat.left"; seat: number; userId: number | null }
@@ -104,7 +104,8 @@ export type RemoteSystemAction =
   | { type: "idle.warning"; closesAt: number }
   /** An admin started or stopped watching. A public fact: who and when, never camera data. */
   | { type: "admin.watching"; userId: number | null; name: string; watching: boolean }
-  | { type: "table.ended"; reason: "idle" | "account-deleted" | "creator-left" | "tournament-closed" | "match-completed" | "match-voided" };
+  | { type: "table.ended"; reason: "idle" | "account-deleted" | "creator-left" | "tournament-closed" | "match-completed" | "match-voided" }
+  | RemoteTimeEvent;
 export type RemoteEvent = {
   id: string; seq: number; actorSeat: number | null; userId: number | null; at: number;
   action: RemoteAction | RemoteSystemAction;

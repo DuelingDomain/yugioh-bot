@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { serverNow } from "./api";
 import { Icon } from "./icons";
 import { PHASES, PHASE_LONG, PHASE_SHORT, phaseIndex } from "./model";
@@ -23,6 +23,8 @@ export function DuelTimer({ startedAt, endedAt }: { startedAt: number | null; en
   return <span className={s.dtimer} role="timer" aria-label={`Duel time ${text}`} title="How long this duel has been going" data-testid="duel-timer"><Icon name="clock" /><b>{text}</b></span>;
 }
 
+export { MatchTimer } from "./match-timer";
+
 export type Player = { seat: number; name: string; color: string; eliminated: boolean };
 
 /** The phone copy of the "Admin watching" badge: the header has no room, so it takes its own row. Hidden on wide screens, where TopBar shows it. */
@@ -30,9 +32,10 @@ export function AdminWatchStrip({ names }: { names: string[] }) {
   return names.length ? <div className={s.adminStrip}><span className={s.adminPill} role="status" data-testid="admin-watching-strip">Admin watching · {names.join(", ")}</span></div> : null;
 }
 
-export function TopBar({ crumb, tournament = null, chip, startedAt = null, endedAt = null, adminWatchers = [], health, healthOpen, cardOpen, logOpen, logDot, settingsOpen, onHealth, onCard, onLog, onSettings, webcamOnly, onView }: {
+export function TopBar({ crumb, tournament = null, chip, startedAt = null, endedAt = null, matchTimer, adminWatchers = [], health, healthOpen, cardOpen, logOpen, logDot, settingsOpen, onHealth, onCard, onLog, onSettings, webcamOnly, onView }: {
   crumb: string; /** When the duel started, in ms. Null before it starts. */ startedAt?: number | null; endedAt?: number | null; /** A tournament table: its name and page. The logo goes there too, so a phone has the way back. */ tournament?: { name: string; href: string } | null; chip: string; /** Names of the admins who watch now. The players see them as "Admin watching". */ adminWatchers?: string[];
   cardOpen: boolean; /** The drawer is open on its Log tab. */ logOpen: boolean; logDot: boolean; /** The drawer is open on its Settings tab. */ settingsOpen: boolean;
+  matchTimer?: ReactNode;
   /** Worst feed state in one line; the chip opens the drawer's Info tab. */ health: { q: "good" | "warn" | "bad" | "off"; text: string }; healthOpen: boolean; onHealth: (el: HTMLElement) => void;
   onCard: (el: HTMLElement) => void; onLog: (el: HTMLElement) => void; /** Opens the drawer on its Settings tab, or closes it when it is already there. */ onSettings: (el: HTMLElement) => void;
   /** True when the virtual fields are hidden and the camera feeds take the space. */ webcamOnly: boolean; /** Absent on a 3-way or 4-way table: only the cameras show, so there is no board switch. */ onView?: (webcamOnly: boolean) => void;
@@ -41,7 +44,7 @@ export function TopBar({ crumb, tournament = null, chip, startedAt = null, ended
     <a className={s.logo} href={tournament?.href ?? "/duels"} aria-label={tournament ? `Leave the table and return to ${tournament.name}` : "Leave the table and return to the Remote Duels lobby"}><span className={s.gem} /><b>Dueling Domain</b></a>
     <span className={s.crumb}>{tournament ? <><a className={s.crumbLink} href={tournament.href} data-testid="table-tournament-link"><b>{tournament.name}</b></a> · </> : null}<b>Remote Duel</b> · {crumb}</span>
     <span className={s.cchip}>{chip}</span>
-    <DuelTimer startedAt={startedAt} endedAt={endedAt} />
+    {matchTimer === undefined ? <DuelTimer startedAt={startedAt} endedAt={endedAt} /> : matchTimer}
     {adminWatchers.length ? <span className={s.adminBadge} role="status" data-testid="admin-watching-badge" title="An admin can see this table as a spectator. Hidden cards stay hidden.">Admin watching · {adminWatchers.join(", ")}</span> : null}
     <span className={s.sp} />
     {onView ? <button type="button" className={`${s.tb} ${s.boardtog}`} aria-pressed={!webcamOnly} data-testid="view-board" aria-label={`Virtual board, beta: ${webcamOnly ? "off" : "on"}`} onClick={() => onView(!webcamOnly)}
