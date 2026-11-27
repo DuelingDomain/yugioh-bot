@@ -1549,7 +1549,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     // Auto mode on a browser without WebGPU always reads on the CPU: that is information, not a fault. Only a GPU that failed during this session warns.
     ...(reader.backend === "wasm" && (reader.note || reader.mode === "cpu") ? [{
       key: "reader", name: "Card recognition",
-      health: { q: gpuLossReason() ? "warn" as const : "off" as const, label: "CPU reader", detail: recognitionCpuReason(reader) },
+      health: { q: gpuLossReason() ? "warn" as const : "off" as const, label: "Using CPU", detail: recognitionCpuReason(reader) },
       tag: gpuLossReason() ? "Weak" : "Info",
     }] : []),
   ];

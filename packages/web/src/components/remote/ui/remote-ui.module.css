@@ -1313,6 +1313,8 @@
 .peerBadge{flex:0 1 auto;min-width:0;max-width:200px;pointer-events:auto;cursor:default}
 .backendGpu{border-color:rgb(232 185 79/.5);color:var(--gold-ink)}
 .backendNote{display:block;max-width:220px;border:1px solid var(--line2);border-radius:4px;padding:3px 6px;background:rgb(7 4 14/.92);color:var(--ink);font:600 10px/1.3 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;white-space:normal}
+.backendWarn{border-color:rgb(232 185 79/.6);color:var(--ink);box-shadow:0 0 0 2px rgb(232 185 79/.22)}
+.srOnly{position:absolute;width:1px;height:1px;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
 .statusRow{display:flex;flex-wrap:wrap;align-items:flex-start;gap:4px;min-width:0}
 
 /* A card the watcher sees but has not read. Looks the same as the saved "Reading" card, so nothing jumps when it arrives. */
