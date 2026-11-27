@@ -627,6 +627,29 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
       s.twin = s.twin.map(c => remoteOrderedPileContains(action.zone, c) ? ordered[i++] : c);
       break;
     }
+    case "pile.set": {
+      remoteAssert(action.source !== "auto", "Replacing a pile requires a player action", 409);
+      const s = ownField(action.seat);
+      const pile = s.twin.filter(c => c.zone === action.zone);
+      const expected = action.expectedRefs;
+      remoteAssert(!expected || (pile.length === expected.length && pile.every((c, i) => c.ref === expected[i])),
+        "The pile changed. Re-check it before applying", 409);
+      const other = s.twin.filter(c => c.zone !== action.zone);
+      remoteAssert(other.length + action.entries.length <= 100 && action.entries.every(entry => !other.some(c => c.ref === entry.ref)),
+        "Duplicate card ref or field is full", 409);
+      const ordered = action.entries.map(({ ref, cardId, name, faceUp }): TwinCard => {
+        const existing = pile.find(c => c.ref === ref);
+        if(existing) {
+          remoteAssert(faceUp === undefined, "A retained pile entry takes only its ref", 409);
+          return existing;
+        }
+        remoteAssert(faceUp !== undefined, "A card left that pile before it was saved", 409);
+        return { ref, cardId, name, faceUp: action.zone === "graveyard" || faceUp, zone: action.zone, position: "attack" };
+      });
+      if(pile.length === ordered.length && pile.every((c, i) => c === ordered[i])) return state;
+      s.twin = [...other, ...ordered];
+      break;
+    }
     case "pile.lift": {
       remoteAssert(action.source !== "auto" || context?.replay, "Picking up pile cards requires a player action", 409);
       const s = ownField(action.seat);

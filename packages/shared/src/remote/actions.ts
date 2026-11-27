@@ -105,6 +105,12 @@ export const remoteActionEventSchema = z.discriminatedUnion("type", [
   /** Orders a public pile (oldest first). Extra Deck orders are retained for replay. */
   z.strictObject({ ...meta, type: z.literal("pile.order"), seat: remoteSeatSchema, zone: z.enum(["graveyard", "banished", "extra"]), cardRefs: z.array(id).min(1).max(120)
     .refine(refs => new Set(refs).size === refs.length, "Duplicate pile card"), source: z.literal("auto").optional() }),
+  /** Replaces a public pile, oldest first. A ref-only entry keeps the existing card. */
+  z.strictObject({ ...meta, type: z.literal("pile.set"), seat: remoteSeatSchema, zone: z.enum(["graveyard", "banished"]),
+    entries: z.array(z.strictObject({ ref: id, cardId: cardId.optional(), name: sighting.name, faceUp: z.boolean().optional() })
+      .refine(entry => entry.faceUp !== undefined || (entry.cardId === undefined && entry.name === undefined), "A retained pile entry takes only its ref")).max(100)
+      .refine(entries => new Set(entries.map(entry => entry.ref)).size === entries.length, "Duplicate pile card"),
+    expectedRefs: z.array(id).max(100).optional(), source: z.literal("auto").optional() }),
   z.strictObject({ ...meta, type: z.literal("twin.move"), seat: remoteSeatSchema, zone, cardRef: id, slot: slot.optional(), position: z.enum(["attack", "defense"]).optional(), faceUp: z.boolean().optional(), source: z.literal("auto").optional(), name: z.string().trim().min(1).max(200).optional(),
     /** Fresh public ref for a camera-confirmed face-down return from the hand. */
     setRef: id.optional(),

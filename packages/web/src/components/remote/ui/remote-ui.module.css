@@ -1249,6 +1249,13 @@
 .pileTitle small{font-weight:600;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--gold-ink)}
 .pileHead .seg b{margin-left:5px;font:700 12px/1 var(--font-duel-display),Oxanium,sans-serif;color:var(--gold-ink)}
 .pileActions{display:flex;flex-wrap:wrap;gap:8px;padding:8px 12px 0}
+.pileEdit{display:grid;gap:10px;padding:12px;overflow:auto;color:var(--ink)}
+.pileEdit p{margin:0}
+.pileEditControls,.pileSearchResults{display:flex;flex-wrap:wrap;gap:6px}
+.pileSearch{display:grid;gap:6px;min-width:0}
+.pileEditList{list-style:none;margin:0;padding:0;display:grid;gap:5px}
+.pileEditList li{display:flex;align-items:center;gap:6px}
+.pileEditList label{flex:1;font-size:13px}
 .pileBody{display:flex;gap:14px;min-height:0;flex:1 1 auto;padding:12px}
 .pileList{list-style:none;margin:0;padding:4px 2px 8px;flex:1 1 0;min-width:0;overflow:auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(92px,1fr));gap:12px 10px;align-content:start}
 .pileItem{display:block;min-width:0;position:relative}

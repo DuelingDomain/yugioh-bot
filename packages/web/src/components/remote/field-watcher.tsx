@@ -1,7 +1,7 @@
 "use client";
 import { recognitionPriorsFor, registeredDeckPasscodes } from "@/lib/remote/recognition-priors";
 
-import {useCallback,useEffect,useMemo,useRef,useState} from 'react';
+import {useCallback,useEffect,useMemo,useRef,useState,type RefObject} from 'react';
 import {catalogCardId,fieldGlareChoices,fieldZoneLocation,fieldStackUnder,yugioh,type HeldCardEvent,type HeldUnsureEvent,type FieldEvent,type FieldSnapshot,type FieldTrack,type FieldZone,type KnownFieldCard,type FieldCalibration,fieldPacerDevice,FIELD_ACTIVITY_WINDOW_MS,FIELD_SET_RETURN_MS} from '@yugidraft/vision';
 import {useSendHealth} from '@/lib/remote/send-health-store';
 import {markVideoOfferShown,readVideoChoice,VIDEO_OFFER_MS,videoOfferShown} from '@/lib/remote/video-rate';
@@ -167,7 +167,10 @@ const LATE_PILE_MS=REMOTE_UNREAD_PILE_MS;
 /** Where a camera departure can still be a summon material (the server accepts these for 30 s). */
 const summonable=(zone:string)=>['hand','graveyard','banished','extra'].includes(zone);
 /** Owner evidence, table mutations and UI remain isolated from the feed reader. */
-export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock}:{room:RemoteRoom;transaction:RoomTransaction;diagnosticsAllowed?:boolean;dock?:HTMLElement|null}) {
+export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock,reviewingPile,onOpenPile}:{
+  room:RemoteRoom;transaction:RoomTransaction;diagnosticsAllowed?:boolean;dock?:HTMLElement|null;
+  reviewingPile?:RefObject<PublicPile|null>;onOpenPile?(zone:PublicPile):void;
+}) {
   const hub=useVideoHub(),seat=room.mySeat,source=hub.sourceFor(seat);
   const phone=hub.phones.find(p=>p.seat===seat&&p.paired);
   const ownsSource=!!source&&(source.local||!!phone&&phone.mode!=='scan');
@@ -208,6 +211,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   // The timer has a track snapshot. Keep the last recognition evidence per cell for its revision.
   const faceReads=useRef(new Map<FieldZone,FieldEvent>());
   const prompted=useRef(new Set<string>()),placeholders=useRef(new Map<string,string>()),readerRemovals=useRef(new Set<string>());
+  const pileOrigins=useRef(new Map<string,{cardId:number;ref:string}>());
   // Summon window: monsters that left the field (watcher time) and Extra Deck summons placed moments ago.
   const separatedStackCards=useRef(new Set<string>());
   /** Cards placed before their facts arrived: the summon check runs when the facts do (see the zone-rule effect). */
@@ -225,7 +229,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   const pileEntry=(track:Pick<FieldTrack,'zone'|'firstSeen'>,differs=false)=>{
     const snap=watch.getSnapshot?.();
     const touched=snap?.pileTouchedAt?.[track.zone as PileCell];
-    return track.firstSeen-watchStartedAt.current>2000&&(differs||touched!==undefined&&touched>=track.firstSeen-PILE_EXIT_MS&&touched<=track.firstSeen+1000);
+    return snap?.fannedPiles?.includes(track.zone as PileCell)||track.firstSeen-watchStartedAt.current>2000&&(differs||touched!==undefined&&touched>=track.firstSeen-PILE_EXIT_MS&&touched<=track.firstSeen+1000);
   };
   /** True while the camera has this twin out of view (by its ref or a bound track id). */
   const outOfView=(ref:string)=>watch.isRemoved(ref)||watch.getTracks().some(t=>t.removed&&(bindings.current.get(t.id)??t.id)===ref);
@@ -279,7 +283,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   const departed=departure?room.state.seats[seat].twin.find(c=>c.ref===departure.ref):undefined;
   const attachTargets=departed&&!departed.token&&['monster','extra-monster'].includes(departed.departedFrom?.zone??departed.zone)&&['hand','monster','extra-monster'].includes(departed.zone)?xyzAttachTargets(room.state.seats,c=>cardInfo(cardCode(c)),departed.ref):[];
   useEffect(()=>{setHost(document.querySelector<HTMLElement>(`[data-testid="feed-box-${seat}"]`));setPrompts([]);prompted.current.clear();previousBoard.current={seq:room.lastSeq,zones:new Map()};bindings.current.clear();faceReads.current.clear();},[room.slug,seat,source]);
-  useEffect(()=>{placeholders.current.clear();readerRemovals.current.clear();},[room.slug,seat]);
+  useEffect(()=>{placeholders.current.clear();readerRemovals.current.clear();pileOrigins.current.clear();},[room.slug,seat,source]);
   const savePhysical=()=>{try{sessionStorage.setItem(physical.current!.key,JSON.stringify(Object.fromEntries(physical.current!.zones)));}catch{/* Memory-only fallback. */}};
   const forgetPhysical=(ref:string)=>{if(physical.current!.zones.delete(ref))savePhysical();};
   const prunePhysical=()=>{const refs=new Set(current.current.room.state.seats[seat].twin.map(c=>c.ref));let changed=false;for(const ref of physical.current!.zones.keys())if(!refs.has(ref)){physical.current!.zones.delete(ref);changed=true;}if(changed)savePhysical();};
@@ -379,7 +383,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     }
     return projectFieldZone({zone:track.zone,facts,twins,ref:card?.ref,faceDown:track.faceDown,format:current.current.room.format?.id??current.current.room.state.deckChecks.format.id,equipSource:equipSourceOn(twins),equipped:!!card?.equippedTo});
   };
-  const pileOrders=(pile:PublicPile)=>current.current.room.events?.filter(({action})=>action.type==='pile.order'&&action.seat===seat&&action.zone===pile)??[];
+  const pileOrders=(pile:PublicPile)=>current.current.room.events?.filter(({action})=>(action.type==='pile.order'||action.type==='pile.set')&&action.seat===seat&&action.zone===pile)??[];
   const watcherTime=(at:number)=>performance.now()+(at-serverNow());
   const displacedAt=(pile:PublicPile,ref:string)=>pileOrders(pile).flatMap(({at,action})=>
     action.type==='pile.order'&&action.source==='auto'&&action.cardRefs.at(-2)===ref?[watcherTime(at)]:[]);
@@ -394,10 +398,17 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   const offer=(event:FieldEvent)=>{
     const key=`${event.track.id}:${event.track.revision??0}`;
     if(event.track.faceDown&&event.reason!=='card-presence'||prompted.current.has(key))return;
+    if(observedPile(event.track.zone)){
+      const entry=pileGuess(event),cardId=catalogCardId(entry);
+      const origin=entry&&pilePromptSource(event,event.track,entry,current.current.room.state.seats[seat]);
+      if(cardId&&origin?.ref)pileOrigins.current.set(key,{cardId,ref:origin.ref});
+      if(pileOrigins.current.size>16)pileOrigins.current.delete(pileOrigins.current.keys().next().value!);
+    }
     // React may replay state updaters. Reserve once outside the pure updater.
     prompted.current.add(key);setPrompts(list=>[...list.slice(-5),event]);
   };
   const live=()=>current.current.active&&enabledRef.current&&current.current.room.status==='active'&&!current.current.room.state.ended&&!current.current.room.state.seats[seat].eliminated;
+  const reviewing=(event?:FieldEvent)=>!!reviewingPile?.current&&observedPile(event?.track.zone??'')===reviewingPile.current;
   /** A card the player moved by hand keeps its place while the real card stays where the camera last saw it. */
   const keepsManual=(ref:string,location:{zone:string;slot?:number},position?:string)=>{
     if(correctionsFor(current.current.room,seat).has(ref))return true;
@@ -563,6 +574,9 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
           before.some(c=>c.ref===move.cardRef&&c.zone==='hand')?move:undefined;
         const stillValid=()=>{
           if(cameraCorrectionBlocked(current.current.room,proposal))return false;
+          const review=reviewingPile?.current;
+          if(review&&proposal.cam?.by==='camera'&&(reviewing(event)||'zone' in proposal&&proposal.zone===review||
+            'cardRef' in proposal&&before.some(card=>card.ref===proposal.cardRef&&card.zone===review)))return false;
           if(proposal.type==='undo')return true;
           if(!live())return false;
           if(!event)return true;
@@ -676,6 +690,18 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     return {existing,blocked:false};
   }
   const pileCopy=(members:readonly TwinCard[],entry:Entry)=>members.findLast(c=>c.faceUp&&sameObservedCard(c,{cardId:catalogCardId(entry),name:entry.name}));
+  function pilePromptSource(event:FieldEvent,track:FieldTrack,entry:Entry,player:RemoteRoom['state']['seats'][number]) {
+    const identity={cardId:catalogCardId(entry),name:entry.name};
+    const remembered=pileOrigins.current.get(`${track.id}:${track.revision??0}`);
+    const {existing,blocked}=watch.enabled?resolveExisting(event,{...track,id:bindings.current.get(track.id)??track.id,cardId:entry.cardId},entry,
+      player.twin.filter(card=>card.zone!==observedPile(track.zone))):{
+        existing:remembered?.cardId===identity.cardId?player.twin.find(card=>card.ref===remembered?.ref):undefined,blocked:false,
+      };
+    if(!blocked&&existing&&!existing.token&&existing.ownerSeat===undefined&&(existing.zone==='hand'||publicField(existing.zone))&&sameObservedCard(existing,identity))
+      return {ref:existing.ref,label:existing.zone==='hand'?'hand':knownZone(existing)??'field'};
+    if(identity.cardId&&player.knownHand?.some(card=>card.cardId===identity.cardId))return {ref:undefined,label:'hand'};
+  }
+  const pileGuess=(event:FieldEvent)=>entries.current.get(event.result?.candidates[0]?.cardId??event.track.cardId??'');
   type PileDestination=Pick<FieldTrack,'zone'|'faceDown'|'firstSeen'|'restSince'>;
   const pileExitAt=(track:PileDestination)=>track.restSince??track.firstSeen;
   const pileOutOfView=(snap:FieldSnapshot|undefined,zone:PileCell,at:number)=>
@@ -704,6 +730,9 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     !snap.missingPiles?.includes(zone)&&snap.pileClearSince?.[zone]===undefined&&(snap.pileReturnedAt?.[zone]??-Infinity)<since;
   const fannedPile=(snap:FieldSnapshot|undefined,zone:PileCell)=>snap?.fannedPiles?.includes(zone)||
     (snap?.tracks??watch.getTracks()).filter(t=>t.zone===zone&&t.visible&&!t.removed).length>1;
+  const presentInFan=(card:TwinCard,track:FieldTrack)=>watch.getTracks().some(other=>
+    other.id!==track.id&&other.zone===track.zone&&other.visible&&!other.removed&&Math.abs(track.lastSeen-other.lastSeen)<=500&&
+    (bindings.current.get(other.id)??other.id)===card.ref);
   const pileDepartureStillMissing=(value:Departure,card:TwinCard)=>card.zone===value.pile&&
     !watch.getTracks().some(t=>t.visible&&!t.removed&&(bindings.current.get(t.id)??t.id)===value.ref);
   function offerPileDeparture(track:FieldTrack,lower:TwinCard,upper:readonly TwinCard[],zone:PileCell,pile:PublicPile) {
@@ -785,7 +814,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     if(!after||after.removed||after.revision!==event.track.revision)await removePlaceholder(event.track.id,act,!after||after.removed);
   }
   async function apply(event:FieldEvent,act:RoomMutation,chosen?:string,attempt=0,slideUntil?:number,factsWaited=false) {
-    if(givenHold(event.track))return;
+    if(givenHold(event.track)||reviewing(event))return;
     console.info('[remote field] identify',event.track.id,chosen??event.track.cardId,event.track.zone,event.type);
     const humanChoice=event.type==='prompt'&&(!!chosen||event.reason==='card-presence');
     const matchesEvidence=(track:FieldTrack|undefined)=>fieldEvidenceMatches(event,trackForChoice(event,track),humanChoice);
@@ -833,13 +862,13 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     const knownOrigin=pile&&(twins.find(c=>c.ref===(event.fromRef??track.id))??pileExit(track,entry,twins));
     if(pile&&entry&&!track.faceDown&&(!knownOrigin||knownOrigin.zone===pile)){
       const zone=track.zone as PileCell,members=twins.filter(c=>c.zone===pile);
-      const matching=pileCopy(members,entry),top=members.at(-1);
+      const snap=watch.getSnapshot?.(),fanned=fannedPile(snap,zone);
+      const matching=pileCopy(fanned?members.filter(c=>!presentInFan(c,observed!)):members,entry),top=members.at(-1);
       if(matching){
         if(sureTop&&matching===top)promptedPileTops.current.delete(zone);
-        const snap=watch.getSnapshot?.(),fanned=fannedPile(snap,zone);
         const oldTopVisible=(snap?.tracks??watch.getTracks()).some(t=>t.id!==event.track.id&&t.zone===zone&&t.visible&&!t.removed&&(bindings.current.get(t.id)??t.id)===top?.ref);
         const lastOrder=pileOrders(pile).at(-1);
-        const manualOrder=lastOrder?.action.type==='pile.order'&&lastOrder.action.source!=='auto';
+        const manualOrder=lastOrder&&(lastOrder.action.type==='pile.set'||lastOrder.action.type==='pile.order'&&lastOrder.action.source!=='auto');
         if(matching!==top&&!oldTopVisible&&!fanned){
           if(humanChoice||track.pileReturn&&sureTop&&(!manualOrder||track.firstSeen>watcherTime(lastOrder.at))){
             const cardRefs=[...members.filter(c=>c!==matching).map(c=>c.ref),matching.ref];
@@ -1063,7 +1092,13 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       // The resolver has just required a distinct, same-frame witness for every
       // existing copy. Undo's clock estimate rounds HTTP Date up; evidence must
       // use its lower bound so the server never sees a future camera sample.
-      const copyCount=code?twins.filter(c=>{if(!publicField(c.zone)||!sameObservedCard(c,{cardId:code,name:entry?.name}))return false;const other=watch.getTrack(c.ref)??tracks.current.find(t=>(bindings.current.get(t.id)??t.id)===c.ref);return !!other&&simultaneousFieldCopies(track,other,true);}).length:0;
+      const copyCount=code?twins.filter(c=>{
+        if(!sameObservedCard(c,{cardId:code,name:entry?.name}))return false;
+        if(pile&&c.zone===pile&&fannedPile(watch.getSnapshot?.(),track.zone as PileCell))return presentInFan(c,latest!);
+        if(!publicField(c.zone))return false;
+        const other=watch.getTrack(c.ref)??tracks.current.find(t=>(bindings.current.get(t.id)??t.id)===c.ref);
+        return !!other&&simultaneousFieldCopies(track,other,true);
+      }).length:0;
       const copyProof=!existing&&copyCount?{simultaneousQuads:copyCount+1,at:Math.floor(serverNow()-999-Math.max(0,performance.now()-track.lastSeen))}:undefined;
       const choices=track.nameCandidates?.map(candidate=>{const named=entries.current.get(candidate.cardId);if(!named)throw new Error('Candidate names are still loading. Retry the field update.');const code=catalogCardId(named);if(!code)throw new Error('Candidate identity is unavailable. Retry the field update.');return {cardId:code,name:named.name,score:candidate.score};});
       const nameCandidates=choices??(existing?.nameCandidates?null:undefined);
@@ -1235,6 +1270,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     return cappedFacts(lookup,FACTS_WAIT_MS);
   }
   function handle(event:FieldEvent,departureOrigin?:Pick<TwinCard,'ref'|'zone'|'slot'>,factsStarted=false,moveRetry=0) {
+    if(reviewing(event))return;
     if(!factsStarted&&event.result&&event.track.state==='identified'&&!event.track.faceDown)faceReads.current.set(event.track.zone,event);
     const observedRef=bindings.current.get(event.track.id)??event.track.id;
     if(givenHold(event.track))return;
@@ -1352,7 +1388,9 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
         if(['GY','BANISHED'].includes(event.track.zone))void queue(async act=>{
           const observed=watch.getTrack(event.track.id);
           if(!live()||observed?.zone!==event.track.zone||!fieldEvidenceMatches(event,observed))return;
-          const twins=current.current.room.state.seats[seat].twin,ref=bindings.current.get(event.track.id)??event.track.id;
+          const player=current.current.room.state.seats[seat],twins=player.twin,ref=bindings.current.get(event.track.id)??event.track.id;
+          const guess=pileGuess(event);
+          if(guess&&pilePromptSource(event,observed,guess,player))return;
           if(twins.some(c=>c.ref===ref))return;
           const zone=event.track.zone==='GY'?'graveyard':'banished';
           const top=twins.filter(c=>c.zone===zone).at(-1),departure=top?.departedFrom;
@@ -1364,7 +1402,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
           const firstSeen=Math.round(performance.timeOrigin+event.track.firstSeen);
           const overlapsMove=stamp?.seenAt!==undefined&&firstSeen>=stamp.seenAt-1000&&firstSeen<=stamp.sentAt;
           if(top&&(event.bindRef===top.ref||overlapsMove)){bindings.current.set(event.track.id,top.ref);return;}
-          if(top&&event.track.pileReturn)return; // Leave the prompt unbound so the player can identify a new card.
+          if(top&&event.track.pileReturn&&!fannedPile(watch.getSnapshot?.(),event.track.zone as PileCell))return;
           if(!pileEntry(event.track)){if(top)bindings.current.set(event.track.id,top.ref);return;}
           // A card that was just shown from the hand and then reaches a pile unread is that card: name it, so the hand count stays exact.
           const active=handActivation.current,mine=current.current.room.state.seats[seat];
@@ -1483,7 +1521,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
         if(updated&&seen){const adopted=await adoptPileCard(act,seen,card.ref,undoTarget);if(adopted){updated=adopted.state;undoTarget=adopted.undoTarget;}}
         else if(updated&&wasPublic&&proposal.zone!=='hand')lateDefaults.current.set(card.ref,{at:performance.now(),lastSeen:event.track.lastSeen,cardId:event.track.cardId,...(proposal.zone==='graveyard'?{pile:true as const}:{})});
         // The camera saw a named card on top of this pile: a card with no evidence of its own lies under it, also when that card was written first.
-        if(updated&&pileZone){
+        if(updated&&pileZone&&!fannedPile(snap,pileZone)){
           const order=updated.state.seats[seat].twin.filter(c=>c.zone===proposal.zone).map(c=>c.ref);
           const top=watch.getTracks().filter(t=>t.zone===pileZone&&t.visible&&!t.removed&&t.state==='identified'&&t.cardId).sort((x,y)=>y.firstSeen-x.firstSeen)[0],topRef=top&&(bindings.current.get(top.id)??top.id);
           const cardRefs=topRef?fieldPileUnderTop(order,card.ref,topRef):undefined;
@@ -1799,15 +1837,24 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   useEffect(()=>{
     const active=new Set(watch.snapshot.tracks.filter(t=>t.state==='prompt'&&!t.removed).map(t=>`${t.id}:${t.revision??0}`));
     for(const key of prompted.current)if(!active.has(key))prompted.current.delete(key);
-    setPrompts(list=>{const next=list.filter(p=>{const live=watch.getTrack(p.track.id);return live?.state==='prompt'&&(live.revision??0)===(p.track.revision??0);});return next.length===list.length?list:next;});
     const zones=new Map(room.state.seats[seat].twin.map(c=>[c.ref,c.zone]));
     const previous=previousBoard.current;
+    const revisedPiles=new Set(room.events.flatMap(({seq,action})=>seq>previous.seq&&action.type==='pile.set'&&action.seat===seat&&action.cam?.ui!=='pile-add'?[action.zone]:[]));
+    setPrompts(list=>{
+      const next=list.filter(p=>{
+        const track=watch.getTrack(p.track.id),pile=observedPile(p.track.zone);
+        if(pile&&revisedPiles.has(pile))return false;
+        return !watch.enabled&&pile||track?.state==='prompt'&&(track.revision??0)===(p.track.revision??0);
+      });
+      return next.length===list.length?list:next;
+    });
     for(const [ref,zone] of previous.zones){
       if(zones.get(ref)===zone||readerRemovals.current.has(ref))continue;
       const removedFromPile=(zone==='graveyard'||zone==='banished')&&room.events?.some(({seq,action})=>
         seq>previous.seq&&(
           action.type==='twin.remove'&&action.source!=='auto'&&action.seat===seat&&action.cardRef===ref||
-          action.type==='pile.lift'&&action.source!=='auto'&&action.seat===seat&&action.zone===zone&&action.cardRefs.includes(ref)));
+          action.type==='pile.lift'&&action.source!=='auto'&&action.seat===seat&&action.zone===zone&&action.cardRefs.includes(ref)||
+          action.type==='pile.set'&&action.seat===seat&&action.zone===zone&&!action.entries.some(entry=>entry.ref===ref)));
       if(removedFromPile){
         // Retire the removed card's outline while allowing a different pile top to be read.
         for(const track of watch.getTracks())if(observedPile(track.zone)===zone&&(bindings.current.get(track.id)??track.id)===ref)watch.forget(track.id);
@@ -2425,7 +2472,11 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     shownGlare.current.add(track.id);
     setUndoId('');setNotice(`Glare on ${track.zone}: tilt the card or move the light`);
   },[glareTracks,notice,failedUpdate,recovery,leaveChoice,shiftHint,tokenPrompt,rowPrompts.length,heldPick,calibrating,watch.getTrack]);
-  const activePrompts=prompts.filter(event=>{const live=watch.getTrack(event.track.id);return live?.state==='prompt'&&(live.revision??0)===(event.track.revision??0)&&!correctionsFor(current.current.room,seat).blocks([bindings.current.get(live.id)??live.id],fieldZoneLocation(live.zone));});
+  const activePrompts=prompts.filter(event=>{
+    const track=watch.getTrack(event.track.id)??(!watch.enabled&&observedPile(event.track.zone)?event.track:undefined);
+    return track?.state==='prompt'&&(track.revision??0)===(event.track.revision??0)&&!reviewing(event)&&
+      !correctionsFor(current.current.room,seat).blocks([bindings.current.get(track.id)??track.id],fieldZoneLocation(track.zone));
+  });
   if(glareTracks.length){
     const registered=new Set(registeredDeckPasscodes(room,seat));
     for(const track of glareTracks){
@@ -2453,14 +2504,21 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     return !current.current.room.state.seats[seat].twin.some(c=>c.zone===at.zone&&c.slot===at.slot&&publicField(c.zone)&&(cardCode(c)||!c.faceUp||c.token));
   }).map(event=>{
     const observed=watch.getTrack(event.track.id)??event.track,twins=current.current.room.state.seats[seat].twin;
+    const pile=observedPile(observed.zone);
+    if(pile){
+      const entry=pileGuess(event),cardId=catalogCardId(entry);
+      const source=entry?pilePromptSource(event,observed,entry,current.current.room.state.seats[seat]):undefined;
+      return {id:observed.id,revision:event.track.revision,zone:observed.zone,quad:observed.card.quad,candidates:[],
+        pile:{zone:pile,guess:entry&&cardId?{cardId,name:entry.name,from:source?.label}:undefined}};
+    }
     if(event.reason==='card-presence')return {id:event.track.id,revision:event.track.revision,zone:observed.zone,title:'Card here?',presence:true,quad:observed.card.quad,candidates:[{id:'face-down',label:'Set card'}]};
     // Cards that fit the observed zone come first; others stay available (a monster can be an Equip Card).
     const fits=(cardId:string)=>{const entry=entries.current.get(cardId);return fieldCandidateFitsZone(observed.zone,entry?promptInfo(catalogCardId(entry)):undefined);};
     const glare=event.track.glare?.candidates;
     const prior=glare?[]:fieldStackXyzCandidates({materials:promptMaterials(event),extra:extraIds,facts:promptInfo}).flatMap(id=>{const entry=[...entries.current.values()].find(entry=>catalogCardId(entry)===id);return entry?[{cardId:entry.cardId}]:[];});
     const ranked=[...prior,...(event.result?.candidates??[])].filter((candidate,index,all)=>all.findIndex(c=>c.cardId===candidate.cardId)===index);
-    const choices=event.reason==='pile'?[]:observed.faceDown?[{cardId:'face-down'}]:glare??ranked.sort((a,b)=>Number(prior.some(c=>c.cardId===b.cardId))-Number(prior.some(c=>c.cardId===a.cardId))||Number(fits(b.cardId))-Number(fits(a.cardId))).slice(0,5);
-    return {id:event.track.id,revision:event.track.revision,zone:observed.zone,title:prior.length?'Xyz Monster on this stack?':event.reason==='changed'?'Card changed?':'New card?',quad:observed.card.quad,emptyMessage:event.reason==='pile'?'Move an existing card to this pile from its popup.':undefined,
+    const choices=observed.faceDown?[{cardId:'face-down'}]:glare??ranked.sort((a,b)=>Number(prior.some(c=>c.cardId===b.cardId))-Number(prior.some(c=>c.cardId===a.cardId))||Number(fits(b.cardId))-Number(fits(a.cardId))).slice(0,5);
+    return {id:event.track.id,revision:event.track.revision,zone:observed.zone,title:prior.length?'Xyz Monster on this stack?':event.reason==='changed'?'Card changed?':'New card?',quad:observed.card.quad,
       candidates:choices.map(candidate=>{
         const entry=entries.current.get(candidate.cardId),track={...observed,id:bindings.current.get(event.track.id)??event.track.id,cardId:candidate.cardId};
         const resolved=resolveExisting(event,track,entry,twins);
@@ -2468,11 +2526,45 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
         return {id:candidate.cardId,label:`${observed.faceDown?'Confirm face-down card':entry?.name??candidate.cardId} · ${resolved.blocked?'Another physical card owns this ref':projected.zone?`To ${projected.label}`:projected.reason}`,disabled:resolved.blocked||!projected.zone};
       })};
   });
+  function acceptPilePrompt(id:string,card:{cardId:number;name:string}) {
+    const event=activePrompts.find(p=>p.track.id===id),zone=event&&observedPile(event.track.zone);
+    if(!event||!zone||reviewing(event))return;
+    const entry=[...entries.current.values()].find(item=>catalogCardId(item)===card.cardId)??{...card,cardId:String(card.cardId),passcode:card.cardId};
+    setPending(true);
+    void transaction(async (latest,post)=>{
+      const player=latest.state.seats[seat];
+      if(latest.status!=='active'||latest.state.ended||player.eliminated)return;
+      const track=watch.enabled?watch.getTrack(id):event.track;
+      if(!track||track.state!=='prompt'||(track.revision??0)!==(event.track.revision??0)||observedPile(track.zone)!==zone){
+        setNotice('The card changed. Check the pile again.');return;
+      }
+      const source=pilePromptSource(event,track,entry,player),boundRef=bindings.current.get(id)??id;
+      const bound=player.twin.find(twin=>twin.ref===boundRef&&twin.zone===zone);
+      const unnamed=bound&&!cardCode(bound)&&!bound.name?bound:undefined;
+      const act:RoomMutation=(proposal,key)=>post({...proposal,cam:playerStamp('pile-choice')},key??crypto.randomUUID());
+      let ref=source?.ref??(unnamed&&!source?unnamed.ref:bound&&sameObservedCard(bound,card)?bound.ref:crypto.randomUUID());
+      let updated:RemoteRoom|null=latest;
+      if(source?.ref)updated=await act({type:'twin.move',actorSeat:seat,seat,cardRef:ref,zone,faceUp:true,confirmed:true});
+      else if(unnamed&&!source)updated=await act({type:'card.identified',actorSeat:seat,seat,cardRef:ref,...card,source:'typed'});
+      else if(ref!==bound?.ref){
+        updated=await act({type:'twin.place',actorSeat:seat,seat,zone,anotherCopy:true,card:{...card,ref,faceUp:true,position:'attack'}});
+        if(updated)ref=placedTwin(updated.state.seats[seat].twin,{...card,ref,zone})?.ref??ref;
+      }
+      if(!updated)return;
+      if(unnamed&&ref!==unnamed.ref){
+        const adopted=await adoptPileCard(act,{twin:unnamed,zone,faceUp:true},ref,updated.state.undo?.actionId??'');
+        if(adopted)updated=adopted.state;
+      }
+      bindings.current.set(id,ref);watch.confirm(id,entry.cardId,ref,true);
+      setPrompts(prompts=>prompts.filter(prompt=>prompt.track.id!==id));
+      if(updated!==latest){setNotice(`${card.name} → ${zone==='graveyard'?'GY':'Banished'}`);setUndoId(updated.state.undo?.actionId??'');}
+    }).catch(error=>setNotice(error instanceof Error?error.message:'Could not update the pile.')).finally(()=>setPending(false));
+  }
   const st=room.state;
   autoIdle.current=!promptViews.length&&!notice&&!failedUpdate&&!recovery&&!leaveChoice&&!shiftHint&&!tokenPrompt&&!rowPrompts.length&&!heldPick&&!calibrating&&!st.attack&&!st.twinConfirmation&&!(st.twinConfirmationQueue?.length);
   // What waits for the player must never be silent: the chip says it, and a click opens the Card notices dock (or resumes a sync hold).
-  const waiting=syncHold?0:promptViews.length,scanAdvice=watch.enabled&&!syncHold&&!waiting&&!scanning&&!watch.calibrationNeeded&&!watch.aspectChanged&&!watcherError?adviceReason:null,attention=watch.enabled&&(syncHold||waiting>0||!!scanAdvice);
-  const label=!watch.enabled?'Tap to identify':syncHold?'Auto-detect paused · sync board':waiting>0?`${waiting} card${waiting===1?'':'s'} need${waiting===1?'s':''} you`:watch.aspectChanged?'Camera shape changed · Calibrate zones':scanning&&!syncHold?'Scanning field…':scanAdvice?`${scanAdvice} · Scan field`:watch.calibrationNeeded?(watch.calibration?.orientation?'Calibrate your zones · auto-placement paused':'Choose your side · auto-placement paused'):watch.snapshot.status==='starting'?'Preparing card reader…':watch.snapshot.status==='hidden'?'Paused · tab hidden':watch.snapshot.status==='busy'?'Paused · busy':watcherError?'Reader off':watch.snapshot.status==='budget'?'Watching field · CPU guard':hub.cameraOn?'Watching field':'Camera off';
+  const waiting=syncHold?0:promptViews.length,scanAdvice=watch.enabled&&!syncHold&&!waiting&&!scanning&&!watch.calibrationNeeded&&!watch.aspectChanged&&!watcherError?adviceReason:null,attention=waiting>0||watch.enabled&&(syncHold||!!scanAdvice);
+  const label=waiting>0?`${waiting} card${waiting===1?'':'s'} need${waiting===1?'s':''} you`:!watch.enabled?'Tap to identify':syncHold?'Auto-detect paused · sync board':watch.aspectChanged?'Camera shape changed · Calibrate zones':scanning&&!syncHold?'Scanning field…':scanAdvice?`${scanAdvice} · Scan field`:watch.calibrationNeeded?(watch.calibration?.orientation?'Calibrate your zones · auto-placement paused':'Choose your side · auto-placement paused'):watch.snapshot.status==='starting'?'Preparing card reader…':watch.snapshot.status==='hidden'?'Paused · tab hidden':watch.snapshot.status==='busy'?'Paused · busy':watcherError?'Reader off':watch.snapshot.status==='budget'?'Watching field · CPU guard':hub.cameraOn?'Watching field':'Camera off';
   // Only the "Identify card" prompt needs text injected; the plain "Reading…" card is drawn by the board itself.
   const readingStyles=room.state.seats.flatMap((player,index)=>player.twin.flatMap(card=>{
     if(index!==seat||!card.ref.startsWith('fw-')||cardCode(card)||!card.faceUp||!publicField(card.zone))return [];
@@ -2486,11 +2578,22 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     <FieldWatcherUI keepUnresolved zoneSeat={seat} changes={syncHold?[]:changes} onChanged={zone=>requestManualZone({seat,zone,actions:true})} onWrong={id=>{const event=activePrompts.find(p=>p.track.id===id);if(event)requestManualZone({seat,zone:event.track.zone,ref:bindings.current.get(id)??event.bindRef??id,faceDown:event.track.faceDown});}} onNotACard={id=>{
       const event=activePrompts.find(p=>p.track.id===id);if(!event)return;
       const ref=bindings.current.get(id)??event.bindRef??id;
+      const pile=observedPile(event.track.zone);
+      if(pile){
+        watch.notACard(id,event.track.zone,event.track.card.quad);
+        setPrompts(list=>list.filter(p=>p.track.id!==id));
+        void transaction(async (latest,act)=>{
+          const card=latest.state.seats[seat].twin.find(c=>c.ref===ref&&c.zone===pile);
+          if(card&&pileWrites.current.has(ref)&&(!cardCode(card)&&!card.name||ref===id))
+            await act({type:'twin.remove',actorSeat:seat,seat,cardRef:ref,cam:playerStamp('not-a-card')});
+        }).catch(error=>setNotice(error instanceof Error?error.message:'Could not remove the card.'));
+        return;
+      }
       correctionsFor(current.current.room,seat).begin(ref,[fieldZoneLocation(event.track.zone)]);
       watch.notACard(id);restingReads.current.delete(id);publishReadings();setPrompts(list=>list.filter(p=>p.track.id!==id));
       void queueHuman('not-a-card',async act=>{const card=current.current.room.state.seats[seat].twin.find(c=>c.ref===ref);if(card&&!card.token&&publicField(card.zone))await act({type:'twin.remove',actorSeat:seat,seat,cardRef:ref});});
     }} dock={dock} host={host} enabled={watch.enabled} onEnabledChange={setDetection} statusLabel={label} attention={attention} onStatusAction={attention?()=>{if(syncHold||scanAdvice)scanField();else window.dispatchEvent(new CustomEvent(NOTIFY_OPEN_EVENT,{detail:{seat}}));}:undefined} statusExtra={<><RecognitionBadge phoneCamera={hub.phones.some(p=>p.seat===seat)}/>{recording?<RecordingBadge/>:null}</>} statusTitle={!watch.enabled?'Auto-detect is off. Click a card in any camera to read it. The board does not follow the cards.':watch.snapshot.error??`Detector ${Math.round(watch.snapshot.metrics.detectorMs)} ms · duty ${watch.snapshot.metrics.dutyPercent.toFixed(1)}%`} calibrated={watch.placed} calibrationDisabled={!video?.videoWidth} onCalibrate={()=>setCalibrating(true)} pending={pending}
-      prompts={syncHold?[]:promptViews}
+      prompts={syncHold?[]:promptViews} pileDeck={deckIdsOf(room,seat)} onPileChoose={acceptPilePrompt} onPileOpen={onOpenPile}
       onChoose={(id,cardId)=>{
         console.info('[remote field] candidate click',id,cardId);
         const event=activePrompts.find(p=>p.track.id===id),track=watch.getTrack(id);

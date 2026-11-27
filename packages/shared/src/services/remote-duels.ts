@@ -651,7 +651,7 @@ export function createRemoteDuelService(db: Database.Database, options: {
         }
         const recognized: { cardId?: number; passcode?: number }[] = command.type === "card.identified" ? [command] : command.type === "cards.identified" ? command.cards :
           command.type === "twin.flip" && command.faceUp && command.cardId ? [{cardId:command.cardId}] : command.type === "twin.place" ? [command.card] : command.type === "deck.add" ? [command] :
-          command.type === "effect.activated" && effects.effect ? [{cardId:effects.effect.source.cardId}] :
+          command.type === "pile.set" ? command.entries : command.type === "effect.activated" && effects.effect ? [{cardId:effects.effect.source.cardId}] :
           command.type === "effect.choose" || command.type === "hand.add" || command.type === "hand.reveal" ? [{cardId:command.cardId}, ...(command.type === "hand.add" && command.by ? [{cardId:command.by.cardId}] : [])] : [];
         const codes = recognized.flatMap(c => c.cardId ?? c.passcode ? [c.cardId ?? c.passcode!] : []);
         const registrations = before.deckChecks.registrations;

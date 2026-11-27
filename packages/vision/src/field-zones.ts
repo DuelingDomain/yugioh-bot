@@ -1,4 +1,4 @@
-import { boundsOf, polygonArea } from './geometry';
+import { boundsOf, clipToConvex, polygonArea } from './geometry';
 import type { DetectedQuad, Point } from './types';
 
 export type FieldZone = `M${1|2|3|4|5}` | `S${1|2|3|4|5}` | 'FIELD' | 'EMZ1' | 'EMZ2' | 'GY' | 'BANISHED' | 'DECK' | 'EXTRA';
@@ -428,6 +428,32 @@ export function matRestGeometry(card:Pick<DetectedQuad,'quad'>, calibration:Fiel
 }
 export function mapFieldZone(card:DetectedQuad, calibration?:FieldCalibration, peers:DetectedQuad[]=[], format:FieldFormat='normal'):{zone:FieldZone;calibrated:boolean} {
   return {zone:fieldZoneAt(onMat(fieldCenter(card),calibration),calibration,format),calibrated:!!calibration};
+}
+
+/** Public pile outlines in mat order, from the cell towards the exposed end of the fan. */
+export function publicPileOutlines<T extends DetectedQuad>(cards:readonly T[],calibration?:FieldCalibration,format:FieldFormat='normal'):Record<'GY'|'BANISHED',T[]> {
+  const piles:Record<'GY'|'BANISHED',T[]>={GY:[],BANISHED:[]};
+  const cells=zoneLayoutOf(calibration,format).cells;
+  const outlines=cards.filter(c=>c.quad.length===4&&!c.kept&&!c.partial).map(card=>{
+    const quad=card.quad.map(p=>onMat(p,calibration));
+    return {card,quad,center:fieldCenter({quad}),area:polygonArea(quad)};
+  }).filter(c=>c.area>0);
+  for(const zone of ['GY','BANISHED'] as const){
+    const cell=cells.find(c=>c.zone===zone)!;
+    const cellQuad=[{x:cell.x,y:cell.y},{x:cell.x+cell.w,y:cell.y},{x:cell.x+cell.w,y:cell.y+cell.h},{x:cell.x,y:cell.y+cell.h}];
+    const row=outlines.filter(c=>c.center.y>=cell.y&&c.center.y<=cell.y+cell.h&&!piles.GY.includes(c.card));
+    const overlaps=(a:typeof row[number],b:typeof row[number])=>Math.abs(a.center.x-b.center.x)>=cell.w*.05&&
+      polygonArea(clipToConvex(a.quad,b.quad))/Math.min(a.area,b.area)>=.02;
+    const members=new Set(row.filter(c=>zoneCellAt(c.center,cells)?.zone===zone));
+    // A card straddling the line can anchor the fan even if its centre is just outside the cell.
+    for(const c of row)if(polygonArea(clipToConvex(c.quad,cellQuad))/c.area>=.05&&row.some(other=>overlaps(c,other)))members.add(c);
+    for(const member of members)for(const c of row){
+      if(!members.has(c)&&overlaps(c,member))members.add(c);
+    }
+    const anchor=cell.x+cell.w/2;
+    piles[zone]=[...members].sort((a,b)=>Math.abs(a.center.x-anchor)-Math.abs(b.center.x-anchor)).map(c=>c.card);
+  }
+  return piles;
 }
 /** Detector corners are portrait ordered; measure the long axis in native pixels. */
 export function fieldOrientation(card:DetectedQuad,width:number,height:number,calibration?:FieldCalibration):'attack'|'defense' {

@@ -2918,6 +2918,33 @@ it("targets an untouched card after LP changes, rejects dependencies, and preser
   expect(()=>act({type:"undo",targetActionId:"move-again",idempotencyKey:"occupied-undo"})).toThrow(/occupied/i);
 });
 
+it('replaces an owned public pile in one replayable and undoable action', () => {
+  const s = deckSession('normal'); s.start();
+  const zone = 'graveyard';
+  s.act({type:'twin.place', seat:0, zone, card:{ref:'first', cardId:1, faceUp:true}});
+  s.act({type:'twin.place', seat:0, zone, card:{ref:'second', cardId:2, faceUp:true}});
+  s.act({type:'twin.place', seat:0, zone, card:{ref:'third', cardId:4, faceUp:true}});
+  s.act({type:'hand.add', cardId:3, source:'unknown'});
+  const refs = (room = s.room) => room.state.seats[0].twin.filter(card => card.zone === zone).map(card => card.ref);
+  const before = s.room.state.undoHistory!.length;
+  const entries = [{ref:'third'}, {ref:'second'}, {ref:'new-top', cardId:3, name:'New top', faceUp:true}];
+  expect(() => s.act({type:'pile.set', seat:1, zone, entries})).toThrow(/owner/i);
+  expect(() => s.act({type:'pile.set', source:'auto', seat:0, zone, entries})).toThrow(/player action/i);
+  expect(() => s.act({type:'pile.set', seat:0, zone, entries, expectedRefs:['first','second']})).toThrow(/changed/i);
+  expect(() => s.act({type:'pile.set', seat:0, zone, entries:[{ref:'third',faceUp:true,cardId:4}]})).toThrow(/only its ref/i);
+  s.act({type:'pile.set', seat:0, zone, entries, expectedRefs:refs()});
+  expect(refs()).toEqual(['third','second','new-top']);
+  expect(s.room.state.seats[0].knownHand).toContainEqual(expect.objectContaining({cardId:3}));
+  expect(s.room.state.undoHistory).toHaveLength(before + 1);
+  expect(s.service.replay(s.room.slug, 'g', s.users[0])).toEqual(s.room.state);
+  const targetActionId = s.room.state.undo!.actionId;
+  s.act({type:'twin.place', actorSeat:1, seat:0, zone:'monster', give:true, card:{ref:'given', cardId:5, slot:1, faceUp:true}});
+  s.act({type:'undo', targetActionId});
+  expect(refs()).toEqual(['first','second','third']);
+  expect(s.room.state.seats[0].twin).toContainEqual(expect.objectContaining({ref:'given',zone:'monster'}));
+  expect(s.service.replay(s.room.slug, 'g', s.users[0])).toEqual(s.room.state);
+});
+
 it.each(['graveyard','banished'])('targeted undo restores %s pile order while preserving later edits to other cards',pile=>{
  let state=ygoModule.initialState({seatCount:2}),serial=0;
  const act=(input:Record<string,unknown>)=>state=ygoModule.reduce(state,remoteActionSchema.parse({actorSeat:0,...(input.type==='undo'?{}:{seat:0}),at:1000,idempotencyKey:`pile-order-${++serial}`,...input}));

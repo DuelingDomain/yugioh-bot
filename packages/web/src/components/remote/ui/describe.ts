@@ -43,6 +43,7 @@ export function describeEvent(event: RemoteEvent, name: (seat: number) => string
     case "twin.attach": return { kind: "CD", text: summonLine(a.kind, refName(a.seat, a.cardRef) ?? "a card", a.seat, a.materialRefs, refName), undoable: true };
     case "twin.detach": return { kind: "CD", text: `${who} detached a material from ${refName(a.seat, a.cardRef) ?? "a card"}`, undoable: true };
     case "pile.order": return { kind: "CD", text: `${a.zone === "graveyard" ? "Graveyard" : a.zone === "banished" ? "Banished" : "Extra Deck"} order changed`, undoable: true };
+    case "pile.set": return { kind: "CD", text: remoteUndoLabel(a), undoable: true };
     case "twin.flip": if (a.tokenStats) return { kind: "CD", text: `${who} set a token on ${name(a.seat)}'s field to ATK ${a.tokenStats.atk} / DEF ${a.tokenStats.def}`, undoable: true };
       return { kind: "CD", text: a.faceUp && a.position && a.source !== "auto" ? `A card on ${name(a.seat)}'s field changed to ${a.position} position${by(a)}` : `A card on ${name(a.seat)}'s field turned ${a.faceUp ? "face up" : "face down"}${by(a)}`, undoable: true };
     case "twin.remove": if (a.seat !== a.actorSeat) return { kind: "CD", text: `${who} removed ${refName(a.seat, a.cardRef) ?? "a card"} from ${name(a.seat)}'s field`, undoable: true };

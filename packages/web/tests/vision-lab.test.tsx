@@ -776,6 +776,23 @@ it.each([['GY','graveyard',false],['BANISHED','banished',true]] as const)(
   }
 );
 
+it('a pile notice stays actionable in Tap mode and Enter moves the existing field card',async()=>{
+ const card=cards[0],existing={ref:'from-field',zone:'monster',slot:3,cardId:card.passcode,name:card.name,faceUp:true,position:'attack'};
+ const fixture=await typedWatcherFixture(card,'GY',[existing],'prompt');
+ try {
+  await fixture.emit({reason:'pile',result:{...result,tier:'low match',candidates:[{cardId:card.cardId,score:.62}]}});
+  const watch=state.fieldWatch.watch;
+  watch.enabled=false;watch.getTrack=()=>undefined;watch.snapshot={...watch.snapshot,tracks:[]};
+  await act(async()=>fixture.refresh());
+  const prompt=screen.getByTestId('field-watcher-prompt');
+  expect(within(prompt).getByRole('button',{name:'Move Dark Magician from M3'})).toBeVisible();
+  expect(within(prompt).getByRole('button',{name:'Remove a GY card…'})).toBeVisible();
+  await act(async()=>{fireEvent.keyDown(prompt,{key:'Enter'});});
+  expect(fixture.post).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({type:'twin.move',cardRef:'from-field',zone:'graveyard'}),expect.any(String));
+  expect(fixture.room().state.seats[0].twin).toEqual([expect.objectContaining({ref:'from-field',zone:'graveyard'})]);
+ } finally { fixture.dispose(); }
+});
+
 it.each([['GY','graveyard'],['BANISHED','banished']] as const)('keeps all three %s entries when the stack is lifted and returned',async(zone,pile)=>{
  const members=cards.slice(0,3).map((card,i)=>({ref:`pile-${i}`,zone:pile,cardId:card.passcode,name:card.name,faceUp:true,position:'attack'}));
  const fixture=await typedWatcherFixture(cards[2],zone,members);

@@ -62,6 +62,11 @@ function touchedCards(action: RemoteAction, before: RemotePosition, after: Remot
     // Only the cards whose place changed: a reorder must not block Undo of earlier pile actions.
     case "pile.order": { const old = before.seats[action.seat]?.twin.filter(c => remoteOrderedPileContains(action.zone, c)).map(c => c.ref) ?? [];
       action.cardRefs.forEach((ref, i) => { if (old[i] !== ref) add(action.seat, ref); }); break; }
+    case "pile.set": {
+      for (const card of before.seats[action.seat].twin) if (card.zone === action.zone) add(action.seat, card.ref);
+      for (const card of action.entries) add(action.seat, card.ref);
+      break;
+    }
     case "effect.activated": add(action.actorSeat, action.source.cardRef); break;
     case "effect.choose": case "effect.announce": {
       const origin = before.effectTracking?.origins.find(o => o.id === action.originId);
@@ -166,6 +171,15 @@ function restoredPosition(state: RemoteState, entry: RemoteUndoEntry): RemotePos
       const destination = following.length ? Math.min(...following) : preceding.length ? Math.max(...preceding) + 1 : first < 0 ? twins.length : first;
       twins.splice(destination, 0, card);
     }
+  }
+  if (entry.action.type === "pile.set") {
+    const { seat, zone } = entry.action;
+    const twins = restored.seats[seat].twin, old = before.seats[seat].twin.filter(card => card.zone === zone);
+    const pile = new Map(twins.filter(card => card.zone === zone).map(card => [card.ref, card]));
+    const ordered = old.flatMap(card => { const present = pile.get(card.ref); return present ? [present] : []; });
+    const refs = new Set(ordered.map(card => card.ref));
+    let index = 0;
+    restored.seats[seat].twin = twins.map(card => card.zone === zone && refs.has(card.ref) ? ordered[index++] : card);
   }
   for (const seat of restored.seats) if (state.seats[seat.seat].accountDeleted) {
     seat.accountDeleted = true; seat.eliminated = true; seat.twin = []; seat.knownHand = [];
@@ -273,6 +287,7 @@ export function remoteUndoLabel(action: RemoteAction, position?: RemotePosition)
     case "hand.draw": return `Drew ${action.count} card${action.count===1?'':'s'}`;
     case "deck.count": return "Changed Deck count";
     case "pile.order": return `${action.zone === "graveyard" ? "Graveyard" : action.zone === "banished" ? "Banished" : "Extra Deck"} order changed`;
+    case "pile.set": return `${action.zone === "graveyard" ? "Graveyard" : "Banished pile"} updated`;
     case "monsters.tribute": return `Tribute: ${action.targets.length} monster${action.targets.length === 1 ? "" : "s"} sent to the Graveyard`;
     case "pile.lift": return `${action.zone === "graveyard" ? "Graveyard" : "Banished"} ${action.destination === "deck" ? "shuffled into Deck" : "picked up"} (${action.cardRefs.length} card${action.cardRefs.length === 1 ? "" : "s"})`;
     case "lp.change": return `${action.delta < 0 ? "−" : "+"}${Math.abs(action.delta)} LP`;
