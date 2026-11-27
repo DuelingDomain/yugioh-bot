@@ -79,6 +79,7 @@ import s from "./remote-ui.module.css";
 import matchStyles from "./match-ui.module.css";
 
 const WEBCAM_ONLY_KEY = "dd-remote-webcam-only";
+const SEAT_BOARD_KEY = "dd-remote-board-hidden";
 import {publicTrackedTwin, trackedRereadTarget} from '@/lib/remote/field-track-cache';
 import { AutoFieldWatcher } from "../field-watcher";
 import { isTournamentTable, stateMode, seatBoardOff } from "@/lib/remote/tournament-detection";
@@ -533,10 +534,28 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
   // A 3-way or 4-way table shows only the cameras: no virtual field, no toggle, no W. The board state is still built; it is only not drawn.
   const multi = seatCount > 2;
   const webcamOnly = multi || resolveWebcamOnly(choice);
-  const setWebcamOnly = useCallback((next: boolean) => {
-    setChoice(next);
-    try { localStorage.setItem(WEBCAM_ONLY_KEY, next ? "1" : "0"); } catch { /* storage blocked: not remembered */ }
+  // 1v1: each seat can also hide its own board (the opponent's, mine, or both). The seats listed here have no board; the board logic keeps running.
+  const [hiddenBoards, setHiddenBoards] = useState<number[]>([]);
+  useLayoutEffect(() => { try { setHiddenBoards((localStorage.getItem(SEAT_BOARD_KEY) ?? "").split(",").filter(Boolean).map(Number).filter(Number.isInteger)); } catch { /* storage blocked: all boards shown */ } }, []);
+  const keepHiddenBoards = useCallback((next: number[]) => {
+    setHiddenBoards(next);
+    try { if (next.length) localStorage.setItem(SEAT_BOARD_KEY, next.join(",")); else localStorage.removeItem(SEAT_BOARD_KEY); } catch { /* storage blocked: not remembered */ }
   }, []);
+  // The W switch and the top bar are the master: Both brings every board back.
+  const setWebcamOnly = useCallback((next: boolean) => {
+    setChoice(next); if (!next) keepHiddenBoards([]);
+    try { localStorage.setItem(WEBCAM_ONLY_KEY, next ? "1" : "0"); } catch { /* storage blocked: not remembered */ }
+  }, [keepHiddenBoards]);
+  /** The board of this seat is hidden by the table (Webcam only) or by its own switch (1v1). A seat that needs its board (no camera, a zone click) keeps it. */
+  const seatWebcam = (seat: number) => webcamOnly || (!multi && hiddenBoards.includes(seat));
+  const setSeatBoard = (seat: number, on: boolean) => {
+    if (multi) return;
+    const seats = seatIds;
+    const hidden = on ? seats.filter(item => item !== seat && (webcamOnly || hiddenBoards.includes(item))) : Array.from(new Set([...hiddenBoards, seat]));
+    if (hidden.length >= seats.length) { setChoice(true); keepHiddenBoards([]); try { localStorage.setItem(WEBCAM_ONLY_KEY, "1"); } catch { /* storage blocked */ } return; }
+    if (webcamOnly) { setChoice(false); try { localStorage.setItem(WEBCAM_ONLY_KEY, "0"); } catch { /* storage blocked */ } }
+    keepHiddenBoards(hidden);
+  };
   // A seat in Tap mode has its board off for everyone: the camera does not keep the board up to date.
   // Another player: any of the signals (see `seatBoardOff`). My own seat: my own switch, and only with my camera on, so a player with no camera keeps the board.
   const subscribeTap = useCallback((listener: () => void) => { const a = hub.subscribeFieldBacks(listener), b = hub.subscribePeerVision(listener); return () => { a(); b(); }; }, [hub.subscribeFieldBacks, hub.subscribePeerVision]);
@@ -941,7 +960,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     if (state.attack) return "Finish the current attack first."; return "";
   };
   /** A seat with its board hidden has a target list and Attack directly. A seat with its board shown has a name plate. */
-  const boardHidden = (seat: number) => (webcamOnly && !needsBoard(seat)) || boardOff(seat);
+  const boardHidden = (seat: number) => (seatWebcam(seat) && !needsBoard(seat)) || boardOff(seat);
   const pickHint = (attackerSeat: number) => {
     const targets = state.seats.filter(item => item.seat !== attackerSeat && !item.eliminated).map(item => item.seat);
     if (targets.every(boardHidden)) return "Click a monster or pick one from the list on its seat, or press Attack directly.";
@@ -1024,7 +1043,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     };
     draw(); window.addEventListener("resize", draw); return () => window.removeEventListener("resize", draw);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [attack, state.seats, tapSeats, ownBoardOff, webcamOnly]);
+  }, [attack, state.seats, tapSeats, ownBoardOff, webcamOnly, hiddenBoards]);
 
   // ---- moving cards by hand: drag, keyboard, voice ----
   /** One twin.move, one Undo. The auto-detect watcher is told first so the camera keeps the new place. */
@@ -1744,7 +1763,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     if (card && cardCode(card)) {
       openCameraMenu(card, at); return true;
     }
-    if (!webcamOnly && !boardOff(seat)) return false;
+    if (!seatWebcam(seat) && !boardOff(seat)) return false;
     if (!card) { const pile = pileAt(zoneAtPoint(seat, at.x, at.y)); if (!pile) return false; cancelRead(); openPile(seat, pile, null); return true; }
     // A Set card this browser remembers takes the click read, which ends in the local popup. No name shows until then.
     const memory = tapMemory(seat);
@@ -1834,7 +1853,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
             holdSelection={(layers.layer === "tray" || layers.layer === "card") && ctx.current?.seat === seat} onAdd={mark => void addToDeck(seat, mark.cardCode)} onReset={resetFeed} onReadBoard={readBoardInto} prereadScope={prereadScope}
             twin={twin} deckRegistered={!!(registration?.deckRegistered??registration?.deck)} deckListSizes={deck?{deck:deck.main.length,extra:deck.extra.length}:undefined} info={info} extraZones={extraZones} facing={facing(seat)} boardSeats={state.seats} owners={state.seats.map(item => ({ seat: item.seat, name: name(item.seat), color: COLORS[item.seat] }))} rv={rv[seat] ?? "m1"} onRv={key => setRv(old => ({ ...old, [seat]: key }))} picking={!!picking && seat !== picking.seat}
             selectedRef={picking?.seat === seat ? picking.ref : selected?.seat === seat ? selected.ref : undefined} targetRef={attack?.targetSeat === seat ? attack.targetCardRef : undefined} freshRef={fresh}
-            warnRefs={warnRefs(seat)} twinCounts={twinCounts(seat)} pickPlate={plate} direct={direct} tournamentTable={isTournamentTable(room)} detectionMode={seat !== mySeat ? stateMode(room.state, seat) ?? "unknown" : undefined} viewScope={String(seatCount)} webcamOnly={webcamOnly && !needsBoard(seat)} onDock={onSeatDock} boardOff={boardOff(seat) ? {} : undefined}
+            warnRefs={warnRefs(seat)} twinCounts={twinCounts(seat)} pickPlate={plate} direct={direct} tournamentTable={isTournamentTable(room)} detectionMode={seat !== mySeat ? stateMode(room.state, seat) ?? "unknown" : undefined} viewScope={String(seatCount)} webcamOnly={seatWebcam(seat) && !needsBoard(seat)} onBoard={!multi && !boardOff(seat) && !noCamera(seat) ? on => setSeatBoard(seat, on) : undefined} onDock={onSeatDock} boardOff={boardOff(seat) ? {} : undefined}
             onZoneCard={onZoneCard} onCamPick={onCamPick} hoverTip={hoverTip} onHoverEnd={clearCamHover} onCardMenu={onCardMenu}
             tokenSlots={tokens.placing && !state.seats[seat]?.eliminated ? tokens.openSlots(seat) : control.giveSlots(seat)} onActivate={(key, card) => { if (tokens.placeAt(seat, key, card) || control.giveAt(seat, key, card)) return; if (picking && card && seat !== picking.seat && (card.zone === "monster" || card.zone === "extra-monster")) void declare(seat, card.ref); else if (!picking && (solo || seat === mySeat) && !isPile(key)) openZonePicker(seat,key); else if (!picking && !card && (/^m[1-5]$/.test(key) || control.canGive && /^s[1-5]$/.test(key))) openZonePicker(seat,key,undefined,true,false,true); else if (card) openSubject(card); }}
             onAttack={(_key, card) => startAttack(seat, card)} onInspect={card => openSubject(card)} onPile={(zone, opener) => openPile(seat, zone, opener)} onDeck={(solo || seat === mySeat) && surrenderable(seat) ? el => { setDeckAt({ seat, rect: el.getBoundingClientRect() }); layers.toggle("deck", el); } : undefined} live={live} drag={fieldDrag(seat)} onPlate={() => { if (plate) void declare(seat); }}
@@ -1899,7 +1918,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     <SurrenderConfirm open={layers.layer === "surrender" && (leaveMode === "match" ? canQuit : canSurrender)} mode={leaveMode} game={match.games.length + 1} bestOf={match.bestOf} seatCount={seatCount} solo={solo} endsMatch={surrenderEndsMatch} name={name(surrenderSeat)} busy={matchBusy}
       onConfirm={() => { layers.close(); if (leaveMode === "match") quit(); else surrender(); setSurrenderPick(null); }} onCancel={() => { layers.close(); setSurrenderPick(null); }} />
     <HistoryPopover open={layers.layer === "hist"} items={history} style={{ right: 16, bottom: "calc(var(--dock) + 8px)" }} onUndo={id => { const entry = ownUndo.find(item => item.actionId === id); if (entry) { void doUndo(entry); if (!entry.reason) layers.close("hist"); } }} />
-    {pile && state.seats[pile.seat] ? <PileViewer fieldHidden={(webcamOnly && !needsBoard(pile.seat)) || boardOff(pile.seat)} seat={pile.seat} name={name(pile.seat)} mine={live && (solo || pile.seat === mySeat)} twin={state.seats[pile.seat].twin} zone={pile.zone}
+    {pile && state.seats[pile.seat] ? <PileViewer fieldHidden={(seatWebcam(pile.seat) && !needsBoard(pile.seat)) || boardOff(pile.seat)} seat={pile.seat} name={name(pile.seat)} mine={live && (solo || pile.seat === mySeat)} twin={state.seats[pile.seat].twin} zone={pile.zone}
       onZone={zone => setPile({ seat: pile.seat, zone })} info={info} drag={fieldDrag(pile.seat)} onOpenCard={(card, anchor) => openSubject(card, "pile", anchor)} onClose={() => layers.close()}
       {...(live && (solo || pile.seat === mySeat) ? {
         onOrder: (zone, cardRefs) => act({ type: "pile.order", actorSeat: solo ? pile.seat : mySeat, seat: pile.seat, zone: zone as "graveyard" | "banished", cardRefs }),

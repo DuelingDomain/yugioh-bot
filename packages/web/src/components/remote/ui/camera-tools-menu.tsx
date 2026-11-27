@@ -79,8 +79,8 @@ function AdminRows({ setup }: { setup: CameraMenuSetup }) {
  * Admin: debug and training tools, only for the people who had them before.
  * Rows are one line each; the longer notes are tooltips. The drawer Settings tab keeps the table-wide settings (detection, voice, view).
  */
-export function CameraToolsMenu({ seat, name, you, scan, advice, warn, onToken, onRescan, setup }: {
-  seat: number; name: string; you: boolean; scan: FieldScanState | null; advice: ScanAdvice; /** A bad or lost feed: the button shows a warning dot. */ warn: boolean;
+export function CameraToolsMenu({ seat, name, you, scan, advice, warn, onToken, onRescan, setup, board }: {
+  seat: number; name: string; you: boolean; /** 1v1: the virtual board under this webcam, on or off. */ board?: { on: boolean; onChange: (on: boolean) => void }; scan: FieldScanState | null; advice: ScanAdvice; /** A bad or lost feed: the button shows a warning dot. */ warn: boolean;
   onToken?: () => void; onRescan?: () => Promise<string>;
   /** My own seat only: the camera, side and admin rows. */ setup?: CameraMenuSetup;
 }) {
@@ -117,6 +117,10 @@ export function CameraToolsMenu({ seat, name, you, scan, advice, warn, onToken, 
       <Icon name="dots" /></button>
     <div id={id} ref={panel} popover="auto" role="menu" aria-label={`Camera tools for ${name}`} className={s.toolsMenu} onToggle={event => { setOpen(event.newState === "open"); if (event.newState === "open") place(); }}>
       {setup ? <MyCameraGroup setup={setup} close={close} /> : null}
+      {board ? <Group label="View">
+        <Row icon="layers" role="menuitemcheckbox" aria-checked={board.on} pill={onOff(board.on)} sub="Hides or shows the virtual board under this webcam. The board keeps running." data-testid={`camera-board-${seat}`}
+          onClick={() => { close(); board.onChange(!board.on); }}>{`Virtual board under ${you ? "my" : `${name}'s`} webcam`}</Row>
+      </Group> : null}
       <Group label="Zones">
         <Row icon="layers" role="menuitemcheckbox" aria-checked={zonesOn} pill={onOff(zonesOn)} hint={you ? "G" : undefined} aria-keyshortcuts={you ? "G" : undefined} data-testid={you ? "zone-grid-toggle" : `zone-grid-toggle-opponent-${seat}`}
           sub={you ? (zonesOn ? "Recommended: shows where your zones are." : "Zones are hidden on my webcam.") : "An opponent who uses Tap to identify has no zone grid, so none shows on that camera."}
