@@ -1110,7 +1110,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   /** A held Spell or Trap is shown as an activation. A monster only when its script has a hand quick effect: any other monster held up is about to be summoned or added, so it keeps the one-tap suggestion. Unknown card data means not activatable. */
   const heldActivatable=(cardId:number)=>{const frame=cardInfo(cardId)?.frameType;if(frame===undefined)return false;if(/^(spell|trap)/.test(frame))return true;return !/^(normal|fusion|synchro|xyz|link|token)/.test(frame)&&!!behaviourOf(cardId)?.handQuick;};
   /** One held card, named by the camera (sure, lifted) or picked by the player: shown to the table at once, never placed on the field. */
-  async function commitHeld(act:RoomMutation,cardId:number,name:string,id:string,readAt:number,key:string) {
+  async function commitHeld(act:RoomMutation,cardId:number,name:string,id:string,readAt:number,key:string,timing?:HeldCardEvent['timing']) {
     // The card type must be known before the decision: an unloaded card is never "activatable".
     await loadCards([cardId]);
     if(!live()||watch.getTracks().some(t=>t.visible&&!t.removed&&t.cardId&&(entries.current.get(t.cardId)?.passcode??Number(t.cardId))===cardId))return;
@@ -1123,7 +1123,9 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     const facts=cardInfo(cardId);
     const notice=decision.type==='effect.activated'&&facts&&remoteActivationNotice(current.current.room.state,seat,remoteActivationLimit(facts.name,facts.effectText));
     if(notice){setNotice(notice);return;}
-    const updated=await act(decision,key.slice(0,100));
+    const actionKey=key.slice(0,100);
+    bindFieldTiming(actionKey,current.current.room.slug,timing);
+    const updated=await act({...decision,cam:fieldCameraStamp(timing)},actionKey);
     const actionId=updated?.state.undo?.actionId;
     if(!updated||!actionId)return;
     setNotice(decision.type==='effect.activated'?`${name} activated from hand · auto`:`${name} added to hand · auto`);setUndoId(actionId);
@@ -1156,7 +1158,9 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
             window.dispatchEvent(new CustomEvent(REMOTE_HAND_SUGGESTION_EVENT,{detail:{...decision,slug:current.current.room.slug,name:entry?.name??'Card'}}));
             setNotice(`Add ${entry?.name??'card'} to hand?`);return;
           }
-          const updated=await act(decision,event.id.slice(0,100));
+          const actionKey=event.id.slice(0,100);
+          bindFieldTiming(actionKey,current.current.room.slug,event.timing);
+          const updated=await act({...decision,cam:fieldCameraStamp(event.timing)},actionKey);
           if(updated){setNotice(`${entry?.name??'Card'} added to hand · auto`);setUndoId(updated.state.undo?.actionId??'');}
         });
       },100);
@@ -1169,7 +1173,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       if(!live()){clearInterval(timer);heldTimers.current.delete(event.id);return;}
       if(heldFieldReadPending(watch.getTracks(),readAt)&&performance.now()-startedAt<5000)return;
       clearInterval(timer);heldTimers.current.delete(event.id);
-      void queue(act=>commitHeld(act,cardId,entry?.name??'Card',event.id,readAt,event.id));
+      void queue(act=>commitHeld(act,cardId,entry?.name??'Card',event.id,readAt,event.id,event.timing));
     },100);
     heldTimers.current.set(event.id,timer);
   }
@@ -1208,7 +1212,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   function handle(event:FieldEvent,departureOrigin?:Pick<TwinCard,'ref'|'zone'|'slot'>,factsStarted=false,moveRetry=0) {
     if(!factsStarted&&event.result&&event.track.state==='identified'&&!event.track.faceDown)faceReads.current.set(event.track.zone,event);
     const observedRef=bindings.current.get(event.track.id)??event.track.id;
-    if(givenHold(event.track))return;
+    if(givenHold(event.track)){watch.finishInstantPreview(event.track.id);return;}
     if(!factsStarted&&live()&&event.type!=='removed'){
       const waiting=fieldFacts(event);
       if(waiting){void waiting.then(()=>{if(live())handle(event,departureOrigin,true);});return;}
@@ -1358,7 +1362,10 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       }
       if(event.type==='reading'){await showPlaceholder(event,act);return;}
       if(event.type==='removed'&&placeholders.current.has(event.track.id)){await removePlaceholder(event.track.id,act);setPrompts(list=>list.filter(p=>p.track.id!==event.track.id));return;}
-      if(event.type==='placed'){await apply(event,act);return;}
+      if(event.type==='placed'){
+        try{await apply(event,act);}finally{watch.finishInstantPreview(event.track.id);}
+        return;
+      }
       const ref=bindings.current.get(event.track.id)??event.track.id;
       // The camera sees this card again: an earlier Undo no longer keeps it.
       if(event.type==='moved')undoKept.current.delete(ref);
@@ -1701,13 +1708,20 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       if(t.faceDown||!t.visible||piles.has(t.zone))return [];
       return [{id:t.id,...fieldZoneLocation(t.zone),faceDown:false,defense:t.position==='defense'}];
     });
-    const ghosts=[...new Map([...early,...rested].map(g=>[g.id,g])).values()].filter(g=>!holds.blocks([bindings.current.get(g.id)??g.id],g));
+    const instant=watch.getSnapshot()?.instantPreviews?.flatMap(preview=>{
+      const entry=entries.current.get(preview.cardId),code=entry&&catalogCardId(entry);
+      if(!entry||!code)return [];
+      return [{id:preview.id,...fieldZoneLocation(preview.zone),faceDown:false,defense:false,cardId:code,name:entry.name}];
+    })??[];
+    const ghostById=new Map([...early,...rested,...instant].map(g=>[g.id,g]));
+    const ghosts=[...ghostById.values()].filter(g=>!holds.blocks([bindings.current.get(g.id)??g.id],g));
+
     setFieldGhosts(key,watch.enabled&&!watch.calibrationNeeded&&live()?ghosts:[]);
   }
   useEffect(()=>{
     observeCorrections(watch.snapshot.tracks);
     publishReadings();
-  },[watch.snapshot.tracks,watch.enabled,watch.calibrationNeeded,seat,room.state]);
+  },[watch.snapshot.tracks,watch.snapshot.instantPreviews,watch.enabled,watch.calibrationNeeded,seat,room.state]);
   // A card that leaves the board (removed, Undo) must not flash a ghost while its track is still on the mat.
   const ghostTwinsPrev=useRef<TwinCard[]>([]);
   const ownTwin=room.state.seats[seat].twin;

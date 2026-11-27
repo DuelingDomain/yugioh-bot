@@ -512,7 +512,7 @@ export async function ownFieldResources(getPriors: () => Priors) {
       lastOwnSampleAt = Date.now();
       return sample;
     } },
-    // Per-zone settle watch: own seat only (this bridge is owner-only). Off on phones, low memory and under the kill switches.
+    // Own-seat zone watch. The device gate selects the ordinary or light budget.
     zoneInstant: zoneInstantOption(pickZoneTier, recognitionBackendNow().backend, recognitionBackendNow().ms),
     getPriors: () => priorsFor(found, getPriors()),
     zoomSets: true, // The own-feed ring supplies native ImageBitmaps.

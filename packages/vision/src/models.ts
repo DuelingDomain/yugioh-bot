@@ -2,6 +2,7 @@
 // Modified for game profiles and a browser worker. See licenses/duel-lens.LICENSE.
 import type { EmbeddingModelSpec } from './types';
 import { dinov2SmallDuelCheck } from './gpu-check-reference';
+export const DINO_CONFIDENT = { score:.85, margin:.05 } as const;
 export const duelLensModel: EmbeddingModelSpec = {
   thresholds: { score: .8, margin: .02, floor: .74, second: { score: .73, margin: .1 }, cardBackMargin: .1 },
   maxBatch: 1,

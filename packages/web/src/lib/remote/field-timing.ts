@@ -1,7 +1,7 @@
 import type {FieldTiming} from '@yugidraft/vision';
 import type {RemoteRoom,RemoteCameraStamp,RemoteActionProposal} from '@yugidraft/shared/remote';
 
-// Local timing only. No card identity, pixels, or extra network requests.
+// Correlates local timing marks with numbers included on existing writes.
 const actions=new Map<string,{slug:string;timing:FieldTiming;seq?:number;rendered?:boolean}>();
 export function markFieldTiming(timing:FieldTiming|undefined,stage:string,extra:Record<string,unknown>={}) {
   if(!timing||typeof window==='undefined')return;
@@ -15,7 +15,11 @@ export function markFieldTiming(timing:FieldTiming|undefined,stage:string,extra:
  */
 export function fieldCameraStamp(timing:FieldTiming|undefined,by:'camera'|'player'='camera',ui?:string):RemoteCameraStamp {
   const stages=timing?.stagesMs,named=stages?.searchDoneLast??stages?.searchDone,v=process.env.NEXT_PUBLIC_SENTRY_RELEASE?.slice(0,12);
-  return {...(timing?{seenAt:Math.round(timing.originAt+(stages?.firstOutline??0))}:{}),...(timing&&named!==undefined?{namedAt:Math.round(timing.originAt+named)}:{}),sentAt:Math.round(performance.timeOrigin+performance.now()),...(v?{v}:{}),by,...(ui?{ui}:{}),...(timing?.reader?{reader:timing.reader}:{})};
+  const saved=timing&&stages?.read!==undefined?{timing:{id:timing.id,stagesMs:{
+    detectorWait:Math.round(stages.detectorWait),restGate:Math.round(stages.restGate),handGate:Math.round(stages.handGate),
+    read:Math.round(stages.read),nameVote:Math.round(stages.nameVote),post:0,
+  }}}:{};
+  return {...saved,...(timing?{seenAt:Math.round(timing.originAt+(stages?.firstOutline??0))}:{}),...(timing&&named!==undefined?{namedAt:Math.round(timing.originAt+named)}:{}),sentAt:Math.round(performance.timeOrigin+performance.now()),...(v?{v}:{}),by,...(ui?{ui}:{}),...(timing?.reader?{reader:timing.reader}:{})};
 }
 /** A person's change: the same clock as the watcher stamps, no build id (small). */
 export const playerStamp=(ui?:string):RemoteCameraStamp=>({sentAt:Math.round(performance.timeOrigin+performance.now()),by:'player',...(ui?{ui}:{})});
@@ -37,7 +41,11 @@ export function stampedProposal<T extends RemoteActionProposal>(payload:T,key:st
   if(!stamps.has(key)){
     const sentAt=Math.round(performance.timeOrigin+performance.now());
     const automatic=(payload as {source?:string}).source==='auto'||key.startsWith('phone:');
-    stamps.set(key,payload.cam??(payload.type==='side.timeout'?null:automatic?{sentAt,by:'camera'}:botSeat?{sentAt}:playerStamp(uiOf(payload))));
+    const evidence=actions.get(key)?.timing;
+    const camera=payload.cam?.timing&&evidence?{...payload.cam,sentAt,timing:{...payload.cam.timing,stagesMs:{
+      ...payload.cam.timing.stagesMs,post:Math.max(0,Math.round(sentAt-evidence.originAt-evidence.stagesMs.commit)),
+    }}}:payload.cam;
+    stamps.set(key,camera??(payload.type==='side.timeout'?null:automatic?{sentAt,by:'camera'}:botSeat?{sentAt}:playerStamp(uiOf(payload))));
     while(stamps.size>256)stamps.delete(stamps.keys().next().value!);
   }
   const cam=stamps.get(key);return cam?{...payload,cam}:payload;

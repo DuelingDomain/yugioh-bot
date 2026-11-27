@@ -4,15 +4,22 @@ import {createFieldCalibration} from '../../vision/src/field-zones';
 import {zoneSpecsFromCalibration, type GrayFrame, type ZoneTier} from '../../vision/src/zone-events';
 import {yugioh} from '../../vision/src/games/yugioh';
 import type {RGBAImage} from '../../vision/src/pixels';
+import type {DetectedQuad} from '../../vision/src/types';
 import {pickZoneTier} from '../../vision/src/zone-events';
 import {zoneInstantOption} from '../src/lib/remote/zone-instant-gate';
 import {attachClipRecorder, detachClipRecorder} from '../src/lib/remote/clip-capture';
 
-// Instant zone path: a face-up card that rests in a free zone is read from the zone cell and placed without a detector pass.
+// A face-up card is previewed from the zone read and saved when a real outline confirms it.
 const W=320,H=180,tier:ZoneTier={name:'cpu4',idleIntervalMs:33,settleMs:120,budget:1,preRead:false,maxPreReads:0};
 const calibration=createFieldCalibration([{x:.05,y:.05},{x:.95,y:.95}]);
 const m3=zoneSpecsFromCalibration(calibration).find(s=>s.id==='M3')!.quad;
 const box={x0:Math.min(...m3.map(p=>p.x))*W,x1:Math.max(...m3.map(p=>p.x))*W,y0:Math.min(...m3.map(p=>p.y))*H,y1:Math.max(...m3.map(p=>p.y))*H};
+const halfHeight=(box.y1-box.y0-4)/2,halfWidth=Math.min(halfHeight*59/86,(box.x1-box.x0-8)/2);
+const cx=(box.x0+box.x1)/2,cy=(box.y0+box.y1)/2;
+const outline:DetectedQuad={kind:'face-up',confidence:.95,partial:false,quad:[
+  {x:(cx-halfWidth)/W,y:(cy-halfHeight)/H},{x:(cx+halfWidth)/W,y:(cy-halfHeight)/H},
+  {x:(cx+halfWidth)/W,y:(cy+halfHeight)/H},{x:(cx-halfWidth)/W,y:(cy+halfHeight)/H},
+]};
 const front=(x:number,y:number)=>x<.06||x>.94||y<.04||y>.96?[25,25,25]:x>.12&&x<.88&&y>.18&&y<.70?[60+140*x,40+130*y,70+80*Math.sin(35*x)*Math.cos(30*y)]:x>.10&&x<.90&&y>.76&&y<.92?(y%.035<.012?[65,55,45]:[220,210,180]):[35,145,120];
 const draw=(card:boolean,hand:boolean,sideways=false):RGBAImage=>{
   const data=new Uint8ClampedArray(W*H*4);
@@ -32,14 +39,14 @@ const cardCrop={width:96,height:140,data:(()=>{const d=new Uint8ClampedArray(96*
 const disposals:(()=>void)[]=[];
 afterEach(()=>{for(const dispose of disposals.splice(0))dispose();});
 
-function rig(instant=true,wrap=false) {
+function rig(instant=true,wrap=false,detect=false) {
   const state={at:0,card:false,hand:false,sideways:false,reads:0,detects:0,priority:undefined as string|undefined,timing:undefined as {stagesMs:Record<string,number>;notes?:Record<string,string>}|undefined,events:[] as FieldEvent[]};
   const config:FieldWatcherOptions={
     profile:yugioh,calibration,now:()=>state.at,hidden:()=>false,clone:async f=>f,getPriors:()=>({decklist:['100']}),getKnownCards:()=>[],
     ...(instant?{zoneInstant:{tier,maxPerSecond:10}}:{}),
     buffer:{sample:async()=>({frame:draw(state.card,state.hand,state.sideways) as unknown as ImageData,at:state.at}),gray:()=>grayOf(draw(state.card,state.hand,state.sideways))},
     recognizer:{
-      detectCards:async()=>{state.detects++;return [];},
+      detectCards:async()=>{state.detects++;return detect&&state.card?[outline]:[];},
       recognize:async(_frames,opts)=>{state.reads++;state.priority=opts?.priority;return {candidates:[{cardId:'100',score:.95}],tier:'sure' as const,quality:{detected:true,cornersFound:true,framesUsed:1,selectedFrameIndices:[0],sharpness:20,fallback:false},identityEmbedding:{space:'art-box' as const,values:[1,0]},timingsMs:{sharpness:0,detect:0,warp:0,embed:0,search:0,total:1},backend:'wasm' as const};},
     },
     analyze:()=>({crop:()=>cardCrop,motion:()=>0,sharpness:()=>20,appearance:()=>Array.from({length:12},(_,i)=>i%2?.6:.2),halo:()=>Array(192).fill(.45),occluded:()=>state.hand,touched:()=>state.hand?.3:0,skinNear:()=>state.hand?.2:0}),
@@ -56,13 +63,16 @@ function rig(instant=true,wrap=false) {
   return {state,watcher,frames,settle,tick};
 }
 
-test('a face-up card that rests in a free zone is placed from the instant read, with no detector result',async()=>{
-  const r=rig();
+test('a sure instant read previews a card and the detector confirms it once',async()=>{
+  const r=rig(true,false,true);
   r.frames(6);
   r.state.card=true;r.frames(8);
   await r.settle();
   expect(r.state.reads).toBe(1);
   expect(r.state.priority).toBe('high');
+  expect(r.watcher.getSnapshot().instantPreviews?.[0]?.cardId).toBe('100');
+  expect(r.state.detects).toBe(0);
+  expect(r.state.events).toEqual([]);
   await r.tick(6);
   const placed=r.state.events.find(e=>e.type==='placed');
   expect(placed?.track).toMatchObject({zone:'M3',cardId:'100',faceDown:false});
@@ -92,13 +102,13 @@ test('a hand over the zone is not read and nothing is placed',async()=>{
   expect(r.state.events.filter(e=>e.type==='placed')).toEqual([]);
 });
 
-test('the machine gate: on for a 4-core desktop, off for phones, low memory, few cores and the kill switch',()=>{
+test('the machine gate selects a light tier for phones, low memory and few cores and honors the kill switch',()=>{
   const desktop={cores:4,userAgent:'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'};
   expect(zoneInstantOption(pickZoneTier,'wasm',60,desktop)?.tier.name).toBe('cpu4');
   expect(zoneInstantOption(pickZoneTier,'webgpu',20,{...desktop,cores:8})?.tier.name).toBe('gpu');
-  expect(zoneInstantOption(pickZoneTier,'wasm',60,{...desktop,cores:2})).toBeUndefined();
-  expect(zoneInstantOption(pickZoneTier,'wasm',60,{...desktop,memoryGb:2})).toBeUndefined();
-  expect(zoneInstantOption(pickZoneTier,'wasm',60,{cores:8,userAgent:'Mozilla/5.0 (Linux; Android 14) Mobile'})).toBeUndefined();
+  expect(zoneInstantOption(pickZoneTier,'wasm',60,{...desktop,cores:2})?.maxPerSecond).toBe(1);
+  expect(zoneInstantOption(pickZoneTier,'wasm',60,{...desktop,memoryGb:2})?.maxPerSecond).toBe(1);
+  expect(zoneInstantOption(pickZoneTier,'wasm',60,{cores:8,userAgent:'Mozilla/5.0 (Linux; Android 14) Mobile'})?.maxPerSecond).toBe(1);
   process.env.NEXT_PUBLIC_REMOTE_ZONE_INSTANT='0';
   try{expect(zoneInstantOption(pickZoneTier,'wasm',60,desktop)).toBeUndefined();}finally{delete process.env.NEXT_PUBLIC_REMOTE_ZONE_INSTANT;}
 });

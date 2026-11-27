@@ -16,7 +16,7 @@ import { preprocess, cropRGBA, rotate180 } from './pixels';
 import { toContractTensor } from './duelsight/preprocess';
 import { buildHypotheses } from './hypotheses';
 import { createRecognizer, loadHybridCatalog } from './client';
-import { createFieldWatcher, type FieldEvent, type FieldWatcherOptions } from './field-watcher';
+import { createHeldCardReader, createFieldWatcher, type FieldEvent, type FieldWatcherOptions } from './field-watcher';
 import type { GameProfile, LoadedIndex, DetectedQuad } from './types';
 import type { ModelSession } from './runtime';
 
@@ -63,6 +63,28 @@ test('cascade answers with the first stage, reads both orientations and preserve
   assert.equal(f.count.first,2);assert.equal(f.count.second,0);assert.equal(f.count.current,0);
   assert.equal(r.identityEmbedding?.modelId,duelSightModel.id);assert.equal(slimResult(r).reader?.stage,'first');
 });
+test('only confident registered Hybrid names skip the second held read',async()=>{
+  for(const [score,decklist,expected] of [[.95,['A'],1],[.78,['A'],2],[.95,['B'],2]] as const){
+    const f=fixture([score]);
+    let reads=0,accepted=0;
+    const held=createHeldCardReader({
+      profile:yugioh,getPriors:()=>({decklist:[...decklist]}),clone:async frame=>frame,
+      recognizer:{detectCards:async()=>[],recognize:async (_frames,opts)=>{
+        reads++;
+        return f.pipeline.recognize([image],{...opts,preclean:false});
+      }},
+      onHeldCard:()=>accepted++,
+    });
+    for(const at of [0,200,450]){
+      const observation=held.observe([card],image as unknown as ImageData,{motion:()=>0,sharpness:()=>20},at,undefined,undefined,false,[],
+        ()=>({ok:false,hard:true,text:'held'}));
+      await observation.read;
+    }
+    assert.equal(accepted,1);
+    assert.equal(reads,expected);
+  }
+});
+
 test('hybrid preserves positive-back Set admission and only replaces face-up name reading',async()=>{
   const trace=JSON.parse(readFileSync(new URL('./fixtures/phantom-phone.json',import.meta.url),'utf8'));
   const phone={width:trace.crop.width,height:trace.crop.height,data:new Uint8ClampedArray(inflateSync(Buffer.from(trace.crop.rgbaDeflate,'base64')))};
@@ -120,6 +142,14 @@ test('a strong competitor in the other orientation defeats the first gate and Li
   assert.equal(r.reader?.stage,'second');assert.equal(r.reader?.model,lightModel.id);assert.ok((r.reader?.first?.margin??1)<.001);
   assert.equal(r.candidates[0].cardId,'B');assert.equal(r.tier,'sure');assert.ok(f.count.second>0);
 });
+test('a borderline first read needs the same name from Light (tinted Spell read as a Link monster, room ci6zgroa)',async()=>{
+  // Real read: DuelSight .706 with margin .067 for the wrong card; Light named the correct card.
+  const wrong=fixture([.74],.2),r=await wrong.pipeline.recognize([image],{card,preclean:false});
+  assert.ok(acceptsFirst([{cardId:'A',score:r.reader!.first!.score},{cardId:'B',score:r.reader!.first!.runnerUp}]));
+  assert.equal(r.reader?.stage,'second');assert.equal(r.reader?.reason,'borderline first read not confirmed by second reader');assert.equal(r.candidates[0].cardId,'B');
+  const same=fixture([.74],.95),ok=await same.pipeline.recognize([image],{card,preclean:false});
+  assert.equal(ok.reader?.stage,'first');assert.equal(ok.candidates[0].cardId,'A');assert.ok(same.count.second>0);assert.ok(ok.reader?.second);
+});
 test('weak first read escalates and the second retains the product score floor',async()=>{
   const f=fixture([Math.SQRT1_2],Math.SQRT1_2);const r=await f.pipeline.recognize([image],{card,preclean:false});
   assert.equal(r.reader?.stage,'second');assert.equal(r.tier,'low match');assert.equal(f.count.current,0);
@@ -168,14 +198,20 @@ test('WASM session startup failure keeps Current usable without WebGPU',async()=
   assert.equal(r.candidates[0].cardId,'B');assert.equal(r.backend,'wasm');
   assert.equal(f.count.first,0);assert.match(f.notes[0],/Using the current reader/);
 });
-test('a stalled catalog download has a bounded wait and aborts its request',async t=>{
+test('a stalled catalog download has a bounded wait and aborts its request',{timeout:1000},async t=>{
   t.mock.timers.enable({apis:['setTimeout']});
-  const original=globalThis.fetch;let signal:AbortSignal|null|undefined;
-  globalThis.fetch=async(_input,init)=>{signal=init?.signal;return new Promise<Response>(()=>{});};
+  const original=globalThis.fetch;
+  let fetchStarted!:(signal:AbortSignal)=>void;
+  const started=new Promise<AbortSignal>(resolve=>{fetchStarted=resolve;});
+  globalThis.fetch=async(_input,init)=>{
+    assert.ok(init?.signal);
+    fetchStarted(init.signal);
+    return new Promise<Response>(()=>{});
+  };
   try{
     const failed=assert.rejects(loadHybridCatalog(),/Hybrid catalog timed out/);
-    for(let i=0;i<10&&!signal;i++)await new Promise<void>(resolve=>setImmediate(resolve));
-    assert.ok(signal);t.mock.timers.tick(8_000);await failed;assert.equal(signal.aborted,true);
+    const signal=await started;
+    t.mock.timers.tick(8_000);await failed;assert.equal(signal.aborted,true);
   }finally{globalThis.fetch=original;t.mock.timers.reset();}
 });
 test('Light uses the deck prior without changing the stricter released first-stage gate',async()=>{

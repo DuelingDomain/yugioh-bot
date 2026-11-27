@@ -122,7 +122,7 @@ export async function remoteMutation(request: Request, context: RemoteRouteConte
         const tentative=action.data.type==='twin.place'?action.data.card.nameCandidates:action.data.type==='card.identified'?action.data.nameCandidates:action.data.type==='cards.identified'?action.data.cards.find(c=>c.nameCandidates)?.nameCandidates:undefined;
         remoteAssert(!tentative||remoteUnsureNamesEnabledFor(actor.userId),'Unsure names are not enabled',403);
         const commitAt=performance.now();
-        result = actor.remote.act(slug, actor.guildId, actor.userId, { baseSeq: body.baseSeq, action: action.data,onTiming:(stage,ms)=>timings.push(`remote-${stage};dur=${ms.toFixed(2)}`) });
+        result = actor.remote.act(slug, actor.guildId, actor.userId, { baseSeq: body.baseSeq, action: action.data,postStartedAt:started,onTiming:(stage,ms)=>timings.push(`remote-${stage};dur=${ms.toFixed(2)}`) });
         timings.push(`remote-commit;dur=${(performance.now()-commitAt).toFixed(2)}`);break;
       }
     }

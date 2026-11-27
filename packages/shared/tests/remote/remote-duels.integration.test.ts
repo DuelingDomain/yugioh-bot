@@ -315,7 +315,9 @@ it('keeps who-made-it stamps as evidence only: old actions stay valid, a retry w
   s.service.ready(s.room.slug,'g',s.users[1],true,2002); s.start();
   const place = (cam?:Record<string,unknown>) => ({type:'twin.place',seat:0,zone:'monster',card:{ref:'stamp-card',cardId:1,name:'Stamped',faceUp:true,slot:1},
     actorSeat:0,idempotencyKey:'stamp-place',...(cam?{cam}:{})});
-  const player = {sentAt:5000,by:'player',ui:'popup-remove'}, camera = {seenAt:4000,namedAt:4500,sentAt:5000,v:'build-1',by:'camera'};
+  const stageTimes = {detectorWait:220,restGate:100,handGate:90,read:60,nameVote:0,post:12};
+  const player = {sentAt:5000,by:'player',ui:'popup-remove'};
+  const camera = {seenAt:4000,namedAt:4500,sentAt:5000,v:'build-1',by:'camera',timing:{id:'vision-read-1',stagesMs:stageTimes}};
   // An old action (no cam, or a cam without by/ui) still parses; a bad ui or an unknown by does not.
   expect(remoteActionSchema.safeParse(place()).success).toBe(true);
   expect(remoteActionSchema.safeParse(place({sentAt:5000,v:'old'})).success).toBe(true);
@@ -335,8 +337,12 @@ it('keeps who-made-it stamps as evidence only: old actions stay valid, a retry w
   const events = s.service.snapshot(s.room.slug,'g').events;
   expect(events.at(-1)).toMatchObject({id:'stamp-place',action:{cam:{by:'player',ui:'popup-remove'}}});
   // A watcher action keeps by:'camera' and the same board result.
-  const other = s.service.act(s.room.slug,'g',s.users[1],{baseSeq:first.lastSeq,action:remoteActionSchema.parse({...place(camera),actorSeat:1,seat:1,idempotencyKey:'stamp-camera'})},3003);
-  expect(s.service.snapshot(s.room.slug,'g').events.at(-1)).toMatchObject({id:'stamp-camera',action:{cam:{by:'camera'}}});
+  const cameraInput = {baseSeq:first.lastSeq,action:remoteActionSchema.parse({...place(camera),actorSeat:1,seat:1,idempotencyKey:'stamp-camera'})};
+  const other = s.service.act(s.room.slug,'g',s.users[1],{...cameraInput,postStartedAt:performance.now()},3003);
+  expect(s.service.snapshot(s.room.slug,'g').events.at(-1)).toMatchObject({
+    id:'stamp-camera',action:{cam:{by:'camera',timing:{id:'vision-read-1',stagesMs:{...stageTimes,postServer:expect.any(Number)}}}},
+  });
+  expect(s.service.act(s.room.slug,'g',s.users[1],cameraInput,3004).lastSeq).toBe(other.lastSeq);
   expect(s.service.replay(s.room.slug,'g',s.users[1])).toEqual(other.state);
 });
 
