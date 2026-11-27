@@ -1778,6 +1778,11 @@
   .app[data-drawer] .drawer.tdr{top:0}
 }
 /* The pushed drawer leaves the bar about 340 px less room, so a laptop window gets the same short bar as a small window. */
+/* Same for the top bar: Settings is the last button, so it must never be the one that gets clipped. */
+@media (min-width:1100px) and (max-width:1560px){
+  .app[data-drawer] .top{gap:8px}
+  .app[data-drawer] .top .cchip,.app[data-drawer] .top .vbeta,.app[data-drawer] .top .crumb{display:none}
+}
 @media (min-width:1100px) and (max-width:1560px){
   .app[data-drawer] .bar{gap:8px;padding:0 8px}
   .app[data-drawer] .bturn{padding-right:8px;gap:8px}.app[data-drawer] .bturn .tn b{max-width:170px;font-size:16px}
