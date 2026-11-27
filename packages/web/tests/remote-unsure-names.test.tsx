@@ -7,19 +7,24 @@ import {ZoneActions} from '../src/components/remote/ui/zone-actions';
 import {zoneCardAction} from '../src/components/remote/ui/zone-placement';
 import {HoloField} from '../src/components/remote/ui/holo-field';
 import {RecognitionTray} from '../src/components/remote/ui/recognition-tray';
+import * as catalog from '../src/components/remote/ui/catalog';
 import {liveCardSubject, type Subject} from '../src/components/remote/ui/card-view';
 import {tapRoom,applyTap} from './tap-room-fixture';
 
 const choices=[{cardId:46986414,name:'Dark Magician',score:.72},{cardId:89631139,name:'Blue-Eyes White Dragon',score:.55}];
 function placed(){return applyTap(tapRoom(),{type:'twin.place',actorSeat:0,seat:0,zone:'monster',source:'auto',card:{ref:'paper',cardId:46986414,name:'Dark Magician',slot:1,faceUp:true,position:'attack',nameCandidates:choices}});}
-afterEach(()=>{cleanup();vi.unstubAllGlobals();});
+afterEach(()=>{cleanup();vi.restoreAllMocks();vi.unstubAllGlobals();});
 
 it('a sure off-deck correction starts unselected and lists every unique deck card',()=>{
  const onPick=vi.fn();
  const deckIds=[89631139,11,12,13,14,15,16,16];
+ const loadCards=vi.spyOn(catalog,'loadCards');
  vi.stubGlobal('ResizeObserver',class{observe(){}disconnect(){}});
  vi.stubGlobal('fetch',vi.fn(async()=>Response.json({cards:[]})));
- render(<RecognitionTray tray={{seat:0,ownerName:'Player',status:'guesses',guesses:choices,note:'',reader:'vision',at:{anchor:null,feed:null},tier:'sure',correction:true}} deckIds={deckIds} inDeck={id=>deckIds.includes(id)} onPick={onPick} onClose={vi.fn()} saying={false} aiAllowed={false}/>);
+ const tray=(ids:number[])=><RecognitionTray tray={{seat:0,ownerName:'Player',status:'guesses',guesses:choices,note:'',reader:'vision',at:{anchor:null,feed:null},tier:'sure',correction:true}} deckIds={ids} inDeck={id=>ids.includes(id)} onPick={onPick} onClose={vi.fn()} saying={false} aiAllowed={false}/>;
+ const {rerender}=render(tray(deckIds));
+ rerender(tray([...deckIds]));
+ expect(loadCards.mock.calls.filter(([,options])=>options?.preload)).toEqual([[deckIds,{preload:true}]]);
  const options=screen.getAllByRole('option');
  expect(options).toHaveLength(8);
  expect(options[0].getAttribute('aria-label')).toContain('Blue-Eyes White Dragon');
@@ -40,6 +45,9 @@ it('a sure off-deck correction starts unselected and lists every unique deck car
  fireEvent.mouseEnter(options[7]);
  fireEvent.keyDown(document,{key:'Enter'});
  expect(onPick).toHaveBeenLastCalledWith(expect.objectContaining({cardId:46986414,via:'click'}));
+ const updatedDeck=[...deckIds,17];
+ rerender(tray(updatedDeck));
+ expect(loadCards.mock.calls.filter(([,options])=>options?.preload)).toEqual([[deckIds,{preload:true}],[updatedDeck,{preload:true}]]);
 });
 
 it('an open card view gets the renamed identity and drops the old read badges',()=>{

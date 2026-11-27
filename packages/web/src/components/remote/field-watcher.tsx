@@ -1012,10 +1012,11 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       const currentTarget=()=>{
         const observed=watch.getTrack(event.track.id);if(!live()||!matchesEvidence(observed))return;
         const twins=current.current.room.state.seats[seat].twin,card=twins.find(item=>item.ref===track.id);if(!card)return;
+        const targetCode=!observed!.faceDown&&card.identityConfirmed?cardCode(card)??code:code,targetFacts=cardInfo(targetCode);
         // After a place made without facts (slowFacts), the observed zone is the target; the zone-rule effect corrects it once the facts arrive.
-        const target=lateFacts&&!cardInfo(code!)?{zone:observed!.zone,label:''} as ReturnType<typeof projectFieldZone>:projectObserved(observed!,twins,card,cardInfo(code),!!existing&&!existing.faceUp);
+        const target=lateFacts&&!targetFacts?{zone:observed!.zone,label:''} as ReturnType<typeof projectFieldZone>:projectObserved(observed!,twins,card,targetFacts,!!existing&&!existing.faceUp);
         if(!target.zone){abstain(event,target.reason??'Choose a legal zone manually.');return;}
-        if(tokenClash(event,target.zone,twins,entry?.name,entry?cardInfo(catalogCardId(entry)):undefined))return;
+        if(tokenClash(event,target.zone,twins,targetCode===code?entry?.name:card.name,targetFacts))return;
         return {observed:observed!,card,location:fieldZoneLocation(target.zone),position:fieldTwinPosition({...observed!,zone:target.zone})};
       };
       const matches=(target:NonNullable<ReturnType<typeof currentTarget>>)=>target.card.zone===target.location.zone&&target.card.slot===target.location.slot&&fieldPositionMatches(target.location.zone,target.card.position,target.position);
@@ -1033,14 +1034,17 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       if(!matchesEvidence(watch.getTrack(event.track.id)))return;
       placeholders.current.delete(event.track.id);
       bindings.current.set(event.track.id,target.card.ref);
-      if(!track.faceDown&&cardCode(target.card)!==code)return;
-      watch.confirm(event.track.id,track.cardId,target.card.ref,event.type==='prompt');
+      const savedCode=cardCode(target.card),ignoredName=!track.faceDown&&savedCode!==code;
+      if(ignoredName&&(!target.card.identityConfirmed||!savedCode))return;
+      // Reapply the player's confirmation to stop retries for the discarded guess.
+      watch.confirm(event.track.id,ignoredName?String(savedCode):track.cardId,target.card.ref,ignoredName||event.type==='prompt');
       // The departed card may return on a track with its original board ref.
       if(event.track.id!==target.card.ref&&!watch.getTrack(event.track.id)&&
         current.current.room.state.seats[seat].twin.some(c=>c.ref===event.track.id))bindings.current.delete(event.track.id);
       rememberPhysical(target.card.ref,target.observed.zone);setPrompts(list=>list.filter(p=>p.track.id!==event.track.id));
-      const materialName=(ref:string)=>{const c=current.current.room.state.seats[seat].twin.find(t=>t.ref===ref);return c?.name??entries.current.get(watch.getTracks().find(t=>(bindings.current.get(t.id)??t.id)===ref)?.cardId??'')?.name??'Card';};
       const wasLeaving=departureRef.current?.ref===target.card.ref;setDeparture(null);
+      if(ignoredName)return;
+      const materialName=(ref:string)=>{const c=current.current.room.state.seats[seat].twin.find(t=>t.ref===ref);return c?.name??entries.current.get(watch.getTracks().find(t=>(bindings.current.get(t.id)??t.id)===ref)?.cardId??'')?.name??'Card';};
       // Turning a board card over is no news: the table's Undo covers it. Only an uncertain read asks for a look.
       if(existing&&!originReturn&&(track.faceDown||atomicReveal&&!track.bestMatch)){if(wasLeaving)setNotice('');if(projected.moved||projected.shiftTo)noteRowFix(target.card.ref);return;}
       setNotice(summon?`${fieldSummonNotice(summon.kind,entry?.name??'Card',summon.materialRefs.map(materialName))} · auto`:`${track.bestMatch?'Best match · ':''}${track.faceDown?'Face-down card':entry?.name} placed${projected.moved?` · ${projected.moved}`:''} · auto`);setUndoId(updated?.state.undo?.actionId??'');

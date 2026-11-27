@@ -70,12 +70,13 @@ export function RecognitionTray({ tray, deckIds, inDeck, onPick, onClose, onRemo
     const ordered = new Set([...deckGuesses, ...deckIds, ...guesses.keys()]);
     list = [...ordered].map(cardId => guesses.get(cardId) ?? { cardId, name: "", score: null });
   }
+  const deckKey = deckIds.join(",");
   useEffect(() => {
-    if (!deckFirst) return;
+    if (!deckFirst || !deckKey) return;
     let live = true;
-    void loadCards(deckIds, { preload: true }).then(() => { if (live) tick(n => n + 1); });
+    void loadCards(deckKey.split(",").map(Number), { preload: true }).then(() => { if (live) tick(n => n + 1); });
     return () => { live = false; };
-  }, [deckFirst, deckIds]);
+  }, [deckFirst, deckKey]);
   const nameOf = (g: Guess) => g.name || cardInfo(g.cardId)?.name || `Card ${g.cardId}`;
   const choose = (g: Guess, via: Pick["via"]) => onPick({ cardId: g.cardId, name: nameOf(g), via, feedback: g.source === "ai" ? "ai" : found ? "search" : "pick" });
   const startsSelected = found !== null || !deckFirst || !!base[0] && inDeck(base[0].cardId) === true;

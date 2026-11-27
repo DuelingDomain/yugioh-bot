@@ -97,8 +97,10 @@ test('a tapped unsure name is never corrected by a later sure read',async()=>{
  const r=rig(true,true);try{
    for(let i=0;i<20&&!r.events.some(e=>e.type==='placed');i++)await r.tick();
    const placed=r.events.find(e=>e.type==='placed');assert.ok(placed?.track.nameCandidates);
+   const reads=r.reads.length;
    r.watcher.confirm(placed.track.id,'PLAYER');r.sure('B');for(let i=0;i<100;i++)await r.tick();
    assert.equal(r.events.filter(e=>e.type==='placed').length,1);assert.equal(r.watcher.getSnapshot().tracks[0].cardId,'PLAYER');
+   assert.equal(r.events.filter(e=>e.type==='prompt').length,0);assert.equal(r.reads.length,reads);
  }finally{r.watcher.dispose();}
 });
 

@@ -1873,14 +1873,20 @@ it('saves the watcher tentative candidates on the real twin through the owner ac
 });
 
 it('a sure automatic placement withdraws an unanswered name question without a tap',async()=>{
- const fixture=await typedWatcherFixture(cards[0],'M4',[],'prompt');
- try{
-  await fixture.emit({type:'prompt',reason:'uncertain',result:{...result,tier:'low match'}});
-  await screen.findByTestId('field-watcher-prompt');
-  Object.assign(fixture.track,{state:'identified',cardId:cards[0].cardId});
-  await fixture.emit({type:'placed',result:{...result,tier:'sure'}});
-  await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());
-  expect(screen.queryByTestId('field-watcher-prompt')).toBeNull();
-  expect(fixture.post.mock.calls.map(([proposal])=>proposal.type)).toEqual(['twin.place']);
- }finally{fixture.dispose();}
+ for(const locked of [undefined,cards[1]]){
+  const ref='physical-typed',location={zone:'monster',slot:4};
+  const twins=locked?[{ref,...location,cardId:locked.passcode,name:locked.name,faceUp:true,position:'attack',identityConfirmed:{seat:0,...location}}]:[];
+  const observed=locked?zoneEntries[1]:cards[0];
+  const fixture=await typedWatcherFixture(observed,'M4',twins,'prompt');
+  try{
+   await fixture.emit({type:'prompt',reason:'uncertain',result:{...result,tier:'low match'}});
+   await screen.findByTestId('field-watcher-prompt');
+   Object.assign(fixture.track,{state:'identified',cardId:observed.cardId});
+   await fixture.emit({type:'placed',result:{...result,tier:'sure'}});
+   await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledExactlyOnceWith(ref,locked?.cardId??observed.cardId,ref,!!locked));
+   expect(fixture.track.cardId).toBe(locked?.cardId??observed.cardId);
+   expect(screen.queryByTestId('field-watcher-prompt')).toBeNull();
+   expect(fixture.post.mock.calls.map(([proposal])=>proposal.type)).toEqual([locked?'card.identified':'twin.place']);
+  }finally{fixture.dispose();}
+ }
 });
