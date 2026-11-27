@@ -2,7 +2,6 @@ import { duelLensModel } from './models';
 import { fullArtProfile } from './full-art';
 import type { EmbeddingModelSpec, GameProfile } from './types';
 
-export const DUELSIGHT_CONFIDENT = { score:.80, margin:.12 } as const;
 export const DUELSIGHT_RULE = { score:.68, margin:.06 } as const;
 /**
  * A first read under either value is borderline: DuelSight sees the whole card, so a colour cast or a washed-out
