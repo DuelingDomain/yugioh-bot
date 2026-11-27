@@ -242,9 +242,10 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   const [rowPrompts,setRowPrompts]=useState<{ref:string;name:string}[]>([]),rowKept=useRef(new Set<string>());
   const [tokenPrompt,setTokenPrompt]=useState<{event:FieldEvent;token:TwinCard;zone:FieldZone;name:string;facts?:ReturnType<typeof cardInfo>;choosing?:boolean}|null>(null);
   const [proxyClashes,setProxyClashes]=useState<{event:FieldEvent;zone:FieldZone;proxy:TwinCard;holder:number;destination?:FieldZone}[]>([]);
-  const proxyBlockedTracks=useRef(new Set<string>());
+  const proxyBlockedTracks=useRef(new Map<string,FieldZone>());
+  const proxyMarkers=useRef(new Set<string>());
   const proxyPrompt=proxyClashes[0];
-  useEffect(()=>{proxyBlockedTracks.current.clear();setProxyClashes([]);},[room.slug,seat,source]);
+  useEffect(()=>{proxyBlockedTracks.current.clear();proxyMarkers.current.clear();setProxyClashes([]);},[room.slug,seat,source]);
   const [notice,setNotice]=useState(''),[undoId,setUndoId]=useState(''),[pending,setPending]=useState(false),[recovery,setRecovery]=useState<StaleFieldPlacementError|null>(null);
   const heldTimers=useRef(new Map<string,ReturnType<typeof setInterval>>()),departureTimers=useRef(new Map<string,ReturnType<typeof setTimeout>>());
   /** Monsters out of view during the departure wait (track id): an Extra Deck summon in that window takes them as materials. */
@@ -706,10 +707,13 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     const proxy=proxyAtLanding(seats[other].twin,{...land,slot:mirrorEmz(land.slot)},extra,exceptRef);
     if(proxy)return {proxy,holder:other};
   }
+  // A marker stays out of the twin while its track stays in the observed cell.
+  const isProxyMarker=(track:Pick<FieldTrack,'id'|'zone'>)=>proxyMarkers.current.has(track.id)&&proxyBlockedTracks.current.get(track.id)===track.zone;
   function proxyClash(event:FieldEvent,zone=event.track.zone) {
+    if(isProxyMarker(event.track))return true;
     const occupant=proxyAt(zone,bindings.current.get(event.track.id)??event.track.id);
     if(!occupant)return false;
-    proxyBlockedTracks.current.add(event.track.id);
+    proxyBlockedTracks.current.set(event.track.id,event.track.zone);
     setProxyClashes(list=>{
       const previous=list.find(p=>p.event.track.id===event.track.id);
       if(previous?.proxy.ref===occupant.proxy.ref&&previous.zone===zone&&previous.event.track.zone===event.track.zone&&previous.event.track.revision===event.track.revision&&previous.event.type===event.type)return list;
@@ -717,6 +721,11 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       return previous?list.map(p=>p===previous?clash:p):[...list,clash];
     });
     return true;
+  }
+  function leaveProxyMarker(id:string) {
+    proxyMarkers.current.add(id);
+    setProxyClashes(list=>list.filter(p=>p.event.track.id!==id));
+    setPrompts(list=>list.filter(p=>p.track.id!==id));
   }
   function replaceProxy(clash:NonNullable<typeof proxyPrompt>) {
     const {event,zone,proxy,holder}=clash;
@@ -759,7 +768,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   async function showPlaceholder(event:FieldEvent,act:RoomMutation) {
     console.info('[remote field] placeholder',event.track.id,event.track.zone);
     const observed=watch.getTrack(event.track.id);
-    if(!live()||!fieldEvidenceMatches(event,observed)||placeholders.current.has(event.track.id))return;
+    if(!live()||!fieldEvidenceMatches(event,observed)||isProxyMarker(observed!)||placeholders.current.has(event.track.id))return;
     const location=fieldZoneLocation(observed!.zone),twins=current.current.room.state.seats[seat].twin;
     if(piles.has(observed!.zone)||proxyAt(observed!.zone)||twins.some(c=>c.zone===location.zone&&c.slot===location.slot))return;
     // A projected card still owns its physical camera cell as well.
@@ -1206,8 +1215,12 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   }
   function handle(event:FieldEvent,departureOrigin?:Pick<TwinCard,'ref'|'zone'|'slot'>,factsStarted=false,moveRetry=0) {
     if(!factsStarted&&event.result&&event.track.state==='identified'&&!event.track.faceDown)faceReads.current.set(event.track.zone,event);
-    const observedRef=bindings.current.get(event.track.id)??event.track.id;
-    if(event.type==='removed')proxyBlockedTracks.current.delete(event.track.id);
+    const {id,zone}=event.track,observed=watch.getTrack(id);
+    const observedRef=bindings.current.get(id)??id;
+    if(event.type==='removed'){
+      proxyBlockedTracks.current.delete(id);proxyMarkers.current.delete(id);
+    }else if(proxyMarkers.current.has(id)&&(!observed||observed.removed||!isProxyMarker(observed)))proxyMarkers.current.delete(id);
+    if(isProxyMarker(event.track)){cancelDeparture(id);return;}
     if(givenHold(event.track))return;
     if(!factsStarted&&live()&&event.type!=='removed'){
       const waiting=fieldFacts(event);
@@ -1315,6 +1328,8 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       lastMessage.current=message;published.current=JSON.stringify(message);hub.publishFieldTracks(message);
     }
     if(diagnosticsAllowed&&(event.type==='prompt'||(event.type==='placed'&&event.track.bestMatch)))void saveLocalFieldDiagnostic(event,entries.current);
+    const heldIntoPile=(zone==='GY'||zone==='BANISHED')&&observed?.zone===zone&&
+      (event.type==='moved'||event.type==='placed'||event.type==='prompt')&&proxyBlockedTracks.current.delete(id);
     if(live()&&['placed','moved','flipped','prompt'].includes(event.type)){
       const observed=trackForChoice(event);
       if(observed?.zone===event.track.zone&&fieldEvidenceMatches(event,observed,event.type==='prompt')&&proxyClash(event)){
@@ -1383,8 +1398,8 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       const card=current.current.room.state.seats[seat].twin.find(c=>c.ref===ref);
       if(!live())return;
       if(!card){
-        // A card held at a proxy has no twin yet. Its first move to a free cell is its first placement.
-        if(event.type==='moved'&&proxyBlockedTracks.current.has(event.track.id)&&!piles.has(event.track.zone))await apply(event,act);
+        // A card held at a proxy may have no twin yet. Its first move to a free cell or tracked pile is its first placement.
+        if(event.type==='moved'&&(heldIntoPile||!piles.has(zone)&&proxyBlockedTracks.current.has(id)))await apply(event,act);
         return;
       }
       if(card.zone==='hand'&&fieldSetRebind(event)){
@@ -2390,6 +2405,11 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   useEffect(()=>{for(const [id,away] of tokenAway.current)if(!tokenInCell(room.state.seats[seat].twin,away.cell))tokenAway.current.delete(id);},[room.state.seats,seat]);
   useEffect(()=>{if(!tokenPrompt)return;if(!room.state.seats[seat].twin.some(c=>c.ref===tokenPrompt.token.ref)||!watch.getTrack(tokenPrompt.event.track.id)||watch.isRemoved(tokenPrompt.event.track.id))setTokenPrompt(null);},[room.state.seats,tokenPrompt,seat,watch]);
   useEffect(()=>{
+    for(const id of proxyMarkers.current){
+      const track=watch.getTrack(id);
+      if(!track||track.removed)proxyBlockedTracks.current.delete(id);
+      if(!track||track.removed||!isProxyMarker(track))proxyMarkers.current.delete(id);
+    }
     if(!proxyClashes.length)return;
     const active=proxyClashes.filter(({event,zone,proxy})=>{
       const track=trackForChoice(event);
@@ -2398,7 +2418,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     if(active.length!==proxyClashes.length)setProxyClashes(active);
   });
   useEffect(()=>{if(!notice)return;const timer=setTimeout(()=>{setNotice('');setDeparture(null);setUndoId('');},5000);return()=>clearTimeout(timer);},[notice,undoId]);
-  const glareTracks=watch.enabled&&!syncHold?watch.snapshot.tracks.filter(track=>track.glare):[];
+  const glareTracks=watch.enabled&&!syncHold?watch.snapshot.tracks.filter(track=>track.glare&&!isProxyMarker(track)):[];
   const shownGlare=useRef(new Set<string>());
   useEffect(()=>{shownGlare.current.clear();},[room.slug]);
   useEffect(()=>{
@@ -2408,7 +2428,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     shownGlare.current.add(track.id);
     setUndoId('');setNotice(`Glare on ${track.zone}: tilt the card or move the light`);
   },[glareTracks,notice,failedUpdate,recovery,leaveChoice,shiftHint,tokenPrompt,proxyPrompt,rowPrompts.length,heldPick,calibrating,watch.getTrack]);
-  const activePrompts=prompts.filter(event=>{const live=watch.getTrack(event.track.id);return live?.state==='prompt'&&(live.revision??0)===(event.track.revision??0)&&!proxyAt(live.zone)&&!correctionsFor(current.current.room,seat).blocks([bindings.current.get(live.id)??live.id],fieldZoneLocation(live.zone));});
+  const activePrompts=prompts.filter(event=>{const live=watch.getTrack(event.track.id);return live?.state==='prompt'&&(live.revision??0)===(event.track.revision??0)&&!isProxyMarker(live)&&!proxyAt(live.zone)&&!correctionsFor(current.current.room,seat).blocks([bindings.current.get(live.id)??live.id],fieldZoneLocation(live.zone));});
   if(glareTracks.length){
     const registered=new Set(registeredDeckPasscodes(room,seat));
     for(const track of glareTracks){
@@ -2506,12 +2526,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
         });
       }}
       noticeTestId={departure?'field-departure-toast':undefined}
-      notice={proxyPrompt?<span data-testid="proxy-clash">
-        {proxyClashLabel(proxyAt(proxyPrompt.zone)?.proxy??proxyPrompt.proxy)}
-        {proxyPrompt.destination?<span> Move your card to {fieldZoneLabel(proxyPrompt.destination)}.</span>:null}
-        {proxyOptions.map(zone=><button type="button" key={zone} disabled={pending} aria-pressed={proxyPrompt.destination===zone} onClick={()=>setProxyClashes(list=>list.map(p=>p===proxyPrompt?{...p,destination:zone}:p))}>{fieldZoneLabel(zone)}</button>)}
-        {proxyPrompt.holder===seat||proxyPrompt.proxy.ownerSeat===seat?<button type="button" disabled={pending} onClick={()=>replaceProxy(proxyPrompt)}>Replace proxy</button>:null}
-      </span>:tokenPrompt?.choosing?<span data-testid="token-clash-zones">Which zone is the card in?
+      notice={tokenPrompt?.choosing?<span data-testid="token-clash-zones">Which zone is the card in?
         {freeFieldZones(room.state.seats[seat].twin,tokenPrompt.facts,tokenPrompt.event.track.faceDown).map(zone=><button type="button" key={zone} disabled={pending} data-testid={`token-clash-zone-${zone}`} onClick={()=>{const {event,zone:cell}=tokenPrompt;setTokenPrompt(null);tokenAway.current.set(event.track.id,{cell,zone});void queue(act=>apply(event,act),event);}}>{zone}</button>)}
         <button type="button" onClick={()=>setTokenPrompt({...tokenPrompt,choosing:false})}>Back</button></span>:tokenPrompt?<span data-testid="token-clash">A token is in {tokenPrompt.zone}. Tribute/remove the token and place {tokenPrompt.name} here?
         <button type="button" disabled={pending} onClick={()=>{const {event,token}=tokenPrompt;setTokenPrompt(null);tokenUndo.current=undefined;void queueHuman('token',async act=>{const removed=await act({type:'twin.remove',actorSeat:seat,seat,cardRef:token.ref});const actionId=removed?.state.undo?.actionId;if(!removed||!actionId)return;correctionsFor(current.current.room,seat).release(token.ref);tokenUndo.current={trackId:event.track.id,actionId};setNotice('Token removed · Undo');setUndoId(actionId);},event).then(()=>queue(act=>apply(event,act),event));}} data-testid="token-clash-remove">Remove token</button>
@@ -2519,7 +2534,13 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
         <button type="button" disabled={pending} data-testid="monster-in-st-move" onClick={()=>moveFromSpellTrap(rowPrompts[0])}>Move to {rowTarget??'a Monster Zone'}</button>
         <button type="button" data-testid="monster-in-st-keep" onClick={()=>{const first=rowPrompts[0];rowKept.current.add(first.ref);setRowPrompts(list=>list.filter(p=>p.ref!==first.ref));}}>Keep (equipped or placed by a card)</button></span>:failedUpdate?<>{notice||'Could not save the field update.'}<button type="button" disabled={pending} onClick={()=>void queue(failedUpdate.work,failedUpdate.event,failedUpdate.humanChoice)}>Retry field update</button></>:recovery?<>{recovery.message}<button type="button" onClick={recover}>Remove stale placement</button></>:leaveChoice?<span data-testid="leave-choice">The camera saw a card {leaveChoice.zone==='banished'?`banished${leaveChoice.faceUp?'':' face-down'}`:'in the Graveyard'}. Which card was it?{leaveChoice.options.map(o=><button type="button" key={o.ref} disabled={pending} onClick={()=>chooseLate(o.ref)}>{o.name}</button>)}<button type="button" onClick={()=>{choiceClosed.current.add(leaveChoice.twinRef);setLeaveChoice(null);}}>Neither</button></span>:syncHold?<span data-testid="sync-board-hold">Auto-detect is on. The board keeps its cards until you sync it.<button type="button" onClick={()=>{scanField();}}>Sync board to camera</button></span>:shiftHint?<span data-testid="zone-shift-hint">Zones look shifted — Recalibrate?<button type="button" onClick={()=>{setShiftHint(false);setCalibrating(true);}}>Recalibrate</button><button type="button" onClick={()=>setShiftHint(false)}>Dismiss</button></span>:notice?<>{notice}{departure?<span data-leave-tags> → {fieldLeaveLabel(departure.zone,!departure.down)} {attachTargets.map(t=><button type="button" key={`attach-${t.ref}`} disabled={pending} onClick={()=>attachTo(t)}>Attach to {t.name}</button>)}{destinations.map(d=><button type="button" key={d.title} disabled={pending||d.zone===departure.zone&&(d.zone!=='banished'||('down' in d)===!!departure.down)} onClick={()=>redirect(d.zone,'down' in d)}>{d.title}</button>)}</span>:null}
         {departure?.zone==='pending'?<button type="button" disabled={pending} onClick={()=>redirect('hand')}>Retry removal</button>:null}
-        {undoId&&room.state.undo?.actionId===undoId&&serverNow()<=room.state.undo.at+5000?<button type="button" onClick={()=>void queueHuman('undo',async act=>{clipAction('undo',{actionId:undoId});const departed=departureRef.current?.ref,link=undoChain.current.after===undoId?undoChain.current:undefined,chain=link?.ids??[];undoChain.current={after:'',ids:[]};let updated=await act({type:'undo',actorSeat:seat,targetActionId:undoId});for(const id of chain)if(updated)updated=await act({type:'undo',actorSeat:seat,targetActionId:id})??updated;if(updated){if(link?.rebind){bindings.current.set(link.rebind.trackId,link.rebind.ref);watch.confirm(link.rebind.trackId,undefined,link.rebind.ref,false);readerRemovals.current.delete(link.rebind.ref);}if(departed&&updated.state.seats[seat].twin.some(card=>card.ref===departed&&publicField(card.zone)))watch.dismiss(departed);setDeparture(null);setNotice('Automatic field change undone');setUndoId('');}})}>Undo</button>:null}</>:heldPick?<span data-testid="held-pick">Which card did you hold up?
+        {undoId&&room.state.undo?.actionId===undoId&&serverNow()<=room.state.undo.at+5000?<button type="button" onClick={()=>void queueHuman('undo',async act=>{clipAction('undo',{actionId:undoId});const departed=departureRef.current?.ref,link=undoChain.current.after===undoId?undoChain.current:undefined,chain=link?.ids??[];undoChain.current={after:'',ids:[]};let updated=await act({type:'undo',actorSeat:seat,targetActionId:undoId});for(const id of chain)if(updated)updated=await act({type:'undo',actorSeat:seat,targetActionId:id})??updated;if(updated){if(link?.rebind){bindings.current.set(link.rebind.trackId,link.rebind.ref);watch.confirm(link.rebind.trackId,undefined,link.rebind.ref,false);readerRemovals.current.delete(link.rebind.ref);}if(departed&&updated.state.seats[seat].twin.some(card=>card.ref===departed&&publicField(card.zone)))watch.dismiss(departed);setDeparture(null);setNotice('Automatic field change undone');setUndoId('');}})}>Undo</button>:null}</>:proxyPrompt?<span data-testid="proxy-clash">
+        {proxyClashLabel(proxyAt(proxyPrompt.zone)?.proxy??proxyPrompt.proxy)}
+        {proxyPrompt.destination?<span> Move your card to {fieldZoneLabel(proxyPrompt.destination)}.</span>:null}
+        {proxyOptions.map(zone=><button type="button" key={zone} disabled={pending} aria-pressed={proxyPrompt.destination===zone} onClick={()=>setProxyClashes(list=>list.map(p=>p===proxyPrompt?{...p,destination:zone}:p))}>{fieldZoneLabel(zone)}</button>)}
+        {proxyPrompt.holder===seat||proxyPrompt.proxy.ownerSeat===seat?<button type="button" disabled={pending} onClick={()=>replaceProxy(proxyPrompt)}>Remove proxy and place here</button>:null}
+        <button type="button" disabled={pending} onClick={()=>leaveProxyMarker(proxyPrompt.event.track.id)}>Leave it (marker)</button>
+      </span>:heldPick?<span data-testid="held-pick">Which card did you hold up?
         {heldPick.options.map(o=><button type="button" key={o.cardId} disabled={pending} data-testid="held-pick-card" onClick={()=>{const pick=heldPick;setHeldPick(null);void queueHuman('held-pick',act=>commitHeld(act,o.cardId,o.name,`${pick.id}-pick`,performance.now(),`${pick.id}-pick`));}}>{o.name}</button>)}
         <button type="button" data-testid="held-pick-none" onClick={()=>setHeldPick(null)}>Not an activation</button></span>:tapOffer?<span data-testid="tap-identify-offer">{tournament?'This computer is slow for live tracking. Switch to tap-to-identify? Your opponent will see the switch.':'This computer is slow for live tracking. Switch to tap-to-identify?'}<button type="button" onClick={()=>answerTapOffer('switch')}>Switch</button><button type="button" onClick={()=>answerTapOffer('keep')}>Keep</button></span>:videoOfferShowing?<span data-testid="video-fps-offer">Your computer is struggling with video. Switch to 15 fps to reduce lag?<button type="button" onClick={()=>answerVideoOffer(15)}>Switch</button><button type="button" onClick={()=>answerVideoOffer(30)}>Keep</button></span>:lightHintShowing?<span data-testid="low-light-hint">Camera is slow — add light or turn off auto exposure<button type="button" onClick={()=>setLightHint(false)}>Dismiss</button></span>:softHintShowing?<span data-testid="soft-camera-hint">Camera is out of focus — tap to focus or move closer<button type="button" onClick={()=>setSoftDismissed(true)}>Dismiss</button></span>:undefined}/>
     {calibrating?<FieldCalibrationControl defaultSide={defaultSideFor(phone?'phone':'webcam')} video={video} initialCalibration={watch.calibration} placed={watch.placed} format={room.format?.id??room.state.deckChecks.format.id} detectCalibrationCards={async frame=>{const result=await detectCards(await createImageBitmap(frame));if(result.status!=='ready')throw new Error(result.note);return result.cards;}} onSave={grid=>{updateCalibration(grid,true);setCalibrating(false);}} onCancel={()=>{if(watch.calibrationNeeded&&!watch.calibration?.orientation)setDetection(false);setCalibrating(false);}}/>:null}
