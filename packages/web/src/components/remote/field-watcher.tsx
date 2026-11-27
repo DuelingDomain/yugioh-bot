@@ -2108,7 +2108,6 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       action=setMove;
     }
     let updated:RemoteRoom|null;
-    const event:FieldEvent={type:'flipped',track,source:'auto'};
     try{updated=await applyFieldFaceFlip(track,()=>watch.getTrack(track.id),(proposal,id)=>act(proposal,id,event),action,!!card.faceUp&&!!card.materials?.length);}
     catch(error){if(error instanceof RemoteDuelError&&error.code==='ACTIVATION_LIMIT'){refuse(error.message);return;}throw error;}
     if(!updated)return backoff();
