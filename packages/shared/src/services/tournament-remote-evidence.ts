@@ -1,5 +1,5 @@
 import type Database from "better-sqlite3";
-import { getRemoteGame, remoteActionSchema, type RemoteAction, type RemoteSeatState, type RemoteSystemAction, type SeatCount } from "../remote/index.js";
+import { getRemoteGame, remoteActionEventSchema, type RemoteAction, type RemoteSeatState, type RemoteSystemAction, type SeatCount } from "../remote/index.js";
 import { applyRemoteFormat } from "../remote/deck-checks.js";
 import { initializeRemoteHandCounts } from "../remote/hand.js";
 import { applyRemoteOpening, initialRemoteMatch } from "../remote/match.js";
@@ -9,7 +9,7 @@ const DAY = 86_400_000;
 const modeSeconds = {auto:'autoSeconds',tap:'tapSeconds',manual:'manualSeconds'} as const;
 const publicZones = new Set(['monster', 'extra-monster', 'spell-trap', 'field', 'pendulum', 'graveyard', 'banished']);
 const manualActions = new Set(['twin.place', 'twin.move', 'twin.flip', 'twin.remove', 'twin.attach', 'twin.detach',
-  'twin.equip', 'monsters.tribute', 'pile.lift', 'pile.order', 'twin.merge', 'deck.flag.dismiss']);
+  'twin.equip', 'monsters.tribute', 'pile.lift', 'pile.order', 'pile.set', 'twin.merge', 'deck.flag.dismiss']);
 const tokenActions = new Set(['twin.place', 'twin.move', 'twin.flip', 'twin.remove']);
 type EventRow = { seq:number; created_at:number; user_id:number|null; actor_seat:number|null;
   action_json:string; effects_json:string|null; facts_hash:string|null };
@@ -108,7 +108,7 @@ function captureEvidence(db: Database.Database, tableId: number, now: number): v
         const seat=tokenActions.has(action.type) && 'actorSeat' in action ? action.actorSeat : 'seat' in action ? action.seat : event.actor_seat;
         if (seat !== null && summary[seat]) summary[seat].manualCorrections++;
       }
-      if (remoteActionSchema.safeParse(action).success) {
+      if (remoteActionEventSchema.safeParse(action).success) {
         const effects=readRemoteEffects(db,event.effects_json,event.facts_hash);
         if (effects?.showCardsSetFromDeck !== undefined) state.showCardsSetFromDeck=effects.showCardsSetFromDeck;
         state=game.reduce(state,action as RemoteAction,{...effects,replay:true});

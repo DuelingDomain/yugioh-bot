@@ -27,6 +27,8 @@ export const remoteCameraStampSchema = z.strictObject({
     ms:z.number().finite().nonnegative(),
   }).optional(),
   set:remoteSetEvidenceSchema.optional(),
+  /** Observed centre in mat coordinates and the track's public pile cell. */
+  cell:z.strictObject({centre:z.strictObject({x:z.number().finite(),y:z.number().finite()}),zone:z.enum(['GY','BANISHED'])}).optional(),
 });
 export type RemoteCameraStamp = z.infer<typeof remoteCameraStampSchema>;
 export const remoteActionMeta = {

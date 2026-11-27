@@ -38,6 +38,7 @@
 .notice button:hover{border-color:var(--pen)}
 /* Where a card that left the field went: the tag buttons stay on one line each, and are 44px tall on a phone. */
 .notice [data-leave-tags] button{white-space:nowrap}
+.notice [data-notice-line]{display:block}
 @media(pointer:coarse),(max-width:600px){.notice [data-leave-tags] button,.notice [data-leave-tags]~button{min-height:44px}}
 .backdrop{position:fixed;inset:0;z-index:250;display:grid;place-items:center;padding:24px;background:rgb(3 2 8/.8)}
 .calibration{width:min(100%,1120px);max-height:calc(100dvh - 48px);overflow:hidden;border:1px solid rgb(232 185 79/.55);border-radius:14px;background:linear-gradient(180deg,#1a1030,var(--p0));box-shadow:0 24px 70px rgb(0 0 0/.7)}
@@ -55,6 +56,14 @@ button.chip{cursor:pointer;font-family:inherit}
 .prompt.docked .promptActions{margin-top:6px}
 .prompt.docked .promptActions .dismiss{margin-top:0}
 .prompt.docked .promptActions button{min-height:28px;font-size:12.5px;padding:0 8px}
+.pilePrompt{display:grid;grid-template-columns:minmax(0,1fr);gap:7px;margin-top:6px}
+.pileGuess{display:flex;align-items:center;gap:8px;margin:0;color:var(--ink)}
+.pileGuess img{width:26px;height:auto;border-radius:2px}
+.pilePrompt button{color:var(--ink);white-space:normal}
+.pilePrompt .pilePrimary{height:auto;min-height:34px;text-align:left;justify-content:flex-start;padding:4px 8px;background:var(--p2);border-color:var(--pen)}
+.pilePromptActions{display:flex;flex-wrap:wrap;align-items:center;gap:5px}
+.pilePrompt kbd{font:600 11px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;padding:2px 5px;border:1px solid var(--line2);border-bottom-width:2px;border-radius:4px;color:var(--ink2);background:rgb(0 0 0/.25)}
+.pilePrompt .pileLater{border:0;background:none;color:var(--ink2);min-height:0;padding:3px;text-decoration:underline;font-size:12px}
 /* On-zone prompt: a gold "?" on the cell, the choices in a floating panel. */
 .zoneBadge.zoneBadge{position:absolute;top:-4px;right:-4px;z-index:15;display:grid;place-items:center;width:15px;height:15px;padding:0;border:0;border-radius:50%;background:var(--gold);color:#1b1204;font:800 11px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;box-shadow:0 0 0 2px rgb(7 4 14/.85);cursor:pointer;animation:attention 1.6s ease-in-out infinite}
 .zoneBadge::after{content:"";position:absolute;inset:-8px}

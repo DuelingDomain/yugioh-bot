@@ -10,6 +10,11 @@ import { ZoneCardPicker } from '../src/components/remote/ui/zone-card-picker';
 import { RecentDepartures } from '../src/components/remote/ui/recent-departures';
 import { FieldWatcherUI } from '../src/components/remote/field-watcher-ui';
 import { InspectorBody, type CardActions } from '../src/components/remote/ui/card-view';
+import { PileViewer } from '../src/components/remote/ui/pile-viewer';
+import { Feed } from '../src/components/remote/ui/feed';
+import * as videoHub from '../src/components/remote/ui/video-hub';
+import { clearZoneGrid, publishFieldScan, publishZoneGrid } from '../src/lib/remote/zone-grid';
+import { createFieldCalibration } from '@yugidraft/vision';
 import { useTokens } from '../src/components/remote/ui/token-ui';
 import { useLayers } from '../src/components/remote/ui/use-layers';
 import { createChangedZones } from '../src/lib/remote/changed-zones';
@@ -20,6 +25,78 @@ afterEach(() => { cleanup(); sessionStorage.clear(); vi.useRealTimers(); vi.unst
 const monster = (ref='paper'): TwinCard => ({ref,cardId:46986414,name:'Dark Magician',zone:'monster',slot:1,faceUp:true,position:'attack'});
 const placementCard=(ref='paper')=>{const {zone,...card}=monster(ref);return card;};
 const observed = (overrides: Partial<CorrectionObservation> = {}): CorrectionObservation => ({id:'outline',ref:'paper',zone:'monster',slot:1,faceDown:false,position:'attack',removed:false,resting:true,...overrides});
+
+it('a tap-mode GY click opens the pile viewer before a cached card read', () => {
+  vi.stubGlobal('matchMedia',vi.fn(()=>({matches:false,addEventListener:vi.fn(),removeEventListener:vi.fn()})));
+  vi.stubGlobal('ResizeObserver',class { observe() {} disconnect() {} });
+  const noop=()=>{};
+  const {result}=renderHookHub();
+  const trackedAt=vi.fn(()=>({ref:'top',cardId:46986414,quad:[{x:.85,y:.4},{x:.95,y:.4},{x:.95,y:.6},{x:.85,y:.6}]}));
+  const source={attach:()=>noop};
+  const spy=vi.spyOn(videoHub,'useVideoHub').mockReturnValue({...result,sourceFor:()=>source as never,trackedAt});
+  const onSelect=vi.fn(),onBegin=vi.fn();
+  const calibration=createFieldCalibration([{x:0,y:0},{x:1,y:1}],{playerSide:'bottom',mirrored:false});
+  publishZoneGrid({ownSeat:0,format:'normal',calibration,tracks:[]});
+  publishFieldScan({seat:0,scanning:false,enabled:false,ready:true,setDetection:noop});
+  function Table() {
+    const [zone,setZone]=useState<'graveyard'|'banished'|null>(null);
+    return <><Feed seat={0} name="Player" you health={result.health(0)} marks={[]} reticles={[]} onBegin={onBegin} onPoint={noop} onMiss={noop} onSearch={noop} onSelect={onSelect} onAdd={noop} onReset={noop} holdSelection={false} emptyText="Camera off" onTapPile={(_,pile:'graveyard'|'banished')=>setZone(pile)}/>
+      {zone?<PileViewer seat={0} name="Player" mine twin={[{...monster('top'),zone}]} zone={zone} onZone={noop} info={()=>undefined} onOpenCard={noop} onClose={noop}/>:null}</>;
+  }
+  try {
+    const view=render(<Table/>),feed=screen.getByTestId('feed-0'),video=view.container.querySelector('video')!;
+    Object.defineProperties(feed,{clientWidth:{value:100},clientHeight:{value:100}});
+    Object.defineProperties(video,{videoWidth:{value:100},videoHeight:{value:100}});
+    fireEvent.loadedMetadata(video);
+    fireEvent.click(feed,{clientX:90,clientY:50});
+    expect(screen.getByRole('dialog',{name:"Player's Graveyard"})).toBeTruthy();
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(onBegin).not.toHaveBeenCalled();
+  } finally {
+    cleanup(); spy.mockRestore(); clearZoneGrid(); publishFieldScan({seat:null,scanning:false,enabled:false,ready:false});
+  }
+});
+
+function renderHookHub() {
+  let result!: ReturnType<typeof videoHub.useVideoHub>;
+  function Capture() { result=videoHub.useVideoHub(); return null; }
+  render(<Capture/>).unmount();
+  return {result};
+}
+
+it.each([['Take all to hand','hand'],['Shuffle all into Deck','deck']] as const)('offers the owner %s for all visible pile entries', async (label,destination) => {
+  vi.stubGlobal('matchMedia',vi.fn(()=>({matches:false,addEventListener:vi.fn(),removeEventListener:vi.fn()})));
+  const onLift=vi.fn();
+  const props={seat:0,name:'Player',zone:'graveyard' as const,twin:[{...monster('first'),zone:'graveyard'},{...monster('top'),zone:'graveyard'}],
+    onZone:vi.fn(),info:()=>undefined,onOpenCard:vi.fn(),onClose:vi.fn(),onLift};
+  const view=render(<PileViewer {...props} mine={false}/>);
+  expect(screen.queryByRole('button',{name:label})).toBeNull();
+  view.rerender(<PileViewer {...props} mine/>);
+  await act(async()=>{fireEvent.click(screen.getByRole('button',{name:label}));});
+  expect(onLift).toHaveBeenCalledExactlyOnceWith('graveyard',['first','top'],destination);
+});
+
+it('re-check previews camera results and applies only the checked entries in one edit', async () => {
+  vi.stubGlobal('matchMedia',vi.fn(()=>({matches:false,addEventListener:vi.fn(),removeEventListener:vi.fn()})));
+  const onApply=vi.fn(async()=>true);
+  const scan=vi.fn(async()=>[
+    {cardId:46986414,name:'Dark Magician',faceUp:true},
+    {cardId:89631139,name:'Blue-Eyes White Dragon',faceUp:true},
+  ]);
+  const noop=()=>{};
+  render(<PileViewer seat={0} name="Player" mine zone="graveyard" twin={[{...monster('first'),zone:'graveyard'}]}
+    onZone={noop} info={()=>undefined} onOpenCard={noop} onClose={noop} onApply={onApply} onScan={scan}/>);
+  fireEvent.click(screen.getByRole('button',{name:'Re-check pile'}));
+  fireEvent.click(screen.getByRole('button',{name:'Read camera'}));
+  await screen.findByText('Camera sees');
+  fireEvent.click(screen.getByRole('button',{name:'Cancel'}));
+  expect(onApply).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button',{name:'Re-check pile'}));
+  fireEvent.click(screen.getByRole('button',{name:'Read camera'}));
+  fireEvent.click(await screen.findByRole('checkbox',{name:/Blue-Eyes/}));
+  await act(async()=>{fireEvent.click(screen.getByRole('button',{name:'Apply'}));});
+  expect(onApply).toHaveBeenCalledExactlyOnceWith('graveyard',[{ref:'first'}],['first']);
+});
 
 it.each(['place','name','move','flip','position','remove'] as const)('a manual %s survives camera re-observation without a duplicate', async kind => {
   let room=tapRoom();

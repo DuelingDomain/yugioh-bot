@@ -29,7 +29,7 @@ export {createFieldWatcher,createHeldCardReader,FIELD_ACTIVITY_WINDOW_MS,FIELD_S
 export {fieldGlareChoices} from './field-glare';
 export {fieldStackUnder} from './field-stack-memory';
 export type {HeldCardEvent,HeldUnsureEvent,HeldCardTrack,FieldWatcher,FieldWatcherOptions,FieldEvent,FieldTiming,FieldTrack,FieldSnapshot,FieldDebug,FieldMetrics,FieldBuffer,KnownFieldCard} from './field-watcher';
-export {fieldQuadEnvelope,FIELD_ZONE_PITCH,FIELD_ROW,normalizeZoneSpacing,fieldZoneLayout,DEFAULT_FIELD_ORIENTATION,rotateFieldCalibration,mirrorFieldCalibration,shiftFieldCalibrationRows,swapFieldCalibrationRows,orientFieldFromHands,createFieldCalibration,createTwoCardCalibration,fieldMatPoint,onMat,mapFieldZone,fieldOrientation,fieldZoneLocation,hasExtraMonsterZones,fieldZoneCells,fieldZoneAt,fieldZoneBounds,zoneCellAt,scaleZoneRect,unscaleZoneRect,FIELD_ZONE_LAYOUT,normalizeZones,FIELD_ZONE_IDS,MIN_ZONE_SIZE,fieldQuadPoint,fieldQuadTurn, fieldQuarterTurn,moveFieldQuad,turnFieldQuad,pinchFieldQuad,resizeFieldQuad,flattenFieldCalibration} from './field-zones';
+export {fieldQuadEnvelope,FIELD_ZONE_PITCH,FIELD_ROW,normalizeZoneSpacing,fieldZoneLayout,DEFAULT_FIELD_ORIENTATION,rotateFieldCalibration,mirrorFieldCalibration,shiftFieldCalibrationRows,swapFieldCalibrationRows,orientFieldFromHands,createFieldCalibration,createTwoCardCalibration,fieldMatPoint,onMat,mapFieldZone,publicPileOutlines,fieldOrientation,fieldZoneLocation,hasExtraMonsterZones,fieldZoneCells,fieldZoneAt,fieldZoneBounds,zoneCellAt,scaleZoneRect,unscaleZoneRect,FIELD_ZONE_LAYOUT,normalizeZones,FIELD_ZONE_IDS,MIN_ZONE_SIZE,fieldQuadPoint,fieldQuadTurn, fieldQuarterTurn,moveFieldQuad,turnFieldQuad,pinchFieldQuad,resizeFieldQuad,flattenFieldCalibration} from './field-zones';
 export type {FieldQuadEnvelope,FieldHandle,FieldZone,ZoneRect,ZoneOverrides,FieldZoneCell,FieldCalibration,FieldFormat,FieldOrientation,PlayerSide} from './field-zones';
 
 export {createFieldIdentityGallery} from './field-gallery';
@@ -58,6 +58,7 @@ export {createZoneInstant} from './zone-instant';
 export {createTapPreread} from './tap-preread';
 export {createFieldAnalyzer} from './field-motion';
 export {fieldCenter} from './field-zones';
+export {isCovered} from './board';
 export type {ZoneInstant,ZoneInstantOptions,ZoneInstantRead,ZoneInstantStats} from './zone-instant';
 export {ZONE_PREVIEW_TOPIC,ZONE_PREVIEW_TTL_MS,previewForZone,encodePreview,decodePreview,createPreviewBoard} from './zone-peer';
 export type {ZonePreview,PreviewKind} from './zone-peer';

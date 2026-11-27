@@ -40,7 +40,7 @@ export const twinCardSchema = z.strictObject({
 });
 const effectSource = z.strictObject({ cardId: cardId.optional(), cardRef: id.optional(), name: z.string().trim().min(1).max(200).optional() })
   .refine(source=>!!(source.cardId || source.cardRef || source.name), "Identify the effect source");
-export const remoteActionSchema = z.discriminatedUnion("type", [
+export const remoteActionEventSchema = z.discriminatedUnion("type", [
   ...remoteMatchActionSchemas,
   z.strictObject({ ...meta, type: z.literal("hand.add"), cardId, source: z.enum(["deck", "gy", "banish", "extra", "field", "unknown"]), by: z.strictObject({cardId, name: z.string().trim().min(1).max(200)}).optional() }),
   z.strictObject({ ...meta, type: z.literal("hand.reveal"), cardId }),
@@ -80,6 +80,8 @@ export const remoteActionSchema = z.discriminatedUnion("type", [
     .refine(a => (!!a.keepInstanceId && !!a.removeInstanceId && !a.keepRef && !a.removeRef) ||
       (!!a.keepRef && !!a.removeRef && !a.keepInstanceId && !a.removeInstanceId), "Choose two instance IDs or two twin refs"),
   z.strictObject({ ...meta, type: z.literal("twin.place"), seat: remoteSeatSchema, zone, card: twinCardSchema, source: z.literal("auto").optional(),
+    /** Legacy action history only. */
+    pendulum: z.literal(true).optional(),
     /** A player picked the name while placing a camera-tracked card. */
     confirmIdentity: z.literal(true).optional(),
     /** The camera already showed this activation from the hand. */
@@ -96,14 +98,21 @@ export const remoteActionSchema = z.discriminatedUnion("type", [
     anotherCopy: z.boolean().optional(),
     /** An Extra Deck summon: the camera saw these monsters go under the card or leave the field just before it. */
     summon: summon.optional() }),
-  /** The camera saw a whole GY/banished pile leave the mat: its cards go to the hand in one undoable action. */
-  z.strictObject({ ...meta, type: z.literal("pile.lift"), seat: remoteSeatSchema, zone: z.enum(["graveyard", "banished"]), cardRefs: z.array(id).min(1).max(120), source: z.literal("auto").optional() }),
+  /** The player moves GY or banished cards to the hand or Deck. Legacy events without a destination preserve pile inspection behavior. */
+  z.strictObject({ ...meta, type: z.literal("pile.lift"), seat: remoteSeatSchema, zone: z.enum(["graveyard", "banished"]),
+    cardRefs: z.array(id).min(1).max(120), destination: z.enum(["hand", "deck"]).optional(), source: z.literal("auto").optional() }),
   /** One tap sends the listed monsters (any field, tokens included) to their owners' Graveyards. A token just leaves the table. One Undo restores them all. */
   z.strictObject({ ...meta, type: z.literal("monsters.tribute"), seat: remoteSeatSchema,
     targets: z.array(z.strictObject({ seat: remoteSeatSchema, cardRef: id })).min(1).max(60) }),
-  /** The owner fixes the order of a GY/banished pile (oldest first). The list must hold every card of the pile once. */
-  z.strictObject({ ...meta, type: z.literal("pile.order"), seat: remoteSeatSchema, zone: z.enum(["graveyard", "banished"]), cardRefs: z.array(id).min(1).max(120)
+  /** Orders a public pile (oldest first). Extra Deck orders are retained for replay. */
+  z.strictObject({ ...meta, type: z.literal("pile.order"), seat: remoteSeatSchema, zone: z.enum(["graveyard", "banished", "extra"]), cardRefs: z.array(id).min(1).max(120)
     .refine(refs => new Set(refs).size === refs.length, "Duplicate pile card"), source: z.literal("auto").optional() }),
+  /** Replaces a public pile, oldest first. A ref-only entry keeps the existing card. */
+  z.strictObject({ ...meta, type: z.literal("pile.set"), seat: remoteSeatSchema, zone: z.enum(["graveyard", "banished"]),
+    entries: z.array(z.strictObject({ ref: id, cardId: cardId.optional(), name: sighting.name, faceUp: z.boolean().optional() })
+      .refine(entry => entry.faceUp !== undefined || (entry.cardId === undefined && entry.name === undefined), "A retained pile entry takes only its ref")).max(100)
+      .refine(entries => new Set(entries.map(entry => entry.ref)).size === entries.length, "Duplicate pile card"),
+    expectedRefs: z.array(id).max(100).optional(), source: z.literal("auto").optional() }),
   z.strictObject({ ...meta, type: z.literal("twin.move"), seat: remoteSeatSchema, zone, cardRef: id, slot: slot.optional(), position: z.enum(["attack", "defense"]).optional(), faceUp: z.boolean().optional(), source: z.literal("auto").optional(), name: z.string().trim().min(1).max(200).optional(),
     /** Fresh public ref for a camera-confirmed face-down return from the hand. */
     setRef: id.optional(),
@@ -150,7 +159,10 @@ export const remoteActionSchema = z.discriminatedUnion("type", [
   /** Quit the match. 1v1: the opponent wins the match. FFA: only this seat leaves for good. It cannot be undone. */
   z.strictObject({ ...meta, type: z.literal("player.leave") }),
 ]);
-export type RemoteAction = z.infer<typeof remoteActionSchema>;
+export const remoteActionSchema = remoteActionEventSchema.refine(action =>
+  !(action.type === "twin.place" && action.pendulum || action.type === "pile.order" && action.zone === "extra"),
+  "Automatic Extra Deck pile tracking is no longer available");
+export type RemoteAction = z.infer<typeof remoteActionEventSchema>;
 // Distribute over the union so parser proposals retain phase/LP/card-specific fields.
 type Proposal<T> = T extends unknown ? Omit<T, "idempotencyKey" | "at"> : never;
 export type RemoteActionProposal = Proposal<RemoteAction>;
@@ -193,6 +205,10 @@ export type TwinCard = z.infer<typeof twinCardSchema> & {
   /** Server-authored: the location where the player confirmed this identity. */
   identityConfirmed?: { seat: number; zone: string; slot?: number };
 };
+export type RemoteOrderedPile = Extract<RemoteAction, { type: "pile.order" }>["zone"];
+export function remoteOrderedPileContains(zone: RemoteOrderedPile, card: TwinCard): boolean {
+  return card.zone === zone && (zone !== "extra" || card.faceUp && !!card.pendulumUp);
+}
 export class RemoteDuelError extends Error {
   constructor(message: string, public readonly status = 400, public readonly code = "REMOTE_INVALID") { super(message); this.name = "RemoteDuelError"; }
 }

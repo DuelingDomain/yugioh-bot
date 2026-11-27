@@ -1,4 +1,4 @@
-import type { RemoteAction, RemoteEvent, RemoteSystemAction } from "@yugidraft/shared/remote";
+import { remoteUndoLabel, type RemoteAction, type RemoteEvent, type RemoteSystemAction } from "@yugidraft/shared/remote";
 import { PHASE_LONG, sg } from "./model";
 import { landingLabel } from "./placement";
 import { MERGED } from "./twins";
@@ -42,7 +42,8 @@ export function describeEvent(event: RemoteEvent, name: (seat: number) => string
     case "twin.move": return { kind: "CD", text: a.zoneRule?`${a.name??'A card'}: ${a.zoneRule}${a.source==='auto'?' · auto':''}`:a.source==='auto'&&a.zone==='deck'?`${a.name??'A card'} returned to Deck · auto`:a.source==='auto'&&['graveyard','banished','hand','extra'].includes(a.zone)?`${a.name??'A card'} left the field → ${{graveyard:'GY',banished:'banish',hand:'hand',extra:'Extra Deck'}[a.zone]} · auto`:`${a.name ?? "A card"} on ${name(a.seat)}'s field moved to ${landingLabel({ zone: a.zone, slot: a.slot })}${a.faceUp === false ? " face-down" : ""}${a.position === "defense" ? " in defense" : ""}${by(a)}`, undoable: true };
     case "twin.attach": return { kind: "CD", text: summonLine(a.kind, refName(a.seat, a.cardRef) ?? "a card", a.seat, a.materialRefs, refName), undoable: true };
     case "twin.detach": return { kind: "CD", text: `${who} detached a material from ${refName(a.seat, a.cardRef) ?? "a card"}`, undoable: true };
-    case "pile.order": return { kind: "CD", text: `${a.zone === "graveyard" ? "Graveyard" : "Banished"} order changed`, undoable: true };
+    case "pile.order": return { kind: "CD", text: `${a.zone === "graveyard" ? "Graveyard" : a.zone === "banished" ? "Banished" : "Extra Deck"} order changed`, undoable: true };
+    case "pile.set": return { kind: "CD", text: remoteUndoLabel(a), undoable: true };
     case "twin.flip": if (a.tokenStats) return { kind: "CD", text: `${who} set a token on ${name(a.seat)}'s field to ATK ${a.tokenStats.atk} / DEF ${a.tokenStats.def}`, undoable: true };
       return { kind: "CD", text: a.faceUp && a.position && a.source !== "auto" ? `A card on ${name(a.seat)}'s field changed to ${a.position} position${by(a)}` : `A card on ${name(a.seat)}'s field turned ${a.faceUp ? "face up" : "face down"}${by(a)}`, undoable: true };
     case "twin.remove": if (a.seat !== a.actorSeat) return { kind: "CD", text: `${who} removed ${refName(a.seat, a.cardRef) ?? "a card"} from ${name(a.seat)}'s field`, undoable: true };
@@ -50,7 +51,7 @@ export function describeEvent(event: RemoteEvent, name: (seat: number) => string
     case "twin.equip": return { kind: "CD", text: a.target ? `An Equip Card on ${name(a.seat)}'s field is linked to ${name(a.target.seat)}'s monster` : `An Equip link on ${name(a.seat)}'s field was cleared`, undoable: true };
     case "twin.control": return { kind: "CD", text: `${refName(a.seat, a.cardRef) ?? "A card"} changed control: ${name(a.seat)} to ${name(a.toSeat)}`, undoable: true };
     case "monsters.tribute": return { kind: "CD", text: `${who} sent ${a.targets.length} monster${a.targets.length === 1 ? "" : "s"} to the Graveyard (Tribute)`, undoable: true };
-    case "pile.lift": return { kind: "CD", text: `${a.zone === "graveyard" ? "Graveyard" : "Banished"} picked up (${a.cardRefs.length} card${a.cardRefs.length === 1 ? "" : "s"}) · auto`, undoable: true };
+    case "pile.lift": return { kind: "CD", text: `${remoteUndoLabel(a)}${a.source === "auto" ? " · auto" : ""}`, undoable: true };
     case "twin.merge": return { kind: "CD", text: a.reason.startsWith(MERGED) ? `${a.reason} on ${name(a.seat)}'s field` : "Duplicate cards merged", undoable: true };
     case "log.note": return { kind: "CD", text: a.text, undoable: false };
     case "chain.respond": return { kind: "PH", text: `${who} responded`, undoable: false };

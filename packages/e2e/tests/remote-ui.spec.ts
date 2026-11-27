@@ -2361,7 +2361,7 @@ test('field watcher automatic: Set backs, deck stacks, and revealed Sets keep fa
   expect(manualCard.ref).toBe(card.ref);expect(afterPlaceholder.state.seats[0].twin).toHaveLength(1);
   await expect(page.getByTestId('field-watcher-prompt')).toHaveCount(0);
   expect(writes.filter(write=>!write.recovery&&write.status!==200)).toEqual([]);
-  const eventDelay=(snapshot:any,type:string,timing:{changedAt:number})=>snapshot.events.findLast((e:any)=>e.action.type===type).at-timing.changedAt;
+  const eventDelay=(snapshot:any,type:string,timing:{changedAt:number})=>snapshot.events.filter((e:any)=>e.action.type===type).at(-1).at-timing.changedAt;
   const backend=await page.getByTestId('recognition-backend').first().getAttribute('data-backend');
   const runtime=await page.evaluate(()=>(window as any).fieldRuntime);
   console.log(JSON.stringify({backend,runtime,

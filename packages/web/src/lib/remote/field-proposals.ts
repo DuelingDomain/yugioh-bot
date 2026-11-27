@@ -116,15 +116,63 @@ export function fieldDepartureProposal(card:TwinCard,seat:number,destination?:'d
   return {type:'twin.move',actorSeat:seat,seat,cardRef:card.ref,zone:to.zone,...(faceUp!==undefined?{faceUp}:{}),...(to.zone==='extra'&&faceUp===true?{pendulum:true}:{}),...(destination!==undefined?{confirmed:true}:{}),source:'auto',...(card.faceUp&&card.name?{name:card.name}:{}),...(card.position==='defense'?{position:'attack' as const}:{})};
 }
 
-/** A card that left the field while a hand worked a pile, with no sign of it elsewhere, is in that pile (GY unless only the banished pile moved), not in the hand. Several cards of one carry all go there. */
-export function fieldPileDepartureProposal(proposal:Extract<RemoteActionProposal,{type:'twin.move'}>,pile:'GY'|'BANISHED'):Extract<RemoteActionProposal,{type:'twin.move'}> {
-  return proposal.zone==='hand'?{...proposal,zone:pile==='GY'?'graveyard':'banished',faceUp:true}:proposal;
+/** A simultaneous GY change overrides a default move to Hand. */
+export function fieldGyDepartureProposal(proposal:Extract<RemoteActionProposal,{type:'twin.move'}>):Extract<RemoteActionProposal,{type:'twin.move'}> {
+  return proposal.zone==='hand'?{...proposal,zone:'graveyard',faceUp:true}:proposal;
 }
 
-/** The pile order (oldest first) that puts a card with no evidence directly under the camera's named top card, or undefined when it already lies there or lower. */
-export function fieldPileUnderTop(order:readonly string[],cardRef:string,topRef:string):string[]|undefined {
-  if(cardRef===topRef||order.indexOf(topRef)<0||order.indexOf(cardRef)<order.indexOf(topRef))return;
-  const rest=order.filter(r=>r!==cardRef);rest.splice(rest.indexOf(topRef),0,cardRef);return rest;
+/** Contact alone (no new pile card) picks a pile only when it began this close before the removal; older contact is a hand that was just passing. */
+export const PILE_CONTACT_LEAD_MS=500;
+/** Association window for pile or Set evidence around a departure. */
+export const PILE_NEAR_MS=1500;
+/** A hand can carry several cards to a pile for this long after their removal; the card goes to that pile once the hand lets go. */
+export const PILE_ACTION_CAP_MS=15_000;
+/**
+ * The pile that really changed around a removal: a hand in contact with it, or a new settled track on it (a hand merely passing over
+ * it is not a change). The track must be a real pile card: visible, at rest or already named, not partial or covered, and either unowned or owned by a
+ * card that itself left the field to a pile (the departed card's own arrival). Transient detections and re-detected old pile tracks
+ * do not count. It is recomputed at every use, never remembered. GY unless only the banished pile changed.
+ */
+type ChangedPile={zone:'GY'|'BANISHED';/** The pile card qualified only because the window reaches back to when the departed card was last seen, and is not a named monster: the camera cannot tie the two, so the player picks. */ask?:true};
+export const changedPile=(snap:FieldSnapshot|undefined,sourceAt:number,since:number,twins:readonly TwinCard[],owns:(t:FieldTrack)=>string,sentAt:(ref:string)=>number|undefined,isMonster:(t:FieldTrack,twin?:TwinCard)=>boolean,serverAtSource:number):ChangedPile|undefined=>{
+  const activity=(zone:'GY'|'BANISHED',start:number,requireTouch=true):ChangedPile|undefined=>{
+    const contact=snap?.pileContactAt?.[zone]??-Infinity;
+    const timelyContact=contact>=sourceAt-PILE_CONTACT_LEAD_MS&&contact<=sourceAt+PILE_ACTION_CAP_MS;
+    const touched=Math.max(contact,snap?.pileTouchedAt?.[zone]??-Infinity)>=start-PILE_NEAR_MS;
+    // A twin's departure time is server time; the removal time is the watcher clock.
+    const serverSince=serverAtSource+(start-sourceAt)-1000;
+    let fresh=false,monsters=true;
+    if(touched||!requireTouch)for(const t of snap?.tracks??[]){
+      if(t.zone!==zone||t.removed||t.under||t.state==='dismissed'||!t.visible||t.restSince===undefined&&t.state!=='identified'||t.card.partial||t.card.covered)continue;
+      if(t.firstSeen<start-1000||t.firstSeen>sourceAt+PILE_ACTION_CAP_MS)continue;
+      const pileZone=zone==='GY'?'graveyard':'banished',twin=twins.find(c=>c.ref===owns(t));
+      // Owned: only a card that left the field to this pile around the removal (departedFrom never expires, so old ones do not count).
+      // A move the camera confirmed keeps no departedFrom, so the watcher's own recent pile write (watcher clock) counts too.
+      if(twin&&!(twin.zone===pileZone&&(twin.departedFrom?.auto&&twin.departedFrom.at!==undefined&&twin.departedFrom.at>=serverSince||(sentAt(twin.ref)??-Infinity)>=start-1000)))continue;
+      // Unowned: not a second outline of a card that already lay in this pile before the removal.
+      if(!twin&&t.cardId&&twins.some(c=>c.zone===pileZone&&String(c.cardId??c.passcode??'')===t.cardId&&!(c.departedFrom?.at!==undefined&&c.departedFrom.at>=serverSince)))continue;
+      fresh=true;
+      if(!isMonster(t,twin))monsters=false;
+    }
+    if(timelyContact||fresh)return {zone,...(start<sourceAt&&(!fresh||!monsters)?{ask:true as const}:{})};
+  };
+  const changed=(zone:'GY'|'BANISHED')=>activity(zone,sourceAt)??(since<sourceAt?activity(zone,since):undefined);
+  const gy=changed('GY');if(gy)return gy;
+  const banished=changed('BANISHED')??activity('BANISHED',since,false);
+  if(banished&&((snap?.pileContactAt?.GY??-Infinity)>=since-PILE_CONTACT_LEAD_MS||activity('GY',since,false)))return {zone:'GY',ask:true};
+  return banished;
+};
+
+const committedSet=(track:Pick<FieldTrack,'faceDown'|'setEvidence'>)=>track.faceDown===true&&track.setEvidence?.decision==='committed';
+const recentPileRest=(track:FieldTrack,lastSeen:number)=>track.restSince!==undefined&&track.restSince>=lastSeen-1000;
+const samePileTop=(track:FieldTrack,top:TwinCard|undefined,owns:(track:FieldTrack)=>string,tracks:readonly FieldTrack[])=>
+  !!top&&(!!track.cardId&&track.cardId===String(top.cardId??top.passcode??'')||!!track.pileLookMatch&&
+    (track.pileLookMatch===top.ref||tracks.some(old=>old.id===track.pileLookMatch&&owns(old)===top.ref)));
+
+/** A moved track needs a new face-up identity read at the Banished pile. A retained identity can follow a box before any read there. */
+export function fieldNamedBanish(event:FieldEvent,track:FieldTrack,twins:readonly TwinCard[],owns:(track:FieldTrack)=>string,tracks:readonly FieldTrack[]):boolean {
+  return event.track.zone==='BANISHED'&&track.zone==='BANISHED'&&fieldSureSetRead(track,event.result)&&
+    (track.restSince??-Infinity)>=event.track.firstSeen&&!samePileTop(track,twins.filter(c=>c.zone==='banished').at(-1),owns,tracks);
 }
 
 /**
@@ -134,8 +182,10 @@ export function fieldPileUnderTop(order:readonly string[],cardRef:string,topRef:
  * player is asked). An identity read goes the usual way (the pile track finds the departed card by its name).
  */
 export function fieldPileEvidence({twins,tracks,lastSeen,owns}:{twins:readonly TwinCard[];tracks:readonly FieldTrack[];lastSeen:number;owns:(track:FieldTrack)=>string}):{twin:TwinCard;zone:'graveyard'|'banished';faceUp:boolean}|undefined {
-  const found=twins.filter(c=>['graveyard','banished'].includes(c.zone)&&c.ref.startsWith('fw-')&&!c.cardId&&!c.passcode&&!c.name&&(c.zone==='banished'||c.faceUp)).filter(c=>
-    tracks.some(t=>owns(t)===c.ref&&t.zone===(c.zone==='banished'?'BANISHED':'GY')&&t.visible&&!t.removed&&t.firstSeen>=lastSeen-1000));
+  const found=twins.filter(c=>['graveyard','banished'].includes(c.zone)&&c.ref.startsWith('fw-')&&!c.cardId&&!c.passcode&&!c.name).filter(c=>
+    tracks.some(t=>owns(t)===c.ref&&t.visible&&!t.removed&&t.firstSeen>=lastSeen-1000&&
+      (c.zone==='graveyard'?c.faceUp&&t.zone==='GY':!c.faceUp&&t.zone==='BANISHED'&&committedSet(t)&&recentPileRest(t,lastSeen)&&
+        !samePileTop(t,twins.filter(other=>other!==c&&other.zone==='banished').at(-1),owns,tracks))));
   return found.length===1?{twin:found[0],zone:found[0].zone as 'graveyard'|'banished',faceUp:found[0].faceUp}:undefined;
 }
 
@@ -148,23 +198,25 @@ export function fieldPileTrackEvidence({twins,tracks,lastSeen,owns,cardId,pileCo
   const recent=tracks.filter(t=>/^(GY|BANISHED)$/.test(t.zone)&&!t.removed&&!t.under&&t.state!=='dismissed'&&
     t.firstSeen>=lastSeen-1000&&!t.card.partial&&!t.card.covered&&(t.zone==='BANISHED'||!t.faceDown)&&(!t.cardId||t.cardId===cardId));
   const standIn=(t:FieldTrack)=>twins.some(c=>c.ref===owns(t)&&['graveyard','banished'].includes(c.zone)&&!c.cardId&&!c.passcode&&!c.name);
-  if(recent.some(standIn))return;
+  if(recent.some(t=>standIn(t)&&(t.zone==='GY'||committedSet(t))))return;
   const found=recent.filter(t=>{
     if(t.restSince===undefined||twins.some(c=>c.ref===owns(t)))return false;
     const zone=t.zone==='GY'?'graveyard':'banished';
     const top=twins.filter(c=>c.zone===zone).at(-1);
+    if(t.zone==='BANISHED'&&(!recentPileRest(t,lastSeen)||samePileTop(t,top,owns,tracks)||
+      (t.faceDown?!committedSet(t):!t.cardId||t.state!=='identified'||t.bestMatch||t.nameCandidates?.length)))return false;
     // The tracker can withhold visibility while reading a changed top. The old
     // bound outline must have just been replaced, with contact ending before rest.
     const contact=pileContactAt?.[t.zone as 'GY'|'BANISHED'];
     const replaced=top&&tracks.some(old=>owns(old)===top.ref&&old.zone===t.zone&&old.removed&&old.lastSeen>=t.firstSeen-1000);
     const settledReplacement=replaced&&t.state==='candidate'&&contact!==undefined&&contact>=lastSeen&&contact<=t.restSince;
-    // A new outline can inherit its rest from a populated pile.
-    return (t.restSince>=lastSeen-1000||!!top)&&(t.visible||settledReplacement);
+    // Only GY can inherit its rest from a populated pile.
+    if(t.zone==='GY'&&!recentPileRest(t,lastSeen)&&!top)return false;
+    return t.visible||settledReplacement;
   });
   return found.length===1?{track:found[0],zone:found[0].zone==='BANISHED'?'banished':'graveyard',faceUp:!found[0].faceDown}:undefined;
 }
 
-const committedSet=(track:Pick<FieldTrack,'faceDown'|'setEvidence'>)=>track.faceDown===true&&track.setEvidence?.decision==='committed';
 export function recentCommittedSet(track:FieldTrack,at=performance.now()):boolean {
   const age=at-track.lastSeen;
   return track.state==='identified'&&!track.removed&&committedSet(track)&&age>=0&&age<=3000;

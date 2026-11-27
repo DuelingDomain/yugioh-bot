@@ -177,6 +177,7 @@ test('an empty GY cell is picked up after 2 s of sharp frames (never on blur) an
     // The card comes back, then leaves again: Scan field does not wait.
     outlines=[top];present=true;await tick(10);
     assert.equal(gone(),false,'the GY card is back');
+    assert.ok(at-(watcher.getSnapshot().pileReturnedAt?.GY??-Infinity)<=1000,'the camera remembers when the pile returned');
     outlines=[stale];present=false;await tick(1);
     watcher.scanNow();const asked=at;for(let i=0;i<20&&!((watcher.getSnapshot().lastScanAt??-1)>asked);i++)await tick();
     assert.equal(gone(),true,'Scan field picks up an empty GY cell at once');

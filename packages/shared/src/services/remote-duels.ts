@@ -1,7 +1,7 @@
 import { createTournamentRemoteResultService } from "./tournament-remote-results.js";
 import { assertRemoteTournamentEntrants, assertRemoteTournamentUser } from "./tournament-remote-access.js";
 import { readRemoteState, writeRemoteState, readRemoteEffects, writeRemoteEffects } from "../remote/storage.js";
-import { REMOTE_RESPOND_COOLDOWN_MS, REMOTE_SIGNAL_COOLDOWN_MS } from "../remote/actions.js";
+import { remoteActionEventSchema, REMOTE_RESPOND_COOLDOWN_MS, REMOTE_SIGNAL_COOLDOWN_MS } from "../remote/actions.js";
 import { freezeRemoteValue } from "../remote/position.js";
 import type { RemoteRevealedHand, RemoteVisibility } from "../remote/types.js";
 import { remoteUndoLabel } from "../remote/undo.js";
@@ -152,7 +152,7 @@ export function createRemoteDuelService(db: Database.Database, options: {
   }
   function replayEvent(row: Row, state: RemoteState, action: RemoteEvent["action"], effects?: RemoteReductionContext): RemoteState {
     const game = getRemoteGame(row.game_id);
-    if (remoteActionSchema.safeParse(action).success) {
+    if (remoteActionEventSchema.safeParse(action).success) {
       if(effects?.showCardsSetFromDeck!==undefined) state.showCardsSetFromDeck=effects.showCardsSetFromDeck;
       state = game.reduce(state, action as RemoteAction, {...effects,replay:true});
     }
@@ -651,7 +651,7 @@ export function createRemoteDuelService(db: Database.Database, options: {
         }
         const recognized: { cardId?: number; passcode?: number }[] = command.type === "card.identified" ? [command] : command.type === "cards.identified" ? command.cards :
           command.type === "twin.flip" && command.faceUp && command.cardId ? [{cardId:command.cardId}] : command.type === "twin.place" ? [command.card] : command.type === "deck.add" ? [command] :
-          command.type === "effect.activated" && effects.effect ? [{cardId:effects.effect.source.cardId}] :
+          command.type === "pile.set" ? command.entries : command.type === "effect.activated" && effects.effect ? [{cardId:effects.effect.source.cardId}] :
           command.type === "effect.choose" || command.type === "hand.add" || command.type === "hand.reveal" ? [{cardId:command.cardId}, ...(command.type === "hand.add" && command.by ? [{cardId:command.by.cardId}] : [])] : [];
         const codes = recognized.flatMap(c => c.cardId ?? c.passcode ? [c.cardId ?? c.passcode!] : []);
         const registrations = before.deckChecks.registrations;
