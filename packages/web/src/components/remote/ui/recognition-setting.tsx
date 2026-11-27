@@ -5,7 +5,7 @@ import { useEffect, useId, useState } from "react";
 import { SheetButton, sheetRoot } from "@/components/duel/sheet-ui";
 import { ThemedSelect as SheetSelect } from "@/components/ui/themed-select";
 import ui from "@/components/duel/sheet-ui.module.css";
-import { CARD_READERS, setCardReader, RECOGNITION_MODES, retryRecognitionGpu, setRecognitionMode, useRecognitionBackend } from "./recognition-backend";
+import { CARD_READERS, hasBrowserGpu, recognitionCpuReason, RECOGNITION_MODES, retryRecognitionGpu, setCardReader, setRecognitionMode, useRecognitionBackend } from "./recognition-backend";
 import { useCardDetection } from "@/lib/remote/zone-grid";
 import { useVideoHub } from "./video-hub";
 import s from "./remote-ui.module.css";
@@ -21,19 +21,25 @@ const currentReader = CARD_READERS.filter(reader => reader.value === "current");
  * which sits on the table's own dark theme.
  */
 export function RecognitionSetting({ variant = "sheet" }: { variant?: "sheet" | "menu" }) {
-  const { mode, backend, note, reader, readerNote, hybridEnabled } = useRecognitionBackend();
+  const recognition = useRecognitionBackend();
+  const { mode, backend, note, reader, readerNote, hybridEnabled, gpuRetryAt } = recognition;
+  const [, refreshRetryTime] = useState(0);
+  useEffect(() => {
+    if (gpuRetryAt === null) return;
+    const timer = setInterval(() => refreshRetryTime(tick => tick + 1), 60_000);
+    return () => clearInterval(timer);
+  }, [gpuRetryAt]);
   const readers = hybridEnabled ? CARD_READERS : currentReader;
   const hintId = useId();
   const hint = RECOGNITION_MODES.find(item => item.value === mode)?.hint;
   const onCpu = backend === "wasm" || mode === "cpu";
-  const cpuReason = mode === "cpu" ? "selected in settings" : note || (reader === "hybrid" ? "Hybrid card matching uses CPU models" : "WebGPU unavailable");
-  const engine = backend === "webgpu" ? "GPU" : onCpu ? `CPU (${cpuReason})` : "Waiting for reader";
+  const engine = backend === "webgpu" ? "GPU" : onCpu ? `CPU (${recognitionCpuReason(recognition)})` : "Waiting for reader";
   const engineStatus = <>
-    <p role="status" className={ui.hint} style={{ margin: 0, overflowWrap: "anywhere" }}>Detection engine: {engine}</p>
-    {onCpu && <SheetButton size="sm" onClick={retryRecognitionGpu}>Try GPU again</SheetButton>}
+    <p role="status" className={ui.hint} style={{ margin: 0 }} title={note || undefined}>Card recognition · {engine}</p>
+    {onCpu && mode !== "cpu" && hasBrowserGpu() && <SheetButton size="sm" onClick={retryRecognitionGpu}>Try GPU again</SheetButton>}
   </>;
   if (variant === "menu") {
-    return <><ThemedSelect variant="menu" wide label="Card recognition" prefix="Recognition ·" title={hint} value={mode} testId="recognition-mode"
+    return <><ThemedSelect variant="menu" wide label="Card recognition" prefix="Card recognition ·" title={hint} value={mode} testId="recognition-mode"
       choices={RECOGNITION_MODES.map(item => ({ value: item.value, label: item.label, description: item.hint }))} onChange={setRecognitionMode} />
       <ThemedSelect variant="menu" wide label="Card reader" prefix="Reader ·" value={reader} testId="card-reader" choices={readers} onChange={setCardReader} />
       {engineStatus}
@@ -73,12 +79,12 @@ export function RecognitionBadge({ phoneCamera = false }: { phoneCamera?: boolea
   useEffect(() => {
     setSay("");
     if (mode === "cpu" || !note || announced.has(note)) return;
-    announced.add(note); setSay("Card reading uses the CPU. Open camera Settings for details and to retry the GPU.");
+    announced.add(note); setSay("Card recognition is using the CPU. Open camera settings for details.");
     const timer = setTimeout(() => setSay(""), 8000);
     return () => clearTimeout(timer);
   }, [mode, note]);
   const gpu = backend === "webgpu";
-  // The badge stays short; the full GPU reason is in its tooltip and in the 8-second note below.
+  // Keep the full GPU error in the tooltip for troubleshooting.
   const where = gpu ? "GPU" : backend === "wasm" || mode === "cpu" ? "CPU" : "Reader";
   const label = `${phoneCamera ? "Computer · " : ""}${where}${ms === null ? "" : ` · ${ms} ms`}`;
   const title = [

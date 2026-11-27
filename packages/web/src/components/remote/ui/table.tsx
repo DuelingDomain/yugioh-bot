@@ -52,7 +52,7 @@ import type { VoiceFinal } from "./voice/live-client";
 import { utteranceRecord, voiceCommands, type VoiceContext, type VoiceDecision, type VoiceMethod } from "@/lib/remote/voice-diagnostics";
 import { faceDownInFrame, tapMemoryFor, type TapSpot } from '@/lib/remote/tap-memory';
 import { VideoHubProvider, useVideoHub } from "./video-hub";
-import { gpuLossReason, setHybridReaderEnabled, useRecognitionBackend } from "./recognition-backend";
+import { gpuLossReason, recognitionCpuReason, setHybridReaderEnabled, useRecognitionBackend } from "./recognition-backend";
 import { cameraPermissionGranted, cameraWanted, rememberCameraWanted, takeCameraReady } from "./camera-choice";
 import { RemoteLobbyRoom } from "./lobby";
 import { REMOTE_RETENTION_NOTICE } from "./retention-notice";
@@ -1547,9 +1547,11 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     ...(hub.error ? [{ key: "video", name: "Camera and table video", health: { q: "bad" as const, label: "Video error", detail: hub.error } }] : []),
     ...(watcherError ? [{ key: "watcher", name: "Auto-detect", health: { q: "bad" as const, label: "Reader off", detail: "The card reader is not running. Reload the page or use Tap to identify." } }] : []),
     // Auto mode on a browser without WebGPU always reads on the CPU: that is information, not a fault. Only a GPU that failed during this session warns.
-    ...(reader.backend === "wasm" && reader.mode !== "cpu" && reader.note ? [gpuLossReason()
-      ? { key: "reader", name: "Card reader", health: { q: "warn" as const, label: "CPU reader", detail: "The GPU failed, so cards are read on the CPU. This is slower." }, tag: "Weak" }
-      : { key: "reader", name: "Card reader", health: { q: "off" as const, label: "CPU reader", detail: "This browser reads cards on the CPU. It is a little slower." }, tag: "Info" }] : []),
+    ...(reader.backend === "wasm" && (reader.note || reader.mode === "cpu") ? [{
+      key: "reader", name: "Card recognition",
+      health: { q: gpuLossReason() ? "warn" as const : "off" as const, label: "CPU reader", detail: recognitionCpuReason(reader) },
+      tag: gpuLossReason() ? "Weak" : "Info",
+    }] : []),
   ];
   const weakFeeds = humans.filter(row => row.health.q === "bad" || row.health.q === "warn").length;
   const counted = extras.filter(item => item.health.q === "bad" || item.health.q === "warn");
