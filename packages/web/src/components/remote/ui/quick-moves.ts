@@ -2,16 +2,20 @@ import type { RemoteActionProposal } from "@yugidraft/shared/remote";
 import { cardCode, leavePosition, pileEntryFace, type TwinCard } from "./model";
 
 /** One card move that both the board zone menu and the Tap-mode card popup offer, in the order of how often players need it. */
-export type QuickMove = { id: "activate" | "give" | "return" | "set" | "position" | "grave" | "banish" | "hand" | "remove"; label: string; run: () => void };
+export type QuickMove = { id: "activate" | "give" | "return" | "set" | "position" | "grave" | "banish" | "hand" | "deck" | "remove"; label: string; run: () => void };
 
 const FIELD = new Set(["monster", "extra-monster", "spell-trap", "pendulum", "field"]);
-const SENDS: { id: "grave" | "banish" | "hand"; zone: string; label: string }[] = [
-  { id: "grave", zone: "graveyard", label: "To GY" }, { id: "banish", zone: "banished", label: "Banish" }, { id: "hand", zone: "hand", label: "To hand" }];
+const SENDS = [
+  { id: "grave", zone: "graveyard", label: "To GY" },
+  { id: "banish", zone: "banished", label: "Banish" },
+  { id: "hand", zone: "hand", label: "To hand" },
+  { id: "deck", zone: "deck", label: "To deck" },
+] as const;
 
 /**
  * The important moves for a card on the field, from the existing remote actions only (no new rule):
  * activate the card (effect.activated; a Set card is turned face up first), give control (twin.control, picked on an opponent's field), return control, battle position, send to GY / banish / hand,
- * set (turn face down), and remove for a given proxy. Who may do what follows the engine: the field's player, and the owner of a proxy on another field.
+ * set (turn face down), and remove. The holder and the owner of a given proxy may edit it.
  */
 export function quickMoves({ card, seat, mySeat, solo, live, isLink, canGive, ownerAlive, act, give, giveBack, announce }: {
   card: TwinCard; seat: number; mySeat: number; solo: boolean; live: boolean; isLink: boolean; canGive: boolean; ownerAlive: boolean;
@@ -37,9 +41,11 @@ export function quickMoves({ card, seat, mySeat, solo, live, isLink, canGive, ow
       run: () => void act({ type: "twin.flip", actorSeat, seat, cardRef: card.ref, faceUp: true, position: card.position === "defense" ? "attack" : "defense" }) });
   if (card.faceUp !== false && !proxy && ["monster", "spell-trap"].includes(card.zone))
     moves.push({ id: "set", label: "Set (face down)", run: () => void act({ type: "twin.flip", actorSeat, seat, cardRef: card.ref, faceUp: false, ...(card.zone === "monster" ? { position: "defense" as const } : {}) }) });
-  for (const send of SENDS) moves.push({ id: send.id, label: send.label, run: () => { announce?.(seat, card.ref);
-    void act({ type: "twin.move", actorSeat, seat, zone: send.zone, cardRef: card.ref, ...(pileEntryFace(card.zone, send.zone) !== undefined ? { faceUp: pileEntryFace(card.zone, send.zone) } : {}), ...leavePosition(card, send.zone) } as RemoteActionProposal); } });
-  // A proxy is only a stand-in for a paper card the other player holds: its owner and the player whose field it is on may both delete it.
-  if (proxy) moves.push({ id: "remove", label: "Remove proxy", run: () => void act({ type: "twin.remove", actorSeat, seat, cardRef: card.ref }) });
+  for (const send of SENDS) moves.push({ id: send.id, label: send.label, run: () => {
+    announce?.(seat, card.ref);
+    const faceUp = send.zone === "deck" ? false : pileEntryFace(card.zone, send.zone);
+    void act({ type: "twin.move", actorSeat, seat, zone: send.zone, cardRef: card.ref, ...(faceUp !== undefined ? { faceUp } : {}), ...leavePosition(card, send.zone) });
+  } });
+  moves.push({ id: "remove", label: proxy ? "Remove proxy" : "Remove", run: () => void act({ type: "twin.remove", actorSeat, seat, cardRef: card.ref }) });
   return moves;
 }

@@ -8,10 +8,15 @@ const ids = (card: Partial<TwinCard>, over: Partial<typeof base> & { seat?: numb
 
 describe("remote quick card moves", () => {
   it("offers Activate and give first on my own card (a Set card: Flip and activate), and Remove proxy to both the owner and the holder of a given card", () => {
-    expect(ids({})).toEqual(["activate", "give", "position", "set", "grave", "banish", "hand"]);
-    expect(ids({ ownerSeat: 1 }, { seat: 0, mySeat: 0 })).toEqual(["activate", "return", "position", "grave", "banish", "hand", "remove"]);
+    expect(ids({})).toEqual(["activate", "give", "position", "set", "grave", "banish", "hand", "deck", "remove"]);
+    expect(ids({ ownerSeat: 1 }, { seat: 0, mySeat: 0 })).toEqual(["activate", "return", "position", "grave", "banish", "hand", "deck", "remove"]);
     expect(ids({ ownerSeat: 0 }, { seat: 1, mySeat: 0 })).toContain("remove");
     expect(ids({ zone: "spell-trap", faceUp: false })[0]).toBe("activate");
     expect(ids({ ownerSeat: 2 }, { seat: 1, mySeat: 0 })).toEqual([]);
+  });
+
+  it("offers corrections for an unnamed twin only on the player's side", () => {
+    expect(ids({ cardId: undefined, zone: "spell-trap", faceUp: false })).toEqual(["give", "grave", "banish", "hand", "deck", "remove"]);
+    expect(ids({ cardId: undefined }, { seat: 1 })).toEqual([]);
   });
 });
