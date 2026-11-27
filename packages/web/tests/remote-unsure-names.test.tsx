@@ -14,20 +14,32 @@ const choices=[{cardId:46986414,name:'Dark Magician',score:.72},{cardId:89631139
 function placed(){return applyTap(tapRoom(),{type:'twin.place',actorSeat:0,seat:0,zone:'monster',source:'auto',card:{ref:'paper',cardId:46986414,name:'Dark Magician',slot:1,faceUp:true,position:'attack',nameCandidates:choices}});}
 afterEach(()=>{cleanup();vi.unstubAllGlobals();});
 
-it('a sure correction shows deck suggestions first and requires a choice',()=>{
+it('a sure off-deck correction starts unselected and lists every unique deck card',()=>{
  const onPick=vi.fn();
+ const deckIds=[89631139,11,12,13,14,15,16,16];
  vi.stubGlobal('ResizeObserver',class{observe(){}disconnect(){}});
  vi.stubGlobal('fetch',vi.fn(async()=>Response.json({cards:[]})));
- render(<RecognitionTray tray={{seat:0,ownerName:'Player',status:'guesses',guesses:choices,note:'',reader:'vision',at:{anchor:null,feed:null},tier:'sure',correction:true}} inDeck={id=>id===89631139} onPick={onPick} onClose={vi.fn()} saying={false} aiAllowed={false}/>);
- const [listed,unlisted]=screen.getAllByRole('option');
- expect(listed.getAttribute('aria-label')).toContain('Blue-Eyes White Dragon');
+ render(<RecognitionTray tray={{seat:0,ownerName:'Player',status:'guesses',guesses:choices,note:'',reader:'vision',at:{anchor:null,feed:null},tier:'sure',correction:true}} deckIds={deckIds} inDeck={id=>deckIds.includes(id)} onPick={onPick} onClose={vi.fn()} saying={false} aiAllowed={false}/>);
+ const options=screen.getAllByRole('option');
+ expect(options).toHaveLength(8);
+ expect(options[0].getAttribute('aria-label')).toContain('Blue-Eyes White Dragon');
+ expect(options[6].getAttribute('aria-label')).toContain('Card 16');
+ expect(options[7].getAttribute('aria-label')).toContain('Dark Magician');
+ expect(screen.queryByRole('option',{selected:true})).toBeNull();
+ expect((screen.getByRole('button',{name:'This is it'}) as HTMLButtonElement).disabled).toBe(true);
+ fireEvent.keyDown(document,{key:'Enter'});
  expect(onPick).not.toHaveBeenCalled();
  const search=screen.getByRole('textbox',{name:'Search any card'});
  fireEvent.change(search,{target:{value:'whisker'}});
  fireEvent.keyDown(search,{key:'Enter'});
  expect(onPick).not.toHaveBeenCalled();
- fireEvent.click(unlisted);
- expect(onPick).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({cardId:46986414,via:'click'}));
+ fireEvent.keyDown(document,{key:'ArrowDown'});
+ expect(options[0].getAttribute('aria-selected')).toBe('true');
+ fireEvent.keyDown(document,{key:'Enter'});
+ expect(onPick).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({cardId:89631139,via:'click'}));
+ fireEvent.mouseEnter(options[7]);
+ fireEvent.keyDown(document,{key:'Enter'});
+ expect(onPick).toHaveBeenLastCalledWith(expect.objectContaining({cardId:46986414,via:'click'}));
 });
 
 it('an open card view gets the renamed identity and drops the old read badges',()=>{
@@ -36,6 +48,12 @@ it('an open card view gets the renamed identity and drops the old read badges',(
  const updated=applyTap(room,{type:'card.identified',actorSeat:0,seat:0,cardRef:'paper',cardId:89631139,name:'Blue-Eyes White Dragon',source:'typed'});
  expect(liveCardSubject(opened,updated.state.seats[0].twin[0])).toMatchObject({cardId:89631139,name:'Blue-Eyes White Dragon',tier:undefined,notInDecklist:null,addErrors:[]});
  expect(liveCardSubject(opened,undefined)).toBeNull();
+});
+
+it('an open camera view keeps its name when its face-down twin has no public code',()=>{
+ const opened:Subject={from:'camera',seat:0,ref:'paper',cardId:46986414,name:'Dark Magician',notInDecklist:null,addErrors:[],via:'tracked',revealed:true};
+ const card={ref:'paper',zone:'monster',slot:1,faceUp:false,position:'defense' as const};
+ expect(liveCardSubject(opened,card)).toEqual({...opened,revealed:false});
 });
 
 it('an unsure name and choices reach both seats; a sure correction is one undoable identification on the same ref',()=>{

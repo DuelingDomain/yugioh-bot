@@ -874,9 +874,10 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     }
     // Settle only the name of an admitted unsure card. Its location and materials keep their own actions.
     if(existing?.nameCandidates&&!track.nameCandidates&&event.result?.tier==='sure'&&entry&&!chosen&&publicField(existing.zone)&&existing.faceUp){
-      const code=catalogCardId(entry);if(!code)return;
-      const updated=await mutate({type:'card.identified',actorSeat:seat,seat,cardRef:existing.ref,cardId:code,name:entry.name,source:'auto',nameCandidates:null,bestMatch:false,zone:existing.zone,...(existing.slot?{slot:existing.slot}:{})});
-      if(updated){bindings.current.set(event.track.id,existing.ref);watch.confirm(event.track.id,track.cardId,existing.ref,false);setPrompts(list=>list.filter(p=>p.track.id!==event.track.id));setNotice(`${entry.name} identified · auto`);setUndoId(updated.state.undo?.actionId??'');}
+      const code=catalogCardId(entry),ref=existing.ref;if(!code)return;
+      const updated=await mutate({type:'card.identified',actorSeat:seat,seat,cardRef:ref,cardId:code,name:entry.name,source:'auto',nameCandidates:null,bestMatch:false,zone:existing.zone,...(existing.slot?{slot:existing.slot}:{})});
+      const saved=updated?.state.seats[seat].twin.find(card=>card.ref===ref);
+      if(updated&&saved&&cardCode(saved)===code){bindings.current.set(event.track.id,saved.ref);watch.confirm(event.track.id,track.cardId,saved.ref,false);setPrompts(list=>list.filter(p=>p.track.id!==event.track.id));setNotice(`${entry.name} identified · auto`);setUndoId(updated.state.undo?.actionId??'');}
       return;
     }
     // A revive: the same card lies in the GY/banished pile and a hand was just over that pile. Let the pile settle
@@ -1032,6 +1033,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       if(!matchesEvidence(watch.getTrack(event.track.id)))return;
       placeholders.current.delete(event.track.id);
       bindings.current.set(event.track.id,target.card.ref);
+      if(!track.faceDown&&cardCode(target.card)!==code)return;
       watch.confirm(event.track.id,track.cardId,target.card.ref,event.type==='prompt');
       // The departed card may return on a track with its original board ref.
       if(event.track.id!==target.card.ref&&!watch.getTrack(event.track.id)&&

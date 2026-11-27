@@ -1061,6 +1061,7 @@
 .tierMaybe{color:var(--gold-ink);border-color:var(--gold)}
 .tierLow{color:var(--warn);border-color:rgb(240 178 79/.6)}
 .bstrip{display:flex;gap:6px;list-style:none;margin:0;padding:0}
+.deckStrip{flex-shrink:0;overflow-x:auto;padding:2px;scroll-padding-inline:2px}
 .bstrip li{position:relative;flex:0 0 auto;width:48px;aspect-ratio:59/86;border-radius:5px;overflow:hidden;border:1px solid var(--line2);background:#05030b;cursor:pointer}
 .bstrip li.noGuess{width:auto;aspect-ratio:auto;border:0;background:none}
 /* Nothing to show yet: no empty art tile. The text, the message and the search take the whole popup, and the title clears the close button. */

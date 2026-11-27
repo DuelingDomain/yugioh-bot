@@ -28,6 +28,7 @@ export type Subject = {
 export function liveCardSubject(subject: Subject | null, card: TwinCard | undefined): Subject | null {
   if (!subject?.ref) return subject;
   if (!card) return null;
+  if (!cardCode(card) && !card.token && !card.faceUp && subject.cardId) return { ...subject, revealed: false };
   const cardId = cardCode(card) ?? card.token?.artId ?? 0;
   const changed = cardId !== subject.cardId;
   return { ...subject, cardId, name: cardId ? card.name ?? (changed ? undefined : subject.name) : card.faceUp ? "Unidentified card" : "Face-down card",
