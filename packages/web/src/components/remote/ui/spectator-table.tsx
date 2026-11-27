@@ -44,7 +44,7 @@ import { RollOverlay, useRollHold } from "./coin-die";
 import { aliveSeats, chainOf, thinkingSeats } from "./think-model";
 
 const NO_ACTIONS: CardActions = { readOnly: true, canAdd: false, adding: false, onAdd: () => undefined, canAttack: false, attackHint: "", onAttack: () => undefined };
-const fmtTime = (at: number) => new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+const fmtTime = (at: number) => new Date(at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false });
 const DEFAULT_RATIO = 16 / 9;
 const CARD_H = .24; const CARD_ASPECT = 59 / 86;
 const noAct = async () => null;

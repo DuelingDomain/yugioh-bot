@@ -152,7 +152,7 @@ export function SeatPanel(p: SeatPanelProps) {
   const low = p.lp < 2500; const width = Math.min(100, Math.max(0, (p.lp / Math.max(1, p.startingLp)) * 100));
   const label = (value: number) => `${p.name} ${value < 0 ? "minus" : "plus"} ${Math.abs(value)}`;
   const classes = [s.seat, s[`s${p.index}`], p.turn ? s.turn : "", p.you ? s.mine : "", p.turn && p.turnIn ? s.turnIn : "", p.next ? s.next : "", p.speaking ? s.speak : "", p.frozen ? s.frozen : "", p.eliminated ? s.out : ""].filter(Boolean).join(" ");
-  return <section ref={seatRef} className={classes} aria-label={`${p.name}'s seat`} style={{ "--c": p.color, ...(splitShown !== null ? { "--split": splitShown.toFixed(4) } : {}) } as React.CSSProperties} data-testid={`seat-${p.seat}`} data-turn={p.turn || undefined} data-split={splitShown !== null ? "" : undefined} data-view={fieldView ? "field" : "camera"} data-wc={compact || undefined} data-nocam={(!compact && !!p.focus) || undefined} data-big={p.focus?.big || undefined} data-tile={p.focus?.tile || undefined} data-swapping={swapping || undefined}>
+  return <section ref={seatRef} className={classes} aria-label={`${p.name}'s seat`} style={{ "--c": p.color, ...(splitShown !== null ? { "--split": splitShown.toFixed(4) } : {}) } as React.CSSProperties} data-testid={`seat-${p.seat}`} data-mine={p.you || undefined} data-turn={p.turn || undefined} data-split={splitShown !== null ? "" : undefined} data-view={fieldView ? "field" : "camera"} data-wc={compact || undefined} data-nocam={(!compact && !!p.focus) || undefined} data-big={p.focus?.big || undefined} data-tile={p.focus?.tile || undefined} data-swapping={swapping || undefined}>
     <header className={s.sh}>
       <span className={s.pip} /><h2 className={s.nm} style={{ margin: 0 }} data-pick={p.focus && !p.focus.big ? "" : undefined} onClick={p.focus && !p.focus.big ? p.focus.onPick : undefined}>{p.name}</h2>
       {p.you ? <span className={`${s.tag} ${s.you}`}>YOU</span> : null}
@@ -162,7 +162,7 @@ export function SeatPanel(p: SeatPanelProps) {
       {p.eliminated ? <span className={s.tag}>OUT</span> : null}
       <span className={s.micI}><Icon name="mic" /></span><span className={s.sp} />
       {p.onBoard ? <button type="button" className={`${s.vtog} ${s.vboard}`} data-testid={`seat-board-${p.seat}`} aria-pressed={!compact} disabled={!!p.boardOff} onClick={() => p.onBoard?.(compact)}
-        title={p.boardOff ? "This seat uses Tap mode, so its board is off for everyone." : compact ? `Show the virtual board under ${p.you ? "my" : `${p.name}'s`} webcam` : `Hide the virtual board under ${p.you ? "my" : `${p.name}'s`} webcam. The board keeps running`}>Board <b>{compact ? "Off" : "On"}</b></button> : null}
+        title={p.boardOff ? "This seat uses Tap mode, so its board is off for everyone." : compact ? `Show the virtual board under ${p.you ? "my" : `${p.name}'s`} webcam` : `Hide the virtual board under ${p.you ? "my" : `${p.name}'s`} webcam. The board keeps running`}>Board <i className={s.swMini} aria-hidden="true" /><b className={s.srOnly}>{compact ? "Off" : "On"}</b></button> : null}
       {compact || p.focus ? null : <button type="button" className={s.vtog} data-testid={`view-toggle-${p.seat}`} onClick={() => setFieldView(!fieldView)}
         title={fieldView ? "Show the camera large again" : "Show the virtual field large and the camera small"}>{fieldView ? "Camera view" : "Enlarge field"}</button>}
       <button type="button" className={`${s.hl} ${s[p.health.q] ?? ""}`} aria-haspopup="dialog" aria-expanded={p.healthOpen} data-hl={p.seat} title={`${p.health.label}${p.health.detail ? `, ${p.health.detail}` : ""}`}
@@ -188,7 +188,7 @@ export function SeatPanel(p: SeatPanelProps) {
           </div>
         </>} />
       <div className={s.fside}>
-        {splitOn ? <SeatSplitter seat={p.seat} name={p.name} seatRef={seatRef} box={splitBox} split={splitShown} onMeasure={setSplitBox} onSplit={setSplit} onGrab={() => { if (fieldView) setFieldView(false, false); }} /> : null}
+        {splitOn ? <SeatSplitter seat={p.seat} name={p.name} seatRef={seatRef} box={splitBox} split={splitShown} onMeasure={setSplitBox} onSplit={setSplit} onGrab={() => { if (!fieldView) return; setFieldView(false, false); return () => setFieldView(true, false); }} /> : null}
         {p.track}
         {p.boardOff && !p.you ? <TapBoardNote /> : null}
         {targeting ? null : cardList}

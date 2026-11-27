@@ -115,7 +115,7 @@ export function MatchResultScreen({ room, match, mySeat, name, final, busy, erro
   return <div ref={rootRef} className={cx(duelFontClasses, resultStyles.root, s.resultRoot)} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}
     data-testid="match-result" data-final={final || undefined} data-outcome={outcome === "spectator" ? "ended" : outcome} data-title={outcome === "win" ? "win" : outcome === "lose" ? "lose" : "calm"}
     data-phase={settled ? "settled" : "play"} data-reduced={reduced ? "true" : "false"} onClick={() => { if (!settled) setSkipped(true); }}>
-    <div className={resultStyles.backdrop} aria-hidden="true" />
+    <div className={cx(resultStyles.backdrop, s.resultScrim)} aria-hidden="true" />
     <div className={resultStyles.flash} aria-hidden="true" />
     <div className={resultStyles.scroll}><div className={resultStyles.col}>
       <div className={resultStyles.hero}>
@@ -152,7 +152,7 @@ export function MatchResultScreen({ room, match, mySeat, name, final, busy, erro
       {final && rematch && mySeat >= 0 ? <RematchPanel room={room} mySeat={mySeat} name={name} busy={rematch.busy} onAnswer={rematch.onAnswer} /> : null}
       <div className={resultStyles.actions} data-count={final || undo ? 2 : 1}>
         {final
-          ? <button type="button" className={resultStyles.btn} data-kind="primary" data-autofocus onClick={leave} data-testid="match-leave">Leave</button>
+          ? <button type="button" className={resultStyles.btn} data-kind={rematch && mySeat >= 0 ? "secondary" : "primary"} data-autofocus={rematch && mySeat >= 0 ? undefined : true} onClick={leave} data-testid="match-leave">Leave</button>
           : <button type="button" className={resultStyles.btn} data-kind="primary" data-autofocus disabled={busy} onClick={onContinue} data-testid="match-continue">Continue to side decking</button>}
         {undo ? <button type="button" className={resultStyles.btn} data-kind="secondary" disabled={busy} onClick={undo.onUndo} title={undo.label} data-testid="match-undo">Undo last action</button> : null}
         {final ? <button type="button" className={resultStyles.btn} data-kind="secondary" onClick={onClose} data-testid="match-view-board">View board</button> : null}
@@ -182,7 +182,7 @@ function RematchPanel({ room, mySeat, name, busy, onAnswer }: {
         <button type="button" className={resultStyles.btn} data-kind="primary" disabled={busy} onClick={() => onAnswer("accept")} data-testid="rematch-accept">Accept</button>
         <button type="button" className={resultStyles.btn} data-kind="secondary" disabled={busy} onClick={() => onAnswer("decline")} data-testid="rematch-decline">Decline</button>
       </> : !open && !offer?.slug
-        ? <button type="button" className={resultStyles.btn} data-kind="secondary" disabled={busy} onClick={() => onAnswer("request")} data-testid="rematch-button">Rematch</button> : null}
+        ? <button type="button" className={resultStyles.btn} data-kind="primary" data-autofocus disabled={busy} onClick={() => onAnswer("request")} data-testid="rematch-button">Rematch</button> : null}
     </div>
   </div>;
 }
@@ -493,7 +493,7 @@ export function SpectatorEndScreen({ room, match, name, onLeave }: { room: Remot
   const reason = winner !== null ? `${name(winner)} won${match.bestOf >= 3 ? " the match" : ""}.` : "Nobody won.";
   return <div ref={rootRef} className={cx(duelFontClasses, resultStyles.root, s.resultRoot)} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}
     data-testid="spectator-end" data-phase="settled" data-reduced="true" data-title="calm" data-outcome="ended">
-    <div className={resultStyles.backdrop} aria-hidden="true" />
+    <div className={cx(resultStyles.backdrop, s.resultScrim)} aria-hidden="true" />
     <div className={resultStyles.scroll}><div className={resultStyles.col}>
       <div className={resultStyles.hero}>
         <div className={resultStyles.light} aria-hidden="true" />

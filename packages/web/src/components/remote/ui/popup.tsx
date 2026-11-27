@@ -9,7 +9,7 @@ import s from "./remote-ui.module.css";
 /** A box in viewport pixels. */
 export type Rect = { left: number; top: number; right: number; bottom: number };
 /** Where a card popup points: the clicked card, and the feed that shows it (the popup stays inside the feed when it fits). */
-export type PopAt = { anchor: Rect | null; feed: Rect | null };
+export type PopAt = { anchor: Rect | null; feed: Rect | null; /** Boxes the popup must not cover: my phases, my LP and the bottom bar. */ avoid?: Rect[] };
 export type Tier = "sure" | "not sure" | "low match";
 
 const MARGIN = 8; const GAP = 14;
@@ -24,19 +24,32 @@ export function placePopup(at: PopAt, w: number, h: number, vw: number, vh: numb
   const tryBox = (box: Rect): Placed | null => {
     if (!inside(box).x) return null;
     const right = card.right + GAP; const left = card.left - GAP - w;
-    const side = right + w <= box.right ? "right" : left >= box.left ? "left" : null;
-    if (!side) return null;
-    const x = side === "right" ? right : left;
-    const mid = (card.top + card.bottom) / 2;
-    const lo = inside(box).y ? box.top + MARGIN : view.top; const hi = (inside(box).y ? box.bottom - MARGIN : view.bottom) - h;
-    const top = Math.max(lo, Math.min(mid - h / 2, Math.max(lo, hi)));
-    return { left: x, top, side: side === "right" ? "left" : "right", arrow: Math.max(22, Math.min(h - 22, mid - top)) };
+    const sides = [right + w <= box.right ? "right" : null, left >= box.left ? "left" : null].filter((side): side is "right" | "left" => side !== null);
+    for (const side of sides) {
+      const x = side === "right" ? right : left;
+      const mid = (card.top + card.bottom) / 2;
+      const lo = inside(box).y ? box.top + MARGIN : view.top; const hi = (inside(box).y ? box.bottom - MARGIN : view.bottom) - h;
+      let top = Math.max(lo, Math.min(mid - h / 2, Math.max(lo, hi)));
+      // Never cover my phases, my LP or the bottom bar: slide up above them, or try the other side.
+      // Sliding above one box can land on another one (the phases sit above my LP), so the boxes are checked again until none is covered.
+      let ok = true;
+      for (let pass = 0, moved = true; moved && ok && pass <= (at.avoid?.length ?? 0); pass++) {
+        moved = false;
+        for (const keep of at.avoid ?? []) {
+          if (x >= keep.right || x + w <= keep.left || top >= keep.bottom || top + h <= keep.top) continue;
+          top = keep.top - MARGIN - h; moved = true;
+          if (top < lo) { ok = false; break; }
+        }
+      }
+      if (ok) return { left: x, top, side: side === "right" ? "left" : "right", arrow: Math.max(22, Math.min(h - 22, mid - top)) };
+    }
+    return null;
   };
   const clipped: Rect | null = at.feed ? { left: Math.max(at.feed.left, view.left), top: Math.max(at.feed.top, view.top), right: Math.min(at.feed.right, view.right), bottom: Math.min(at.feed.bottom, view.bottom) } : null;
   const placed = (clipped && tryBox(clipped)) ?? tryBox(view);
   if (placed) return placed;
   // No room beside the card: cover the lower part of the window and keep the card visible above it.
-  return { left: Math.max(MARGIN, Math.min(vw - w - MARGIN, (card.left + card.right) / 2 - w / 2)), top: Math.max(MARGIN, vh - h - MARGIN), side: "none", arrow: 0 };
+  return { left: Math.max(MARGIN, Math.min(vw - w - MARGIN, (card.left + card.right) / 2 - w / 2)), top: Math.max(MARGIN, Math.min(vh - MARGIN, ...(at.avoid ?? []).filter(box => box.top > vh * 0.85).map(box => box.top - MARGIN)) - h), side: "none", arrow: 0 };
 }
 
 /**
@@ -55,7 +68,8 @@ export function PopupFrame({ at, layer, label, busy, testid, className, dock, mo
   useLayoutEffect(() => {
     const node = box.current; if (!node || dock) return;
     const place = () => setPlaced(old => {
-      const next = placePopup(at, node.offsetWidth, node.offsetHeight, window.innerWidth, window.innerHeight);
+      const avoid = Array.from(document.querySelectorAll('[data-testid="rail"], [data-mine] [data-testid^="phase-track-"], [data-mine] [data-testid^="lp-"]')).map(el => { const r = el.getBoundingClientRect(); return { left: r.left, top: r.top, right: r.right, bottom: r.bottom }; });
+      const next = placePopup({ ...at, avoid }, node.offsetWidth, node.offsetHeight, window.innerWidth, window.innerHeight);
       return old && old.left === next.left && old.top === next.top && old.side === next.side && old.arrow === next.arrow ? old : next;
     });
     place();

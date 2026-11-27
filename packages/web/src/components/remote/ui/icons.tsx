@@ -31,6 +31,7 @@ const PATHS = {
   chev: <path d="m9 6 6 6-6 6" />,
   back: <path d="m15 6-6 6 6 6" />,
   bolt: <path d="M13 3 5 14h6l-1 7 8-11h-6z" />,
+  grid: <path d="M4 4h16v16H4zM4 12h16M12 4v16" />,
   eye: <><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z" /><circle cx="12" cy="12" r="3" /></>,
   ban: <><circle cx="12" cy="12" r="9" /><path d="m5.6 5.6 12.8 12.8" /></>,
   swap: <><path d="M4 8h14l-4-4M20 16H6l4 4" /></>,

@@ -96,18 +96,14 @@ export type DrawerVoice = {
 
 export type DrawerSettingsProps = {
   room: RemoteRoom;
-  /** True when the virtual fields are hidden. The View switch turns them on. */
-  webcamOnly: boolean; onView: (webcamOnly: boolean) => void;
-  /** 3-way and 4-way tables run on cameras: the board switch is off there. */
-  viewLocked: boolean;
   /** Null when the table has no voice. */ voice: DrawerVoice | null;
 };
 
 /**
- * Settings tab: the global settings. Camera setup, Detection, Voice and View.
+ * Settings tab: the global settings. Camera setup, Detection and Voice. The virtual board switch is in the top bar.
  * The per-camera tools (camera choice, zones, side, hover freeze, camera off) live in the webcam "..." menu.
  */
-export function SettingsTab({ room, webcamOnly, onView, viewLocked, voice }: DrawerSettingsProps) {
+export function SettingsTab({ room, voice }: DrawerSettingsProps) {
   const hub = useVideoHub();
   const watcherError = useFieldWatcherError();
   const phone = hub.phones.some(item => item.seat === room.mySeat);
@@ -116,7 +112,7 @@ export function SettingsTab({ room, webcamOnly, onView, viewLocked, voice }: Dra
       <Row label="Camera source" stack testId="camera-source"><PhonePairing room={room} /></Row>
       <VideoRateRow />
       {hub.cameraLock ? <CameraLockRow lock={hub.cameraLock} /> : null}
-      <p className={d.hint}>Camera choice, zones and the camera off switch are in the <b>...</b> menu on your webcam.</p>
+      <p className={d.hint}>Camera choice, zones and the camera switch are in the <b>Camera</b> menu on your webcam.</p>
     </Group>
     <Group title="Detection" testId="drawer-detection">
       <DetectionRows phone={phone} />
@@ -132,11 +128,6 @@ export function SettingsTab({ room, webcamOnly, onView, viewLocked, voice }: Dra
         <Row label="Voice method" stack>{voice.method}</Row>
         <p className={d.hint}>Say &quot;undo&quot;, &quot;pass turn&quot;, &quot;attack directly with Ash&quot;.</p></> : null}
     </Group> : null}
-    <Group title="View" testId="drawer-view">
-      <Row label={<>Virtual board<span className={d.beta}>BETA</span></>} note={viewLocked ? "Only at 1v1 tables. 3-way and 4-way tables run on the cameras." : "Shows the virtual fields next to the cameras (W)."}>
-        <Switch on={!webcamOnly && !viewLocked} disabled={viewLocked} onChange={on => onView(!on)} label="Virtual board" testId="drawer-view-board" />
-      </Row>
-    </Group>
   </>;
 }
 
