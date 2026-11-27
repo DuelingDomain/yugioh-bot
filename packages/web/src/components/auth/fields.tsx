@@ -87,9 +87,11 @@ interface TextFieldProps {
   error?: string;
   hint?: ReactNode;
   autoFocus?: boolean;
+  /** Observe typing without making the field controlled. */
+  onChange?(value: string): void;
 }
 
-export function TextField({ id, name, label, type = "text", autoComplete, inputMode, placeholder, defaultValue, error, hint, autoFocus }: TextFieldProps) {
+export function TextField({ id, name, label, type = "text", autoComplete, inputMode, placeholder, defaultValue, error, hint, autoFocus, onChange }: TextFieldProps) {
   return (
     <Field id={id} label={label} error={error} hint={hint}>
       {(aria) => (
@@ -102,6 +104,7 @@ export function TextField({ id, name, label, type = "text", autoComplete, inputM
             inputMode={inputMode}
             placeholder={placeholder}
             defaultValue={defaultValue}
+            onChange={onChange && ((event) => onChange(event.target.value))}
             spellCheck={false}
             autoCapitalize="off"
             autoFocus={autoFocus}

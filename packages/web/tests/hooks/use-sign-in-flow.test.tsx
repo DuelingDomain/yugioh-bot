@@ -215,6 +215,39 @@ describe("sign-in flow", () => {
     await act(() => result.current.actions.submitIdentifier("a@test.dev"));
     expect(result.current.state).toMatchObject({ step: "err-invite", identifier: "a@test.dev" });
   });
+  it("checks an edited email again from the invitation error step, and moves on when it is allowed", async () => {
+    mock.signal.signIn.create.mockResolvedValueOnce(error("form_identifier_not_found"));
+    const { result } = setup();
+    await act(() => result.current.actions.submitIdentifier("a@test.dev"));
+    expect(result.current.state).toMatchObject({ step: "err-invite", identifier: "a@test.dev" });
+    await act(() => result.current.actions.recheckIdentifier("b@test.dev"));
+    expect(mock.signal.signIn.create).toHaveBeenLastCalledWith({ identifier: "b@test.dev" });
+    expect(result.current.state).toMatchObject({ step: "password", identifier: "b@test.dev" });
+  });
+  it("stays on the invitation error step with the new email when the edited one is also refused", async () => {
+    mock.signal.signIn.create.mockResolvedValue(error("form_identifier_not_found"));
+    const { result } = setup();
+    await act(() => result.current.actions.submitIdentifier("a@test.dev"));
+    await act(() => result.current.actions.recheckIdentifier("b@test.dev"));
+    expect(result.current.state).toMatchObject({ step: "err-invite", identifier: "b@test.dev", pending: false });
+  });
+  it("shows a format error on the new email when the recheck is refused for its format", async () => {
+    mock.signal.signIn.create.mockResolvedValueOnce(error("form_identifier_not_found"));
+    const { result } = setup();
+    await act(() => result.current.actions.submitIdentifier("a@test.dev"));
+    mock.signal.signIn.create.mockResolvedValueOnce({ error: { errors: [{ code: "form_param_format_invalid", meta: { paramName: "identifier" } }] } });
+    await act(() => result.current.actions.recheckIdentifier("b@test.dev"));
+    expect(result.current.state).toMatchObject({ step: "err-invite", identifier: "b@test.dev", fieldErrors: { identifier: "Enter a valid email or username." } });
+  });
+  it("keeps the shown email when the recheck fails on the network, so the person can retry", async () => {
+    mock.signal.signIn.create.mockResolvedValueOnce(error("form_identifier_not_found"));
+    const { result } = setup();
+    await act(() => result.current.actions.submitIdentifier("a@test.dev"));
+    mock.signal.signIn.create.mockResolvedValueOnce(error("network_error"));
+    await act(() => result.current.actions.recheckIdentifier("b@test.dev"));
+    expect(result.current.state).toMatchObject({ step: "err-invite", identifier: "a@test.dev", pending: false });
+    expect(result.current.state.banner).not.toBeNull();
+  });
   it("preserves the return path for Discord and uses the custom callback", async () => {
     mock.signal.signIn.id = "";
     const { result } = setup();

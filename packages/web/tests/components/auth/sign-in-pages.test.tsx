@@ -53,7 +53,7 @@ function state(step: AuthStep, extra: Partial<AuthFlowState> = {}): AuthFlowStat
   };
 }
 const signInActions = () => ({
-  submitIdentifier: vi.fn(), continueWithDiscord: vi.fn(), submitPassword: vi.fn(), forgotPassword: vi.fn(),
+  submitIdentifier: vi.fn(), recheckIdentifier: vi.fn(), continueWithDiscord: vi.fn(), submitPassword: vi.fn(), forgotPassword: vi.fn(),
   submitCode: vi.fn(), resendCode: vi.fn(), submitNewPassword: vi.fn(), back: vi.fn(),
 });
 const signUpActions = () => ({ submitAccount: vi.fn(), continueWithDiscord: vi.fn(), submitCode: vi.fn(), resendCode: vi.fn() });
@@ -213,6 +213,33 @@ describe("sign-in page", () => {
     expect(screen.getByRole("button", { name: "Join the waitlist" })).toBeEnabled();
     await user.click(screen.getByRole("button", { name: "Try a different email" }));
     expect(actions.back).toHaveBeenCalledOnce();
+  });
+
+  it("lets the not-invited email be edited, checks it again, and joins with the edited value", async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ status: "joined" }), { status: 201 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { actions } = await renderSignIn(state("err-invite", { identifier: "old@example.com" }));
+    const field = screen.getByLabelText("Email");
+    expect(field).toHaveValue("old@example.com");
+    expect(field).toBeEnabled();
+    await user.clear(field);
+    await user.type(field, "cardshark");
+    await user.click(screen.getByRole("button", { name: "Join the waitlist" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("Enter a valid email.");
+    expect(fetchMock).not.toHaveBeenCalled();
+    await user.clear(field);
+    await user.type(field, "new@example.com");
+    await user.click(screen.getByRole("button", { name: "Check this email" }));
+    expect(actions.recheckIdentifier).toHaveBeenCalledWith("new@example.com");
+    expect(field).toHaveFocus();
+    // Enter after an edit checks the email; it does not join.
+    await user.type(field, "{Enter}");
+    expect(actions.recheckIdentifier).toHaveBeenCalledTimes(2);
+    expect(fetchMock).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Join the waitlist" }));
+    await screen.findByRole("heading", { level: 1, name: "You’re on the list" });
+    expect(JSON.parse(String((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body))).toMatchObject({ email: "new@example.com" });
   });
 
   it("drops the error tone once the not-invited email is on the waitlist, and goes back on retry", async () => {

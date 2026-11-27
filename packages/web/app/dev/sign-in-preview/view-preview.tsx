@@ -14,7 +14,7 @@ const state = (extra: Partial<AuthFlowState> = {}): AuthFlowState => ({
 });
 
 const signInActions = {
-  submitIdentifier: noop, continueWithDiscord: noop, submitPassword: noop, forgotPassword: noop,
+  submitIdentifier: noop, recheckIdentifier: noop, continueWithDiscord: noop, submitPassword: noop, forgotPassword: noop,
   submitCode: noop, resendCode: noop, submitNewPassword: noop, back: () => {},
 };
 const accountActions = { submitAccount: noop, continueWithDiscord: noop, submitCode: noop, resendCode: noop };
