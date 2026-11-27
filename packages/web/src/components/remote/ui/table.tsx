@@ -1547,7 +1547,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     ...(hub.error ? [{ key: "video", name: "Camera and table video", health: { q: "bad" as const, label: "Video error", detail: hub.error } }] : []),
     ...(watcherError ? [{ key: "watcher", name: "Auto-detect", health: { q: "bad" as const, label: "Reader off", detail: "The card reader is not running. Reload the page or use Tap to identify." } }] : []),
     // Auto mode on a browser without WebGPU always reads on the CPU: that is information, not a fault. Only a GPU that failed during this session warns.
-    ...(reader.backend === "wasm" && reader.note ? [gpuLossReason()
+    ...(reader.backend === "wasm" && reader.mode !== "cpu" && reader.note ? [gpuLossReason()
       ? { key: "reader", name: "Card reader", health: { q: "warn" as const, label: "CPU reader", detail: "The GPU failed, so cards are read on the CPU. This is slower." }, tag: "Weak" }
       : { key: "reader", name: "Card reader", health: { q: "off" as const, label: "CPU reader", detail: "This browser reads cards on the CPU. It is a little slower." }, tag: "Info" }] : []),
   ];

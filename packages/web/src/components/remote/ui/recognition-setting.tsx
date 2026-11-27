@@ -2,10 +2,10 @@
 
 import {useSetGuards,SET_GUARD_SETTINGS} from '@/lib/remote/set-card-settings';
 import { useEffect, useId, useState } from "react";
-import { sheetRoot } from "@/components/duel/sheet-ui";
+import { SheetButton, sheetRoot } from "@/components/duel/sheet-ui";
 import { ThemedSelect as SheetSelect } from "@/components/ui/themed-select";
 import ui from "@/components/duel/sheet-ui.module.css";
-import { CARD_READERS, setCardReader, RECOGNITION_MODES, setRecognitionMode, useRecognitionBackend } from "./recognition-backend";
+import { CARD_READERS, setCardReader, RECOGNITION_MODES, retryRecognitionGpu, setRecognitionMode, useRecognitionBackend } from "./recognition-backend";
 import { useCardDetection } from "@/lib/remote/zone-grid";
 import { useVideoHub } from "./video-hub";
 import s from "./remote-ui.module.css";
@@ -21,14 +21,22 @@ const currentReader = CARD_READERS.filter(reader => reader.value === "current");
  * which sits on the table's own dark theme.
  */
 export function RecognitionSetting({ variant = "sheet" }: { variant?: "sheet" | "menu" }) {
-  const { mode,reader,readerNote,hybridEnabled } = useRecognitionBackend();
+  const { mode, backend, note, reader, readerNote, hybridEnabled } = useRecognitionBackend();
   const readers = hybridEnabled ? CARD_READERS : currentReader;
   const hintId = useId();
   const hint = RECOGNITION_MODES.find(item => item.value === mode)?.hint;
+  const onCpu = backend === "wasm" || mode === "cpu";
+  const cpuReason = mode === "cpu" ? "selected in settings" : note || (reader === "hybrid" ? "Hybrid card matching uses CPU models" : "WebGPU unavailable");
+  const engine = backend === "webgpu" ? "GPU" : onCpu ? `CPU (${cpuReason})` : "Waiting for reader";
+  const engineStatus = <>
+    <p role="status" className={ui.hint} style={{ margin: 0, overflowWrap: "anywhere" }}>Detection engine: {engine}</p>
+    {onCpu && <SheetButton size="sm" onClick={retryRecognitionGpu}>Try GPU again</SheetButton>}
+  </>;
   if (variant === "menu") {
     return <><ThemedSelect variant="menu" wide label="Card recognition" prefix="Recognition ·" title={hint} value={mode} testId="recognition-mode"
       choices={RECOGNITION_MODES.map(item => ({ value: item.value, label: item.label, description: item.hint }))} onChange={setRecognitionMode} />
       <ThemedSelect variant="menu" wide label="Card reader" prefix="Reader ·" value={reader} testId="card-reader" choices={readers} onChange={setCardReader} />
+      {engineStatus}
       {readerNote?<span role="status" className={s.backendNote}>{readerNote}</span>:null}</>;
   }
   return <div className={sheetRoot} style={{ display: "grid", gap: 5 }}>
@@ -37,6 +45,7 @@ export function RecognitionSetting({ variant = "sheet" }: { variant?: "sheet" | 
       onChange={setRecognitionMode} />
     <p id={hintId} className={ui.hint} style={{ margin: 0 }}>{hint}</p>
     <SheetSelect label="Card reader" value={reader} testId="card-reader" compact choices={readers} onChange={setCardReader} />
+    {engineStatus}
     {readerNote?<p role="status" className={ui.hint} style={{margin:0}}>{readerNote}</p>:null}
   </div>;
 }
@@ -62,14 +71,15 @@ export function RecognitionBadge({ phoneCamera = false }: { phoneCamera?: boolea
   const { mode, backend, ms, note, readerNote } = useRecognitionBackend();
   const [say, setSay] = useState("");
   useEffect(() => {
-    if (!note || announced.has(note)) return;
-    announced.add(note); setSay("The GPU failed, so card reading uses the CPU (slower). Details: hover the CPU badge or open Debug.");
+    setSay("");
+    if (mode === "cpu" || !note || announced.has(note)) return;
+    announced.add(note); setSay("Card reading uses the CPU. Open camera Settings for details and to retry the GPU.");
     const timer = setTimeout(() => setSay(""), 8000);
     return () => clearTimeout(timer);
-  }, [note]);
+  }, [mode, note]);
   const gpu = backend === "webgpu";
   // The badge stays short; the full GPU reason is in its tooltip and in the 8-second note below.
-  const where = backend ? (gpu ? "GPU" : note ? "CPU · GPU failed" : "CPU") : mode === "cpu" ? "CPU" : "Reader";
+  const where = gpu ? "GPU" : backend === "wasm" || mode === "cpu" ? "CPU" : "Reader";
   const label = `${phoneCamera ? "Computer · " : ""}${where}${ms === null ? "" : ` · ${ms} ms`}`;
   const title = [
     backend ? `Card recognition runs on the ${gpu ? "graphics card (GPU)" : "processor (CPU)"}${ms === null ? "." : `. Last read: ${ms} ms.`}` : "Card recognition starts with the first read.",
