@@ -1,11 +1,12 @@
 "use client";
 
 import type { ReactNode } from "react";
+import type { RemoteMatchMinutes } from "@yugidraft/shared/remote";
 import { cx, SheetSegmented } from "@/components/duel/sheet-ui";
 import { ThemedSelect as SheetSelect } from "@/components/ui/themed-select";
 import ui from "@/components/duel/sheet-ui.module.css";
 import styles from "@/components/duel/creator.module.css";
-import { REMOTE_SEAT_CHOICES } from "./create";
+import { REMOTE_MATCH_TIME_CHOICES, REMOTE_SEAT_CHOICES, REMOTE_TIME_TIE_CHOICES } from "./create";
 
 type SavedDecks = { data?: { decks: { id: number; name: string }[] }; error?: Error; isLoading: boolean };
 
@@ -13,7 +14,7 @@ type SavedDecks = { data?: { decks: { id: number; name: string }[] }; error?: Er
  * The Remote table section of the create screen. The duel type and the Genesys controls are the ones of the Online
  * form, so the creator passes them in; the rest (seats, deck, solo test, Set from Deck) is only for Remote.
  */
-export function RemoteSetupSection({ formatControls, seats, onSeats, solo, onSolo, deck, onDeck, showSet, onShowSet, decks, visibility }: {
+export function RemoteSetupSection({ formatControls, seats, onSeats, solo, onSolo, deck, onDeck, showSet, onShowSet, decks, visibility, matchTime, onMatchTime }: {
   formatControls: ReactNode;
   seats: number; onSeats: (seats: number) => void;
   solo: boolean; onSolo: (solo: boolean) => void;
@@ -22,6 +23,7 @@ export function RemoteSetupSection({ formatControls, seats, onSeats, solo, onSol
   decks: SavedDecks;
   /** The Visibility control of the Online form: the same words and the same setting. */
   visibility: ReactNode;
+  matchTime: RemoteMatchMinutes; onMatchTime: (value: RemoteMatchMinutes) => void;
 }) {
   const list = decks.data?.decks ?? [];
   const empty = decks.isLoading ? { value: "", label: "Loading decks…", disabled: true }
@@ -40,6 +42,8 @@ export function RemoteSetupSection({ formatControls, seats, onSeats, solo, onSol
           <p className={cx(ui.hint, styles.below)}>{seats === 2 ? "One against one." : "Free for all."} Others join with the link of the room.</p>
         </div>
         {visibility}
+        <SheetSelect label="Match time" value={String(matchTime)} choices={REMOTE_MATCH_TIME_CHOICES} onChange={value => onMatchTime(Number(value) as RemoteMatchMinutes)} testId="create-match-time" />
+        {matchTime > 0 ? <SheetSelect label="Tie after time" value="draw" choices={REMOTE_TIME_TIE_CHOICES} testId="create-time-tie" /> : null}
         <div className={styles.wide}>
           <label className={styles.toggle}>
             <input type="checkbox" checked={solo} onChange={(event) => onSolo(event.target.checked)} data-testid="create-solo" />

@@ -1,4 +1,4 @@
-import type { RemoteAction, RemoteEvent, RemoteSystemAction } from "@yugidraft/shared/remote";
+import { REMOTE_EXTRA_TURNS, type RemoteAction, type RemoteEvent, type RemoteSystemAction } from "@yugidraft/shared/remote";
 import { PHASE_LONG, sg } from "./model";
 import { landingLabel } from "./placement";
 import { MERGED } from "./twins";
@@ -75,6 +75,10 @@ export function describeEvent(event: RemoteEvent, name: (seat: number) => string
       return { kind: "PH", text: `Die roll${opening.rounds.length > 1 ? ` (${opening.rounds.length} rounds)` : ""}: ${rolls} · ${name(opening.winnerSeat)} chooses who goes first`, undoable: false };
     }
     case "match.first": return { kind: "PH", text: a.seatGoesFirst === a.actorSeat ? `${who} chose to go first` : `${who} chose that ${name(a.seatGoesFirst)} goes first`, undoable: false };
+    case "time.called": return { kind: "PH", text: a.seat === null ? "Time called between games." : `Time called. Turn 0 is ${name(a.seat)}’s turn.`, undoable: false };
+    case "time.extraTurn": return { kind: "PH", text: `Extra turn ${a.extraTurn}/${REMOTE_EXTRA_TURNS} · ${name(a.seat)}’s turn.`, undoable: false };
+    case "time.result": return { kind: "PH", text: a.winnerSeat === null ? "Time — match drawn." : `Time — ${name(a.winnerSeat)} wins the match.`, undoable: false };
+    case "time.off": return { kind: "PH", text: `${who} turned off match time.`, undoable: false };
     case "table.ended": return { kind: "PH", text: "The table closed", undoable: false };
     default: return null;
   }

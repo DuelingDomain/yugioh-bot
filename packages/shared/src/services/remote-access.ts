@@ -17,7 +17,7 @@ export function canReadRemote(db: Database.Database, claims: RemoteConnectionTok
       .get(claims.slug, claims.guildId, claims.userId, claims.seat);
   } catch { return false; }
 }
-/** Lazy connection: ws never creates or migrates the DB. Write access is needed only by the idle sweep. */
+/** Lazy connection: ws never creates or migrates the DB. The timer sweeps need write access. */
 export function createRemoteAccessReader(databasePath = process.env.DATABASE_PATH ?? "./data/bot.sqlite") {
   let db: Database.Database | undefined;
   const path = resolveDraftDatabasePath(databasePath);
@@ -31,6 +31,9 @@ export function createRemoteAccessReader(databasePath = process.env.DATABASE_PAT
     views: (slug: string, guildId: string, want: { userIds: readonly number[]; spectator: boolean; publicView: boolean }) => createRemoteDuelService(connection()).views(slug, guildId, want),
     spectatorSnapshot: (slug: string, guildId: string) => createRemoteDuelService(connection()).spectatorSnapshot(slug, guildId),
     sweepIdle: (now?: number) => createRemoteDuelService(connection()).sweepIdle(now),
+    sweepMatchTime: (now?: number) => createRemoteDuelService(connection()).sweepMatchTime(now),
+    tournamentSlug: (matchId: number, guildId: string) => (connection().prepare(`select t.web_slug from tournaments t
+      join tournament_matches tm on tm.tournament_id=t.id where tm.id=? and t.guild_id=?`).get(matchId, guildId) as { web_slug: string | null } | undefined)?.web_slug,
     close() { db?.close(); db = undefined; },
   };
 }

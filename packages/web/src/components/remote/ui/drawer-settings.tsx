@@ -96,6 +96,7 @@ export type DrawerVoice = {
 
 export type DrawerSettingsProps = {
   room: RemoteRoom;
+  matchTimeControl?: ReactNode;
   /** Null when the table has no voice. */ voice: DrawerVoice | null;
 };
 
@@ -103,11 +104,12 @@ export type DrawerSettingsProps = {
  * Settings tab: the global settings. Camera setup, Detection and Voice. The virtual board switch is in the top bar.
  * The per-camera tools (camera choice, zones, side, hover freeze, camera off) live in the webcam "..." menu.
  */
-export function SettingsTab({ room, voice }: DrawerSettingsProps) {
+export function SettingsTab({ room, voice, matchTimeControl }: DrawerSettingsProps) {
   const hub = useVideoHub();
   const watcherError = useFieldWatcherError();
   const phone = hub.phones.some(item => item.seat === room.mySeat);
   return <>
+    {matchTimeControl ? <Group title="Match time" testId="drawer-match-time">{matchTimeControl}</Group> : null}
     <Group title="Camera setup" testId="drawer-camera">
       <Row label="Camera source" stack testId="camera-source"><PhonePairing room={room} /></Row>
       <VideoRateRow />

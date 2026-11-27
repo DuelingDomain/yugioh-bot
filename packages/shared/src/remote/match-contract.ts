@@ -3,6 +3,25 @@ import type { DuelBestOf, DuelDeck } from "../duels/index.js";
 import { remoteActionIdSchema, remoteActionMeta as meta, remoteSeatSchema as seat } from "./action-meta.js";
 
 export type RemoteBestOf = DuelBestOf;
+export const REMOTE_MATCH_MINUTES = [0, 30, 40, 45, 50, 60] as const;
+export const DEFAULT_REMOTE_MATCH_MINUTES = 40;
+export const REMOTE_EXTRA_TURNS = 3;
+export const remoteMatchMinutesSchema = z.literal(REMOTE_MATCH_MINUTES);
+export type RemoteMatchMinutes = z.infer<typeof remoteMatchMinutesSchema>;
+export type RemoteMatchTimeResult = "lp" | "game-ended" | "between-games";
+export type RemoteMatchClock = {
+  minutes: RemoteMatchMinutes;
+  tie: "draw";
+  startedAt?: number;
+  offAt?: number;
+  called?: { at: number; turn: number | null; seat: number | null };
+  result?: RemoteMatchTimeResult;
+  tiedSeats?: number[];
+};
+export type RemoteTimeEvent =
+  | { type: "time.called"; turn: number | null; seat: number | null }
+  | { type: "time.extraTurn"; extraTurn: number; turn: number; seat: number }
+  | { type: "time.result"; reason: RemoteMatchTimeResult; winnerSeat: number | null; tiedSeats?: number[] };
 export type RemoteSideDeckChanges = Pick<DuelDeck, "main" | "extra" | "side">;
 export type RemoteGameResult = {
   n: number; winnerSeat: number | null; reason: "lp" | "concede" | "declared" | "timeout"; endedAt: number;
@@ -46,6 +65,8 @@ export type RemoteOwnFirst = {
 };
 export type RemoteMatch = {
   bestOf: RemoteBestOf;
+  /** Absent on legacy tables. An explicitly untimed table has minutes: 0. */
+  clock?: RemoteMatchClock;
   games: RemoteGameResult[];
   phase: "duel" | "result" | "siding" | "done";
   siding?: RemoteSiding;

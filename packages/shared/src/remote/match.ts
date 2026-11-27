@@ -3,6 +3,7 @@ import type { DuelDeck } from "../duels/index.js";
 import { remoteAssert, type RemoteAction } from "./actions.js";
 import { initialDeckChecks, type RemoteReductionContext } from "./deck-checks.js";
 import { initializeRemoteHandCounts, sendGivenCardsHome } from "./hand.js";
+import { startRemoteMatchClock } from "./match-clock.js";
 import { REMOTE_FIRST_CHOICE_MS, REMOTE_OPENING_ROUND_MS, REMOTE_SIDE_DECK_MS, REMOTE_SIDE_MS, REMOTE_SIDE_START_MS, remoteBestOfSchema, remoteMatchActionSchema,
   type RemoteGameResult, type RemoteMatch, type RemoteOpening, type RemoteSiding } from "./match-contract.js";
 import type { GameModule, RemoteState } from "./types.js";
@@ -82,7 +83,7 @@ export function remoteFirstPending(match: RemoteMatch | undefined): boolean {
 }
 
 /** Actions that do not start the game. Any other action after the choice locks the first player. */
-const OWN_FIRST_KEEPS_OPEN: ReadonlySet<string> = new Set(["detection.mode", "chain.respond", "chain.thinking", "chain.ok", "random.roll", "log.note", "undo", "player.concede", "player.leave"]);
+const OWN_FIRST_KEEPS_OPEN: ReadonlySet<string> = new Set(["detection.mode", "chain.respond", "chain.thinking", "chain.ok", "random.roll", "log.note", "undo", "player.concede", "player.leave", "time.off"]);
 export const remoteActionLocksOwnFirst = (type: string): boolean => !OWN_FIRST_KEEPS_OPEN.has(type);
 
 /**
@@ -114,19 +115,23 @@ export function applyRemoteOwnFirst(state: RemoteState): void {
   state.match.ownFirst = {};
 }
 
-function chooseRemoteOpening(state: RemoteState, seat: number): RemoteState {
+function chooseRemoteOpening(state: RemoteState, seat: number, at: number): RemoteState {
   state.match.opening!.chosenSeat = seat;
   startWithSeat(state, seat);
+  startRemoteMatchClock(state.match, at);
   return state;
 }
 
-export function remoteSideTimeoutDue(state: Pick<RemoteState, "match" | "seatCount">, at: number): boolean {
-  if (remoteOpeningPending(state.match)) return at >= state.match.opening.deadline;
+export function remoteSideTimeoutAt(state: Pick<RemoteState, "match" | "seatCount">): number {
+  if (remoteOpeningPending(state.match)) return state.match.opening.deadline;
   const siding = state.match?.phase === "siding" ? state.match.siding : undefined;
-  return !!siding && (at >= siding.deadline ||
-    siding.firstChoiceDeadline !== undefined && at >= siding.firstChoiceDeadline ||
-    siding.startAt !== undefined && at >= siding.startAt ||
-    Array.from({ length: state.seatCount }, (_, seat) => seat).some(seat => !siding.ready.includes(seat) && at >= remoteSideDeadline(siding, seat)));
+  if (!siding) return Infinity;
+  return Math.min(siding.deadline, siding.firstChoiceDeadline ?? Infinity, siding.startAt ?? Infinity,
+    ...Array.from({ length: state.seatCount }, (_, seat) => siding.ready.includes(seat) ? Infinity : remoteSideDeadline(siding, seat)));
+}
+
+export function remoteSideTimeoutDue(state: Pick<RemoteState, "match" | "seatCount">, at: number): boolean {
+  return at >= remoteSideTimeoutAt(state);
 }
 
 /** Same cards and section sizes as the simulator's side-deck model. Deck Master stays fixed. */
@@ -237,25 +242,26 @@ export function reduceRemoteMatch(state: RemoteState, input: RemoteAction, initi
   if (match.phase === "duel" && match.ownFirst && action.type === "match.first") {
     const own = match.ownFirst;
     remoteAssert(!next.ended, "The game has ended", 409);
-    remoteAssert(!own.locked, "The first turn has started, so the first player can no longer change", 409);
+    remoteAssert(!own.locked && (!match.clock?.called || match.clock.offAt !== undefined), "The first turn has started, so the first player can no longer change", 409);
     remoteAssert(!next.seats[action.actorSeat].eliminated, "Actor seat is eliminated", 403);
     validSeat(action.seatGoesFirst);
     remoteAssert(!next.seats[action.seatGoesFirst].eliminated, "That seat is out of the game", 409);
     if (own.chosenSeat === action.seatGoesFirst) return state;
     own.chosenSeat = action.seatGoesFirst;
     startWithSeat(next, action.seatGoesFirst);
+    startRemoteMatchClock(match, at);
     return next;
   }
   if (remoteOpeningPending(match)) {
     const opening = match.opening;
     const chooser = remoteOpeningChooser(opening, next.seats);
-    if (action.type === "side.timeout") return chooseRemoteOpening(next, chooser);
+    if (action.type === "side.timeout") return chooseRemoteOpening(next, chooser, at);
     if (action.type === "match.first") {
       remoteAssert(chooser === action.actorSeat, "Only the die-roll winner can choose the first player", 403);
       validSeat(action.seatGoesFirst);
       remoteAssert(!next.seats[action.seatGoesFirst].eliminated, "That seat is out of the game", 409);
       remoteAssert(at < opening.deadline, "The choice deadline has elapsed", 409);
-      return chooseRemoteOpening(next, action.seatGoesFirst);
+      return chooseRemoteOpening(next, action.seatGoesFirst, at);
     }
   }
   // Entering siding closes this game's undo window. Declarations keep it intact.

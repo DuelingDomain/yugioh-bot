@@ -2,6 +2,8 @@ import { cloneRemoteCurrent } from "../position.js";
 import { applyRemoteGive, applyRemoteHand, HAND_ACTIVATION_FALLBACK_MS, HAND_ACTIVATION_LINK_MS, moveRemoteCardToHand, pendingRemoteHandActivations, reduceRemoteHandAction, restoreOwnerIdentity, sendGivenCardsHome } from "../hand.js";
 import { rememberRemoteAction, undoRemoteAction } from "../undo.js";
 import { ensureRemoteMatch, finishRemoteGame, initialRemoteMatch, reduceRemoteMatch, remoteActionLocksOwnFirst, remoteFirstPending, remoteOwnFirstPending, syncRemoteSideStart } from "../match.js";
+import { REMOTE_EXTRA_TURNS } from "../match-contract.js";
+import { remoteTimeLpLeaders, remoteTimeTurn } from "../match-clock.js";
 import { remoteActionSchema, remoteActivationKey, remoteActivationNotice, remoteAssert, remoteSummonKinds, type RemoteAction, type TwinCard } from "../actions.js";
 import type { GameModule, RemoteSeatState, RemoteState } from "../types.js";
 import { resolveAttack } from "../attack-resolver.js";
@@ -123,6 +125,14 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
   remoteAssert(at >= state.updatedAt, "Action time precedes state");
   remoteAssert(state.seats[action.actorSeat], "Invalid actor seat");
   if (!state.match) state = ensureRemoteMatch(cloneRemoteCurrent(state));
+  if (action.type === "time.off") {
+    const clock = state.match.clock;
+    if (!clock?.minutes || clock.offAt !== undefined) return state;
+    const next = cloneRemoteCurrent(state);
+    next.match.clock!.offAt = at;
+    next.updatedAt = at;
+    return next;
+  }
   if (action.type === "detection.mode") {
     if (action.reason === "start" && state.detection?.[action.actorSeat]?.mode === action.mode) return state;
     return { ...cloneRemoteCurrent(state), detection: { ...state.detection, [action.actorSeat]: { mode: action.mode, at } }, updatedAt: at };
@@ -237,6 +247,12 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
   };
   const endTurn = () => {
     ownTurn(); remoteAssert(!state.attack, "Resolve the attack first", 409);
+    if (remoteTimeTurn(state) === REMOTE_EXTRA_TURNS) {
+      const leaders = remoteTimeLpLeaders(next);
+      next.phase = "end";
+      finishRemoteGame(next, leaders.length === 1 ? leaders[0] : null, "timeout", at);
+      return;
+    }
     let n = state.turnSeat;
     do { n = (n + 1) % state.seatCount; } while (next.seats[n].eliminated);
     next.turnSeat = n; next.turn++; next.phase = "draw"; next.battleEntered = false;
@@ -706,7 +722,7 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
   }
   if (next.attack && (next.seats[next.attack.attackerSeat].eliminated || next.seats[next.attack.targetSeat].eliminated)) next.attack = null;
   const living = next.seats.filter(s => !s.eliminated);
-  if (living.length <= 1) finishRemoteGame(next, living[0]?.seat ?? null, action.type === "player.concede" ? "concede" : "lp", at);
+  if (!next.ended && living.length <= 1) finishRemoteGame(next, living[0]?.seat ?? null, action.type === "player.concede" ? "concede" : "lp", at);
   else if (action.type === "player.concede" || action.type === "lp.change" && next.seats[action.seat].eliminated) {
     const eliminatedSeat = action.type === "player.concede" ? action.actorSeat : action.seat;
     if (next.match.pendingResult?.lpSeat === undefined || next.match.pendingResult.lpSeat === eliminatedSeat) delete next.match.pendingResult;

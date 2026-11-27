@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { DUEL_BANLIST_OPTIONS } from "@yugidraft/shared/duels";
-import { REMOTE_FORMATS, REMOTE_OPEN_FORMATS, normalizeRemoteFormat, type RemoteFirstPlayerMode, type RemoteRoom } from "@yugidraft/shared/remote";
+import { REMOTE_FORMATS, REMOTE_OPEN_FORMATS, normalizeRemoteFormat, type RemoteFirstPlayerMode, type RemoteMatchMinutes, type RemoteRoom } from "@yugidraft/shared/remote";
 import { AlertTriangle, Bot, Check, CheckCircle2, CircleDashed, Link2, Swords, UserPlus } from "lucide-react";
 import { cx, SheetButton, sheetButtonClass, sheetPage } from "@/components/duel/sheet-ui";
 import { ThemedSelect as SheetSelect } from "@/components/ui/themed-select";
@@ -12,7 +12,7 @@ import { COLORS } from "./model";
 import { isTournamentTable } from "@/lib/remote/tournament-detection";
 import type { RemoteTournamentLink } from "@/lib/remote-tournament-link";
 import type { RoomController } from "./use-remote-room";
-import { deckFailedKey, remoteFormatName, remoteTableHref, useSavedDecks } from "./create";
+import { deckFailedKey, remoteFormatName, remoteMatchTimeLabel, remoteTableHref, REMOTE_MATCH_TIME_CHOICES, REMOTE_TIME_TIE_CHOICES, useSavedDecks } from "./create";
 import { LobbyDeckList } from "./lobby-deck-list";
 import LobbyCameraPreview, { type CameraMode } from "./lobby-camera-preview";
 import { useVideoHub } from "./video-hub";
@@ -83,6 +83,9 @@ export function RemoteLobbyRoom({ ctl, room, voiceRecognition = false, tournamen
   // The host's pick waits for Apply rules; everyone else (and the host after applying) sees the table's saved setting, which follows live changes.
   const [firstPlayerDraft, setFirstPlayerDraft] = useState<RemoteFirstPlayerMode | null>(null);
   const firstPlayer = firstPlayerDraft ?? room.firstPlayer ?? "dice";
+  const [matchTimeDraft, setMatchTimeDraft] = useState<RemoteMatchMinutes | null>(null);
+  const savedMatchTime = room.state.match?.clock?.minutes ?? 0;
+  const matchTime = matchTimeDraft ?? savedMatchTime;
   const me = room.seats.find(seat => seat.seat === room.mySeat);
   const host = me?.userId === room.createdBy;
   const decks = saved.data?.decks ?? [];
@@ -107,6 +110,7 @@ export function RemoteLobbyRoom({ ctl, room, voiceRecognition = false, tournamen
             {tournament ? <a className={cx(ui.chip, r.tourneyChip)} href={`/tournament/${encodeURIComponent(tournament.tournamentSlug)}`} data-testid="lobby-tournament" title="Back to the tournament">Tournament · {tournament.tournamentName}</a> : null}
             <span className={cx(ui.chip, ui.chipAccent)}>{formatName(current.id)}</span>
             <span className={ui.chip}>{room.seatCount === 2 ? "1v1" : `${room.seatCount}-way`}</span>
+            <span className={ui.chip} data-testid="room-match-time-chip">Match time · {remoteMatchTimeLabel(savedMatchTime)}</span>
             {room.firstPlayer === "own" ? <span className={ui.chip} data-testid="room-first-player-chip">Own dice</span> : null}
             <span className={ui.chip}>Code <b className={r.code}>{room.slug}</b></span>
             {room.solo ? null : <span className={ui.chip} data-testid="room-visibility">{room.visibility === "private" ? "Private" : "Public"}</span>}
@@ -197,12 +201,17 @@ export function RemoteLobbyRoom({ ctl, room, voiceRecognition = false, tournamen
             </div>
           </div>
           <form className={cx(room_.panel, r.rulesPanel)} aria-label="Rules" onSubmit={e => { e.preventDefault();
-            void operation("format", { format, bestOf: Number(bestOf), showCardsSetFromDeck, firstPlayer, rules: { banlist, startingLP: lp, ...(format.includes("genesys") ? { genesys: { pointCap: points } } : {}) } }).then(()=>{ setPublicityDraft(null); setFirstPlayerDraft(null); }); }}>
+            void operation("format", { format, bestOf: Number(bestOf), showCardsSetFromDeck, firstPlayer, matchTimeMinutes: matchTime, rules: { banlist, startingLP: lp, ...(format.includes("genesys") ? { genesys: { pointCap: points } } : {}) } }).then(saved => {
+              setPublicityDraft(null); setFirstPlayerDraft(null);
+              if (saved) setMatchTimeDraft(null);
+            }); }}>
             <h2 className={ui.sectionTitle}>Rules</h2>
             <fieldset disabled={busy || !host || rulesLocked} className={r.fieldset}>
               <SheetSelect label="Match length" value={bestOf} testId="room-best-of"
                 choices={[{ value: "1", label: "Best of 1 (one game)" }, { value: "3", label: "Best of 3 (side decking between games)" }]}
                 onChange={setBestOf} />
+              <SheetSelect label="Match time" value={String(matchTime)} choices={REMOTE_MATCH_TIME_CHOICES} onChange={value => setMatchTimeDraft(Number(value) as RemoteMatchMinutes)} testId="room-match-time" />
+              {matchTime > 0 ? <SheetSelect label="Tie after time" value={room.state.match.clock?.tie ?? "draw"} choices={REMOTE_TIME_TIE_CHOICES} testId="room-time-tie" /> : null}
               <SheetSelect label="Who goes first" value={firstPlayer} testId="room-first-player"
                 choices={[{ value: "dice", label: "Digital dice (the table rolls)" }, { value: "own", label: "Roll your own dice (on camera)" }]}
                 onChange={value => setFirstPlayerDraft(value as RemoteFirstPlayerMode)} />

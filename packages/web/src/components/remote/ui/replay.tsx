@@ -9,6 +9,7 @@ import { remoteApi } from "./api";
 import { cardArt, useCardInfo } from "./catalog";
 import { remoteFormatName } from "./create";
 import { describeEvent } from "./describe";
+import { matchClockDisplay } from "./match-model";
 import { cardCode, cardName, cellsFor, hasExtraZones, EK, PHASE_LONG, ZK, zoneLabel, type ZoneKey } from "./model";
 import { boardAt, turnStarts } from "./replay-model";
 import s from "./replay.module.css";
@@ -81,8 +82,10 @@ function Player({ replay }: { replay: RemoteReplay }) {
     if (event.key === "ArrowLeft") { event.preventDefault(); setIndex(value => clamp(value - 1)); }
     if (event.key === "ArrowRight") { event.preventDefault(); setIndex(value => clamp(value + 1)); }
   };
-  const winner = state.winnerSeat === null ? null : name(state.winnerSeat);
+  const winnerSeat = state.match.phase === "done" ? state.match.winnerSeat : state.winnerSeat;
+  const winner = winnerSeat == null ? null : name(winnerSeat);
   const turnNow = step?.turn ?? 0;
+  const matchTime = step ? matchClockDisplay(state.match, turnNow, step.at) : undefined;
   return <div onKeyDown={onKey}>
     <div className={s.head}>
       <div>
@@ -98,6 +101,7 @@ function Player({ replay }: { replay: RemoteReplay }) {
       <div className={s.side}>
         <div className={s.panel}>
           <div className={s.meta} data-testid="replay-position">{index < 0 ? "Start" : `Step ${index + 1} of ${replay.steps.length}`} · Turn {turnNow} · {PHASE_LONG[state.phase] ?? state.phase} · {name(state.turnSeat)}</div>
+          {matchTime ? <div className={s.meta} data-testid="replay-match-timer">{matchTime.label}</div> : null}
           <div className={s.now} role="status" data-testid="replay-now">{index < 0 ? "Before the first event" : lines[index]}</div>
           <input className={s.scrub} type="range" min={-1} max={last} value={index} aria-label="Replay step" onChange={event => setIndex(Number(event.target.value))} />
           <div className={s.controls}>

@@ -8,7 +8,7 @@ import { HAND_ACTIVATION_FALLBACK_MS, REMOTE_FORMATS, REMOTE_HAND_SUGGESTION_EVE
 import { useSeatFocus } from "./seat-focus";
 import { cardInfo, isLinkInfo, isMonsterInfo, loadCards, searchCards, useCardInfo } from "./catalog";
 import { EffectControls, EffectPicker } from "./effect-controls";
-import { DuelTimer, LpStrip, TopBar, AdminWatchStrip, type Player } from "./chrome";
+import { DuelTimer, MatchTimer, LpStrip, TopBar, AdminWatchStrip, type Player } from "./chrome";
 import { BottomBar } from "./bottom-bar";
 import { PhaseTrack, usePhaseAsk } from "./phase-track";
 import { CardPopover, InspectorBody, type CardActions, type CardEdit, type CardSource, type Subject } from "./card-view";
@@ -72,7 +72,7 @@ import type { FeedbackPreference } from "@/components/settings/vision-feedback-s
 import { Icon } from "./icons";
 import { DeclareConfirm, DeclarePending, MatchResultScreen, SidingScreen, declareChoices } from "./match-ui";
 import { OpeningRollScreen } from "./opening-roll";
-import { matchOf } from "./match-model";
+import { matchOf, matchTimeReason } from "./match-model";
 import { DeckMenu, LeaveDock, SurrenderConfirm } from "./surrender";
 import { RemoteResultSlot } from "@/components/tournament/matches/remote-result-panel";
 import type { RemoteTournamentLink } from "@/lib/remote-tournament-link";
@@ -1973,20 +1973,24 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
   });
   // The result screen already says the match ended: the "table ended" banner waits until it is closed.
   const resultShown = (match.phase === "result" && room.status === "active") || (match.phase === "done" && !boardView);
+  const matchTimeControl = room.status === "active" && !leftMatch && match.clock?.minutes && match.clock.offAt === undefined &&
+    room.seats.some(seat => seat.seat === mySeat && seat.userId === room.createdBy) ?
+    <button type="button" className={`${s.btn} ${s.sm}`} data-testid="match-time-off" onClick={() => void act({ type: "time.off", actorSeat: mySeat })}>Turn off match timer</button> : null;
   return <FeedCardsProvider seats={state.seats} info={info} marks={chainMarks}><div ref={appRef} className={`${duelFontClasses} ${s.app}`} data-drawer={layers.layer === "log" ? drawerTab : layers.layer === "insp" ? "insp" : undefined} data-mode={mode} data-handui={handUiOpen ? "1" : undefined} data-wc={webcamOnly ? "1" : undefined} data-testid="remote-table" data-status={room.status} data-open-chain-link={respondTo?.event.id} {...cardMenu}>
     <AutoFieldWatcher dock={seatDocks[mySeat] ?? null} room={room} transaction={ctl.transaction} diagnosticsAllowed={feedbackPref?.isAdmin===true && feedbackPref.collectionEnabled} />
     <a className={s.skip} href="#stage">Skip to the table</a>
     <div className={s.shell}>
       <TopBar crumb={`Table ${room.slug.slice(0, 8)}`} startedAt={room.startedAt} endedAt={room.endedAt} tournament={tournament ? { name: tournament.tournamentName, href: `/tournament/${encodeURIComponent(tournament.tournamentSlug)}` } : null} chip={`${formatLabel} · ${solo ? "Solo test" : `${seatCount} players`}${room.spectatorCount ? ` · ${room.spectatorCount} watching` : ""}`} adminWatchers={(room.adminWatchers ?? []).map(watcher => watcher.name)} cardOpen={layers.layer === "insp"} logOpen={layers.layer === "log" && drawerTab === "log"} logDot={unread} settingsOpen={layers.layer === "log" && drawerTab === "settings"} onSettings={el => toggleDrawerTab("settings", el)} health={{ q: worstQ, text: healthSummary }} healthOpen={layers.layer === "log" && drawerTab === "info"} onHealth={el => openDrawer("info", el)}
         onCard={el => layers.toggle("insp", el)} onLog={el => toggleDrawerTab("log", el)}
-        webcamOnly={webcamOnly} onView={multi ? undefined : setWebcamOnly} />
+        webcamOnly={webcamOnly} onView={multi ? undefined : setWebcamOnly}
+        matchTimer={match.clock ? room.status === "active" && inMatchBreak ? null : <MatchTimer match={match} turn={state.turn} endedAt={room.endedAt} /> : undefined} />
       <AdminWatchStrip names={(room.adminWatchers ?? []).map(watcher => watcher.name)} />
       <main className={s.stage} id="stage" tabIndex={-1} aria-label="Duel table" ref={stage}>
         {firstPick}
         <LpStrip players={players} turnSeat={turnShown} lp={lpOf} onJump={seat => document.querySelector(`[data-testid="seat-${seat}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" })} />
         {!resultShown && (room.status === "ended" || (state.ended && !state.match)) ? <div className={s.ended} role="status" data-testid="table-ended">
           <b>This table has ended.</b>
-          <span>{endedWhy(room, state.winnerSeat !== null && state.winnerSeat !== undefined ? name(state.winnerSeat) : null)}</span>
+          <span>{matchTimeReason(match, name) ?? endedWhy(room, state.winnerSeat != null ? name(state.winnerSeat) : null)}</span>
           <a className={`${s.btn} ${s.go} ${s.sm}`} href="/duels/new?type=remote" data-testid="new-table">New table</a>
         </div> : null}
         {!solo && seatCount > 2 && mySeat >= 0 && live && state.seats[mySeat]?.eliminated ? <div className={s.ended} role="status" data-testid="out-watching">
@@ -2056,7 +2060,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
         feeds: healthRows.map(row => ({ ...row, color: row.color, mode: isTournamentTable(room) && row.seat !== mySeat ? stateMode(room.state, row.seat) ?? "unknown" : undefined })), extras,
         declare: declareResult,
         extra: !solo && !adminAccess ? <VisionFeedbackSetting promptOnly onChange={onFeedbackPref} /> : undefined }}
-      settings={<SettingsTab room={room}
+      settings={<SettingsTab room={room} matchTimeControl={matchTimeControl}
         voice={voiceRecognition ? { mics: mic.devices, micId: mic.micId, onMic: mic.pickMic, ptt, onPtt: on => { setPtt(on); setHeld(false); }, recognition: voiceRecognition,
           method: <VoiceControls method={voice.method} onMethod={method => { setProposal(null); voice.pickMethod(method); }} logging={room.voiceDiagnosticsEnabled === true && !muted && live} last={diagnostics.last} recentIds={diagnostics.recentIds} onMark={diagnostics.mark} /> } : null} />}
       adminPanel={<AdminTab room={room} isAdmin={adminAccess === true} />} />
@@ -2124,13 +2128,13 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     <DeclareConfirm match={match} mySeat={mySeat} name={name} busy={matchBusy} onAnswer={(declarationId, accept) => matchStep({ type: "match.confirm", actorSeat: mySeat, declarationId, accept })} />
     {match.phase === "done" && boardView ? <button type="button" className={matchStyles.reopen} onClick={() => setBoardView(false)} data-testid="match-show-result">Show result</button> : null}
     {(match.phase === "result" && room.status === "active") || (match.phase === "done" && !boardView)
-      ? <MatchResultScreen room={room} match={match} mySeat={leftMatch ? -1 : mySeat} name={name} final={match.phase === "done"} busy={matchBusy} error={overlayError}
+      ? <MatchResultScreen room={room} match={match} mySeat={leftMatch ? -1 : mySeat} name={name} final={match.phase === "done"} busy={matchBusy} error={overlayError} matchTimeControl={matchTimeControl}
         tournamentResult={tournament ? <RemoteResultSlot tournamentSlug={tournament.tournamentSlug} tournamentMatchId={tournament.tournamentMatchId} pair={tournament.pair} viewerId={tournament.viewerPlayerId} /> : null}
         undo={canUndo && mySeat >= 0 && !newestUndo?.reason ? { label: undoText, onUndo: () => void doUndo() } : null}
         rematch={mySeat >= 0 && !leftMatch && !solo && !tournament ? { busy: ctl.busy, onAnswer: answer => void ctl.operation("rematch", { answer }) } : null}
         onContinue={() => matchStep({ type: "match.continue", actorSeat: matchSeat })} onLeave={() => router.push(tournament ? `/tournament/${encodeURIComponent(tournament.tournamentSlug)}` : "/duels")} onClose={() => setBoardView(true)} />
       : match.phase === "siding" && match.siding && room.status === "active"
-        ? <SidingScreen room={room} match={match} mySeat={leftMatch ? -1 : mySeat} name={name} now={serverNow} act={act} error={overlayError} /> : null}
+        ? <SidingScreen room={room} match={match} mySeat={leftMatch ? -1 : mySeat} name={name} now={serverNow} act={act} error={overlayError} matchTimeControl={matchTimeControl} /> : null}
     {match.phase === "duel" && match.opening && (match.opening.chosenSeat === undefined || match.opening.auto) && !state.ended && room.status === "active"
       ? <OpeningRollScreen opening={match.opening} mySeat={mySeat} name={name} now={serverNow} act={mySeat >= 0 ? act : undefined} out={state.seats.map(seat => !!seat.eliminated)} error={overlayError} onCover={setOpeningCovers} /> : null}
     {room.status === "active" && ((openingShown && openingCovers) || match.phase === "result" || (match.phase === "siding" && match.siding))

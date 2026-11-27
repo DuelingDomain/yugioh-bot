@@ -1,5 +1,5 @@
 import type { DuelDeck } from "@yugidraft/shared/duels";
-import { REMOTE_SIDE_DECK_MS, REMOTE_SIDE_MS, remoteSideDeadline, type RemoteGameResult, type RemoteMatch, type RemoteRoom, type RemoteSiding } from "@yugidraft/shared/remote";
+import { REMOTE_EXTRA_TURNS, REMOTE_SIDE_DECK_MS, REMOTE_SIDE_MS, remoteMatchDeadline, remoteSideDeadline, remoteTimeTurn, type RemoteGameResult, type RemoteMatch, type RemoteRoom, type RemoteSiding } from "@yugidraft/shared/remote";
 
 export type Match = RemoteMatch;
 export type MatchGame = RemoteGameResult;
@@ -49,6 +49,15 @@ export function reasonLine(game: MatchGame | undefined, name: (seat: number) => 
   return winnerSeat === null ? "Both players ran out of Life Points." : `${who(winnerSeat)} reduced the last opponent to 0 Life Points.`;
 }
 
+export function matchTimeReason(match: Match, name: (seat: number) => string): string | undefined {
+  const clock = match.clock;
+  if (!clock?.result) return undefined;
+  if (clock.tiedSeats?.length) return `Time — draw between ${clock.tiedSeats.map(name).join(", ")}`;
+  if (match.winnerSeat == null) return "Time — match drawn";
+  if (clock.result === "lp" && match.games.at(-1)?.winnerSeat === match.winnerSeat) return "Time — won on LP";
+  return "Time — won on games";
+}
+
 /** When a seat's siding clock ends (the server gives each seat its own cutoff). */
 export function seatDeadline(siding: MatchSiding, seat: number): number {
   return remoteSideDeadline(siding, seat);
@@ -58,6 +67,20 @@ export function seatDeadline(siding: MatchSiding, seat: number): number {
 export function clock(ms: number): string {
   const total = Math.max(0, Math.ceil(ms / 1000));
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
+}
+
+export function matchClockDisplay(match: Match, turn: number, at: number) {
+  const timer = match.clock;
+  if (!timer) return undefined;
+  if (!timer.minutes || timer.offAt !== undefined) return { text: "Off", label: "Match time off" };
+  if (timer.result) return { text: "Time", label: "Match time expired", tone: "red" };
+  const extra = remoteTimeTurn({ match, turn });
+  if (extra === 0) return { text: "Turn 0", label: "Time — Turn 0", tone: "red" };
+  if (extra !== undefined) return { text: `Extra ${extra}/${REMOTE_EXTRA_TURNS}`, label: `Extra turn ${extra}/${REMOTE_EXTRA_TURNS}`, tone: "red" };
+  const deadline = remoteMatchDeadline(timer);
+  const left = deadline === undefined ? timer.minutes * 60_000 : Math.max(0, deadline - at);
+  const text = clock(left).padStart(5, "0");
+  return { text, label: `Match time ${text}`, tone: left < 60_000 ? "red" : left < 300_000 ? "amber" : undefined };
 }
 
 /** The deck of a seat, as the server holds it now (swaps included). Null: the seat plays with physical cards only. */

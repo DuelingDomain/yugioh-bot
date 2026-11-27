@@ -52,6 +52,8 @@
 .dtimer{display:inline-flex;align-items:center;gap:8px;flex:none;height:34px;padding:0 14px;border-radius:999px;border:1.5px solid var(--ink2);background:#0b0716;color:#fff;box-shadow:0 0 0 3px rgb(255 255 255/.06)}
 .dtimer svg{width:17px;height:17px;color:var(--ink2)}
 .dtimer b{font:800 calc(22*var(--u))/1 var(--font-duel-display),Oxanium,sans-serif;letter-spacing:.04em;font-variant-numeric:tabular-nums}
+.dtimer[data-tone=amber],.dtimer[data-tone=amber] svg{color:var(--warn)}
+.dtimer[data-tone=red],.dtimer[data-tone=red] svg{color:var(--loss)}
 .cchip{font:700 calc(10*var(--u))/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;letter-spacing:.14em;text-transform:uppercase;border:1px solid var(--line2);border-radius:999px;padding:4px 8px;color:var(--gold-ink);white-space:nowrap}
 .seg{display:inline-flex;border:1px solid var(--line2);border-radius:6px;overflow:hidden;background:var(--p0)}
 .seg button{white-space:nowrap;background:none;border:0;padding:6px 13px;font-weight:600;font-size:calc(13*var(--u));color:var(--ink3);border-right:1px solid var(--line)}

@@ -148,11 +148,13 @@ export function createTournamentRemoteResultService(db: Database.Database) {
       const winner=seats.find(seat=>seat.seat === state.match.winnerSeat)?.player_id;
       if (!winner || ![r.player_one_id,r.player_two_id].includes(winner)) fail("Remote winner has no paired player",409,"TOURNAMENT_MATCH_UNAVAILABLE");
       const last=state.match.games.at(-1);
-      if (!forfeit && (!last || !["lp","concede","declared"].includes(last.reason))) fail("Remote result has no valid source",409,"REMOTE_RESULT_NOT_PROPOSED");
+      // The tournament proposal uses its existing LP source. The timed game and how it ended are retained in the evidence.
+      const source = forfeit ? "concede" : last?.reason === "timeout" && state.match.clock?.result === "lp" ? "lp" : last?.reason;
+      if (source === undefined || source === "timeout") fail("Remote result has no valid source",409,"REMOTE_RESULT_NOT_PROPOSED");
       const wins=(playerId:number) => state.match.games.filter(game=>game.winnerSeat != null && seats.find(seat=>seat.seat === game.winnerSeat)?.player_id === playerId).length;
       db.prepare(`update tournament_remote_matches set status='proposed',winner_player_id=?,player_one_wins=?,player_two_wins=?,
         result_source=?,proposed_at=?,confirm_deadline_at=?,updated_at=? where tournament_match_id=? and status='playing'`)
-        .run(winner,forfeit?null:wins(r.player_one_id),forfeit?null:wins(r.player_two_id),forfeit?"concede":last!.reason,now,now+REMOTE_RESULT_CONFIRM_MS,now,r.tournament_match_id);
+        .run(winner,forfeit?null:wins(r.player_one_id),forfeit?null:wins(r.player_two_id),source,now,now+REMOTE_RESULT_CONFIRM_MS,now,r.tournament_match_id);
       captureRemoteTournamentEvidence(db,tableId,now);
     },
     /** A successful terminal Undo invalidates the proposal and every report of that outcome. */
