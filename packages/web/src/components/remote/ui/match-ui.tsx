@@ -79,7 +79,7 @@ function useNow(now: () => number, on = true): number {
 }
 
 /** The Life Points of each seat, for the "won on LP" reason line. */
-const lpOf = (room: RemoteRoom) => ({ of: (seat: number) => room.state.seats[seat]?.resources.lp ?? 0, seats: room.seatCount });
+const lpOf = (room: RemoteRoom) => ({ of: (seat: number) => room.state.seats[seat]?.resources.lp ?? 0, seats: room.seatCount, out: (seat: number) => !!room.state.seats[seat]?.eliminated });
 
 /**
  * The result of a game, or of the whole match. It uses the simulator's result screen look: the big word, the reason,

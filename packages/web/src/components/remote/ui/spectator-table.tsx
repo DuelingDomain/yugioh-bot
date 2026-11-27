@@ -298,7 +298,7 @@ function SpectatorTable({ room }: { room: RemoteRoom }) {
         <span className={`${s.crumb} ${v.hideNarrow}`}><b>Remote Duel</b> · Table {room.slug.slice(0, 8)}</span>
         <span className={v.badge} data-testid="spectator-badge">Spectator</span>
         <span className={`${s.cchip} ${v.hideNarrow}`}>{formatLabel} · {seatCount} players</span>
-        {match.clock && !siding ? <MatchTimer match={match} turn={state.turn} endedAt={room.endedAt} info /> : null}
+        {match.clock ? <MatchTimer match={match} turn={state.turn} endedAt={room.endedAt} info /> : null}
         <span className={v.watching} data-testid="spectator-count">{room.spectatorCount ?? 0} watching</span>
         <span className={s.sp} />
         <button type="button" className={s.tb} aria-haspopup="dialog" aria-expanded={layers.layer === "log"} data-layer-opener data-testid="log-button" onClick={event => layers.toggle("log", event.currentTarget)}><Icon name="log" /><span className={s.lbl}>Log</span></button>

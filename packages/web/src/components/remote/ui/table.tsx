@@ -1986,14 +1986,14 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
       <TopBar crumb={`Table ${room.slug.slice(0, 8)}`} startedAt={room.startedAt} endedAt={room.endedAt} tournament={tournament ? { name: tournament.tournamentName, href: `/tournament/${encodeURIComponent(tournament.tournamentSlug)}` } : null} chip={`${formatLabel} · ${solo ? "Solo test" : `${seatCount} players`}${room.spectatorCount ? ` · ${room.spectatorCount} watching` : ""}`} adminWatchers={(room.adminWatchers ?? []).map(watcher => watcher.name)} cardOpen={layers.layer === "insp"} logOpen={layers.layer === "log" && drawerTab === "log"} logDot={unread} settingsOpen={layers.layer === "log" && drawerTab === "settings"} onSettings={el => toggleDrawerTab("settings", el)} health={{ q: worstQ, text: healthSummary }} healthOpen={layers.layer === "log" && drawerTab === "info"} onHealth={el => openDrawer("info", el)}
         onCard={el => layers.toggle("insp", el)} onLog={el => toggleDrawerTab("log", el)}
         webcamOnly={webcamOnly} onView={multi ? undefined : setWebcamOnly}
-        matchTimer={match.clock?.minutes ? room.status === "active" && inMatchBreak ? null : <MatchTimer match={match} turn={state.turn} endedAt={room.endedAt} info onTurnOff={turnOffTimer} /> : undefined} />
+        matchTimer={match.clock?.minutes ? <MatchTimer match={match} turn={state.turn} endedAt={room.endedAt} info onTurnOff={turnOffTimer} /> : undefined} />
       <AdminWatchStrip names={(room.adminWatchers ?? []).map(watcher => watcher.name)} />
       <main className={s.stage} id="stage" tabIndex={-1} aria-label="Duel table" ref={stage}>
         {firstPick}
         <LpStrip players={players} turnSeat={turnShown} lp={lpOf} onJump={seat => document.querySelector(`[data-testid="seat-${seat}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" })} />
         {!resultShown && (room.status === "ended" || (state.ended && !state.match)) ? <div className={s.ended} role="status" data-testid="table-ended">
           <b>This table has ended.</b>
-          <span>{matchTimeReason(match, name, { of: seat => state.seats[seat]?.resources.lp ?? 0, seats: seatCount }) ?? endedWhy(room, state.winnerSeat != null ? name(state.winnerSeat) : null)}</span>
+          <span>{matchTimeReason(match, name, { of: seat => state.seats[seat]?.resources.lp ?? 0, seats: seatCount, out: seat => !!state.seats[seat]?.eliminated }) ?? endedWhy(room, state.winnerSeat != null ? name(state.winnerSeat) : null)}</span>
           <a className={`${s.btn} ${s.go} ${s.sm}`} href="/duels/new?type=remote" data-testid="new-table">New table</a>
         </div> : null}
         {!solo && seatCount > 2 && mySeat >= 0 && live && state.seats[mySeat]?.eliminated ? <div className={s.ended} role="status" data-testid="out-watching">

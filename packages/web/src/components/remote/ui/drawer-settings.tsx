@@ -109,7 +109,6 @@ export function SettingsTab({ room, voice, matchTimeControl }: DrawerSettingsPro
   const watcherError = useFieldWatcherError();
   const phone = hub.phones.some(item => item.seat === room.mySeat);
   return <>
-    {matchTimeControl ? <Group title="Match time" testId="drawer-match-time">{matchTimeControl}</Group> : null}
     <Group title="Camera setup" testId="drawer-camera">
       <Row label="Camera source" stack testId="camera-source"><PhonePairing room={room} /></Row>
       <VideoRateRow />
@@ -130,6 +129,7 @@ export function SettingsTab({ room, voice, matchTimeControl }: DrawerSettingsPro
         <Row label="Voice method" stack>{voice.method}</Row>
         <p className={d.hint}>Say &quot;undo&quot;, &quot;pass turn&quot;, &quot;attack directly with Ash&quot;.</p></> : null}
     </Group> : null}
+    {matchTimeControl ? <Group title="Match time" testId="drawer-match-time">{matchTimeControl}</Group> : null}
   </>;
 }
 
