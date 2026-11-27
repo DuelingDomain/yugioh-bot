@@ -1,0 +1,50 @@
+/* Hand effect row, Respond chip and the Undo button in the auto-Graveyard toast. Same tokens and sizes as the Think and OK row. */
+.row{position:fixed;left:50%;bottom:calc(var(--dock,70px) + 14px);transform:translateX(-50%);z-index:70;display:flex;flex-direction:column;gap:8px;width:max-content;max-width:min(96vw,980px);padding:8px 10px;border-radius:10px;border:1px solid var(--line2,#3a3052);background:rgb(11 7 22/.96);box-shadow:0 10px 30px rgb(0 0 0/.55);color:var(--ink,#f1ead9);animation:rowIn .16s ease-out}
+@keyframes rowIn{from{opacity:0;transform:translateX(-50%) translateY(6px)}}
+.top{display:flex;align-items:center;gap:10px;min-width:0}
+.head{font:700 11px/1 var(--font-duel-ui,"Sofia Sans Semi Condensed",system-ui,sans-serif);letter-spacing:.14em;text-transform:uppercase;color:var(--ink2,#b9b0cc);white-space:nowrap}
+.search{flex:1 1 220px;min-width:0;height:28px;padding:0 10px;border-radius:6px;border:1px solid var(--line2,#3a3052);background:var(--p0,#120c22);color:inherit;font:600 13px/1 var(--font-duel-ui,"Sofia Sans Semi Condensed",system-ui,sans-serif)}
+.search::placeholder{color:var(--ink3,#aaa1ba)}
+.search:focus-visible{outline:2px solid var(--gold-ink,#f6dc9a);outline-offset:1px}
+.close{flex:none;height:28px;padding:0 9px;border-radius:6px;border:1px solid var(--line2,#3a3052);background:var(--p2,#1c1530);color:var(--ink3,#aaa1ba);font:600 12px/1 var(--font-duel-ui,"Sofia Sans Semi Condensed",system-ui,sans-serif)}
+.close:hover{border-color:rgb(155 126 255)}
+.cands,.results{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:6px;min-width:0}
+.results{max-height:132px;overflow:auto}
+.pick{display:inline-flex;align-items:center;gap:8px;height:52px;max-width:200px;padding:0 9px 0 5px;border-radius:8px;border:1px solid var(--line2,#3a3052);background:var(--p2,#1c1530);color:inherit;font:600 12px/1.2 var(--font-duel-ui,"Sofia Sans Semi Condensed",system-ui,sans-serif);text-align:left}
+.pick:hover{border-color:rgb(155 126 255)}
+.pick:focus-visible{outline:2px solid var(--gold-ink,#f6dc9a);outline-offset:1px}
+.pick img{flex:none;width:30px;height:44px;border-radius:3px;object-fit:cover;background:var(--p0,#120c22)}
+.pick span{min-width:0;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.results .pick{height:40px}.results .pick img{width:24px;height:35px}
+.pick kbd{flex:none;font:700 11px/1 var(--font-duel-display,Oxanium,sans-serif);color:#1b1204;background:var(--gold,#e8b94f);border-radius:4px;padding:3px 5px}
+.note{margin:0;padding:6px 2px;font:600 13px/1.3 var(--font-duel-ui,"Sofia Sans Semi Condensed",system-ui,sans-serif);color:var(--ink2,#b9b0cc)}
+
+/* The Respond chip sits where the row opens, so it never covers the board. The ring runs down to the end of the answer window. */
+.respond{position:fixed;left:50%;bottom:calc(var(--dock,70px) + 14px);transform:translateX(-50%);z-index:68;display:inline-flex;align-items:center;gap:9px;max-width:min(94vw,640px);height:38px;padding:0 10px 0 9px;border-radius:10px;border:1px solid var(--pen,#9b7eff);background:rgb(20 13 38/.97);color:var(--ink,#f1ead9);box-shadow:0 10px 30px rgb(0 0 0/.55),0 0 22px rgb(155 126 255/.22);font:600 14px/1 var(--font-duel-ui,"Sofia Sans Semi Condensed",system-ui,sans-serif);animation:respondIn .2s ease-out}
+@keyframes respondIn{from{opacity:0;transform:translateX(-50%) translateY(6px)}}
+.respond:hover{background:var(--p2,#1c1530)}
+.respond:focus-visible{outline:2px solid var(--gold-ink,#f6dc9a);outline-offset:2px}
+.respond kbd{flex:none;font:600 11px/1 var(--font-duel-ui,"Sofia Sans Semi Condensed",system-ui,sans-serif);padding:2px 5px;border:1px solid var(--line2,#3a3052);border-bottom-width:2px;border-radius:4px;color:var(--ink2,#b9b0cc);background:rgb(0 0 0/.25)}
+.rtext{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rtext b{font-weight:700}
+.ring{flex:none;width:20px;height:20px;transform:rotate(-90deg)}
+.ringBg,.ringFg{fill:none;stroke-width:2.5}
+.ringBg{stroke:var(--line2,#3a3052)}
+.ringFg{stroke:var(--pen,#9b7eff);stroke-linecap:round;stroke-dasharray:100;animation:ringRun linear forwards}
+@keyframes ringRun{from{stroke-dashoffset:0}to{stroke-dashoffset:100}}
+
+/* The Undo button inside the "Card → GY" toast: a plain bordered button, not gold. */
+.toastUndo{margin-left:8px;height:26px;padding:0 10px;border-radius:6px;border:1px solid var(--line2,#3a3052);background:var(--p2,#1c1530);color:var(--ink,#f1ead9);font:700 12px/1 var(--font-duel-ui,"Sofia Sans Semi Condensed",system-ui,sans-serif);vertical-align:middle}
+.toastUndo:hover{border-color:rgb(155 126 255)}
+.toastUndo:focus-visible{outline:2px solid var(--gold-ink,#f6dc9a);outline-offset:1px}
+
+@media (max-width:900px){
+  .row,.respond{bottom:calc(var(--dockh,64px) + 10px)}
+  .row{width:calc(100vw - 16px);max-width:none;max-height:calc(100dvh - 160px);overflow:auto}
+  .top .head{display:none}
+  .pick{height:56px;max-width:none}
+  .search,.close{height:40px}
+  .search{font-size:16px}
+  .respond{height:44px}
+}
+@media (prefers-reduced-motion:reduce){.row,.respond{animation:none}.ringFg{animation:none}}

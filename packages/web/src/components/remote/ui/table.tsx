@@ -48,6 +48,8 @@ import { SeatPanel } from "./seat-panel";
 import type { RescanResult } from "@/lib/remote/video-protocol";
 import { RemoteFx } from "./remote-fx";
 import { HandActivation } from "./hand-activation";
+import { HAND_EFFECT_KEYS, HandEffectPicker, RespondChip, type HandEffectCard } from "./hand-effect";
+import fx from "./hand-effect.module.css";
 import { isPushedLayer, useLayers } from "./use-layers";
 import { remoteApi, serverNow } from "./api";
 import { useRemoteRoom, type RoomController } from "./use-remote-room";
@@ -347,6 +349,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     if(updated&&proposal.type!=='cards.identified'){setSelected(null);camHover.current=null;}
     return updated;
   },[ctl.action,toast]);
+  const undoRef = useRef<() => void>(() => undefined);
   // The same timer runs for manual and camera activations. The transaction lets already-queued pile reads finish first.
   useEffect(() => {
     if (!live || mySeat < 0) return;
@@ -358,18 +361,25 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     const key = crypto.randomUUID(), ref = crypto.randomUUID();
     let timer: ReturnType<typeof setTimeout>;
     const settle = async () => {
+      let placed = false;
       const updated = await ctl.transaction(async (latest, send) => {
         if (stopped || latest.slug !== room.slug || latest.status !== "active" ||
             !pendingRemoteHandActivations(latest.state, pending.seat).some(entry => entry.actionId === pending.actionId)) return latest;
+        placed = true;
         return send({ type: "twin.place", actorSeat: pending.seat, seat: pending.seat, source: "auto", zone: pending.destination,
           fromActivation: pending.actionId, handFallback: true, card: { ref, cardId: pending.cardId, name: pending.name, faceUp: true, position: "attack" } }, key);
       }).catch(() => null);
       if (!stopped && !updated) timer = setTimeout(() => void settle(), 1000);
+      // The card went to its pile by itself: say so, with the same Undo as the bar.
+      else if (placed && updated) {
+        const label = pending.name ?? cardInfo(pending.cardId)?.name ?? "Card";
+        toast(<><b>{label}</b> → {pending.destination === "banished" ? "Banished" : "GY"} · <button type="button" className={fx.toastUndo} data-testid="auto-gy-undo" onClick={() => undoRef.current()}>Undo</button></>, 7000);
+      }
     };
     // The HTTP Date estimate can be up to a second ahead of the server clock.
     timer = setTimeout(() => void settle(), Math.max(0, pending.at + HAND_ACTIVATION_FALLBACK_MS + 999 - serverNow()));
     return () => { stopped = true; clearTimeout(timer); };
-  }, [ctl.transaction, live, mySeat, room.slug, solo, state]);
+  }, [ctl.transaction, live, mySeat, room.slug, solo, state, toast]);
   /** `tokenOnly`: an empty Main Monster Zone of another player's field. Its menu has just "Add token", and the view stays as it is. */
   const openZonePicker = (seat: number, key: ZoneKey, targetRef?: string, initialFaceUp=true, startPicker=false, tokenOnly=false) => {
     if (!live || !(solo || seat === mySeat || tokenOnly && mySeat >= 0 && !room.spectator) || state.seats[seat]?.eliminated || isPile(key)) return;
@@ -538,6 +548,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     const done = await act({ type: "undo", actorSeat: now.solo ? target.actorSeat : now.mySeat, targetActionId: target.actionId });
     if (done) { setFlash(n => n + 1); toast(<>Undid <b>{shortUndoLabel(target, (seat, ref) => { const card = current.seats[seat]?.twin.find(item => item.ref === ref); return card ? cardName(card, info(cardCode(card))) : undefined; }, name) ?? "last action"}</b></>); }
   }, [act, toast, name, info]);
+  undoRef.current = () => void doUndo();
 
   // ---- feed marks, recognition ----
   const [marks, setMarks] = useState<Record<number, FeedMark[]>>({});
@@ -1476,6 +1487,35 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     setTray({ seat, ownerName: name(seat), status: "empty", guesses, note: "Search for the card to activate from your hand.", reader: "none", at, intent: "hand-activation" });
     layers.open("tray");
   }, [layers, name, popAt]);
+  // ---- hand effect row (H, the bar button, or the Respond chip) ----
+  const [handRow, setHandRow] = useState<{ seat: number } | null>(null);
+  const handSeat = mySeat >= 0 ? mySeat : signalSeat;
+  const handShown = signalShown && !room.spectator && maySignal(state, handSeat);
+  useEffect(() => { if (handRow && (!live || tableBlocked || !handShown || layers.layer)) setHandRow(null); }, [handRow, live, tableBlocked, handShown, layers.layer]);
+  if (handRow) escapeBusy.current = true;
+  const handCandidates: HandEffectCard[] = handRow ? handTrapCandidatesOf(room, handRow.seat).map(card => ({ cardId: card.cardId, name: card.name })) : [];
+  const pickHandEffect = useCallback((seat: number, card: HandEffectCard) => {
+    setHandRow(null);
+    void sendHandActivation(seat, card.cardId);
+  }, [sendHandActivation]);
+  const handKeys = useRef({ handRow, handShown, handSeat, candidates: handCandidates, pickHandEffect });
+  handKeys.current = { handRow, handShown, handSeat, candidates: handCandidates, pickHandEffect };
+  useEffect(() => {
+    function down(event: KeyboardEvent) {
+      const K = handKeys.current;
+      if (typing(event.target) || event.ctrlKey || event.metaKey || event.altKey || event.defaultPrevented || event.shiftKey) return;
+      if (R.current.layer && !(R.current.layer === "log" && isPushedLayer("log"))) return;
+      if (document.querySelector('[role="alertdialog"],[role="dialog"][aria-modal="true"]')) return;
+      if (K.handRow) {
+        if (event.key === "Escape") { event.preventDefault(); setHandRow(null); return; }
+        const picked = /^[1-9]$/.test(event.key) && Number(event.key) <= HAND_EFFECT_KEYS ? K.candidates[Number(event.key) - 1] : undefined;
+        if (picked) { event.preventDefault(); K.pickHandEffect(K.handRow.seat, picked); return; }
+      }
+      if ((event.key === "h" || event.key === "H") && !event.repeat && K.handShown) { event.preventDefault(); setHandRow(row => row ? null : { seat: K.handSeat }); }
+    }
+    document.addEventListener("keydown", down);
+    return () => document.removeEventListener("keydown", down);
+  }, []);
   // The contract sends card ids only: load the names, then draw again.
   const [, setNames] = useState(0);
   const knownIds = state.seats.flatMap(item => ((item as unknown as { knownHand?: { cardId: number }[] }).knownHand ?? []).map(card => card.cardId)).join(",");
@@ -1917,6 +1957,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
           {signalShown ? <div className={s.signals}>
             <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} aria-pressed={thinkOn} onClick={event => { thinkNow(); event.currentTarget.blur(); }} title="Thinking: tell the table you are deciding. Press again to cancel. No time limit." data-testid="think-button">{thinkOn ? "Thinking…" : "Think"} <kbd>T</kbd></button>
             <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} onClick={event => { okNow(); event.currentTarget.blur(); }} title="OK: no response" data-testid="ok-button">OK <kbd>Space</kbd></button>
+            {handShown ? <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} aria-pressed={!!handRow} aria-haspopup="dialog" onClick={event => { setHandRow(row => row ? null : { seat: handSeat }); event.currentTarget.blur(); }} title="Hand effect: activate a card from your hand, such as a hand trap" data-testid="hand-effect-button">Hand effect <kbd>H</kbd></button> : null}
           </div> : null}</>}
         settingsOpen={layers.layer === "log" && drawerTab === "settings"} onSettings={el => openDrawer("settings", el)}
         onSurrender={canSurrender ? el => openLeave("game", el) : undefined} onQuit={canQuit ? el => openLeave("match", el) : undefined}
@@ -2023,6 +2064,9 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     {/* A drawer or pile covers the stack, so a toast leaves it and stays readable. */}
     <Toasts items={toastItems} dock={layers.layer && layers.layer !== "card" && layers.layer !== "tray" ? null : seatDocks[mySeat] ?? null} top={layers.layer === "pile"} />
     <HandActivation events={room.events} name={name} />
+    {handRow ? <HandEffectPicker candidates={handCandidates} onPick={card => pickHandEffect(handRow.seat, card)} onClose={() => setHandRow(null)} /> : null}
+    {respondTo && handShown && !handRow ? <RespondChip event={respondTo.event} n={respondTo.n} who={name(respondTo.event.actorSeat ?? 0)}
+      card={respondTo.event.action.type === "effect.activated" ? respondTo.event.action.source.name ?? info(respondTo.event.action.source.cardId)?.name ?? "a card" : "a card"} onClick={() => setHandRow({ seat: handSeat })} /> : null}
     {activateRow ? <ActivateRow cards={activateRow.cards} info={info} onPick={card => pickFromRow(activateRow.seat, card)} onClose={() => setActivateRow(null)} /> : null}
     <ChainBadges marks={chainMarks} />
     <RemoteFx state={state} webcamOnly={webcamOnly} seq={room.lastSeq} last={room.events.find(event => event.seq === room.lastSeq)?.action} chainNo={chain.links.get(room.events.find(event => event.seq === room.lastSeq)?.id ?? "")?.n} />
