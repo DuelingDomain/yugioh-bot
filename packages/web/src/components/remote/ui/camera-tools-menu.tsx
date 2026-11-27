@@ -30,8 +30,10 @@ function MyCameraGroup({ setup, close }: { setup: CameraMenuSetup; close: () => 
   const hasCamera = grid.ownSeat !== null && !!hub.sourceFor(grid.ownSeat);
   const phone = hub.phones.some(item => item.seat === setup.room.mySeat);
   const choose = hub.cameraOn && hub.devices.length > 1, side = !!grid.setCalibration && hasCamera;
-  if (!choose && !side && !hub.sendFailed && !hub.cameraOn) return null;
+  // The Camera section is always there. With the camera off its first row turns the camera on.
+  const mine = grid.ownSeat === setup.room.mySeat || setup.room.mySeat >= 0;
   return <Group label="Camera">
+    {!hub.cameraOn && mine ? <Row icon="cam" primary disabled={hub.starting} data-testid="camera-on-menu" sub={hub.starting ? "Starting the camera..." : undefined} onClick={() => { close(); void (hub.manual(setup.room.mySeat) ? hub.useWebcam() : hub.enableCamera()); }}>Turn camera on</Row> : null}
     {choose ? <label className={s.toolsField}><span>Which camera</span>
       <select value={hub.cameraId} data-testid="camera-choice" aria-label="Choose camera" onChange={event => void hub.selectCamera(event.target.value)}>
         {hub.devices.map(device => <option key={device.deviceId} value={device.deviceId}>{device.label || "Camera"}</option>)}</select></label> : null}
@@ -95,9 +97,11 @@ export function CameraToolsMenu({ seat, name, you, scan, advice, warn, onToken, 
   const place = useCallback(() => {
     const box = trigger.current?.getBoundingClientRect(), node = panel.current;
     if (!box || !node) return;
-    node.style.maxHeight = `${Math.max(200, window.innerHeight - box.bottom - 14)}px`;
+    // The menu stays above the bottom bar (also on a phone) and scrolls inside when it is taller.
+    const floor = Math.min(window.innerHeight, document.querySelector('[data-testid="rail"]')?.getBoundingClientRect().top ?? window.innerHeight) - 8;
+    node.style.maxHeight = `${Math.max(160, floor - box.bottom - 6)}px`;
     node.style.left = `${Math.max(8, Math.min(window.innerWidth - node.offsetWidth - 8, box.right - node.offsetWidth))}px`;
-    node.style.top = `${Math.max(8, Math.min(window.innerHeight - node.offsetHeight - 8, box.bottom + 6))}px`;
+    node.style.top = `${Math.max(8, Math.min(floor - node.offsetHeight, box.bottom + 6))}px`;
   }, []);
   useEffect(() => {
     if (!open) return;
@@ -114,7 +118,7 @@ export function CameraToolsMenu({ seat, name, you, scan, advice, warn, onToken, 
   const calibrate = () => { close(); grid.calibrate?.(); };
   return <>
     <button type="button" ref={trigger} className={s.toolsBtn} popoverTarget={id} aria-haspopup="menu" aria-expanded={open} aria-label={`Camera tools for ${name}`} data-testid={`camera-tools-${seat}`} data-warn={warn || need ? "" : undefined}>
-      <Icon name="dots" /></button>
+      <Icon name="cam" /><span className={s.toolsLbl}>Camera</span></button>
     <div id={id} ref={panel} popover="auto" role="menu" aria-label={`Camera tools for ${name}`} className={s.toolsMenu} onToggle={event => { setOpen(event.newState === "open"); if (event.newState === "open") place(); }}>
       {setup ? <MyCameraGroup setup={setup} close={close} /> : null}
       {board ? <Group label="View">

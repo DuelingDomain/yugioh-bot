@@ -1648,12 +1648,14 @@
 .zmCard .btext{flex:0 1 auto;min-height:48px;max-height:min(150px,22dvh);overscroll-behavior:contain;font-size:calc(12.5*var(--u));line-height:1.4;padding:6px 4px 2px 0}
 .zaList{display:flex;flex-direction:column;gap:6px}
 /* The one "..." button on a webcam, and its menu. It replaces the old camera tool row. */
-.toolsBtn{position:absolute;right:8px;top:8px;z-index:5;display:inline-grid;place-items:center;width:30px;height:28px;padding:0;border-radius:6px;border:1px solid var(--line2);background:rgb(7 4 14/.82);color:var(--ink2);cursor:pointer}
+.toolsBtn{position:absolute;right:8px;top:8px;z-index:5;display:inline-flex;align-items:center;gap:6px;height:calc(36*var(--u));padding:0 12px 0 10px;border-radius:8px;border:1px solid var(--line2);background:rgb(7 4 14/.82);color:var(--ink2);font:600 calc(14*var(--u))/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;cursor:pointer}
+.toolsBtn .toolsLbl{white-space:nowrap}
+@container feed (max-width:260px){.toolsBtn .toolsLbl{display:none}.toolsBtn{padding:0 8px}}
 .toolsBtn:hover,.toolsBtn[aria-expanded=true]{border-color:var(--gold);color:var(--gold-ink)}
 .toolsBtn:focus-visible{outline:2px solid var(--gold);outline-offset:1px}
 .toolsBtn .ic{width:18px;height:18px}
 .toolsBtn[data-warn]::after{content:"";position:absolute;top:3px;right:3px;width:7px;height:7px;border-radius:50%;background:var(--warn);box-shadow:0 0 0 2px rgb(5 3 11/.8)}
-.cams:has(.toolsBtn) .feedTagRow{right:46px}
+.cams:has(.toolsBtn) .feedTagRow{right:calc(112*var(--u))}
 .toolsMenu{position:fixed;inset:auto;margin:0;width:min(300px,calc(100vw - 16px));max-height:calc(100dvh - 16px);overflow:auto;padding:6px;border:1px solid var(--line2);border-radius:12px;background:var(--p0);color:var(--ink);box-shadow:0 12px 36px #0008}
 .toolsMenu:popover-open{display:flex;flex-direction:column;gap:4px}
 .toolsMenu:not(:popover-open){display:none}
@@ -1662,7 +1664,7 @@
 /* One line per row: the note is the row's tooltip. A note that carries live state (scan advice, "asked") stays visible. */
 .toolsMenu .zaRow{min-height:34px;padding:4px 10px}
 .toolsMenu .zaSub{display:none}
-.toolsMenu .zaRow[data-need] .zaSub,.toolsMenu .zaRow[data-sent] .zaSub{display:block}
+.toolsMenu .zaRow[data-need] .zaSub,.toolsMenu .zaRow[data-sent] .zaSub,.toolsMenu .zaRow:is(:disabled,[aria-disabled=true]) .zaSub{display:block}
 .toolsGroup{display:flex;flex-direction:column;gap:4px;padding:6px 0 8px}
 .toolsGroup+.toolsGroup,.toolsGroup+.toolsFoot{border-top:1px solid var(--line)}
 .toolsLabel{padding:0 4px;font:700 calc(11*var(--u))/1.2 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;letter-spacing:.12em;text-transform:uppercase;color:var(--ink3)}
@@ -1675,12 +1677,15 @@
 .toolsNote{margin:0;padding:0 4px;font-size:calc(12*var(--u));line-height:1.4;color:var(--ink3)}
 .toolsFeedback{padding:2px 4px}
 .toolsFoot{padding-top:8px;border-top:1px solid var(--line)}
-.zaPill{flex:none;font-style:normal;font:700 calc(11*var(--u))/1.2 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;letter-spacing:.06em;text-transform:uppercase;padding:3px 8px;border-radius:999px;border:1px solid var(--line2);background:var(--p1);color:var(--ink3)}
-.zaRow[aria-checked=true] .zaPill{color:var(--ink);border-color:var(--ok,#5fd08a);background:rgb(95 208 138/.14)}
+/* One on/off switch everywhere (no ON / OFF pills). The text stays for screen readers elsewhere; here it is hidden. */
+.zaPill{flex:none;position:relative;width:34px;height:20px;font-size:0;border-radius:999px;border:1px solid var(--line2);background:var(--p1);color:transparent}
+.zaPill::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:var(--ink3);transition:transform .15s,background .15s}
+.zaRow[aria-checked=true] .zaPill{border-color:var(--ok,#5fd08a);background:rgb(95 208 138/.22)}
+.zaRow[aria-checked=true] .zaPill::after{transform:translateX(14px);background:var(--ok,#5fd08a)}
 .toolsMenu .zaRow[data-need]{border-color:rgb(232 185 79/.55)}
 .toolsSep{height:1px;margin:2px 4px;background:var(--line)}
 .camselPanel{flex-wrap:wrap;justify-content:flex-start}
-@media(max-width:720px){.toolsBtn{width:40px;height:40px}.toolsMenu .zaRow{min-height:48px}}
+@media(max-width:720px){.toolsBtn{height:36px}.toolsMenu .zaRow{min-height:48px}}
 .zaRow{display:flex;align-items:center;gap:10px;width:100%;min-height:40px;padding:6px 12px;text-align:left;border:1px solid var(--line2);border-radius:6px;background:var(--p2);color:var(--ink);font-weight:600;font-size:calc(14*var(--u));line-height:1.25}
 .zaSend{display:flex;align-items:center;gap:6px;min-height:36px;padding:2px 8px 2px 12px;border:1px solid var(--line2);border-radius:6px;background:var(--p2)}
 .zaSend>span{flex:1 1 auto;font-weight:600;font-size:calc(14*var(--u));color:var(--ink)}

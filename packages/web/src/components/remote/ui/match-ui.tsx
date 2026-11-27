@@ -152,7 +152,7 @@ export function MatchResultScreen({ room, match, mySeat, name, final, busy, erro
       {final && rematch && mySeat >= 0 ? <RematchPanel room={room} mySeat={mySeat} name={name} busy={rematch.busy} onAnswer={rematch.onAnswer} /> : null}
       <div className={resultStyles.actions} data-count={final || undo ? 2 : 1}>
         {final
-          ? <button type="button" className={resultStyles.btn} data-kind="primary" data-autofocus onClick={leave} data-testid="match-leave">Leave</button>
+          ? <button type="button" className={resultStyles.btn} data-kind={rematch && mySeat >= 0 ? "secondary" : "primary"} data-autofocus={rematch && mySeat >= 0 ? undefined : true} onClick={leave} data-testid="match-leave">Leave</button>
           : <button type="button" className={resultStyles.btn} data-kind="primary" data-autofocus disabled={busy} onClick={onContinue} data-testid="match-continue">Continue to side decking</button>}
         {undo ? <button type="button" className={resultStyles.btn} data-kind="secondary" disabled={busy} onClick={undo.onUndo} title={undo.label} data-testid="match-undo">Undo last action</button> : null}
         {final ? <button type="button" className={resultStyles.btn} data-kind="secondary" onClick={onClose} data-testid="match-view-board">View board</button> : null}
@@ -182,7 +182,7 @@ function RematchPanel({ room, mySeat, name, busy, onAnswer }: {
         <button type="button" className={resultStyles.btn} data-kind="primary" disabled={busy} onClick={() => onAnswer("accept")} data-testid="rematch-accept">Accept</button>
         <button type="button" className={resultStyles.btn} data-kind="secondary" disabled={busy} onClick={() => onAnswer("decline")} data-testid="rematch-decline">Decline</button>
       </> : !open && !offer?.slug
-        ? <button type="button" className={resultStyles.btn} data-kind="secondary" disabled={busy} onClick={() => onAnswer("request")} data-testid="rematch-button">Rematch</button> : null}
+        ? <button type="button" className={resultStyles.btn} data-kind="primary" data-autofocus disabled={busy} onClick={() => onAnswer("request")} data-testid="rematch-button">Rematch</button> : null}
     </div>
   </div>;
 }
