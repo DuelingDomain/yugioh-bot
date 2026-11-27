@@ -285,7 +285,7 @@ export function recognitionCpuReason(state: RecognitionBackendState, now = Date.
   }
   if (lastGpuLoss) return "The GPU stopped";
   if (state.reader === "hybrid" && !state.note) return "Hybrid card matching uses the CPU";
-  return "This browser has no GPU support";
+  return hasBrowserGpu() ? "GPU not available on this device" : "This browser has no GPU support";
 }
 
 const subscribe = (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; };
