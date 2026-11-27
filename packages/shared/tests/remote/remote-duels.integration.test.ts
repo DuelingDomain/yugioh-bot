@@ -463,6 +463,12 @@ it('reuses a confirmed ref for camera face and position changes without adding u
   expect(twin).toMatchObject({ ...card, faceUp: true, position: 'defense', identityConfirmed: { seat: 0, zone: 'monster', slot: 1 } });
   expect(twin.bestMatch).toBeUndefined();
   expect(twin.nameCandidates).toBeUndefined();
+  s.act({ type: 'twin.place', seat: 0, zone: 'monster', source: 'auto', card: { ref: card.ref, cardId: 2, name: 'Filler 2', race: 'Dragon', faceUp: false, position: 'attack' } });
+  expect(s.room.state.seats[0].twin).toEqual([expect.objectContaining({ ...card, faceUp: false, position: 'attack', identityConfirmed: { seat: 0, zone: 'monster', slot: 1 } })]);
+  expect(s.room.state.seats[0].twin[0].race).toBe(twin.race);
+  s.act({ type: 'twin.place', seat: 0, zone: 'monster', source: 'auto', card: { ref: card.ref, slot: 1, cardId: 69299029, faceUp: true, position: 'defense' } });
+  expect(s.room.state.seats[0].twin).toEqual([expect.objectContaining({ ...card, zone: 'monster', faceUp: true, position: 'defense' })]);
+  expect(s.room.state.spellTrapActivations).toBeUndefined();
   expect(s.service.replay(s.room.slug, 'g', s.users[0])).toEqual(s.room.state);
 });
 

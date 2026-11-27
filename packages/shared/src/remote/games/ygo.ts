@@ -370,9 +370,10 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
         tokenAction = true; break;
       }
       const s = action.card.token ? tokenField(action.seat) : ownField(action.seat); validZone(action.zone);
-      const sameConfirmedLocation = (card: TwinCard) => !!card.identityConfirmed && card.zone === action.zone && (action.card.slot === undefined || card.slot === action.card.slot);
-      if (cameraIdentity && !action.confirmIdentity && s.twin.some(c => c.ref === action.card.ref && sameConfirmedLocation(c))) return state;
-      if(action.card.nameCandidates)remoteAssert(action.source==='auto'&&action.card.faceUp&&remoteFieldZone(action.zone)&&!action.card.token&&action.card.nameCandidates[0]?.cardId===(action.card.cardId??action.card.passcode),'Unsure names require a named public field placement',409);
+      const lockedTwin = cameraIdentity && !action.confirmIdentity ? s.twin.find(card => card.ref === action.card.ref &&
+        card.identityConfirmed && card.zone === action.zone && (action.card.slot === undefined || card.slot === action.card.slot)) : undefined;
+      if (lockedTwin && lockedTwin.faceUp === action.card.faceUp && lockedTwin.position === action.card.position) return state;
+      if(!lockedTwin&&action.card.nameCandidates)remoteAssert(action.source==='auto'&&action.card.faceUp&&remoteFieldZone(action.zone)&&!action.card.token&&action.card.nameCandidates[0]?.cardId===(action.card.cardId??action.card.passcode),'Unsure names require a named public field placement',409);
       if (action.card.token) {
         const token = action.card;
         remoteAssert(action.source !== "auto" && action.zone === "monster" && token.slot !== undefined && token.slot >= 1 && token.slot <= 5 && token.faceUp && !token.cardId && !token.passcode,
@@ -384,21 +385,24 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
         s.twin.push({ ...token, token: action.seat === action.actorSeat ? stats : { ...stats, by: action.actorSeat }, zone: "monster" });
         tokenAction = true; break;
       }
-      const fieldSpell = play?.field && remoteFieldZone(action.zone);
-      const placement = fieldSpell ? { ...action, zone: "field", card: { ...action.card, slot: undefined, position: "attack" as const } } : action;
-      const reuse = !context?.replay || context.twinPlacementGuard !== undefined ? guardTwinPlacement(next, placement, context) : undefined;
+      const fieldSpell = !lockedTwin && play?.field && remoteFieldZone(action.zone);
+      const placement = lockedTwin ? { ...action, card: { ...action.card, slot: lockedTwin.slot } }
+        : fieldSpell ? { ...action, zone: "field", card: { ...action.card, slot: undefined, position: "attack" as const } } : action;
+      const reuse = lockedTwin ? { ref: lockedTwin.ref, card: lockedTwin }
+        : !context?.replay || context.twinPlacementGuard !== undefined ? guardTwinPlacement(next, placement, context) : undefined;
       if (reuse && "noop" in reuse) return next;
       if (reuse && "pending" in reuse) return next;
       let observation = placement.card;
       if (cameraIdentity && !action.confirmIdentity && reuse?.card?.identityConfirmed) {
         // The reused twin owns the name. The camera can still update its face and position.
         const { cardId, passcode, name, bestMatch, nameCandidates, ...physical } = observation;
+        if (lockedTwin) delete physical.race;
         observation = physical;
       }
       if (!context?.replay || (context.twinPlacementGuard ?? 0) >= 2) clearTwinConfirmation(next,action.seat,action.originRequestRef??action.card.ref);
       const ref = reuse?.ref ?? action.card.ref;
       remoteAssert((!!reuse?.card || s.twin.length < 100) && (!s.twin.some(c => c.ref === ref) || !!reuse?.card), "Duplicate card ref or field is full", 409);
-      if (placement.card.faceUp && remoteFieldZone(placement.zone) && !(reuse?.card?.faceUp && remoteFieldZone(reuse.card.zone)))
+      if (!lockedTwin && placement.card.faceUp && remoteFieldZone(placement.zone) && !(reuse?.card?.faceUp && remoteFieldZone(reuse.card.zone)))
         activate(action.seat, action.source === "auto" ? action.fromActivation : undefined);
       if (fieldSpell) replaceFieldSpell(s, ref);
       freeSlot(s, placement.zone, placement.card.slot, reuse?.ref, action.summon?.materialRefs);
