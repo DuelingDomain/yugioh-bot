@@ -20,7 +20,7 @@ export function PhoneScanReview({ctl,room}:{ctl:RoomController;room:RemoteRoom})
       chosen.current={id:scan.id,cardId:card.cardId};
       // Stable ref prevents a repeated confirm/retry from adding another physical instance.
       const ref=`phone:${scan.id}`;
-      const placed=await ctl.action({type:"twin.place",actorSeat,seat:actorSeat,zone:location.zone,card:{ref,cardId:card.cardId,name:card.name,slot:location.slot,faceUp:true,position:"attack"}},`phone:${scan.id}:place`);
+      const placed=await ctl.action({type:"twin.place",actorSeat,seat:actorSeat,zone:location.zone,confirmIdentity:true,card:{ref,cardId:card.cardId,name:card.name,slot:location.slot,faceUp:true,position:"attack"}},`phone:${scan.id}:place`);
       if(!placed)throw new Error("Card announced. Placement failed; retry to place it.");
       hub.clearPhoneScan(`${card.name} announced and placed in ${scan.zone}.`);
     }catch(e){setError((e as Error).message);}finally{setBusy(false);}

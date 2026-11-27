@@ -1,16 +1,80 @@
 // @vitest-environment jsdom
 import React from 'react';
-import {cleanup,fireEvent,render,screen,within} from '@testing-library/react';
+import {act,cleanup,fireEvent,render,screen,within} from '@testing-library/react';
 import {afterEach,expect,it,vi} from 'vitest';
 import {projectRemoteState,remoteActionSchema} from '@yugidraft/shared/remote';
 import {ZoneActions} from '../src/components/remote/ui/zone-actions';
 import {zoneCardAction} from '../src/components/remote/ui/zone-placement';
 import {HoloField} from '../src/components/remote/ui/holo-field';
+import {RecognitionTray} from '../src/components/remote/ui/recognition-tray';
+import {useLayers} from '../src/components/remote/ui/use-layers';
+import * as catalog from '../src/components/remote/ui/catalog';
+import {liveCardSubject, type Subject} from '../src/components/remote/ui/card-view';
 import {tapRoom,applyTap} from './tap-room-fixture';
 
 const choices=[{cardId:46986414,name:'Dark Magician',score:.72},{cardId:89631139,name:'Blue-Eyes White Dragon',score:.55}];
 function placed(){return applyTap(tapRoom(),{type:'twin.place',actorSeat:0,seat:0,zone:'monster',source:'auto',card:{ref:'paper',cardId:46986414,name:'Dark Magician',slot:1,faceUp:true,position:'attack',nameCandidates:choices}});}
-afterEach(()=>{cleanup();vi.unstubAllGlobals();});
+afterEach(()=>{cleanup();vi.restoreAllMocks();vi.unstubAllGlobals();});
+
+it('opening a sure off-deck correction starts unselected and lists every unique deck card',async()=>{
+ const onPick=vi.fn();
+ const deckIds=[89631139,11,12,13,14,15,16,16];
+ const loadCards=vi.spyOn(catalog,'loadCards');
+ vi.stubGlobal('ResizeObserver',class{observe(){}disconnect(){}});
+ vi.stubGlobal('fetch',vi.fn(async()=>Response.json({cards:[]})));
+ function LayeredTray({ids}:{ids:number[]}) {
+  const layers=useLayers();
+  return <>
+   <button type="button" onClick={event=>layers.open('tray',event.currentTarget)}>Correct card</button>
+   {layers.layer==='tray' ? <RecognitionTray tray={{seat:0,ownerName:'Player',status:'guesses',guesses:choices,note:'',reader:'vision',at:{anchor:null,feed:null},tier:'sure',correction:true}} deckIds={ids} inDeck={id=>ids.includes(id)} onPick={onPick} onClose={()=>layers.close('tray')} saying={false} aiAllowed={false}/> : null}
+  </>;
+ }
+ const {rerender}=render(<LayeredTray ids={deckIds}/>);
+ fireEvent.click(screen.getByRole('button',{name:'Correct card'}));
+ await act(async()=>{await new Promise<void>(resolve=>requestAnimationFrame(()=>resolve()));});
+ rerender(<LayeredTray ids={[...deckIds]}/>);
+ expect(loadCards.mock.calls.filter(([,options])=>options?.preload)).toEqual([[deckIds,{preload:true}]]);
+ const options=screen.getAllByRole('option');
+ expect(options).toHaveLength(8);
+ expect(options[0].getAttribute('aria-label')).toContain('Blue-Eyes White Dragon');
+ expect(options[6].getAttribute('aria-label')).toContain('Card 16');
+ expect(options[7].getAttribute('aria-label')).toContain('Dark Magician');
+ expect(screen.queryByRole('option',{selected:true})).toBeNull();
+ expect((screen.getByRole('button',{name:'This is it'}) as HTMLButtonElement).disabled).toBe(true);
+ fireEvent.keyDown(document,{key:'Enter'});
+ expect(onPick).not.toHaveBeenCalled();
+ const search=screen.getByRole('textbox',{name:'Search any card'});
+ expect(document.activeElement).toBe(search);
+ fireEvent.keyDown(search,{key:'Enter'});
+ expect(onPick).not.toHaveBeenCalled();
+ fireEvent.change(search,{target:{value:'whisker'}});
+ fireEvent.keyDown(search,{key:'Enter'});
+ expect(onPick).not.toHaveBeenCalled();
+ fireEvent.keyDown(document,{key:'ArrowDown'});
+ expect(options[0].getAttribute('aria-selected')).toBe('true');
+ fireEvent.keyDown(document,{key:'Enter'});
+ expect(onPick).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({cardId:89631139,via:'click'}));
+ fireEvent.mouseEnter(options[7]);
+ fireEvent.keyDown(document,{key:'Enter'});
+ expect(onPick).toHaveBeenLastCalledWith(expect.objectContaining({cardId:46986414,via:'click'}));
+ const updatedDeck=[...deckIds,17];
+ rerender(<LayeredTray ids={updatedDeck}/>);
+ expect(loadCards.mock.calls.filter(([,options])=>options?.preload)).toEqual([[deckIds,{preload:true}],[updatedDeck,{preload:true}]]);
+});
+
+it('an open card view gets the renamed identity and drops the old read badges',()=>{
+ const room=placed();
+ const opened:Subject={from:'camera',seat:0,ref:'paper',cardId:46986414,name:'Dark Magician',tier:'not sure',notInDecklist:true,addErrors:['Old warning'],via:'tracked'};
+ const updated=applyTap(room,{type:'card.identified',actorSeat:0,seat:0,cardRef:'paper',cardId:89631139,name:'Blue-Eyes White Dragon',source:'typed'});
+ expect(liveCardSubject(opened,updated.state.seats[0].twin[0])).toMatchObject({cardId:89631139,name:'Blue-Eyes White Dragon',tier:undefined,notInDecklist:null,addErrors:[]});
+ expect(liveCardSubject(opened,undefined)).toBeNull();
+});
+
+it('an open camera view keeps its name when its face-down twin has no public code',()=>{
+ const opened:Subject={from:'camera',seat:0,ref:'paper',cardId:46986414,name:'Dark Magician',notInDecklist:null,addErrors:[],via:'tracked',revealed:true};
+ const card={ref:'paper',zone:'monster',slot:1,faceUp:false,position:'defense' as const};
+ expect(liveCardSubject(opened,card)).toEqual({...opened,revealed:false});
+});
 
 it('an unsure name and choices reach both seats; a sure correction is one undoable identification on the same ref',()=>{
  let room=placed();

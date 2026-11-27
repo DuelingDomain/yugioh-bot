@@ -78,7 +78,7 @@ export class HybridPipeline extends RecognitionPipeline {
           raw.frames.every(f=>f.clean[0]?.cardId===raw.winnerId&&f.ranked[0]?.cardId===raw.winnerId&&acceptsFirst(f.clean));
         // The name can pass while placement is still unsafe (covered, partial, full-art, ...).
         // Keep the pipeline's uncertain tier and all of its quality evidence in that case.
-        if(agrees&&acceptsFirst(raw.visual)) {
+        if(agrees&&acceptsFirst(raw.visual)&&(!first.quality.notInDecklist||first.tier==='sure')) {
           first.candidates=first.candidates.slice(0,opts.k??5);
           if(!opts.includeRaw)delete first.raw;
           first.reader={selected:'hybrid',stage:'first',model:duelSightModel.id,first:firstStats,ms:performance.now()-start};

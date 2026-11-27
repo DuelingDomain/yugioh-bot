@@ -82,6 +82,8 @@ export const remoteActionEventSchema = z.discriminatedUnion("type", [
   z.strictObject({ ...meta, type: z.literal("twin.place"), seat: remoteSeatSchema, zone, card: twinCardSchema, source: z.literal("auto").optional(),
     /** Legacy action history only. */
     pendulum: z.literal(true).optional(),
+    /** A player picked the name while placing a camera-tracked card. */
+    confirmIdentity: z.literal(true).optional(),
     /** The camera already showed this activation from the hand. */
     fromActivation: id.optional(),
     /** A camera card that the zone rules put in another row than seen ("Trap → S3"). Log text only. */ zoneRule: z.string().trim().min(1).max(80).optional(),
@@ -137,6 +139,7 @@ export const remoteActionEventSchema = z.discriminatedUnion("type", [
     zone: z.enum(["graveyard", "banished", "hand", "deck", "extra"]).default("graveyard") }),
   z.strictObject({ ...meta, type: z.literal("twin.flip"), seat: remoteSeatSchema, cardRef: id, faceUp: z.boolean(),
     cardId:cardId.optional(),name:sighting.name,bestMatch:z.boolean().optional(),position:z.enum(['attack','defense']).optional(),source:z.literal('auto').optional(),
+    confirmIdentity: z.literal(true).optional(),
     /** A token's new ATK/DEF, set by its controller or creator. Only a face-up token takes it. */
     tokenStats:z.strictObject({atk:z.number().int().min(0).max(999999),def:z.number().int().min(0).max(999999)}).optional(),
     /** A camera back does not establish that the previously public identity still applies. */
@@ -199,6 +202,8 @@ export type TwinCard = z.infer<typeof twinCardSchema> & {
   publicIdentity?: boolean;
   /** Server-authored: a face-down field card whose identity was already public on the field, including to spectators. */
   knownFaceDown?: true;
+  /** Server-authored: the location where the player confirmed this identity. */
+  identityConfirmed?: { seat: number; zone: string; slot?: number };
 };
 export type RemoteOrderedPile = Extract<RemoteAction, { type: "pile.order" }>["zone"];
 export function remoteOrderedPileContains(zone: RemoteOrderedPile, card: TwinCard): boolean {

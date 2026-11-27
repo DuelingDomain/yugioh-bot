@@ -1013,7 +1013,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       const priors=options.getPriors?.();
       const readOptions={k:5,maxFrames:1 as const,includeIdentityEmbedding:true,includeDiagnosticCrop:true,includeRaw:true,preferUpright:true,priors,gallery:gallery.entries(),deckFirst:true,deckRescue:!t.view.cardId&&!t.identityCheck&&!t.confirming,earlyExitMargin:options.earlyExitMargin??.02};
       let result=await options.recognizer.recognize([input] as ImageBitmap[]|ImageData[],{...readOptions,card});
-      if(options.nameVoting!==false && now()-start<=NAME_VOTE_FIRST_READ_MS && result.tier!=='sure' && (result.tier==='low match'&&!publicPile(t.view.zone)||weakSidewaysRead(result,t.view.position)) && (t.view.state==='candidate'||pending.background) && !t.binding && !t.identityCheck && !t.confirming && restOk(t) && !pending.moving && !result.quality.faceDown && !result.quality.fallback && !result.quality.partial && !result.quality.covered) {
+      if(options.nameVoting!==false && now()-start<=NAME_VOTE_FIRST_READ_MS && result.tier!=='sure' && (!publicPile(t.view.zone)&&(result.tier==='low match'||result.quality.notInDecklist)||weakSidewaysRead(result,t.view.position)) && (t.view.state==='candidate'||pending.background) && !t.binding && !t.identityCheck && !t.confirming && restOk(t) && !pending.moving && !result.quality.faceDown && !result.quality.fallback && !result.quality.partial && !result.quality.covered) {
         const samples:NameSample[]=[];pending.voting=samples;
         try {
           // The ordinary watcher supplies fresh, clean resting frames. Never sample around its hand/plane gates.
@@ -2812,10 +2812,14 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
             t.needsRead=false;t.view.state='prompt';t.view.visible=true;t.view.faceDown=false;t.identityAppearance=pixels;
             note(t,'unread stack top: ask for identity');emit('prompt',t,{result,reason:'uncertain'});continue;
           }
-          const safe=result&&result.tier!=='low match'&&result.candidates[0]&&!result.quality.fallback&&!result.quality.covered&&!result.quality.partial&&!result.quality.faceDown&&result.candidates[0].cardId!==options.profile.cardBack.cardId;
-          const tentative=options.placeUnsure&&t.view.state==='candidate'&&!t.binding&&!t.promptOnly&&!t.identityCheck&&!pending.background&&!pending.verifyOnly&&restOk(t)&&still&&!blurHold&&!handNear(evidence,c)&&!handContact(evidence,c)&&fieldSlot(t.view.zone)&&result?.tier==='low match'?unsureNameCandidates(result,options.profile.cardBack.cardId):undefined;
+          const offDeckUncertain=result?.quality.notInDecklist&&result.tier!=='sure';
+          const readable=result&&!result.quality.fallback&&!result.quality.covered&&!result.quality.partial&&!result.quality.faceDown;
+          const deckIds=options.getPriors?.()?.decklist??[];
+          const deckFallback=readable&&offDeckUncertain ? result.candidates.find(c=>c.cardId!==options.profile.cardBack.cardId&&deckIds.includes(c.cardId)) : undefined;
+          const safe=readable&&!offDeckUncertain&&result.tier!=='low match'&&result.candidates[0]&&result.candidates[0].cardId!==options.profile.cardBack.cardId;
+          const tentative=options.placeUnsure&&!offDeckUncertain&&t.view.state==='candidate'&&!t.binding&&!t.promptOnly&&!t.identityCheck&&!pending.background&&!pending.verifyOnly&&restOk(t)&&still&&!blurHold&&!handNear(evidence,c)&&!handContact(evidence,c)&&fieldSlot(t.view.zone)&&result?.tier==='low match'?unsureNameCandidates(result,options.profile.cardBack.cardId):undefined;
           if(tentative){t.view.nameCandidates=tentative;t.nameRetry={attempts:0,nextAt:now()+NAME_RETRY_MIN_MS};}
-          let winner=safe?result!.candidates[0].cardId:tentative?.[0].cardId;
+          let winner=safe?result!.candidates[0].cardId:tentative?.[0].cardId??deckFallback?.cardId;
           const lockedRef=t.view.faceDown&&!t.binding?undefined:lockFor(t.binding?.id??t.view.id),locked=lockHolds(lockedRef,result,pixels)?lockedRef:undefined;
           if(result&&!result.quality.fallback&&!result.quality.covered&&!result.quality.partial&&!result.quality.faceDown&&pending.crop)faceState.front=pending.crop;
           // A failed reveal must neither restore private identity nor publish an unnamed front.
@@ -2858,16 +2862,14 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
             // A read that is not sure and came from a soft crop (below the full limit) never replaces a known name: ask the player.
             if(result?.tier!=='sure'&&(pending.sharp??SHARP_LIMIT)<SHARP_LIMIT){t.view.state='prompt';emit('prompt',t,{...(result?{result:{...result,candidates:result.candidates.slice(0,5)}}:{}),latencyMs:metrics.latencyMs,reason:'changed'});continue;}
             if(winner&&!['DECK','EXTRA'].includes(t.view.zone)){t.view.state='identified';t.view.cardId=winner;t.view.bestMatch=true;t.identityEmbedding=result?.identityEmbedding;t.announced=c;t.announcedZone=t.view.zone;t.announcedPosition=position;emit('placed',t,{result,latencyMs:metrics.latencyMs});continue;}
-            if(result&&result.tier!=='low match'){t.view.state='dismissed';continue;}
+            if(result&&result.tier!=='low match'&&!offDeckUncertain){t.view.state='dismissed';continue;}
             t.view.state='prompt';
             emit('prompt',t,{result,reason:'changed',latencyMs:metrics.latencyMs});continue;
           }
           t.latestEmbedding=result?.identityEmbedding;t.lastResult=result;
           const recentIds=tracks.filter(old=>old!==t&&old.view.removed&&old.view.cardId).sort((a,b)=>b.view.lastSeen-a.view.lastSeen).map(old=>old.view.cardId!);
-          const deckIds=options.getPriors?.()?.decklist??[];
           const preferred=[...recentIds,...(options.getKnownCards?.()??[]).filter(card=>['DECK','HAND'].includes(card.zone)).map(card=>card.cardId).filter((id):id is string=>!!id),...deckIds].filter(id=>!deckIds.length||deckIds.includes(id));
           const remembered=gallery.resolve(result?.identityEmbedding,preferred);
-          const readable=result&&!result.quality.fallback&&!result.quality.covered&&!result.quality.partial&&!result.quality.faceDown;
           if((!t.binding||!t.binding.cardId||t.binding.faceDown)&&!t.promptOnly&&readable&&remembered.kind!=='new'&&(remembered.kind!=='hold'||result.tier==='low match')) {
             if(remembered.kind==='hold'||!remembered.cardId){t.view.state='dismissed';t.userDismissed=remembered.kind==='match'&&!remembered.cardId;t.prompted=true;t.identityAppearance=pixels;t.best=undefined;continue;}
             winner=remembered.cardId;
@@ -2875,8 +2877,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
           // A locked card is never re-guessed: a lower or equal read keeps its name.
           if(locked&&winner!==locked.cardId&&!beatsLock(locked,result)){winner=locked.cardId;note(t,'identity locked');}
           if(tentative&&winner!==tentative[0].cardId){t.view.nameCandidates=undefined;t.nameRetry=undefined;}
-          const deck=options.getPriors?.()?.decklist;
-          const inDeck=!!winner&&!!deck?.some(id=>String(id)===winner)&&!result?.quality.notInDecklist;
+          const inDeck=!!winner&&deckIds.includes(winner);
           const pile=['GY','BANISHED','DECK','EXTRA'].includes(t.view.zone);
           // Follow physical lifts. Pile history needs touch or top-change evidence;
           // an unchanged top remains a separate copy from a new field outline.
@@ -2971,10 +2972,10 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
               emit('moved',t,{result,replacesRef:setRef});continue;
             }
             if(winner&&!t.promptOnly){const replaced=!!t.binding.cardId&&t.binding.cardId!==winner,reveal=t.binding.faceDown||!t.binding.cardId||replaced;t.view.id=t.binding.id;t.view.cardId=winner;t.view.bestMatch=reveal?(result?.tier!=='sure'||!inDeck):undefined;t.view.state='identified';t.view.visible=true;t.identityAppearance=pixels;t.identityEmbedding=result?.identityEmbedding;t.announced=c;t.announcedZone=t.view.zone;t.announcedPosition=position;t.moveAt=undefined;t.resolvedAt=replaced?undefined:sample.at;t.binding=undefined;if(reveal)emit('placed',t,{result,latencyMs:metrics.latencyMs});else emit('moved',t,t.view.zone==='BANISHED'?{result}:undefined);}
-            else if(result&&result.tier!=='low match'){t.view.state='dismissed';t.best=undefined;}else {t.view.state='prompt';t.identityAppearance=pixels;t.view.visible=true;emit('prompt',t,{result,reason:t.promptOnly??'restart'});}
+            else if(result&&result.tier!=='low match'&&!offDeckUncertain){t.view.state='dismissed';t.best=undefined;}else {t.view.state='prompt';t.identityAppearance=pixels;t.view.visible=true;emit('prompt',t,{result,reason:t.promptOnly??'restart'});}
           }else if(winner&&!t.promptOnly&&!deckZone(t.view.zone)){
             t.view.bestMatch=result?.tier!=='sure'||!inDeck;t.view.state='identified';t.view.visible=true;t.view.cardId=winner;t.identityAppearance=pixels;t.identityEmbedding=result?.identityEmbedding;t.announced=c;t.announcedZone=t.view.zone;t.announcedPosition=position;t.moveAt=undefined;metrics.placements++;if(earlyNow){t.early={card:structuredClone(pending.card??c),art:pending.art};t.identityAppearance=undefined;stage(t,'early');}emit('placed',t,{result,latencyMs:metrics.latencyMs});
-          }else if(t.view.state==='candidate'&&!t.promptOnly&&!['DECK','EXTRA'].includes(t.view.zone)&&result?.candidates[0]&&result.candidates[0].cardId!==options.profile.cardBack.cardId&&!result.quality.faceDown&&
+          }else if(t.view.state==='candidate'&&!t.promptOnly&&!offDeckUncertain&&!['DECK','EXTRA'].includes(t.view.zone)&&result?.candidates[0]&&result.candidates[0].cardId!==options.profile.cardBack.cardId&&!result.quality.faceDown&&
             result.tier!=='low match'){
             // Never stay in Reading: an unsure or flagged read (glare) reads once
             // more, then the top match is placed as a Best match (Wrong card? fixes
@@ -2987,7 +2988,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
               t.announced=c;t.announcedZone=t.view.zone;t.announcedPosition=position;t.moveAt=undefined;metrics.placements++;note(t,`best match after ${t.unsureReads} unsure read(s) (${why})`);
               emit('placed',t,{result,latencyMs:metrics.latencyMs});
             }
-         }else if(result&&result.tier!=='low match'){t.view.state='dismissed';t.best=undefined;}else {t.view.state='prompt';t.identityAppearance=pixels;t.identityEmbedding=result?.identityEmbedding;t.view.visible=true;emit('prompt',t,{...(result?{result:{...result,candidates:result.candidates.slice(0,5)}}:{}),latencyMs:metrics.latencyMs,reason:t.promptOnly??(pile?'pile':pending.error?'recognition-error':'uncertain')});}
+         }else if(result&&result.tier!=='low match'&&!offDeckUncertain){t.view.state='dismissed';t.best=undefined;}else {t.view.state='prompt';t.identityAppearance=pixels;t.identityEmbedding=result?.identityEmbedding;t.view.visible=true;emit('prompt',t,{...(result?{result:{...result,candidates:result.candidates.slice(0,5)}}:{}),latencyMs:metrics.latencyMs,reason:t.promptOnly??(pile?'pile':pending.error?'recognition-error':'uncertain')});}
 
         }
         if(!t.needsRead){t.best=undefined;continue;}

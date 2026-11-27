@@ -544,6 +544,8 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
           const centre=onMat(fieldCenter(pileTrack.card),watch.calibration);
           if(Number.isFinite(centre.x)&&Number.isFinite(centre.y))proposal={...proposal,cam:{...proposal.cam,cell:{centre,zone:pileTrack.zone}}};
         }
+        if(humanChoice&&proposal.type==='card.identified')proposal={...proposal,source:'click'};
+        if(humanChoice&&(proposal.type==='twin.place'&&cardCode(proposal.card)||proposal.type==='twin.flip'&&proposal.cardId))proposal={...proposal,confirmIdentity:true};
         // A Retry of this work reuses the saved key AND the saved proposal (its stamp too): the server compares a repeated key field by field.
         if(saved)proposal=saved.proposal;else if(idempotencyKey===undefined)kept[slot]={sig,key:actionId,proposal};
         bindFieldTiming(actionId,current.current.room.slug,event?.timing);
@@ -594,9 +596,16 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
         console.info('[remote field] write result',proposal.type,updated?.lastSeq??'not saved');
         if(!updated)return null;
         current.current.room=updated;holdReplacedFieldCards(before,updated.state.seats[seat].twin);prunePhysical();
-        // The server can return the current room for obsolete evidence without saving an event.
+        // A camera write without an event may be obsolete or may have kept a confirmed name.
         if(proposal.cam?.by==='camera'&&['twin.place','twin.move','twin.flip','twin.remove','card.identified'].includes(proposal.type)&&
-          !updated.events.some(e=>e.id===actionId))return null;
+          !updated.events.some(e=>e.id===actionId)){
+          if(proposal.type==='card.identified'&&proposal.source==='auto'){
+            const ref=proposal.cardRef;
+            const confirmed=updated.state.seats[seat].twin.some(c=>c.ref===ref&&c.identityConfirmed);
+            if(confirmed&&stillValid())return updated;
+          }
+          return null;
+        }
         // A successful automatic write proves that detection resumed, even if the startup mode announcement was missed.
         if(live()&&proposal.cam?.by==='camera'&&'source' in proposal&&proposal.source==='auto'&&stateMode(updated.state,seat)==='manual'){
           try{
@@ -1023,9 +1032,10 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     }
     // Settle only the name of an admitted unsure card. Its location and materials keep their own actions.
     if(existing?.nameCandidates&&!track.nameCandidates&&event.result?.tier==='sure'&&entry&&!chosen&&publicField(existing.zone)&&existing.faceUp){
-      const code=catalogCardId(entry);if(!code)return;
-      const updated=await mutate({type:'card.identified',actorSeat:seat,seat,cardRef:existing.ref,cardId:code,name:entry.name,source:'auto',nameCandidates:null,bestMatch:false,zone:existing.zone,...(existing.slot?{slot:existing.slot}:{})});
-      if(updated){bindings.current.set(event.track.id,existing.ref);watch.confirm(event.track.id,track.cardId,existing.ref,false);setPrompts(list=>list.filter(p=>p.track.id!==event.track.id));setNotice(`${entry.name} identified · auto`);setUndoId(updated.state.undo?.actionId??'');}
+      const code=catalogCardId(entry),ref=existing.ref;if(!code)return;
+      const updated=await mutate({type:'card.identified',actorSeat:seat,seat,cardRef:ref,cardId:code,name:entry.name,source:'auto',nameCandidates:null,bestMatch:false,zone:existing.zone,...(existing.slot?{slot:existing.slot}:{})});
+      const saved=updated?.state.seats[seat].twin.find(card=>card.ref===ref);
+      if(updated&&saved&&cardCode(saved)===code){bindings.current.set(event.track.id,saved.ref);watch.confirm(event.track.id,track.cardId,saved.ref,false);setPrompts(list=>list.filter(p=>p.track.id!==event.track.id));setNotice(`${entry.name} identified · auto`);setUndoId(updated.state.undo?.actionId??'');}
       return;
     }
     // A revive: the same card lies in the GY/banished pile and a hand was just over that pile. Let the pile settle
@@ -1169,10 +1179,11 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       const currentTarget=()=>{
         const observed=watch.getTrack(event.track.id);if(!live()||!matchesEvidence(observed))return;
         const twins=current.current.room.state.seats[seat].twin,card=twins.find(item=>item.ref===track.id);if(!card)return;
+        const targetCode=!observed!.faceDown&&card.identityConfirmed?cardCode(card)??code:code,targetFacts=cardInfo(targetCode);
         // After a place made without facts (slowFacts), the observed zone is the target; the zone-rule effect corrects it once the facts arrive.
-        const target=lateFacts&&!cardInfo(code!)?{zone:observed!.zone,label:''} as ReturnType<typeof projectFieldZone>:projectObserved(observed!,twins,card,cardInfo(code),!!existing&&!existing.faceUp);
+        const target=lateFacts&&!targetFacts?{zone:observed!.zone,label:''} as ReturnType<typeof projectFieldZone>:projectObserved(observed!,twins,card,targetFacts,!!existing&&!existing.faceUp);
         if(!target.zone){abstain(event,target.reason??'Choose a legal zone manually.');return;}
-        if(proxyClash(event,target.zone)||tokenClash(event,target.zone,twins,entry?.name,entry?cardInfo(catalogCardId(entry)):undefined))return;
+        if(proxyClash(event,target.zone)||tokenClash(event,target.zone,twins,targetCode===code?entry?.name:card.name,targetFacts))return;
         return {observed:observed!,card,location:fieldZoneLocation(target.zone),position:fieldTwinPosition({...observed!,zone:target.zone})};
       };
       const matches=(target:NonNullable<ReturnType<typeof currentTarget>>)=>target.card.zone===target.location.zone&&target.card.slot===target.location.slot&&fieldPositionMatches(target.location.zone,target.card.position,target.position);
@@ -1190,14 +1201,18 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       if(!matchesEvidence(watch.getTrack(event.track.id)))return;
       placeholders.current.delete(event.track.id);
       bindings.current.set(event.track.id,target.card.ref);
-      watch.confirm(event.track.id,track.cardId,target.card.ref,event.type==='prompt');
+      const savedCode=cardCode(target.card),ignoredName=!track.faceDown&&savedCode!==code;
+      if(ignoredName&&(!target.card.identityConfirmed||!savedCode))return;
+      // Reapply the player's confirmation to stop retries for the discarded guess.
+      watch.confirm(event.track.id,ignoredName?String(savedCode):track.cardId,target.card.ref,ignoredName||event.type==='prompt');
       proxyBlockedTracks.current.delete(event.track.id);
       // The departed card may return on a track with its original board ref.
       if(event.track.id!==target.card.ref&&!watch.getTrack(event.track.id)&&
         current.current.room.state.seats[seat].twin.some(c=>c.ref===event.track.id))bindings.current.delete(event.track.id);
       rememberPhysical(target.card.ref,target.observed.zone);setPrompts(list=>list.filter(p=>p.track.id!==event.track.id));
-      const materialName=(ref:string)=>{const c=current.current.room.state.seats[seat].twin.find(t=>t.ref===ref);return c?.name??entries.current.get(watch.getTracks().find(t=>(bindings.current.get(t.id)??t.id)===ref)?.cardId??'')?.name??'Card';};
       const wasLeaving=departureRef.current?.ref===target.card.ref;setDeparture(null);
+      if(ignoredName)return;
+      const materialName=(ref:string)=>{const c=current.current.room.state.seats[seat].twin.find(t=>t.ref===ref);return c?.name??entries.current.get(watch.getTracks().find(t=>(bindings.current.get(t.id)??t.id)===ref)?.cardId??'')?.name??'Card';};
       // Turning a board card over is no news: the table's Undo covers it. Only an uncertain read asks for a look.
       if(existing&&!originReturn&&(track.faceDown||atomicReveal&&!track.bestMatch)){if(wasLeaving)setNotice('');if(projected.moved||projected.shiftTo)noteRowFix(target.card.ref);return;}
       setNotice(summon?`${fieldSummonNotice(summon.kind,entry?.name??'Card',summon.materialRefs.map(materialName))} · auto`:`${track.bestMatch?'Best match · ':''}${track.faceDown?'Face-down card':entry?.name} placed${projected.moved?` · ${projected.moved}`:''} · auto`);setUndoId(updated?.state.undo?.actionId??'');

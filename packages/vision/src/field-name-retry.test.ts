@@ -6,7 +6,7 @@ import {createFieldCalibration,fieldMatPoint,fieldZoneCells} from './field-zones
 import {yugioh} from './games/yugioh';
 import type {DetectedQuad,RecognitionResult} from './types';
 
-function rig(backgroundReread=true,placeUnsure=false,margin=.15,readCostMs=0,quiet=false,pile?:'GY'|'BANISHED') {
+function rig(backgroundReread=true,placeUnsure=false,margin=.15,readCostMs=0,quiet=false,pile?:'GY'|'BANISHED',decklist?:string[]) {
   const gallery=createFieldIdentityGallery();let known:KnownFieldCard[]=[];
   let at=0,hand=false,motion=0,visible=true,tier:RecognitionResult['tier']='low match',identity='A',pending:Promise<void>|undefined;
   let look:number[]=Array(12).fill(.6);
@@ -25,10 +25,10 @@ function rig(backgroundReread=true,placeUnsure=false,margin=.15,readCostMs=0,qui
   }
   const clear=data.slice();
   const frame:ImageData={width,height,data,colorSpace:'srgb'},events:FieldEvent[]=[],reads:number[]=[];
-  const watcher=createFieldWatcher({profile:yugioh,gallery,getKnownCards:()=>known,nameVoting:false,backgroundReread,placeUnsure,now:()=>at,hidden:()=>false,clone:async f=>f,
+  const watcher=createFieldWatcher({profile:yugioh,gallery,getKnownCards:()=>known,getPriors:()=>({decklist}),nameVoting:false,backgroundReread,placeUnsure,now:()=>at,hidden:()=>false,clone:async f=>f,
     buffer:{sample:async()=>({frame,at})},recognizer:{separateDetector:true,detectCards:async()=>visible?[card]:[],recognize:async()=>{
       reads.push(at);const capturedTier=tier,capturedIdentity=identity;await pending;at+=readCostMs;
-      return {identityEmbedding:{space:'art-box',values:capturedIdentity==='B'?[0,1]:[1,0]},candidates:[{cardId:capturedIdentity,score:capturedTier==='sure'?.95:.65},{cardId:'RUNNER',score:.65-margin}],tier:capturedTier,quality:{detected:true,cornersFound:true,framesUsed:1,selectedFrameIndices:[0],sharpness:20,fallback:false},timingsMs:{sharpness:0,detect:0,warp:0,embed:0,search:0,total:228},backend:'wasm'};
+      return {identityEmbedding:{space:'art-box',values:capturedIdentity==='B'?[0,1]:[1,0]},candidates:[{cardId:capturedIdentity,score:capturedTier==='sure'?.95:.65},{cardId:'RUNNER',score:.65-margin}],tier:capturedTier,quality:{detected:true,cornersFound:true,framesUsed:1,selectedFrameIndices:[0],sharpness:20,fallback:false,notInDecklist:decklist&&!decklist.includes(capturedIdentity)},timingsMs:{sharpness:0,detect:0,warp:0,embed:0,search:0,total:228},backend:'wasm'};
     }},analyze:()=>({scene:quiet?{moving:0,sinceMark:0,mark(){}}:undefined,motion:()=>motion,sharpness:()=>20,crop:()=>frame,appearance:()=>look,halo:()=>Array(12).fill(.8),touched:()=>hand?.5:0,occluded:()=>hand})});
   watcher.subscribe(e=>events.push(e));
   if(calibration)watcher.setCalibration(calibration);
@@ -187,8 +187,10 @@ test('a tapped unsure name is never corrected by a later sure read',async()=>{
  const r=rig(true,true);try{
    for(let i=0;i<20&&!r.events.some(e=>e.type==='placed');i++)await r.tick();
    const placed=r.events.find(e=>e.type==='placed');assert.ok(placed?.track.nameCandidates);
+   const reads=r.reads.length;
    r.watcher.confirm(placed.track.id,'PLAYER');r.sure('B');for(let i=0;i<100;i++)await r.tick();
    assert.equal(r.events.filter(e=>e.type==='placed').length,1);assert.equal(r.watcher.getSnapshot().tracks[0].cardId,'PLAYER');
+   assert.equal(r.events.filter(e=>e.type==='prompt').length,0);assert.equal(r.reads.length,reads);
  }finally{r.watcher.dispose();}
 });
 
@@ -208,6 +210,17 @@ test('an automatically shown Best match also improves on a sure background read'
   for(let i=0;i<80&&r.events.filter(e=>e.type==='placed').length<2;i++)await r.tick();
   const last=r.events.filter(e=>e.type==='placed').at(-1);assert.equal(last?.track.cardId,'B');assert.equal(last?.track.bestMatch,undefined);assert.equal(last?.track.id,first.track.id);
  }finally{r.watcher.dispose();}
+});
+
+for(const inDeck of [true,false])test(`an unsure off-deck winner ${inDeck?'uses the deck candidate':'prompts when there is no deck candidate'}`,async()=>{
+  const r=rig(false,false,.15,0,false,undefined,[inDeck?'RUNNER':'OTHER']);
+  try{
+    r.weakNamed();
+    for(let i=0;i<30&&!r.events.some(e=>e.type==='placed'||e.type==='prompt');i++)await r.tick();
+    const event=r.events.find(e=>e.type==='placed'||e.type==='prompt');
+    assert.equal(event?.type,inDeck?'placed':'prompt');
+    if(inDeck){assert.equal(event?.track.cardId,'RUNNER');assert.equal(event?.track.bestMatch,true);}
+  }finally{r.watcher.dispose();}
 });
 
 test('a sure background correction survives the old server name until its save acknowledges it',async()=>{
