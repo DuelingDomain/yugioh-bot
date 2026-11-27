@@ -182,6 +182,7 @@ export function PileViewer({ fieldHidden = false, seat, name, mine, twin, zone, 
                 <button type="button" disabled={saving || index === 0} aria-label={`Move ${title} newer`} title="Move newer (toward the top)" data-testid="pile-newer" onClick={() => shift(index, -1)}>{"\u2190"}</button>
                 <button type="button" disabled={saving || index === cards.length - 1} aria-label={`Move ${title} older`} title="Move older (toward the bottom)" data-testid="pile-older" onClick={() => shift(index, 1)}>{"\u2192"}</button>
               </span> : null}
+              {mine && ordered && onRemove ? <button type="button" className={s.pileRm} disabled={saving} aria-label={`Remove ${title}`} title="Remove from pile" data-testid="pile-tile-remove" onClick={() => onRemove(card)}>{"\u00d7"}</button> : null}
             </li>;
           })}
         </ul> : <p className={s.pileEmpty} data-testid="pile-empty">No cards in the {PILE_LABEL[zone]} yet.</p>}
@@ -226,7 +227,7 @@ export function PileCardSearch({ deck, disabled, onPick }: {deck: readonly numbe
   return <div className={s.pileSearch}>
     <div className={s.srch}><Icon name="search" /><input autoFocus aria-label="Search cards" placeholder="Search cards" value={query} disabled={disabled} onChange={event => setQuery(event.target.value)}
       onKeyDown={event => { if (event.key === "Escape") return; event.stopPropagation(); if (event.key === "Enter" && results[0] && !disabled) { event.preventDefault(); onPick(results[0]); } }} /></div>
-    <div className={s.pileSearchResults}>{results.map(card => <button type="button" className={PILE_BUTTON} disabled={disabled} key={card.id} onClick={() => onPick(card)}>{card.name}</button>)}</div>
+    <div className={s.pileSearchResults}>{results.map(card => <button type="button" className={PILE_BUTTON} disabled={disabled} key={card.id} onClick={() => onPick(card)}><img className={s.pileThumb} src={cardArt(card.id, "small")} alt="" loading="lazy" draggable={false} />{card.name}</button>)}</div>
   </div>;
 }
 
@@ -278,9 +279,9 @@ function PileEditor({ zone, cards, deck, onScan, onReview, onApply, onCancel }: 
     } finally { setSaving(false); }
   }
   return <div className={s.pileEdit}>
-    {onScan ? <p>Fan or spread the cards from the pile zone so each face is visible.</p> : null}
     <div className={s.pileEditControls}>
-      {onScan ? <button type="button" className={PILE_BUTTON} disabled={saving || reading} onClick={() => void read(onScan)}>Read camera</button> : null}
+      {onScan ? <><button type="button" className={PILE_BUTTON} disabled={saving || reading} onClick={() => void read(onScan)}>Read camera</button>
+        <span className={s.pileScanHint}>Fan or spread the cards from the pile zone so each face is visible.</span></> : null}
       <button type="button" className={PILE_BUTTON} disabled={saving || reading} onClick={() => setAdding(value => !value)}>Add card</button>
     </div>
     {reading ? <p role="status">Reading pile…</p> : null}
@@ -295,7 +296,7 @@ function PileEditor({ zone, cards, deck, onScan, onReview, onApply, onCancel }: 
           <label><input type="checkbox" checked={checked} disabled={saving} onChange={event => {
             const checked = event.target.checked;
             setRows(list => list.map(row => row.entry.ref === entry.ref ? {...row, checked} : row));
-          }} /> {label}{uncertain ? " (check match)" : ""}{index === 0 ? " · Top" : ""}</label>
+          }} /> {Number(entry.cardId) > 0 ? <img className={s.pileThumb} src={cardArt(Number(entry.cardId), "small")} alt="" loading="lazy" draggable={false} /> : null}<span>{label}{uncertain ? " (check match)" : ""}{index === 0 ? " · Top" : ""}</span></label>
           <button type="button" className={PILE_BUTTON} disabled={saving || index === 0} aria-label={`Move ${label} up`} onClick={() => shift(index, -1)}>↑</button>
           <button type="button" className={PILE_BUTTON} disabled={saving || index === rows.length - 1} aria-label={`Move ${label} down`} onClick={() => shift(index, 1)}>↓</button>
         </li>)}
