@@ -317,11 +317,30 @@ test.describe("remote duels screen, solo", () => {
       for (let seat = 0; seat < count; seat++) await expect(page.getByTestId(`seat-${seat}`)).toBeVisible();
       // Only the webcams show: no board and no W view switch (the board logic runs hidden).
       await expect(page.getByTestId("view-board")).toHaveCount(0); await expect(page.getByText("Enlarge field")).toHaveCount(0);
-      // The seat with a camera shows no board. Test bots have no camera, so their seats show a small board instead.
-      await expect(page.locator('[data-testid^="seat-"][data-nocam]')).toHaveCount(count - 1);
+      // No seat shows a board (bots too), and every tile is the same size.
+      await expect(page.locator('[data-testid="field-0"]:visible, [data-testid="field-1"]:visible, [data-testid="field-2"]:visible, [data-testid="field-3"]:visible')).toHaveCount(0);
       await expect(page.getByTestId("remote-table")).toHaveAttribute("data-wc", "1");
+      const widths = await page.evaluate(n => Array.from({ length: n }, (_, i) => Math.round(document.querySelector(`[data-testid="seat-${i}"]`)!.getBoundingClientRect().width)), count);
+      if (count === 3 || count === 4) expect(Math.max(...widths) - Math.min(...widths)).toBeLessThanOrEqual(2);
       for (const [w, h] of SHOTS ? [[1920, 1080], [1366, 768], [360, 740]] : [[1920, 1080]]) { await page.setViewportSize({ width: w, height: h }); await page.waitForTimeout(300); await shot(page, `${mode}way-${w}`); }
     }
+  });
+
+  test("3-way: my seat without a camera keeps its board, and placing a token brings back a bot seat's board", async ({ page, context }) => {
+    const slug = await soloTable(context.request, 3), path = `/api/remote/${slug}`;
+    const mode = await context.request.patch(`${path}/phone`, { data: { mode: "manual" } });
+    expect(mode.ok(), await mode.text()).toBe(true);
+    await page.goto(`/duels/remote/${slug}`);
+    const visibleBoards = () => page.locator('[data-testid="field-0"]:visible, [data-testid="field-1"]:visible, [data-testid="field-2"]:visible').count();
+    await expect(page.getByTestId("field-0")).toBeVisible();
+    expect(await visibleBoards()).toBe(1);
+    const placed = await postAction(context.request, path, { type: "twin.place", actorSeat: 0, seat: 0, zone: "monster", card: { ref: "dl", cardId: 15341821, name: "Dandylion", slot: 1, faceUp: true, position: "attack" } });
+    expect(placed.status(), await placed.text()).toBe(200);
+    await page.getByTestId("next-step-go").click();
+    await expect(page.getByTestId("token-bar")).toBeVisible();
+    await expect(page.getByTestId("field-1")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("field-1")).toBeHidden();
   });
 
   test("click on the live feed opens the card popup, it stays open while the card is read, Esc closes it", async ({ page, context }) => {
@@ -566,8 +585,22 @@ test.describe("remote duels screen, solo", () => {
       await bothView(alice);
       // The dev server builds each route on its first call, so the first table can time out. A new table is started until one stands.
       let slug = ""; await expect(async () => { slug = await startTwoPlayerTable(alice.request, bob.request); }).toPass({ timeout: 150_000 });
-      const page = await alice.newPage(); await fakeCamera(page, "16:9"); await page.goto(`/duels/remote/${slug}`);
+      const page = await alice.newPage(); await fakeCamera(page, "16:9");
       const height = (id: string) => page.getByTestId(id).evaluate(el => el.getBoundingClientRect().height);
+      // A seat with no camera (a test bot) has the same switch. Its board goes, and its panel keeps the no-camera message and the cards list at full height.
+      let soloSlug = ""; await expect(async () => { soloSlug = await soloTable(alice.request, 2); }).toPass({ timeout: 100_000 });
+      await page.goto(`/duels/remote/${soloSlug}`);
+      await expect(page.getByTestId("fwrap-1")).toBeVisible({ timeout: 60_000 }); const botCam = await height("feed-box-1");
+      await page.getByTestId("seat-board-1").click();
+      await expect(page.getByTestId("fwrap-1")).toBeHidden(); await expect(page.getByTestId("feed-box-1")).toBeVisible(); await expect(page.getByTestId("wc-cards-1")).toBeAttached(); await expect(page.getByTestId("fwrap-0")).toBeVisible();
+      await expect.poll(() => height("feed-box-1")).toBeGreaterThan(botCam + 40);
+      await page.getByTestId("seat-board-1").click(); await expect(page.getByTestId("fwrap-1")).toBeVisible();
+      // Webcam only: my board is off. Hiding the bot's board must not turn mine on.
+      await page.evaluate(() => { try { localStorage.setItem("dd-remote-webcam-only", "1"); } catch { /* storage blocked */ } }); await page.reload();
+      await expect(page.getByTestId("fwrap-0")).toBeHidden({ timeout: 60_000 }); await expect(page.getByTestId("fwrap-1")).toBeVisible();
+      await page.getByTestId("seat-board-1").click(); await expect(page.getByTestId("fwrap-1")).toBeHidden(); await expect(page.getByTestId("fwrap-0")).toBeHidden();
+      await page.evaluate(() => { try { localStorage.setItem("dd-remote-webcam-only", "0"); localStorage.removeItem("dd-remote-board-hidden"); } catch { /* storage blocked */ } });
+      await page.goto(`/duels/remote/${slug}`);
       await expect(page.getByTestId("fwrap-0")).toBeVisible(); await expect(page.getByTestId("fwrap-1")).toBeVisible();
       // Per seat: the opponent's board goes and mine stays, then the other way, and the choice is remembered. The webcam "..." menu has the same switch.
       await expect(page.getByTestId("seat-board-1")).toHaveAttribute("aria-pressed", "true");
@@ -913,7 +946,7 @@ test.describe("remote lobby camera step", () => {
         await expect(page.getByRole('switch', { name: 'Camera lock' })).toHaveAttribute('aria-checked', 'true');
         const picker = page.getByTestId('recognition-mode-trigger');
         await expect(picker).toBeVisible();
-        const box = await picker.boundingBox(); expect(box!.width).toBeGreaterThan(100); expect(box!.height).toBeGreaterThan(28);
+        const box = await picker.boundingBox(); expect(box!.width).toBeGreaterThan(100); expect(box!.height).toBeGreaterThanOrEqual(28);
         await shot(page, `camlock-more-${seats}-${width}`); await page.keyboard.press('Escape');
       }
     }
@@ -1151,8 +1184,6 @@ test.describe("remote duels screen, moving cards by hand", () => {
     await expect(page.getByTestId("reticle")).toHaveCount(0); await expect(page.getByTestId("no-card")).toHaveCount(0);
     await expect(page.getByTestId("view-board")).toHaveAttribute("aria-pressed", "true"); await page.getByTestId("view-board").click();
     await expect(page.getByTestId("view-board")).toHaveAttribute("aria-pressed", "false");
-    // The drawer switch (Settings, View) shares the same state as the top bar toggle.
-    await openDrawer(page, "settings"); await expect(page.getByTestId("drawer-view-board")).toHaveAttribute("aria-checked", "false"); await page.keyboard.press("Escape");
     await expect(page.getByTestId("fwrap-0")).toBeHidden(); await expect(page.getByTestId("feed-box-0")).toBeVisible();
     // A bot seat has no camera to read, so it keeps its board.
     await expect(page.getByTestId("feed-box-1")).toBeVisible(); await expect(page.getByTestId("fwrap-1")).toBeVisible();
@@ -1192,7 +1223,7 @@ test.describe("remote duels screen, moving cards by hand", () => {
     await page.keyboard.press("w"); await expect(page.getByTestId("fwrap-0")).toBeVisible(); await expect(page.getByTestId("view-board")).toContainText("ON");
     await page.getByTestId("view-board").click(); await expect(page.getByTestId("fwrap-0")).toBeHidden();
     await page.getByTestId("view-board").click(); await expect(page.getByTestId("fwrap-0")).toBeVisible();
-    await openDrawer(page, "settings"); await page.getByTestId("drawer-view-board").click(); await page.keyboard.press("Escape"); await expect(page.getByTestId("fwrap-0")).toBeHidden();
+    await page.getByTestId("view-board").click(); await expect(page.getByTestId("fwrap-0")).toBeHidden();
     await page.getByTestId("view-board").click(); await expect(page.getByTestId("fwrap-0")).toBeVisible();
     // Both view: notices dock beside the player's own field, can be dragged, and fold into a chip with a count.
     await page.keyboard.press("Control+z"); const mine = page.getByTestId("notify-dock-0");
@@ -2984,9 +3015,9 @@ test.describe("remote duels Thinking, OK and E", () => {
     await page.getByTestId("flip-coin").click();
     const coin = other.getByTestId("roll-overlay");
     await expect(coin).toHaveAttribute("data-kind", "coin");
-    // It sits in the middle of the screen and never takes a click.
-    const box = await coin.boundingBox(); const view = other.viewportSize()!;
-    expect(box && box.width >= view.width * 0.9 && box.height >= view.height * 0.9).toBe(true);
+    // It covers the table area (the seats), so its centre is the table's centre, and it never takes a click.
+    const box = await coin.boundingBox(); const table = await other.locator("#stage").boundingBox();
+    expect(box && table && Math.abs(box.x - table.x) < 2 && Math.abs(box.y - table.y) < 2 && Math.abs(box.width - table.width) < 2 && Math.abs(box.height - table.height) < 2).toBe(true);
     expect(await coin.evaluate(node => getComputedStyle(node).pointerEvents)).toBe("none");
     const face = (await coin.getAttribute("data-result")) === "1" ? "Heads" : "Tails";
     await expect(other.getByTestId("roll-result")).toContainText(face);

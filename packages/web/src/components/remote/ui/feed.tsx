@@ -88,6 +88,23 @@ function copyOf(canvas: HTMLCanvasElement) {
   copy.getContext("2d")?.drawImage(canvas, 0, 0); return copy;
 }
 
+const FIRST_HINT_KEY = "dd-remote-first-hint";
+
+/** A one-time hint on the own webcam. Any click on the camera, or its button, ends it for good. */
+function FirstRunHint({ camRef }: { camRef: { current: HTMLElement | null } }) {
+  const [shown, setShown] = useState(false);
+  useEffect(() => { try { if (!localStorage.getItem(FIRST_HINT_KEY)) setShown(true); } catch { /* storage blocked: no hint */ } }, []);
+  const dismiss = useCallback(() => { setShown(false); try { localStorage.setItem(FIRST_HINT_KEY, "1"); } catch { /* storage blocked */ } }, []);
+  useEffect(() => {
+    if (!shown) return;
+    const onPress = (event: PointerEvent) => { if (camRef.current?.contains(event.target as Node)) dismiss(); };
+    document.addEventListener("pointerdown", onPress, true);
+    return () => document.removeEventListener("pointerdown", onPress, true);
+  }, [shown, dismiss, camRef]);
+  if (!shown) return null;
+  return <div className={s.firstHint} role="status" data-testid="first-run-hint"><span><span className={s.hintClick}>Click a card to see it and act</span><span className={s.hintTap}>Tap a card to see it and act</span></span><button type="button" onClick={dismiss} aria-label="Dismiss hint" data-testid="first-run-hint-close">Got it</button></div>;
+}
+
 export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLive, onAbort, onPoint, onMiss, onSearch, onSelect, onAdd, onReset, onReadBoard, holdSelection, extra, onZoneCard, onPick, hoverTip, silentHover, onHoverEnd, onCardMenu, below, emptyText, emptyAction, prereadScope, announcedMode, tournament = false, openZones }: {
   seat: number; name: string; you: boolean; health: Health; marks: FeedMark[]; reticles: FeedReticle[];
   /** A click landed on the live feed, before the card is found. Returns the id of this read. No popup opens yet. */
@@ -584,6 +601,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
       {tip && !frozen ? <div className={s.peek2} ref={tipBox} data-testid="hover-tip" style={{ left: tip.left, top: tip.top, transform: tip.flip ? "translateX(calc(-100% - 28px))" : undefined }} aria-hidden="true">
         <b>{tip.label}</b>{tip.detail ? <em>{tip.detail}</em> : null}{tip.hint && tip.wide ? <span className={s.peekKey} data-testid="hover-tip-key"><kbd>E</kbd>{tip.hint}</span> : null}</div> : null}
       {source && !frozen ? <ZoneGridOverlay seat={seat} box={box} visible={(gridOn && !tapSeat) || !!openZones?.length} openZones={openZones} onControlsEnter={calmHover} /> : null}
+      {source && !frozen && you ? <FirstRunHint camRef={cam} /> : null}
       {source && !frozen ? <HubFeedCards seat={seat} frame={box ? boxStyle : null} /> : null}
       {source && !frozen && you && debugOn ? <FieldDebugOverlay box={box} /> : null}
       {flash && !frozen ? <svg key={flash.key} className={s.qflash} style={boxStyle} viewBox="0 0 1 1" preserveAspectRatio="none" aria-hidden="true" data-testid="click-flash">

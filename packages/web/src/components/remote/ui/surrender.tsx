@@ -23,8 +23,8 @@ export function SurrenderConfirm({ open, mode = "game", game, bestOf, seatCount,
       <h2 id="surrender-q" className={x.title}>{quit ? "Quit the match?" : "Surrender this game?"}</h2>
       <p id="surrender-d" className={x.body}>{body}</p>
       <div className={x.actions}>
-        <button type="button" className={`${s.btn} ${x.yes}`} disabled={busy} onClick={onConfirm} data-testid={quit ? "quit-yes" : "surrender-yes"}>{quit ? "Quit match" : "Surrender"}</button>
         <button type="button" className={s.btn} onClick={onCancel} data-autofocus data-testid="surrender-no">Cancel</button>
+        <button type="button" className={`${s.btn} ${x.yes}`} disabled={busy} onClick={onConfirm} data-testid={quit ? "quit-yes" : "surrender-yes"}>{quit ? "Quit match" : "Surrender"}</button>
       </div>
     </div>
   </div>;

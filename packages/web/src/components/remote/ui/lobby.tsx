@@ -117,6 +117,7 @@ export function RemoteLobbyRoom({ ctl, room, voiceRecognition = false, tournamen
         <div className={room_.headActions}>
           {room.solo ? null : <CopyInvite slug={room.slug} />}
           <a href="/duels" className={sheetButtonClass("quiet", "sm")}>All tables</a>
+          {canClose && !confirmClose ? <button type="button" className={cx(sheetButtonClass("quiet", "sm"), r.closeText)} disabled={busy} data-testid="close-table" onClick={() => setConfirmClose(true)}>Close table</button> : null}
         </div>
       </header>
 
@@ -191,7 +192,7 @@ export function RemoteLobbyRoom({ ctl, room, voiceRecognition = false, tournamen
                       <SheetButton kind="secondary" size="lg" block disabled={busy} onClick={() => setConfirmClose(false)}>Keep table</SheetButton>
                     </div>
                   </div>
-                  : <SheetButton kind="danger" size="lg" block disabled={busy} data-testid="close-table" onClick={() => setConfirmClose(true)}>Close table</SheetButton>
+                  : null
                 : <SheetButton kind="quiet" size="lg" block disabled={busy} data-testid="leave-table" onClick={() => void operation("leave")}>Leave table</SheetButton>}
             </div>
           </div>
