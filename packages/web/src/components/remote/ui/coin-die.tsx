@@ -17,9 +17,9 @@ import s from "./coin-die.module.css";
  * The table root (`.app`), found from a hidden marker that sits where the caller renders. A roll or a menu drawn there is laid out against the screen, not against the
  * board or the bar around the marker (a transformed or pushed ancestor cannot move it), and it still has the table colours. Without a table root it is the page body.
  */
-function useTableRoot() {
+function useTableRoot(area?: string) {
   const [root, setRoot] = useState<Element | null>(null);
-  const marker = useCallback((node: HTMLElement | null) => { setRoot(node ? node.closest(`.${r.app}`) ?? document.body : null); }, []);
+  const marker = useCallback((node: HTMLElement | null) => { setRoot(node ? (area ? node.closest(area) : null) ?? node.closest(`.${r.app}`) ?? document.body : null); }, [area]);
   return [root, marker] as const;
 }
 
@@ -66,7 +66,8 @@ function RollCoin({ hold, spent }: { hold: RollHold; spent: number }) {
 
 /** The roll in the middle of every screen: a coin or die that spins about 1.2 s, then the result with the roller's name for about 2 s, then a fade. It never takes clicks. */
 export function RollOverlay({ hold, name }: { hold: RollHold | null; name: (seat: number) => string }) {
-  const [root, marker] = useTableRoot();
+  // The roll is centred on the table area (the seats), so it stays centred when a drawer pushes the table.
+  const [root, marker] = useTableRoot("#stage");
   return <>
     <span ref={marker} hidden />
     {hold && root ? createPortal(<RollView key={hold.eventId} hold={hold} name={name} floating={root === document.body} />, root) : null}

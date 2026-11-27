@@ -2928,9 +2928,9 @@ test.describe("remote duels Thinking, OK and E", () => {
     await page.getByTestId("flip-coin").click();
     const coin = other.getByTestId("roll-overlay");
     await expect(coin).toHaveAttribute("data-kind", "coin");
-    // It sits in the middle of the screen and never takes a click.
-    const box = await coin.boundingBox(); const view = other.viewportSize()!;
-    expect(box && box.width >= view.width * 0.9 && box.height >= view.height * 0.9).toBe(true);
+    // It covers the table area (the seats), so its centre is the table's centre, and it never takes a click.
+    const box = await coin.boundingBox(); const table = await other.locator("#stage").boundingBox();
+    expect(box && table && Math.abs(box.x - table.x) < 2 && Math.abs(box.y - table.y) < 2 && Math.abs(box.width - table.width) < 2 && Math.abs(box.height - table.height) < 2).toBe(true);
     expect(await coin.evaluate(node => getComputedStyle(node).pointerEvents)).toBe("none");
     const face = (await coin.getAttribute("data-result")) === "1" ? "Heads" : "Tails";
     await expect(other.getByTestId("roll-result")).toContainText(face);
