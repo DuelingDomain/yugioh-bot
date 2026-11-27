@@ -1705,8 +1705,10 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
   const downFeeds = humans.filter(row => row.health.q === "bad").length, weakFeeds = humans.filter(row => row.health.q === "warn").length;
   const counted = extras.filter(item => item.health.q === "bad" || item.health.q === "warn");
   const allQ = [...humans.map(row => row.health.q), ...counted.map(item => item.health.q)];
-  const worstQ = allQ.includes("bad") ? "bad" : allQ.includes("warn") ? "warn" : humans.every(row => row.health.q === "off") ? "off" : "good";
-  const healthIssues = [...(downFeeds ? [`${downFeeds} feed${downFeeds === 1 ? "" : "s"} down`] : []), ...(weakFeeds ? [`${weakFeeds} feed${weakFeeds === 1 ? "" : "s"} weak`] : []), ...counted.map(item => item.health.label)];
+  // Some (not all) human cameras off is information, not a fault: the chip says so in grey instead of "All feeds ok".
+  const camsOff = humans.filter(row => row.health.label === "Camera off").length;
+  const worstQ = allQ.includes("bad") ? "bad" : allQ.includes("warn") ? "warn" : camsOff > 0 || humans.every(row => row.health.q === "off") ? "off" : "good";
+  const healthIssues = [...(downFeeds ? [`${downFeeds} feed${downFeeds === 1 ? "" : "s"} down`] : []), ...(weakFeeds ? [`${weakFeeds} feed${weakFeeds === 1 ? "" : "s"} weak`] : []), ...counted.map(item => item.health.label), ...(camsOff > 0 && camsOff < humans.length ? [`${camsOff} camera${camsOff === 1 ? "" : "s"} off`] : [])];
   const healthSummary = healthIssues.length ? `${healthIssues[0]}${healthIssues.length > 1 ? ` +${healthIssues.length - 1}` : ""}` : worstQ === "off" ? "Cameras off" : "All feeds ok";
   const format = room.format ?? state.deckChecks?.format ?? normalizeRemoteFormat();
   const formatLabel = REMOTE_FORMATS.find(item => item.value === format.id)?.label ?? format.id;

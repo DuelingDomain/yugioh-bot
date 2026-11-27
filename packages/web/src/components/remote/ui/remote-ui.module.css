@@ -1934,7 +1934,8 @@
   .seat[data-wc] .htop{flex-wrap:wrap;height:auto;min-height:22px;row-gap:2px}
   .seat[data-wc] .htop .hlab{flex:none;overflow:visible}
 }
-@media (pointer:coarse){.zaKey{display:none}.hintClick{display:none}}
+@media (pointer:coarse){.zaKey{display:none}}
+@media not (pointer:fine){.hintClick{display:none}}
 @media (pointer:fine){.hintTap{display:none}}
 .firstHint button{flex:none;white-space:nowrap}
 .firstHint{width:max-content}
