@@ -33,9 +33,11 @@ export function RecognitionSetting({ variant = "sheet" }: { variant?: "sheet" | 
   const hintId = useId();
   const hint = RECOGNITION_MODES.find(item => item.value === mode)?.hint;
   const onCpu = backend === "wasm" || mode === "cpu";
-  const engine = backend === "webgpu" ? "GPU" : onCpu ? `CPU (${recognitionCpuReason(recognition)})` : "Waiting for reader";
+  const engine = backend === "webgpu" ? "Running on the GPU" : onCpu ? "Running on the CPU" : "Waiting for the reader";
+  // The reason is plain text, not only a tooltip: touch screens have no hover.
+  const reason = onCpu && backend !== "webgpu" ? recognitionCpuReason(recognition) : "";
   const engineStatus = <>
-    <p role="status" className={ui.hint} style={{ margin: 0 }} title={note || undefined}>Card recognition · {engine}</p>
+    <p role="status" className={ui.hint} style={{ margin: 0, overflowWrap: "anywhere" }} title={note || undefined} data-testid="recognition-status">{engine}{reason ? <><br /><span data-testid="recognition-reason">{reason}</span></> : null}</p>
     {onCpu && mode !== "cpu" && hasBrowserGpu() && <SheetButton size="sm" onClick={retryRecognitionGpu}>Try GPU again</SheetButton>}
   </>;
   if (variant === "menu") {

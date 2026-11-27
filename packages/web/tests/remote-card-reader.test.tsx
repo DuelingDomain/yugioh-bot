@@ -191,3 +191,37 @@ it('keeps a card read through worker failure, CPU fallback and GPU recovery', as
     warn.mockRestore();
   }
 });
+
+it('swaps back to the GPU after 30 busy polls when only outline passes run, and restores the swap cap after a stable GPU run',async()=>{
+  vi.useFakeTimers();
+  const requestDevice=vi.fn(async()=>({destroy:vi.fn()}));
+  vi.stubGlobal('navigator',{gpu:{requestAdapter:vi.fn(async()=>({requestDevice}))}});
+  const s=await import('../src/components/remote/ui/recognition-backend');
+  const wasm={backend:'wasm' as const,fallbackReason:'GPU stopped',models:[{model:'embedder',backend:'wasm' as const}]};
+  const gpu={backend:'webgpu' as const,models:[{model:'embedder',backend:'webgpu' as const}]};
+  let outlines=true;const reset=vi.fn();
+  s.onRecognitionReset(reset,patient=>patient?false:outlines);
+  s.reportBackend(wasm,true);
+  await vi.advanceTimersByTimeAsync(30_000+29_000);
+  expect(reset).not.toHaveBeenCalled();
+  await vi.advanceTimersByTimeAsync(3_000);
+  expect(reset).toHaveBeenCalledOnce();
+  for(let swap=0;swap<5;swap++){
+    outlines=false;
+    s.reportBackend(wasm,true);
+    await vi.advanceTimersByTimeAsync(700_000);
+  }
+  s.reportBackend(gpu,true);
+  await vi.advanceTimersByTimeAsync(300_000);
+  s.reportBackend(wasm,true);
+  const before=reset.mock.calls.length;
+  await vi.advanceTimersByTimeAsync(40_000);
+  expect(reset.mock.calls.length).toBe(before+1);
+});
+it('says "no GPU support" only when the browser has no WebGPU',async()=>{
+  const s=await import('../src/components/remote/ui/recognition-backend');
+  vi.stubGlobal('navigator',{});
+  expect(s.recognitionCpuReason(s.recognitionBackendNow())).toBe('This browser has no GPU support');
+  vi.stubGlobal('navigator',{gpu:{}});
+  expect(s.recognitionCpuReason(s.recognitionBackendNow())).toBe('GPU not available on this device');
+});
