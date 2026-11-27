@@ -40,7 +40,7 @@
 
 /* The Undo button inside the "Card → GY" toast: a plain bordered button, not gold. */
 .autoGy{display:flex;align-items:center;gap:8px;white-space:nowrap}
-.agName{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.agName{min-width:0;display:flex;white-space:pre}.agCard{min-width:0;overflow:hidden;text-overflow:ellipsis}.agDest{flex:none}
 .autoGy .toastUndo{flex:none;margin-left:0;height:26px;padding:0 10px;border-radius:6px;border:1px solid var(--line2,#3a3052);background:var(--p2,#1c1530);color:var(--ink,#f1ead9);font:700 12px/1 var(--font-duel-ui,"Sofia Sans Semi Condensed",system-ui,sans-serif);vertical-align:middle;cursor:pointer}
 .autoGy .toastUndo:hover{border-color:rgb(155 126 255)}
 .autoGy .toastUndo:focus-visible{outline:2px solid var(--gold-ink,#f6dc9a);outline-offset:1px}

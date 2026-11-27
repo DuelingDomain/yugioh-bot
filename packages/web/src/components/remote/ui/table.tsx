@@ -399,7 +399,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
       const entry = state.undoHistory?.find(item => item.undoWith === actionId && !item.undone);
       if (!entry) { if (Date.now() - placed.at > 10_000) autoPlaced.current.delete(actionId); continue; }
       autoPlaced.current.delete(actionId);
-      toast(<span className={fx.autoGy}><span className={fx.agName}><b>{placed.label}</b> → {placed.destination === "banished" ? "Banished" : "GY"}</span>
+      toast(<span className={fx.autoGy}><span className={fx.agName}><b className={fx.agCard}>{placed.label}</b><span className={fx.agDest}> → {placed.destination === "banished" ? "Banished" : "GY"}</span></span>
         <button type="button" className={fx.toastUndo} data-testid="auto-gy-undo" onClick={() => undoEntryRef.current(R.current.state.undoHistory?.find(item => item.undoWith === actionId && !item.undone) ?? entry)}>Undo</button></span>, 7000);
     }
   }, [state, toast, autoNoted]);
@@ -1518,7 +1518,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
   const [handRow, setHandRow] = useState<{ seat: number } | null>(null);
   const handSeat = mySeat >= 0 ? mySeat : signalSeat;
   const handShown = signalShown && !room.spectator && maySignal(state, handSeat);
-  useEffect(() => { if (handRow && (!live || tableBlocked || !handShown || layers.layer)) setHandRow(null); }, [handRow, live, tableBlocked, handShown, layers.layer]);
+  useEffect(() => { if (handRow && (!live || tableBlocked || !handShown || (layers.layer && !(layers.layer === "log" && isPushedLayer("log"))))) setHandRow(null); }, [handRow, live, tableBlocked, handShown, layers.layer]);
   if (handRow) escapeBusy.current = true;
   handRowOpen.current = !!handRow;
   // The row and the activate row never show together; whichever opens last wins.
