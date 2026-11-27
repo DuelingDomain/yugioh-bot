@@ -5,7 +5,7 @@ import { fieldEmbeddingSimilarity } from './field-motion';
 // Retains warp -> hypotheses -> staged embedding -> per-card search -> decide flow.
 // Extension-only badge rescues are omitted. See licenses/duel-lens.LICENSE.
 import { filterPhysicalIndex } from './physical-index';
-import { deckRescueWinner, replayTier } from './decision';
+import { catalogConfidenceThresholds, deckRescueWinner, replayTier } from './decision';
 import { emptyLearning, indexVersion, learnedTopK, type LearningSnapshot } from './learning';
 import { boardSide, isCovered, validateBoard } from './board';
 import { CARD_DETECTOR } from './detector/spec';
@@ -155,6 +155,7 @@ export class RecognitionPipeline {
     // The back must compete even when the detector mistakes a face-down card for a front.
     const deckIds=opts.priors?.decklist?.length?new Set([...opts.priors.decklist,this.profile.cardBack.cardId]):undefined;
     const backId=this.profile.cardBack.cardId;
+    const catalogLimitsFor=(id?:string)=>catalogConfidenceThresholds(thresholds,!!(id && deckIds && !deckIds.has(id)));
     // Closed sets are searched before the catalog. With a deck list: the list. Without one: cards confirmed in this duel (and the
     // gallery), then cards related to them. Off-list cards simply miss every set and take the open path below.
     const closedTiers:{source:'deck'|'dynamic'|'likely';ids:Set<string>}[]=[];
@@ -287,7 +288,7 @@ export class RecognitionPipeline {
             const upright=opts.preferUpright && hypothesis.rotation===0 && hypothesis.index===this.index && !fullArt && !this.fullArtIndex?.meta.count &&
               clean[0]?.score>=thresholds.score && clean[0].score-(clean[1]?.score??0)>=Math.max(.08,thresholds.margin);
             // Follow the normal sure-first path before a deck hint can inspect other views.
-            if(deckIds && !deckIds.has(clean[0]?.cardId??'') && (!opts.includeRaw||upright) && decide(clean,thresholds,backId).confident && !this.confused(clean))break;
+            if(deckIds && !deckIds.has(clean[0]?.cardId??'') && (!opts.includeRaw||upright) && decide(clean,catalogLimitsFor(clean[0]?.cardId),backId).confident && !this.confused(clean))break;
             localOpen.push(clean);
             const open=mergeCandidates(localOpen,10);
             for(const tier of closedTiers) {
@@ -322,7 +323,7 @@ export class RecognitionPipeline {
         timings.search += performance.now() - t;
         const cleanMerged=mergeCandidates(cleanLists,10);
         const clearUpright=opts.preferUpright && hypothesis.rotation===0 && found && !partial && !selected?.partial && !covered && !fullArt && !faceDown && !this.fullArtIndex?.meta.count && cleanMerged[0]?.cardId===merged[0]?.cardId && cleanMerged[0].score>=thresholds.score && cleanMerged[0].score-(cleanMerged[1]?.score??0)>=Math.max(.08,thresholds.margin);
-        if ((!opts.includeRaw || clearUpright) && (!faceDown || merged[0]?.cardId===this.profile.cardBack.cardId) && decide(cleanMerged, thresholds, this.profile.cardBack.cardId).confident && !merged.some(c=>this.learning.confusions.some(p=>p.a===c.cardId||p.b===c.cardId))) break;
+        if ((!opts.includeRaw || clearUpright) && (!faceDown || merged[0]?.cardId===backId) && decide(cleanMerged, catalogLimitsFor(cleanMerged[0]?.cardId), backId).confident && !merged.some(c=>this.learning.confusions.some(p=>p.a===c.cardId||p.b===c.cardId))) break;
       }
       // Keep the vector of the hypothesis that actually supplied the winning visual match.
       let winner = 0;
@@ -373,7 +374,7 @@ export class RecognitionPipeline {
       }
       views.push({ aiCrop, deferredAICrop, faceDown, clean, ranked:merged, confusionChecked, alternatives, vector: winningVector, index:winningIndex,fullArt,partial,crop:winningRotation===180?rotate180(warped):warped, detected: Boolean(card || selected), corners: found, unambiguous: eligible && clean[0]?.cardId===merged[0]?.cardId && decide(clean, thresholds, this.profile.cardBack.cardId).confident, frameClass });
       if(fastMatch)break;
-      if(views.length===1 && opts.earlyExit!==false && eligible && clean[0]?.cardId===merged[0]?.cardId && decide(clean,thresholds,this.profile.cardBack.cardId).confident && clean[0].score-(clean[1]?.score??0)>=.05) {earlyExit=ranked.length>1;break;}
+      if(views.length===1 && opts.earlyExit!==false && eligible && clean[0]?.cardId===merged[0]?.cardId && decide(clean,catalogLimitsFor(clean[0]?.cardId),backId).confident && clean[0].score-(clean[1]?.score??0)>=.05) {earlyExit=ranked.length>1;break;}
     }
     const t = performance.now(), k = opts.k ?? 5;
     let candidates: Candidate[] = [], visual: Candidate[] = [], deckSuggestions:Candidate[]=[];

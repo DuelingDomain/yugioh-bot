@@ -128,6 +128,16 @@ test('name priors do not promote a weak first read through the released gate',as
   const f=fixture([Math.SQRT1_2]);const r=await f.pipeline.recognize([image],{card,preclean:false,priors:{decklist:['A'],seen:['A'],voiceMentioned:['A']}});
   assert.equal(r.reader?.stage,'second');assert.equal(r.candidates[0].cardId,'B');
 });
+test('the same borderline Hybrid read needs stronger evidence outside the registered deck',async()=>{
+  const read=async(score:number,decklist:string[])=>fixture([score],score).pipeline.recognize([image],{card,preclean:false,priors:{decklist}});
+  const listed=await read(.745,['A']);
+  assert.equal(listed.reader?.stage,'first');assert.equal(listed.tier,'sure');
+  const unlisted=await read(.745,['B']);
+  assert.equal(unlisted.reader?.stage,'second');assert.notEqual(unlisted.tier,'sure');
+  assert.equal(unlisted.candidates[0].cardId,'A');
+  const strong=await read(.95,['B']);
+  assert.equal(strong.tier,'sure');assert.equal(strong.quality.notInDecklist,true);
+});
 test('saved current corrections and feedback use the compatible reader instead of another vector space',async()=>{
   for(const kind of ['learning','feedback','gallery'] as const) {
     const f=fixture();if(kind==='learning')f.pipeline.setLearning({version:'v',references:[],confusions:[{a:'A',b:'B'}]});

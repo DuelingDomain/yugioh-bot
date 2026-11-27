@@ -87,13 +87,15 @@ export type RemoteReductionContext = {
   foreignTokens?: 1;
   /** A card can be given to an opponent's field as a proxy; the owner can edit it there and the camera never moves it. Absent on historic events. */
   givenCards?: 1;
+  /** Preserve a player's confirmed identity against later camera reads of the same ref. */
+  playerIdentityLock?: 1;
   /** New camera placements only reuse physical copies. */
   proxyPlacementGuard?: 1;
 };
 /** Persist current reducer semantics for live actions and account-deletion concessions. */
 export const REMOTE_REDUCTION_VERSIONS = {
   undoVersion: 1, matchFlowVersion: 2, twinPlacementGuard: 11, fieldFaceState: 2, setReturnFaceState: 1,
-  pileArrivalGuard: 2, handKnowledge: 1, handReview: 1, handCountCorrections: 1, quitGameOnly: 1, foreignTokens: 1, givenCards: 1, proxyPlacementGuard: 1,
+  pileArrivalGuard: 2, handKnowledge: 1, handReview: 1, handCountCorrections: 1, quitGameOnly: 1, foreignTokens: 1, givenCards: 1, playerIdentityLock: 1, proxyPlacementGuard: 1,
 } as const satisfies RemoteReductionContext;
 
 export function initialDeckChecks(format = normalizeRemoteFormat()): RemoteDeckChecks {

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, type CSSProperties, type ReactNode } from "react";
-import type { ZoneKey } from "./model";
+import { cardCode, type TwinCard, type ZoneKey } from "./model";
 import { cardArt, hasBattleStats, isLinkInfo, useCardStatus, type CardInfo } from "./catalog";
 import { Icon } from "./icons";
 import { BigArt, CardText, PopupFrame, TierChip, type PopAt, type Tier } from "./popup";
@@ -24,6 +24,17 @@ export type Subject = {
   /** From this browser's Tap to identify memory: only this player sees it, and it offers only "Wrong card?". */
   remembered?: boolean; rememberedAt?: number;
 };
+
+export function liveCardSubject(subject: Subject | null, card: TwinCard | undefined): Subject | null {
+  if (!subject?.ref) return subject;
+  if (!card) return null;
+  if (!cardCode(card) && !card.token && !card.faceUp && subject.cardId) return { ...subject, revealed: false };
+  const cardId = cardCode(card) ?? card.token?.artId ?? 0;
+  const changed = cardId !== subject.cardId;
+  return { ...subject, cardId, name: cardId ? card.name ?? (changed ? undefined : subject.name) : card.faceUp ? "Unidentified card" : "Face-down card",
+    bestMatch: card.bestMatch, revealed: !!card.publicIdentity && !card.faceUp,
+    ...(changed ? { tier: undefined, covered: undefined, notInDecklist: null, addErrors: [] } : {}) };
+}
 
 function Art({ id }: { id: number }) {
   // The failure belongs to one card: a new card starts with a clean state, and one failed load is tried again once.

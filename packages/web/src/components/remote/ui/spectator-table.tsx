@@ -14,7 +14,7 @@ import { watchVideoFrames } from "@/lib/remote/video-protocol";
 import { useCardInfo, warmCardArt } from "./catalog";
 import { HandStrip } from "./hand-ui";
 import { handCountOf, knownHandOf } from "./reveal-model";
-import { CardPopover, InspectorBody, type CardActions, type Subject } from "./card-view";
+import { CardPopover, InspectorBody, liveCardSubject, type CardActions, type Subject } from "./card-view";
 import { HoloField } from "./holo-field";
 import { ZoneGridOverlay } from "./zone-grid";
 import { Rail, LpStrip } from "./chrome";
@@ -174,7 +174,8 @@ function SpectatorTable({ room }: { room: RemoteRoom }) {
   const chain = useMemo(() => chainOf(room.events, aliveSeats(state)), [room.events, state]);
   const chainLinks = chain.links;
   const chainMarks = useMemo(() => chainMarksOf(chain), [chain]);
-  const [subject, setSubject] = useState<Subject | null>(null);
+  const [openedSubject, setSubject] = useState<Subject | null>(null);
+  const subject = liveCardSubject(openedSubject, openedSubject?.ref ? state.seats[openedSubject.seat]?.twin.find(card => card.ref === openedSubject.ref) : undefined);
   const [popAt, setPopAt] = useState<PopAt>({ anchor: null, feed: null });
   const publicIds = state.seats.flatMap(item => [...item.twin.map(card => cardCode(card) ?? card.token?.artId), ...(item.knownHand ?? []).map(card => card.cardId)]);
   const info = useCardInfo([...publicIds, subject?.cardId]);

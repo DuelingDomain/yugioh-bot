@@ -74,6 +74,7 @@
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;height:32px;padding:0 13px;border-radius:6px;border:1px solid var(--line2);background:var(--p2);font-weight:700;font-size:13px;color:var(--ink);white-space:nowrap}
 .btn:hover{border-color:var(--pen)}
 .btn.go{background:var(--gold);border-color:var(--gold-ink);color:#1b1204}.btn.go:hover{filter:brightness(1.08)}
+.btn:disabled{cursor:default;opacity:.5}.btn:disabled:hover{border-color:var(--line2)}.btn.go:disabled{background:none;border-color:var(--line2);color:var(--ink3);filter:none}
 .btn.q{background:none;color:var(--ink2)}
 .btn.sm{height:26px;padding:0 9px;font-size:12px}
 
@@ -1082,6 +1083,14 @@
 .tierMaybe{color:var(--gold-ink);border-color:var(--gold)}
 .tierLow{color:var(--warn);border-color:rgb(240 178 79/.6)}
 .bstrip{display:flex;gap:6px;list-style:none;margin:0;padding:0}
+.deckStrip{flex-shrink:0;overflow-x:auto;padding:2px;scroll-padding-inline:2px;--ml:0px;--mr:0px;-webkit-mask-image:linear-gradient(90deg,transparent,#000 var(--ml),#000 calc(100% - var(--mr)),transparent);mask-image:linear-gradient(90deg,transparent,#000 var(--ml),#000 calc(100% - var(--mr)),transparent)}
+.deckStrip[data-l=true]{--ml:18px}.deckStrip[data-r=true]{--mr:22px}
+.deckStrip:focus-visible{outline:none}
+.bstrip li.deckDiv,.bigTray.docked .bstrip li.deckDiv{flex:0 0 1px;align-self:stretch;background:var(--line2);margin:0 3px;width:1px;aspect-ratio:auto;border:0;padding:0;cursor:default;min-width:0;box-shadow:none}
+.stripCap{display:flex;gap:10px;align-items:baseline;font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--ink3);margin-bottom:-2px}
+.stripCap span+span{padding-left:10px;border-left:1px solid var(--line2)}
+.bigartEmpty{display:grid;place-items:center;background:none;border:2px dashed var(--line2);box-shadow:none;color:var(--ink3)}
+.bigartEmpty b{font:700 64px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;opacity:.55}
 .bstrip li{position:relative;flex:0 0 auto;width:48px;aspect-ratio:59/86;border-radius:5px;overflow:hidden;border:1px solid var(--line2);background:#05030b;cursor:pointer}
 .bstrip li.noGuess{width:auto;aspect-ratio:auto;border:0;background:none}
 /* Nothing to show yet: no empty art tile. The text, the message and the search take the whole popup, and the title clears the close button. */
@@ -1094,11 +1103,14 @@
 .bstrip li em{position:absolute;left:0;right:0;bottom:0;padding:2px 0;text-align:center;font:700 10px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;font-style:normal;background:rgb(7 4 14/.82);color:var(--ink2)}
 .bstrip li[data-on=true]{border-color:var(--gold);box-shadow:0 0 0 1px var(--gold),0 0 14px rgb(232 185 79/.35)}
 .bsk{display:flex;flex-direction:column;gap:9px}
+@media (min-width:901px){.bsk.askFill{min-height:150px}}
 .skbig{font:700 21px/1.1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;color:var(--gold-ink)}
 .skline{display:block;height:11px;border-radius:5px;background:linear-gradient(100deg,var(--p3) 30%,#3b2a66 50%,var(--p3) 70%);background-size:220% 100%;animation:skshine 1.3s linear infinite}
 .bsk small{color:var(--ink3);font-size:12px}
 .bbar{grid-column:1 / -1;display:flex;align-items:center;flex-wrap:wrap;gap:8px;border-top:1px solid var(--line);padding-top:10px}
 .bbar .dact{margin:0}
+.bbar .btn.go{margin-left:auto}
+.bbar .bhintRow{flex:1 0 100%}
 .bhint{color:var(--ink3);font-size:12px;display:inline-flex;gap:5px;align-items:center;flex-wrap:wrap}
 /* A card opened from a pile: the text sits right of the art and gets the height. Small art and a wider popup show a long Pendulum text without a scroll; only the very longest scrolls inside the text block. */
 @media (min-width:901px){
