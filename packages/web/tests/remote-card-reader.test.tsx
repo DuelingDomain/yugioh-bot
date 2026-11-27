@@ -96,12 +96,16 @@ it.each([false,true])('starts Current when Hybrid is denied or its catalog is un
 it('read diagnostics survive the camera stamp, action validation and idempotent retry bytes',async()=>{
   const {fieldCameraStamp,stampedProposal}=await import('../src/lib/remote/field-timing');
   const reader:ReaderDiagnostics={selected:'hybrid',stage:'second',model:'dinov2-small-duel-v3b-light',first:{score:.67,runnerUp:.64,margin:.03,ms:4},second:{score:.9,runnerUp:.7,margin:.2,ms:111},ms:115};
-  const stamp=fieldCameraStamp({id:'read',originAt:1000,stagesMs:{firstOutline:0,searchDone:120},durationsMs:{},reader});
-  expect(fieldCameraStamp(undefined,'camera',undefined,1250).seenAt).toBe(Math.round(performance.timeOrigin+1250));
+  const stamp=fieldCameraStamp({id:'read',originAt:1000,stagesMs:{firstOutline:0,searchDone:120},durationsMs:{},reader},'camera',undefined,1250);
+  const observedAt=Math.round(performance.timeOrigin+1250);
+  expect(stamp).toMatchObject({seenAt:1000,namedAt:1120,observedAt});
+  const snapshotStamp=fieldCameraStamp(undefined,'camera',undefined,1250);
+  expect(snapshotStamp.observedAt).toBe(observedAt);
+  expect(snapshotStamp).not.toHaveProperty('seenAt');
   const set={detector:.95,pixel:'down' as const,pixelConfidence:1,sd:0,backDistance:null,positive:true,basis:'pixels' as const,decision:'committed' as const};
   const proposal={type:'twin.place' as const,actorSeat:0,seat:0,zone:'monster',card:{ref:'read-1',cardId:1,faceUp:true,position:'attack' as const},source:'auto' as const,cam:{...stamp,set}};
   const action=stampedProposal(proposal,'hybrid-stamp-test');
-  expect(remoteActionSchema.parse({...action,idempotencyKey:'hybrid-stamp-test'}).cam?.reader).toEqual(reader);
+  expect(remoteActionSchema.parse({...action,idempotencyKey:'hybrid-stamp-test'}).cam).toMatchObject({reader,seenAt:1000,observedAt});
   expect(remoteActionSchema.parse({...action,idempotencyKey:'hybrid-stamp-test'}).cam?.set).toEqual(set);
   expect(JSON.stringify(stampedProposal({...proposal,cam:{...proposal.cam,sentAt:stamp.sentAt+100}},'hybrid-stamp-test'))).toBe(JSON.stringify(action));
 });

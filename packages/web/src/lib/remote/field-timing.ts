@@ -8,15 +8,15 @@ export function markFieldTiming(timing:FieldTiming|undefined,stage:string,extra:
   window.dispatchEvent(new CustomEvent('remote-field-latency',{detail:{...timing,stage,elapsedMs:Math.max(0,performance.timeOrigin+performance.now()-timing.originAt),...extra}}));
 }
 /**
- * Camera timing for the saved event. All three times are on one clock, `performance.timeOrigin + performance.now()` (what the watcher uses),
- * so they line up with the test recording: the sample supporting this action,
- * the end of the last identity read, and the board write. `v` is the build id.
+ * Camera timing for the saved event uses `performance.timeOrigin + performance.now()` to line up with the test recording.
+ * It records the first outline, the observation that settled the action, the last identity read and the board write. `v` is the build id.
  * `by` and `ui` record who made the change and with which control.
  */
 export function fieldCameraStamp(timing:FieldTiming|undefined,by:'camera'|'player'='camera',ui?:string,observedAt?:number):RemoteCameraStamp {
   const stages=timing?.stagesMs,named=stages?.searchDoneLast??stages?.searchDone,v=process.env.NEXT_PUBLIC_SENTRY_RELEASE?.slice(0,12);
-  const seenAt=observedAt!==undefined?performance.timeOrigin+observedAt:timing?timing.originAt+(stages?.firstOutline??0):undefined;
-  return {...(seenAt!==undefined?{seenAt:Math.round(seenAt)}:{}),...(timing&&named!==undefined?{namedAt:Math.round(timing.originAt+named)}:{}),sentAt:Math.round(performance.timeOrigin+performance.now()),...(v?{v}:{}),by,...(ui?{ui}:{}),...(timing?.reader?{reader:timing.reader}:{})};
+  return {...(timing?{seenAt:Math.round(timing.originAt+(stages?.firstOutline??0))}:{}),
+    ...(observedAt!==undefined?{observedAt:Math.round(performance.timeOrigin+observedAt)}:{}),
+    ...(timing&&named!==undefined?{namedAt:Math.round(timing.originAt+named)}:{}),sentAt:Math.round(performance.timeOrigin+performance.now()),...(v?{v}:{}),by,...(ui?{ui}:{}),...(timing?.reader?{reader:timing.reader}:{})};
 }
 /** A person's change: the same clock as the watcher stamps, no build id (small). */
 export const playerStamp=(ui?:string):RemoteCameraStamp=>({sentAt:Math.round(performance.timeOrigin+performance.now()),by:'player',...(ui?{ui}:{})});

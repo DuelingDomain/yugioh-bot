@@ -117,30 +117,71 @@ function deckSession(format: "normal" | "domain" | "genesys" | "genesys-domain" 
   return { db, users, service, save, select, start, act, place, wait, get room() { return room; } };
 }
 
-it('keeps one instance through camera relocation and drops stale moves and removed track replays', () => {
+it('keeps one instance through camera relocation and naming', () => {
   const s = deckSession('normal'); s.start();
   const place = (slot: number, cardId?: number) => s.act({
     type: 'twin.place', seat: 0, source: 'auto', zone: 'monster',
-    card: { ref: 'fw-room8-track', slot, faceUp: true, position: 'attack', ...(cardId ? { cardId } : {}) },
-    cam: { by: 'camera', seenAt: 5_000, sentAt: 5_400 },
+    card: { ref: 'outline', slot, faceUp: true, position: 'attack', ...(cardId ? { cardId } : {}) },
   });
-  const camera = { by: 'camera', sentAt: 27_000, seenAt: 2_379 };
   place(5);
   const seq = s.room.lastSeq;
   place(5);
   expect(s.room.lastSeq).toBe(seq);
-  s.act({ type: 'twin.move', seat: 0, source: 'auto', zone: 'hand', cardRef: 'fw-room8-track', cam: camera });
-  expect(s.room.lastSeq).toBe(seq);
-  s.act({ type: 'twin.move', seat: 0, source: 'auto', zone: 'hand', cardRef: 'fw-room8-track', cam: { by: 'camera', seenAt: 4_000, sentAt: 6_000 } });
-  expect(s.room.lastSeq).toBe(seq);
-  expect(s.room.state.seats[0].twin[0].slot).toBe(5);
   place(4, 1);
-  expect(s.room.state.seats[0].twin).toEqual([expect.objectContaining({ ref: 'fw-room8-track', cardId: 1, zone: 'monster', slot: 4 })]);
-  s.act({ type: 'twin.remove', seat: 0, source: 'auto', cardRef: 'fw-room8-track' });
-  const removedSeq = s.room.lastSeq;
-  place(4);
-  expect(s.room.lastSeq).toBe(removedSeq);
-  expect(s.room.state.seats[0].twin).toEqual([]);
+  expect(s.room.state.seats[0].twin).toEqual([expect.objectContaining({ ref: 'outline', cardId: 1, zone: 'monster', slot: 4 })]);
+  s.act({ type: 'twin.move', seat: 0, source: 'auto', zone: 'hand', cardRef: 'outline' });
+  place(3);
+  expect(s.room.state.seats[0].twin).toEqual([expect.objectContaining({ ref: 'outline', cardId: 1, zone: 'monster', slot: 3 })]);
+});
+
+it.each(['graveyard', 'banished', 'deck', 'extra'])('does not relocate a %s card solely by its ref', zone => {
+  const s = deckSession('normal'); s.start();
+  s.act({ type: 'twin.place', seat: 0, zone, card: { ref: 'outline', faceUp: false } });
+  expect(() => s.act({ type: 'twin.place', seat: 0, source: 'auto', zone: 'monster',
+    card: { ref: 'outline', cardId: 1, slot: 1, faceUp: true } })).toThrow(/Duplicate card ref/);
+  expect(s.room.state.seats[0].twin).toEqual([expect.objectContaining({ ref: 'outline', zone })]);
+});
+
+it('replays an exact pile relocation saved under guard version 10', () => {
+  const s = deckSession('normal'); s.start();
+  s.act({ type: 'twin.place', seat: 0, zone: 'graveyard', card: { ref: 'outline', faceUp: false } });
+  const action = remoteActionSchema.parse({ type: 'twin.place', actorSeat: 0, idempotencyKey: 'replay-10',
+    seat: 0, source: 'auto', zone: 'monster', card: { ref: 'outline', cardId: 1, slot: 1, faceUp: true } });
+  const replayed = ygoModule.reduce(s.room.state, action, { replay: true, twinPlacementGuard: 10 });
+  expect(replayed.seats[0].twin).toEqual([expect.objectContaining({ ref: 'outline', zone: 'monster' })]);
+});
+
+it.each([
+  { label: 'an observation before a player removal', observedAt: 4900, blocked: true },
+  { label: 'an observation at a player removal', observedAt: 5000, blocked: false },
+  { label: 'an observation after a player removal', observedAt: 5100, blocked: false },
+  { label: 'an old tab after a player removal', observedAt: undefined, blocked: false },
+  { label: 'an observation before an automatic removal', observedAt: 4900, blocked: false, automatic: true },
+  { label: 'an undone player removal', observedAt: 4900, blocked: false, undone: true },
+])('filters a camera placement for $label', ({ observedAt, blocked, automatic, undone }) => {
+  const s = deckSession('normal'); s.start();
+  const card = { ref: 'outline', slot: 5, faceUp: true, position: 'attack' };
+  const place = { type: 'twin.place', seat: 0, source: 'auto', zone: 'monster', card };
+  s.act(place);
+  s.act({ type: 'twin.remove', seat: 0, cardRef: card.ref,
+    ...(automatic ? { source: 'auto' } : {}), cam: { by: automatic ? 'camera' : 'player', sentAt: 5000 } });
+  if (undone) {
+    s.act({ type: 'undo', targetActionId: s.room.state.undo!.actionId });
+    s.act({ type: 'twin.remove', seat: 0, cardRef: card.ref, source: 'auto' });
+  }
+  const before = s.room.lastSeq;
+  s.act({ ...place, cam: { by: 'camera', seenAt: 4000, sentAt: 5300, ...(observedAt === undefined ? {} : { observedAt }) } });
+  expect(s.room.lastSeq).toBe(before + (blocked ? 0 : 1));
+  expect(s.room.state.seats[0].twin.map(c => c.ref)).toEqual(blocked ? [] : [card.ref]);
+});
+
+it('uses a camera observation for a still-present twin even when the player clock is ahead', () => {
+  const s = deckSession('normal'); s.start();
+  s.place('outline');
+  s.act({ type: 'twin.move', seat: 0, zone: 'monster', slot: 3, cardRef: 'outline', cam: { by: 'player', sentAt: 30_000 } });
+  s.act({ type: 'twin.move', seat: 0, source: 'auto', zone: 'hand', cardRef: 'outline',
+    cam: { by: 'camera', seenAt: 1000, observedAt: 5000, sentAt: 6000 } });
+  expect(s.room.state.seats[0].twin).toEqual([expect.objectContaining({ ref: 'outline', zone: 'hand' })]);
 });
 
 it('limits named Spell/Trap card activations per seat and turn and restores them on Undo', () => {

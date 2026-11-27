@@ -27,30 +27,22 @@ export function sameTwinIdentity(state: RemoteState, seat: number, a: Identity, 
 type Placement = Extract<RemoteAction, { type: "twin.place" }>;
 type Reuse = { ref: string; card?: TwinCard } | { pending: true } | { noop: true };
 const pileZone = (zone: string) => zone === "graveyard" || zone === "banished";
-// Leave room for the watcher's 15-second pile settle window and its queued write.
-const MAX_CAMERA_EVIDENCE_AGE_MS = 20_000;
 
 export const cameraTwinGuardOn = (context?: RemoteReductionContext) => !context?.replay || (context.twinPlacementGuard ?? 0) >= 10;
 
-/** Camera times share a client clock. Server event time and base sequence cannot tell when a frame was captured. */
+/** Keep a delayed camera observation from recreating a card the player removed. */
 export function obsoleteCameraTwinAction(state: RemoteState, action: RemoteAction): boolean {
   if (action.type !== "twin.place" && action.type !== "twin.move" && action.type !== "twin.remove" &&
       action.type !== "twin.flip" && action.type !== "card.identified") return false;
   const ref = action.type === "twin.place" ? action.fromRef ?? action.card.ref : action.cardRef;
-  if (!ref || action.actorSeat !== action.seat || action.cam?.by === "player" ||
+  const observedAt = action.cam?.observedAt;
+  if (observedAt === undefined || !ref || action.actorSeat !== action.seat || action.cam?.by === "player" ||
       (action.cam?.by !== "camera" && action.source !== "auto")) return false;
-  const seenAt = action.cam?.seenAt;
-  if (action.cam && seenAt !== undefined && action.cam.sentAt - seenAt > MAX_CAMERA_EVIDENCE_AGE_MS) return true;
-  return state.undoHistory?.some(entry => {
-    if (entry.undone || !entry.cards.includes(`${action.seat}:${ref}`)) return false;
-    const earlier = entry.action;
-    if (earlier.type === "twin.remove" && earlier.seat === action.seat && earlier.cardRef === ref &&
-        !(earlier.source === "auto" && earlier.cam?.by === "camera" && earlier.cam.ui === "replace-placeholder") &&
-        !state.seats[action.seat]?.twin.some(card => card.ref === ref)) return true;
-    if (seenAt === undefined || earlier.actorSeat !== action.actorSeat) return false;
-    const observedAt = earlier.cam?.by === "player" ? earlier.cam.sentAt : earlier.cam?.seenAt;
-    return observedAt !== undefined && seenAt < observedAt;
-  }) ?? false;
+  if (state.seats[action.seat]?.twin.some(card => card.ref === ref)) return false;
+  return state.undoHistory?.some(({ undone, action: earlier, at }) =>
+    !undone && earlier.type === "twin.remove" && earlier.seat === action.seat && earlier.cardRef === ref &&
+    earlier.cam?.by !== "camera" && (earlier.cam?.by === "player" || earlier.source !== "auto") &&
+    observedAt < (earlier.cam?.sentAt ?? at)) ?? false;
 }
 /**
  * Guard 6: a card the camera sent from the field to a pile or the Extra Deck by the rules (no camera evidence) still owns its field
@@ -105,7 +97,8 @@ export function guardTwinPlacement(state: RemoteState, action: Placement, contex
         .every(key => JSON.stringify(action.card[key]) === JSON.stringify(exact[key]));
       if (sameCell && (sameObservation || pileZone(action.zone) && sameTwinIdentity(state, action.seat, action.card, exact, context)) &&
           !action.summon && !action.fromActivation) return { noop: true };
-      return { ref: exact.ref, card: exact };
+      if (remoteFieldZone(exact.zone) || exact.zone === "hand" || context?.replay && context.twinPlacementGuard === 10)
+        return { ref: exact.ref, card: exact };
     }
   }
   // A face-down return has no identity to match. Preserve the named card
