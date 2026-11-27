@@ -8,6 +8,7 @@ import type {DetectedQuad,RecognitionResult} from './types';
 function rig(backgroundReread=true,placeUnsure=false,margin=.15,readCostMs=0,quiet=false) {
   const gallery=createFieldIdentityGallery();let known:KnownFieldCard[]=[];
   let at=0,hand=false,motion=0,visible=true,tier:RecognitionResult['tier']='low match',identity='A',pending:Promise<void>|undefined;
+  let look:number[]=Array(12).fill(.6);
   const card:DetectedQuad={kind:'face-up',confidence:.95,partial:false,quad:[{x:.3,y:.3},{x:.4,y:.3},{x:.4,y:.45},{x:.3,y:.45}]};
   const width=96,height=140,data=new Uint8ClampedArray(width*height*4);
   for(let y=0;y<height;y++)for(let x=0;x<width;x++){
@@ -21,14 +22,36 @@ function rig(backgroundReread=true,placeUnsure=false,margin=.15,readCostMs=0,qui
     buffer:{sample:async()=>({frame,at})},recognizer:{separateDetector:true,detectCards:async()=>visible?[card]:[],recognize:async()=>{
       reads.push(at);const capturedTier=tier,capturedIdentity=identity;await pending;at+=readCostMs;
       return {identityEmbedding:{space:'art-box',values:capturedIdentity==='B'?[0,1]:[1,0]},candidates:[{cardId:capturedIdentity,score:capturedTier==='sure'?.95:.65},{cardId:'RUNNER',score:.65-margin}],tier:capturedTier,quality:{detected:true,cornersFound:true,framesUsed:1,selectedFrameIndices:[0],sharpness:20,fallback:false},timingsMs:{sharpness:0,detect:0,warp:0,embed:0,search:0,total:228},backend:'wasm'};
-    }},analyze:()=>({scene:quiet?{moving:0,sinceMark:0,mark(){}}:undefined,motion:()=>motion,sharpness:()=>20,crop:()=>frame,appearance:()=>Array(12).fill(.6),halo:()=>Array(12).fill(.8),touched:()=>hand?.5:0,occluded:()=>hand})});
+    }},analyze:()=>({scene:quiet?{moving:0,sinceMark:0,mark(){}}:undefined,motion:()=>motion,sharpness:()=>20,crop:()=>frame,appearance:()=>look,halo:()=>Array(12).fill(.8),touched:()=>hand?.5:0,occluded:()=>hand})});
   watcher.subscribe(e=>events.push(e));
   const tick=async(ms=100)=>{at+=ms;await watcher.tick();await new Promise<void>(r=>setImmediate(r));};
-  return {watcher,gallery,events,reads,tick,set known(value:KnownFieldCard[]){known=value;},set hand(v:boolean){hand=v;},set motion(v:number){motion=v;},set visible(v:boolean){visible=v;},set glare(on:boolean){
+  return {watcher,gallery,events,reads,tick,set look(v:number[]){look=v;},set known(value:KnownFieldCard[]){known=value;},set hand(v:boolean){hand=v;},set motion(v:number){motion=v;},set visible(v:boolean){visible=v;},set glare(on:boolean){
     data.set(clear);
     if(on)for(let y=22;y<45;y++)for(let x=27;x<55;x++)data.set([255,255,255,255],(y*width+x)*4);
   },sure(id='A'){tier='sure';identity=id;},weakNamed(){tier='not sure';},delay(p:Promise<void>){pending=p;},async untilPrompt(){for(let i=0;i<30&&!events.some(e=>e.type==='prompt');i++)await tick();assert.ok(events.some(e=>e.type==='prompt'));}};
 }
+
+test('a removed reading placeholder does not cycle through new refs in the same cell',async()=>{
+  const r=rig(false);
+  try {
+    await r.untilPrompt();
+    const first=r.events.find(e=>e.type==='reading')!;
+    assert.ok(first);
+    r.watcher.forget(first.track.id);
+    // The detector is still finding the same box but has no reliable colour sample.
+    r.look=[];
+    for(let i=0;i<45;i++)await r.tick();
+    assert.deepEqual(r.events.filter(e=>e.type==='reading').map(e=>e.track.id),[first.track.id]);
+    r.visible=false;
+    r.look=Array(12).fill(.8);
+    for(let i=0;i<45;i++)await r.tick();
+    r.visible=true;
+    r.look=Array(12).fill(.6);
+    r.sure();
+    for(let i=0;i<25;i++)await r.tick();
+    assert.ok(r.events.some(e=>e.type==='placed'&&e.track.id!==first.track.id));
+  }finally{r.watcher.dispose();}
+});
 
 test('a resting unnamed front exposes a glare notice after two seconds and clears it with the reflection',async()=>{
   const r=rig(false);

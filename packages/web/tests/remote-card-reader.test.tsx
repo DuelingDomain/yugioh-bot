@@ -97,6 +97,7 @@ it('read diagnostics survive the camera stamp, action validation and idempotent 
   const {fieldCameraStamp,stampedProposal}=await import('../src/lib/remote/field-timing');
   const reader:ReaderDiagnostics={selected:'hybrid',stage:'second',model:'dinov2-small-duel-v3b-light',first:{score:.67,runnerUp:.64,margin:.03,ms:4},second:{score:.9,runnerUp:.7,margin:.2,ms:111},ms:115};
   const stamp=fieldCameraStamp({id:'read',originAt:1000,stagesMs:{firstOutline:0,searchDone:120},durationsMs:{},reader});
+  expect(fieldCameraStamp(undefined,'camera',undefined,1250).seenAt).toBe(Math.round(performance.timeOrigin+1250));
   const set={detector:.95,pixel:'down' as const,pixelConfidence:1,sd:0,backDistance:null,positive:true,basis:'pixels' as const,decision:'committed' as const};
   const proposal={type:'twin.place' as const,actorSeat:0,seat:0,zone:'monster',card:{ref:'read-1',cardId:1,faceUp:true,position:'attack' as const},source:'auto' as const,cam:{...stamp,set}};
   const action=stampedProposal(proposal,'hybrid-stamp-test');
