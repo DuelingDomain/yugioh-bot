@@ -247,9 +247,11 @@ test.describe("remote duels screen, solo", () => {
       for (let seat = 0; seat < count; seat++) await expect(page.getByTestId(`seat-${seat}`)).toBeVisible();
       // Only the webcams show: no board and no W view switch (the board logic runs hidden).
       await expect(page.getByTestId("view-board")).toHaveCount(0); await expect(page.getByText("Enlarge field")).toHaveCount(0);
-      // The seat with a camera shows no board. Test bots have no camera, so their seats show a small board instead.
-      await expect(page.locator('[data-testid^="seat-"][data-nocam]')).toHaveCount(count - 1);
+      // No seat shows a board (bots too), and every tile is the same size.
+      await expect(page.locator('[data-testid="field-0"]:visible, [data-testid="field-1"]:visible, [data-testid="field-2"]:visible, [data-testid="field-3"]:visible')).toHaveCount(0);
       await expect(page.getByTestId("remote-table")).toHaveAttribute("data-wc", "1");
+      const widths = await page.evaluate(n => Array.from({ length: n }, (_, i) => Math.round(document.querySelector(`[data-testid="seat-${i}"]`)!.getBoundingClientRect().width)), count);
+      if (count === 3 || count === 4) expect(Math.max(...widths) - Math.min(...widths)).toBeLessThanOrEqual(2);
       for (const [w, h] of SHOTS ? [[1920, 1080], [1366, 768], [360, 740]] : [[1920, 1080]]) { await page.setViewportSize({ width: w, height: h }); await page.waitForTimeout(300); await shot(page, `${mode}way-${w}`); }
     }
   });
