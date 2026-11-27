@@ -31,11 +31,15 @@ export function placePopup(at: PopAt, w: number, h: number, vw: number, vh: numb
       const lo = inside(box).y ? box.top + MARGIN : view.top; const hi = (inside(box).y ? box.bottom - MARGIN : view.bottom) - h;
       let top = Math.max(lo, Math.min(mid - h / 2, Math.max(lo, hi)));
       // Never cover my phases, my LP or the bottom bar: slide up above them, or try the other side.
+      // Sliding above one box can land on another one (the phases sit above my LP), so the boxes are checked again until none is covered.
       let ok = true;
-      for (const keep of at.avoid ?? []) {
-        if (x >= keep.right || x + w <= keep.left || top >= keep.bottom || top + h <= keep.top) continue;
-        top = keep.top - MARGIN - h;
-        if (top < lo) { ok = false; break; }
+      for (let pass = 0, moved = true; moved && ok && pass <= (at.avoid?.length ?? 0); pass++) {
+        moved = false;
+        for (const keep of at.avoid ?? []) {
+          if (x >= keep.right || x + w <= keep.left || top >= keep.bottom || top + h <= keep.top) continue;
+          top = keep.top - MARGIN - h; moved = true;
+          if (top < lo) { ok = false; break; }
+        }
       }
       if (ok) return { left: x, top, side: side === "right" ? "left" : "right", arrow: Math.max(22, Math.min(h - 22, mid - top)) };
     }
