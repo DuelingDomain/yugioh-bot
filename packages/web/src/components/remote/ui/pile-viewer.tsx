@@ -231,12 +231,12 @@ export function PileCardSearch({ deck, disabled, onPick }: {deck: readonly numbe
   </div>;
 }
 
-type EditRow = { entry: PileEntry; label: string; checked: boolean; uncertain?: boolean };
+type EditRow = { entry: PileEntry; label: string; checked: boolean; uncertain?: boolean; art?: number };
 function PileEditor({ zone, cards, deck, onScan, onReview, onApply, onCancel }: {
   zone: PublicPile; cards: TwinCard[]; deck: readonly number[]; onScan?: PileScan; onReview?: (zone: PublicPile | null) => void;
   onApply: (zone: PublicPile, entries: PileEntry[], expectedRefs: string[]) => Promise<unknown>; onCancel: () => void;
 }) {
-  const [initial] = useState(() => cards), [rows, setRows] = useState<EditRow[]>(() => cards.map(card => ({ entry: { ref: card.ref }, label: cardName(card, undefined), checked: true })));
+  const [initial] = useState(() => cards), [rows, setRows] = useState<EditRow[]>(() => cards.map(card => ({ entry: { ref: card.ref }, label: cardName(card, undefined), checked: true, art: card.faceUp ? cardCode(card) : undefined })));
   const [reading, setReading] = useState(false), [camera, setCamera] = useState(false), [adding, setAdding] = useState(false);
   const [saving, setSaving] = useState(false), [error, setError] = useState("");
   const job = useRef<AbortController | null>(null);
@@ -251,7 +251,7 @@ function PileEditor({ zone, cards, deck, onScan, onReview, onApply, onCancel }: 
       const list = result.map(({ uncertain, ...card }) => {
         const match = unmatched.findIndex(existing => existing.faceUp === card.faceUp && (!card.faceUp || cardCode(existing) === card.cardId));
         const entry = match < 0 ? { ref: crypto.randomUUID(), ...card } : { ref: unmatched.splice(match, 1)[0].ref };
-        return { entry, label: card.name ?? (card.faceUp ? "Unidentified card" : "Face-down card"), checked: true, uncertain };
+        return { entry, label: card.name ?? (card.faceUp ? "Unidentified card" : "Face-down card"), checked: true, uncertain, art: card.faceUp ? Number(card.cardId) || undefined : undefined };
       });
       setRows(list.reverse()); setCamera(true);
     } catch (cause) {
@@ -286,17 +286,17 @@ function PileEditor({ zone, cards, deck, onScan, onReview, onApply, onCancel }: 
     </div>
     {reading ? <p role="status">Reading pile…</p> : null}
     {adding && !reading ? <PileCardSearch deck={deck} disabled={saving} onPick={card => {
-      setRows(list => [{ entry: { ref: crypto.randomUUID(), cardId: card.id, name: card.name, faceUp: true }, label: card.name, checked: true }, ...list]);
+      setRows(list => [{ entry: { ref: crypto.randomUUID(), cardId: card.id, name: card.name, faceUp: true }, label: card.name, checked: true, art: card.id }, ...list]);
       setAdding(false);
     }} /> : null}
     {!reading ? <><strong>{camera ? "Camera sees" : "Current pile"}</strong>
       {camera && initial.length > rows.length ? <p>Applying this list will replace {initial.length} saved cards.</p> : null}
       {rows.length ? <ol className={s.pileEditList} aria-label="Pile cards, top first">
-        {rows.map(({ entry, label, checked, uncertain }, index) => <li key={entry.ref}>
+        {rows.map(({ entry, label, checked, uncertain, art }, index) => <li key={entry.ref}>
           <label><input type="checkbox" checked={checked} disabled={saving} onChange={event => {
             const checked = event.target.checked;
             setRows(list => list.map(row => row.entry.ref === entry.ref ? {...row, checked} : row));
-          }} /> {Number(entry.cardId) > 0 ? <img className={s.pileThumb} src={cardArt(Number(entry.cardId), "small")} alt="" loading="lazy" draggable={false} /> : null}<span>{label}{uncertain ? " (check match)" : ""}{index === 0 ? " · Top" : ""}</span></label>
+          }} /> {art ? <img className={s.pileThumb} src={cardArt(art, "small")} alt="" loading="lazy" draggable={false} /> : null}<span>{label}{uncertain ? " (check match)" : ""}{index === 0 ? " · Top" : ""}</span></label>
           <button type="button" className={PILE_BUTTON} disabled={saving || index === 0} aria-label={`Move ${label} up`} onClick={() => shift(index, -1)}>↑</button>
           <button type="button" className={PILE_BUTTON} disabled={saving || index === rows.length - 1} aria-label={`Move ${label} down`} onClick={() => shift(index, 1)}>↓</button>
         </li>)}
