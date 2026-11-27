@@ -121,7 +121,8 @@ export async function chooseWorkerLayout(layout: WorkerLayout, backend: 'auto' |
       new Promise<null>(resolve => { timer = setTimeout(() => resolve(null), 3000); }),
     ]);
     // A software adapter (SwiftShader) runs on the CPU like WASM.
-    if (!adapter || adapter.isFallbackAdapter || adapter.info?.isFallbackAdapter) return cpu;
+    const soft = adapter as { isFallbackAdapter?: boolean; info?: { isFallbackAdapter?: boolean } } | null;
+    if (!soft || soft.isFallbackAdapter || soft.info?.isFallbackAdapter) return cpu;
   } catch { return cpu; }
   finally { clearTimeout(timer); }
   return { split: true, threads: half };
