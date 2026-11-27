@@ -80,7 +80,7 @@ function AdminRows({ setup }: { setup: CameraMenuSetup }) {
  * Rows are one line each; the longer notes are tooltips. The drawer Settings tab keeps the table-wide settings (detection, voice, view).
  */
 export function CameraToolsMenu({ seat, name, you, scan, advice, warn, onToken, onRescan, setup, board }: {
-  seat: number; name: string; you: boolean; /** 1v1: the virtual board under this webcam, on or off. */ board?: { on: boolean; onChange: (on: boolean) => void }; scan: FieldScanState | null; advice: ScanAdvice; /** A bad or lost feed: the button shows a warning dot. */ warn: boolean;
+  seat: number; name: string; you: boolean; /** 1v1: the virtual board under this webcam, on or off. */ board?: { on: boolean; onChange: (on: boolean) => void; /** Tap mode: the board is off for everyone and cannot be turned on here. */ locked?: boolean }; scan: FieldScanState | null; advice: ScanAdvice; /** A bad or lost feed: the button shows a warning dot. */ warn: boolean;
   onToken?: () => void; onRescan?: () => Promise<string>;
   /** My own seat only: the camera, side and admin rows. */ setup?: CameraMenuSetup;
 }) {
@@ -118,7 +118,7 @@ export function CameraToolsMenu({ seat, name, you, scan, advice, warn, onToken, 
     <div id={id} ref={panel} popover="auto" role="menu" aria-label={`Camera tools for ${name}`} className={s.toolsMenu} onToggle={event => { setOpen(event.newState === "open"); if (event.newState === "open") place(); }}>
       {setup ? <MyCameraGroup setup={setup} close={close} /> : null}
       {board ? <Group label="View">
-        <Row icon="layers" role="menuitemcheckbox" aria-checked={board.on} pill={onOff(board.on)} sub="Hides or shows the virtual board under this webcam. The board keeps running." data-testid={`camera-board-${seat}`}
+        <Row icon="layers" role="menuitemcheckbox" aria-checked={board.on} pill={onOff(board.on)} disabled={board.locked} sub={board.locked ? "This seat uses Tap mode, so its board is off for everyone." : "Hides or shows the virtual board under this webcam. The board keeps running."} data-testid={`camera-board-${seat}`}
           onClick={() => { close(); board.onChange(!board.on); }}>{`Virtual board under ${you ? "my" : `${name}'s`} webcam`}</Row>
       </Group> : null}
       <Group label="Zones">
