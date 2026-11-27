@@ -19,8 +19,8 @@ async function postAction(request: APIRequestContext, path: string, action: Reco
     if (response.status() !== 409 || attempt >= 4) return response;
   }
 }
-// A click on your own card opens its zone menu. Card details leads to the inspector, or to the Set candidate picker for a Set card with a known origin.
-const cardDetails = async (page: Page, cell: Locator) => { await cell.click(); await page.getByRole("button", { name: "Card details" }).click(); };
+// A click on your own card opens the card popup. For a Set card with a known origin, its Choose Set card action opens the Set candidate picker.
+const cardDetails = async (page: Page, cell: Locator) => { await cell.click(); await page.getByTestId("card-popover").getByTestId("card-choose-set").click(); };
 
 const SHOTS = process.env.E2E_SHOTS ?? "";
 // A still picture of two cards on a table, served as the camera. Chrome's fake-file camera is not reliable between tests.
@@ -379,13 +379,13 @@ test.describe("remote duels screen, solo", () => {
       await expect(seat0).toHaveAttribute("data-view", "camera");
       const camBefore = await area("feed-box-0"); const fieldBefore = await area("fwrap-0");
       await shot(page, `swap-${mode}-camera`);
-      // A click on your own card opens its zone menu, Card details opens the inspector, and the view does not change.
+      // A click on your own card opens the card popup (not the drawer), and the view does not change.
       await page.getByTestId("field-0").locator('[data-zone="m1"]').click();
-      await page.getByRole("button", { name: "Card details" }).click();
-      await expect(page.getByTestId("inspector-body")).toBeVisible();
+      await expect(page.getByTestId("card-popover")).toBeVisible();
+      await expect(page.getByTestId("inspector-body")).toBeHidden();
       await expect(seat0).toHaveAttribute("data-view", "camera");
       await page.keyboard.press("Escape");
-      await expect(page.getByTestId("inspector-body")).toBeHidden();
+      await expect(page.getByTestId("card-popover")).toBeHidden();
       // A click on the empty frame never zooms: only the Enlarge field button enlarges the field and shrinks the camera.
       await page.getByTestId("fwrap-0").click({ position: { x: 4, y: 4 } });
       await expect(seat0).toHaveAttribute("data-view", "camera");
@@ -398,8 +398,7 @@ test.describe("remote duels screen, solo", () => {
       await shot(page, `swap-${mode}-field`);
       // Cards still answer clicks in the field view.
       await page.getByTestId("field-0").locator('[data-zone="m1"]').click();
-      await page.getByRole("button", { name: "Card details" }).click();
-      await expect(page.getByTestId("inspector-body")).toBeVisible();
+      await expect(page.getByTestId("card-popover")).toBeVisible();
       await page.keyboard.press("Escape");
       await expect(seat0).toHaveAttribute("data-view", "field");
       // The choice is remembered for this viewer and seat only.
@@ -935,11 +934,11 @@ test.describe("remote duels screen, moving cards by hand", () => {
     await page.goto(`/duels/remote/${slug}`);
     const field = page.getByTestId("field-0");
     await expect(field.locator('[data-zone="m1"]')).toBeVisible();
-    // Right click on an empty spot is swallowed. On a card it opens the card drawer with its actions.
+    // Right click on an empty spot is swallowed. On a card it opens the card popup with its actions.
     const swallowed = (selector: string) => page.locator(selector).first().evaluate(el => !el.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true })));
     expect(await swallowed('[data-testid="remote-table"] main')).toBe(true);
     await field.locator('[data-zone="m1"]').click({ button: "right" });
-    await expect(page.getByTestId("inspector")).toContainText("Dark Magician");
+    await expect(page.getByTestId("card-popover")).toContainText("Dark Magician");
     await page.keyboard.press("Escape");
     // The camera: confirm the mat grid, then use webcam only.
     await page.getByTestId("camera-on-feed").click();
@@ -1283,6 +1282,7 @@ test("private Set candidate pick, public reveal and a soft mismatch note",async(
   await page.route("**/api/cards/*/image**",route=>route.fulfill({status:204}));
   await page.goto(`/duels/remote/${slug}`);
   await page.getByTestId("field-0").locator('[data-zone="s1"]').click();
+  await page.getByTestId("card-popover").getByTestId("card-more").click();
   await page.getByTestId("zone-activate").click();
   await page.getByRole("button",{name:"Set face-down",exact:true}).click();
   const set=page.getByTestId("field-0").locator('[data-zone="s2"]');
@@ -2273,7 +2273,7 @@ test('field watcher automatic: Set backs, deck stacks, and revealed Sets keep fa
   await expect(page.getByTestId('set-marker')).toHaveCount(0);
   await shots('set-flipped-same-slot');
   const faceUpCell=page.getByTestId('field-0').locator('[data-zone="m3"]');
-  await faceUpCell.click();await expect(page.getByTestId('inspector-body')).not.toContainText('Revealed');await page.keyboard.press('Escape');
+  await faceUpCell.click();await expect(page.getByTestId('card-popover')).toBeVisible();await expect(page.getByTestId('card-popover')).not.toContainText('Revealed');await page.keyboard.press('Escape');
   const resetTiming=await change(true);
   await expect.poll(async()=>(await room()).state.seats[0].twin[0]?.faceUp,{timeout:15_000,intervals:[25]}).toBe(false);
   const reset=await room();
@@ -2297,7 +2297,8 @@ test('field watcher automatic: Set backs, deck stacks, and revealed Sets keep fa
   await expect(page.getByTestId('field-watcher-prompt')).toHaveCount(0);
   await shots('revealed-set-same-slot');
   await cell.click();
-  await expect(page.getByTestId('inspector-body')).not.toContainText('Revealed');
+  await expect(page.getByTestId('card-popover')).toBeVisible();
+  await expect(page.getByTestId('card-popover')).not.toContainText('Revealed');
   await page.keyboard.press('Escape');
   // Normal repeated reveal must save once, without a conflict/retry.
   const revealAgainTiming=await change(false);
@@ -2630,7 +2631,7 @@ test.describe("remote duels screen, card logic", () => {
     const field = page.getByTestId("field-0");
     await expect(field.locator('[data-zone="s1"]')).toBeVisible();
     await field.locator('[data-zone="s1"]').click({ button: "right" });
-    await page.getByTestId("inspector").getByRole("button", { name: "Activate" }).click();
+    await page.getByTestId("card-popover").getByRole("button", { name: "Activate" }).click();
     // The card logic knows Monster Reborn revives from a Graveyard, so the table asks. The player picks the card.
     const dialog = page.getByTestId("control-dialog");
     await expect(dialog).toContainText("Revive from which Graveyard?", { timeout: 60_000 });
@@ -2642,7 +2643,7 @@ test.describe("remote duels screen, card logic", () => {
     await expect.poll(async () => (await room()).state.seats[0].twin.find(card => card.ref === "dm")).toMatchObject({ zone: "monster", slot: 3, position: "defense", ownerSeat: 1 });
     expect((await room()).state.seats[1].twin.some(card => card.ref === "dm")).toBe(false);
     await field.locator('[data-zone="m3"]').click({ button: "right" });
-    await page.getByTestId("inspector").getByTestId("card-control").click();
+    await page.getByTestId("card-popover").getByTestId("card-control").click();
     await page.getByTestId("control-dialog").getByTestId("control-zone-M2").click();
     await expect.poll(async () => (await room()).state.seats[1].twin.find(card => card.ref === "dm")).toMatchObject({ zone: "monster", slot: 2 });
     expect((await room()).state.seats[0].twin.some(card => card.ref === "dm")).toBe(false);
