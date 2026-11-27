@@ -22,7 +22,7 @@ const monster = (ref='paper'): TwinCard => ({ref,cardId:46986414,name:'Dark Magi
 const placementCard=(ref='paper')=>{const {zone,...card}=monster(ref);return card;};
 const observed = (overrides: Partial<CorrectionObservation> = {}): CorrectionObservation => ({id:'outline',ref:'paper',zone:'monster',slot:1,faceDown:false,position:'attack',removed:false,resting:true,...overrides});
 
-it.each([['Take all','hand'],['Shuffle all into Deck','deck']] as const)('offers the owner %s for all visible pile entries', (label,destination) => {
+it.each([['Take all to hand','hand'],['Shuffle all into Deck','deck']] as const)('offers the owner %s for all visible pile entries', async (label,destination) => {
   vi.stubGlobal('matchMedia',vi.fn(()=>({matches:false,addEventListener:vi.fn(),removeEventListener:vi.fn()})));
   const onLift=vi.fn();
   const props={seat:0,name:'Player',zone:'graveyard' as const,twin:[{...monster('first'),zone:'graveyard'},{...monster('top'),zone:'graveyard'}],
@@ -30,7 +30,7 @@ it.each([['Take all','hand'],['Shuffle all into Deck','deck']] as const)('offers
   const view=render(<PileViewer {...props} mine={false}/>);
   expect(screen.queryByRole('button',{name:label})).toBeNull();
   view.rerender(<PileViewer {...props} mine/>);
-  fireEvent.click(screen.getByRole('button',{name:label}));
+  await act(async()=>{fireEvent.click(screen.getByRole('button',{name:label}));});
   expect(onLift).toHaveBeenCalledExactlyOnceWith('graveyard',['first','top'],destination);
 });
 

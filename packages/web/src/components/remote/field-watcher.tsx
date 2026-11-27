@@ -136,7 +136,7 @@ const mainSlotPattern=/^[MS][1-5]$/;
 const physicalZonePattern=/^(?:M[1-5]|S[1-5]|EMZ[12]|FIELD)$/;
 /** Maximum interval between a pile change and its matching destination. */
 const PILE_EXIT_MS=10_000;
-const PILE_REVEAL_WAIT_MS=1000;
+const PILE_REVEAL_WAIT_MS=1000,PILE_REVEAL_RECHECK_MS=200;
 const recentPileEvidence=(at:number,when:number|undefined)=>when!==undefined&&Math.abs(at-when)<=PILE_EXIT_MS;
 /** How long a card shown from the hand stays linked to the play that follows it (field or pile placement, one Undo). */
 const HAND_ACTIVATION_MS=10_000;
@@ -251,6 +251,9 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   const [tokenPrompt,setTokenPrompt]=useState<{event:FieldEvent;token:TwinCard;zone:FieldZone;name:string;facts?:ReturnType<typeof cardInfo>;choosing?:boolean}|null>(null);
   const [notice,setNotice]=useState(''),[undoId,setUndoId]=useState(''),[pending,setPending]=useState(false),[recovery,setRecovery]=useState<StaleFieldPlacementError|null>(null);
   const heldTimers=useRef(new Map<string,ReturnType<typeof setInterval>>()),departureTimers=useRef(new Map<string,ReturnType<typeof setTimeout>>());
+  /** Keep a dismissed or resolved reveal quiet until the pile top changes or the camera sees it again. */
+  const promptedPileTops=useRef(new Map<PileCell,string>());
+  useEffect(()=>()=>promptedPileTops.current.clear(),[room.slug,seat]);
   /** Monsters out of view during the departure wait (track id): an Extra Deck summon in that window takes them as materials. */
   const pileWrites=useRef(new Map<string,number>());
   const pendingLeft=useRef(new Map<string,FieldVanish>()),leaveStarted=useRef(new Map<string,number>()),pendingDepartures=useRef(new Map<string,{event:FieldEvent;origin:Pick<TwinCard,'ref'|'zone'|'slot'>;pileWorked?:boolean;/** The pile a hand last had contact with since the removal. */pile?:'GY'|'BANISHED';unresolved?:true}>()),settlingDepartures=useRef(new Set<string>()),lateDefaults=useRef(new Map<string,{at:number;lastSeen:number;cardId?:string;/** The default rule sent it to the Graveyard: it waits for its own pile track, or a Banished one. */pile?:true}>()),lateBusy=useRef(false);
@@ -686,26 +689,37 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     !watch.getTracks().some(t=>t.visible&&!t.removed&&(bindings.current.get(t.id)??t.id)===value.ref);
   function offerPileDeparture(track:FieldTrack,lower:TwinCard,upper:readonly TwinCard[],zone:PileCell,pile:PublicPile) {
     const key=`pile-reveal:${zone}`;
+    const retryUntil=performance.now()+PILE_EXIT_MS;
     clearTimeout(departureTimers.current.get(key));
-    departureTimers.current.set(key,setTimeout(()=>{
+    const check=()=>{
       departureTimers.current.delete(key);
       const snap=watch.getSnapshot?.();
       if(!live()||!snap||!pileVisible(snap,zone,track.firstSeen)||fannedPile(snap,zone)||departureRef.current)return;
       const twins=current.current.room.state.seats[seat].twin;
+      const top=twins.findLast(c=>c.zone===pile);
+      if(!top||promptedPileTops.current.get(zone)===top.ref)return;
       const currentLower=twins.find(c=>c.ref===lower.ref&&c.zone===pile);
-      if(!currentLower||!snap.tracks.some(t=>t.zone===zone&&t.visible&&!t.removed&&t.firstSeen===track.firstSeen&&(bindings.current.get(t.id)??t.id)===lower.ref))return;
+      const visible=snap.tracks.filter(t=>t.visible&&!t.removed);
+      const refOf=(t:FieldTrack)=>bindings.current.get(t.id)??t.id;
+      if(!currentLower||!visible.some(t=>t.zone===zone&&t.firstSeen===track.firstSeen&&refOf(t)===lower.ref))return;
+      const outside=visible.filter(t=>t.zone!==zone&&t.lastSeen>=track.firstSeen);
       const stillAbove=twins.slice(twins.indexOf(currentLower)+1);
-      const missing=upper.find(c=>stillAbove.some(t=>t.ref===c.ref&&t.zone===pile)&&!snap.tracks.some(t=>{
-        if(t.removed||!t.visible)return false;
-        const ref=bindings.current.get(t.id)??t.id;
-        if(ref===c.ref)return true;
-        return t.zone!==zone&&t.lastSeen>=track.firstSeen&&!!t.cardId&&t.cardId===String(cardCode(c)??'')&&!twins.some(twin=>twin.ref===ref);
-      }));
+      const missing=upper.find(c=>stillAbove.some(t=>t.ref===c.ref&&t.zone===pile)&&
+        !visible.some(t=>refOf(t)===c.ref)&&
+        !outside.some(t=>t.cardId&&t.cardId===String(cardCode(c)??'')&&!twins.some(twin=>twin.ref===refOf(t))));
       if(!missing)return;
+      const now=performance.now();
+      // A hand or an unread destination can delay the field move past the first reveal check.
+      if(now-pileActivity(snap)[zone]<PILE_REVEAL_WAIT_MS||outside.some(t=>!t.cardId&&(t.state==='candidate'||t.state==='prompt'))){
+        if(now<retryUntil)departureTimers.current.set(key,setTimeout(check,PILE_REVEAL_RECHECK_MS));
+        return;
+      }
       const name=missing.name??cardInfo(cardCode(missing))?.name??'Card';
+      promptedPileTops.current.set(zone,top.ref);
       setDeparture({ref:missing.ref,name,zone:'pending',pile});
       setUndoId('');setNotice(`${name} left the ${pile==='graveyard'?'Graveyard':'banished pile'} · choose destination`);
-    },PILE_REVEAL_WAIT_MS));
+    };
+    departureTimers.current.set(key,setTimeout(check,PILE_REVEAL_WAIT_MS));
   }
   /** True when a token holds the cell: ask the player (one click to remove it, e.g. after a Tribute Summon) and place nothing. */
   function tokenClash(event:FieldEvent,zone:FieldZone,twins:readonly TwinCard[],name:string|undefined,facts?:ReturnType<typeof cardInfo>) {
@@ -799,6 +813,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       const zone=track.zone as PileCell,members=twins.filter(c=>c.zone===pile);
       const matching=pileCopy(members,entry),top=members.at(-1);
       if(matching){
+        if(sureTop&&matching===top)promptedPileTops.current.delete(zone);
         const snap=watch.getSnapshot?.(),fanned=fannedPile(snap,zone);
         const oldTopVisible=(snap?.tracks??watch.getTracks()).some(t=>t.id!==event.track.id&&t.zone===zone&&t.visible&&!t.removed&&(bindings.current.get(t.id)??t.id)===top?.ref);
         const lastOrder=pileOrders(pile).at(-1);
@@ -817,8 +832,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
         return;
       }
     }
-    if(track.zone==='EXTRA')return;
-    if(track.zone==='DECK'){
+    if(['DECK','EXTRA'].includes(track.zone)){
       const resolved=resolveExisting(event,track,entry,twins);
       if(resolved.blocked||!resolved.existing)return;
       const moved=await act({type:'twin.move',source:'auto',actorSeat:seat,seat,cardRef:resolved.existing.ref,...location,position:fieldTwinPosition(track)});
@@ -1197,7 +1211,6 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     return cappedFacts(lookup,FACTS_WAIT_MS);
   }
   function handle(event:FieldEvent,departureOrigin?:Pick<TwinCard,'ref'|'zone'|'slot'>,factsStarted=false,moveRetry=0) {
-    if(event.track.zone==='EXTRA')return;
     if(!factsStarted&&event.result&&event.track.state==='identified'&&!event.track.faceDown)faceReads.current.set(event.track.zone,event);
     const observedRef=bindings.current.get(event.track.id)??event.track.id;
     if(givenHold(event.track))return;
@@ -1484,7 +1497,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       }
       if(event.type==='moved') {
         const fromPublicPile=orderedPiles.some(([,zone])=>card.zone===zone);
-        if(fromPublicPile||!publicField(card.zone)&&!recentFieldDeparture(card,serverNow())){await apply(event,act);return;}
+        if(fromPublicPile||event.track.zone==='EXTRA'||!publicField(card.zone)&&!recentFieldDeparture(card,serverNow())){await apply(event,act);return;}
         const observed=watch.getTrack(event.track.id)??watch.getTrack(ref);
         if(!observed||observed.removed||observed.state!=='identified')return;
         if(!observed.visible){
@@ -1781,6 +1794,10 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     for(const ref of readerRemovals.current)if(!zones.has(ref)||room.state.seats[seat].twin.some(card=>card.ref===ref&&cardCode(card)))readerRemovals.current.delete(ref);
     prunePhysical();
     previousBoard.current={seq:room.lastSeq,zones};
+    for(const [zone,pile] of orderedPiles){
+      const prompted=promptedPileTops.current.get(zone);
+      if(prompted&&room.state.seats[seat].twin.findLast(c=>c.zone===pile)?.ref!==prompted)promptedPileTops.current.delete(zone);
+    }
     const value=departureRef.current;if(!value)return;
     const card=room.state.seats[seat].twin.find(c=>c.ref===value.ref);
     if(!card||(value.zone==='pending'&&(value.pile?!pileDepartureStillMissing(value,card):!outOfView(value.ref)))||(!destinations.some(d=>d.zone===card.zone)&&value.zone!=='pending')){setDeparture(null);setNotice('');}
@@ -1886,6 +1903,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       const value=departureRef.current;if(!value||!live())return;
       const card=current.current.room.state.seats[seat].twin.find(c=>c.ref===value.ref);
       const pileChoice=value.zone==='pending'&&value.pile;
+      if(pileChoice===zone)return;
       if(!card||(pileChoice?!pileDepartureStillMissing(value,card):!destinations.some(d=>d.zone===card.zone)&&!(value.zone==='pending'&&outOfView(card.ref))))return;
       setPending(true);
       try{const updated=await act({type:'twin.move',...(value.pile?{}:{source:'auto' as const}),actorSeat:seat,seat,cardRef:card.ref,zone,...(zone==='banished'?{faceUp:!down}:zone==='graveyard'?{faceUp:true}:zone==='deck'||value.pile&&zone==='hand'?{faceUp:false}:zone==='extra'?(card.faceUp&&/\bpendulum\b/i.test(cardInfo(cardCode(card))?.type??'')?{faceUp:true,pendulum:true}:{faceUp:false}):{}),...(card.faceUp?{name:value.name}:{})});if(updated){setDeparture({...value,zone,down:zone==='banished'&&down});setNotice(`${value.name} → ${fieldLeaveLabel(zone,!down)}${value.pile?'':' · auto'}`);setUndoId(updated.state.undo?.actionId??'');}}finally{setPending(false);}
@@ -2467,7 +2485,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
         <button type="button" disabled={pending} onClick={()=>{const {event,token}=tokenPrompt;setTokenPrompt(null);tokenUndo.current=undefined;void queueHuman('token',async act=>{const removed=await act({type:'twin.remove',actorSeat:seat,seat,cardRef:token.ref});const actionId=removed?.state.undo?.actionId;if(!removed||!actionId)return;correctionsFor(current.current.room,seat).release(token.ref);tokenUndo.current={trackId:event.track.id,actionId};setNotice('Token removed · Undo');setUndoId(actionId);},event).then(()=>queue(act=>apply(event,act),event));}} data-testid="token-clash-remove">Remove token</button>
         <button type="button" onClick={()=>setTokenPrompt({...tokenPrompt,choosing:true})} data-testid="token-clash-other">Choose another zone</button></span>:rowPrompts[0]?<span data-testid="monster-in-st">{rowPrompts[0].name} is a monster in {rowZone}.
         <button type="button" disabled={pending} data-testid="monster-in-st-move" onClick={()=>moveFromSpellTrap(rowPrompts[0])}>Move to {rowTarget??'a Monster Zone'}</button>
-        <button type="button" data-testid="monster-in-st-keep" onClick={()=>{const first=rowPrompts[0];rowKept.current.add(first.ref);setRowPrompts(list=>list.filter(p=>p.ref!==first.ref));}}>Keep (equipped or placed by a card)</button></span>:failedUpdate?<>{notice||'Could not save the field update.'}<button type="button" disabled={pending} onClick={()=>void queue(failedUpdate.work,failedUpdate.event,failedUpdate.humanChoice)}>Retry field update</button></>:recovery?<>{recovery.message}<button type="button" onClick={recover}>Remove stale placement</button></>:leaveChoice?<span data-testid="leave-choice">The camera saw a card {leaveChoice.zone==='banished'?`banished${leaveChoice.faceUp?'':' face-down'}`:'in the Graveyard'}. Which card was it?{leaveChoice.options.map(o=><button type="button" key={o.ref} disabled={pending} onClick={()=>chooseLate(o.ref)}>{o.name}</button>)}<button type="button" onClick={()=>{choiceClosed.current.add(leaveChoice.twinRef);setLeaveChoice(null);}}>Neither</button></span>:syncHold?<span data-testid="sync-board-hold">Auto-detect is on. The board keeps its cards until you sync it.<button type="button" onClick={()=>{scanField();}}>Sync board to camera</button></span>:shiftHint?<span data-testid="zone-shift-hint">Zones look shifted — Recalibrate?<button type="button" onClick={()=>{setShiftHint(false);setCalibrating(true);}}>Recalibrate</button><button type="button" onClick={()=>setShiftHint(false)}>Dismiss</button></span>:notice?<>{notice}{departure?<span data-leave-tags>{departure.zone!=='pending'?` → ${fieldLeaveLabel(departure.zone,!departure.down)}`:null} {attachTargets.map(t=><button type="button" key={`attach-${t.ref}`} disabled={pending} onClick={()=>attachTo(t)}>Attach to {t.name}</button>)}{(departure.pile?handFirst:destinations).map(d=><button type="button" key={d.title} disabled={pending||d.zone===departure.zone&&(d.zone!=='banished'||('down' in d)===!!departure.down)} onClick={()=>redirect(d.zone,'down' in d)}>{d.title}</button>)}</span>:null}
+        <button type="button" data-testid="monster-in-st-keep" onClick={()=>{const first=rowPrompts[0];rowKept.current.add(first.ref);setRowPrompts(list=>list.filter(p=>p.ref!==first.ref));}}>Keep (equipped or placed by a card)</button></span>:failedUpdate?<>{notice||'Could not save the field update.'}<button type="button" disabled={pending} onClick={()=>void queue(failedUpdate.work,failedUpdate.event,failedUpdate.humanChoice)}>Retry field update</button></>:recovery?<>{recovery.message}<button type="button" onClick={recover}>Remove stale placement</button></>:leaveChoice?<span data-testid="leave-choice">The camera saw a card {leaveChoice.zone==='banished'?`banished${leaveChoice.faceUp?'':' face-down'}`:'in the Graveyard'}. Which card was it?{leaveChoice.options.map(o=><button type="button" key={o.ref} disabled={pending} onClick={()=>chooseLate(o.ref)}>{o.name}</button>)}<button type="button" onClick={()=>{choiceClosed.current.add(leaveChoice.twinRef);setLeaveChoice(null);}}>Neither</button></span>:syncHold?<span data-testid="sync-board-hold">Auto-detect is on. The board keeps its cards until you sync it.<button type="button" onClick={()=>{scanField();}}>Sync board to camera</button></span>:shiftHint?<span data-testid="zone-shift-hint">Zones look shifted — Recalibrate?<button type="button" onClick={()=>{setShiftHint(false);setCalibrating(true);}}>Recalibrate</button><button type="button" onClick={()=>setShiftHint(false)}>Dismiss</button></span>:notice?<>{notice}{departure?<span data-leave-tags>{departure.zone!=='pending'?` → ${fieldLeaveLabel(departure.zone,!departure.down)}`:null} {attachTargets.map(t=><button type="button" key={`attach-${t.ref}`} disabled={pending} onClick={()=>attachTo(t)}>Attach to {t.name}</button>)}{(departure.pile?handFirst:destinations).map(d=><button type="button" key={d.title} disabled={pending||(departure.zone==='pending'&&d.zone===departure.pile)||d.zone===departure.zone&&(d.zone!=='banished'||('down' in d)===!!departure.down)} onClick={()=>redirect(d.zone,'down' in d)}>{d.title}</button>)}</span>:null}
         {departure?.zone==='pending'&&!departure.pile?<button type="button" disabled={pending} onClick={()=>redirect('hand')}>Retry removal</button>:null}
         {undoId&&room.state.undo?.actionId===undoId&&serverNow()<=room.state.undo.at+5000?<button type="button" onClick={()=>void queueHuman('undo',async act=>{clipAction('undo',{actionId:undoId});const departed=departureRef.current?.ref,link=undoChain.current.after===undoId?undoChain.current:undefined,chain=link?.ids??[];undoChain.current={after:'',ids:[]};let updated=await act({type:'undo',actorSeat:seat,targetActionId:undoId});for(const id of chain)if(updated)updated=await act({type:'undo',actorSeat:seat,targetActionId:id})??updated;if(updated){if(link?.rebind){bindings.current.set(link.rebind.trackId,link.rebind.ref);watch.confirm(link.rebind.trackId,undefined,link.rebind.ref,false);readerRemovals.current.delete(link.rebind.ref);}if(departed&&updated.state.seats[seat].twin.some(card=>card.ref===departed&&publicField(card.zone)))watch.dismiss(departed);setDeparture(null);setNotice('Automatic field change undone');setUndoId('');}})}>Undo</button>:null}</>:heldPick?<span data-testid="held-pick">Which card did you hold up?
         {heldPick.options.map(o=><button type="button" key={o.cardId} disabled={pending} data-testid="held-pick-card" onClick={()=>{const pick=heldPick;setHeldPick(null);void queueHuman('held-pick',act=>commitHeld(act,o.cardId,o.name,`${pick.id}-pick`,performance.now(),`${pick.id}-pick`));}}>{o.name}</button>)}

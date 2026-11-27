@@ -1,5 +1,5 @@
 import type Database from "better-sqlite3";
-import { getRemoteGame, remoteActionSchema, type RemoteAction, type RemoteSeatState, type RemoteSystemAction, type SeatCount } from "../remote/index.js";
+import { getRemoteGame, remoteActionEventSchema, type RemoteAction, type RemoteSeatState, type RemoteSystemAction, type SeatCount } from "../remote/index.js";
 import { applyRemoteFormat } from "../remote/deck-checks.js";
 import { initializeRemoteHandCounts } from "../remote/hand.js";
 import { applyRemoteOpening, initialRemoteMatch } from "../remote/match.js";
@@ -108,7 +108,7 @@ function captureEvidence(db: Database.Database, tableId: number, now: number): v
         const seat=tokenActions.has(action.type) && 'actorSeat' in action ? action.actorSeat : 'seat' in action ? action.seat : event.actor_seat;
         if (seat !== null && summary[seat]) summary[seat].manualCorrections++;
       }
-      if (remoteActionSchema.safeParse(action).success) {
+      if (remoteActionEventSchema.safeParse(action).success) {
         const effects=readRemoteEffects(db,event.effects_json,event.facts_hash);
         if (effects?.showCardsSetFromDeck !== undefined) state.showCardsSetFromDeck=effects.showCardsSetFromDeck;
         state=game.reduce(state,action as RemoteAction,{...effects,replay:true});

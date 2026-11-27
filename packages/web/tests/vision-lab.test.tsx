@@ -848,9 +848,11 @@ it.each(['reorder','bound reorder','clear','return'] as const)('moves the same n
  }finally{fixture.dispose();}
 });
 
-it('offers Hand first after a lower GY reveal with no settled destination',async()=>{
- const members=cards.slice(0,3).map((card,i)=>({ref:`pile-${i}`,zone:'graveyard',cardId:card.passcode,name:card.name,faceUp:true,position:'attack'}));
- const fixture=await typedWatcherFixture(cards[1],'GY',members);
+it.each([['GY','graveyard','Graveyard','GY'],['BANISHED','banished','banished pile','Banish']] as const)(
+ 'offers Hand first after a lower %s reveal and disables its source pile',async(zone,pile,pileName,button)=>{
+ const members=cards.slice(0,3).map((card,i)=>({ref:`pile-${i}`,zone:pile,cardId:card.passcode,name:card.name,faceUp:true,position:'attack'}));
+ const fixture=await typedWatcherFixture(cards[1],zone,zone==='GY'?
+   [...members,{ref:'unread-field-card',zone:'monster',slot:4,faceUp:true,position:'attack'}]:members);
  let now=performance.now();
  vi.useFakeTimers();
  const clock=vi.spyOn(performance,'now').mockImplementation(()=>now);
@@ -858,16 +860,95 @@ it('offers Hand first after a lower GY reveal with no settled destination',async
   const watch=state.fieldWatch.watch;
   watch.getSnapshot=()=>watch.snapshot;
   Object.assign(fixture.track,{firstSeen:now,lastSeen:now,restSince:now});
+  const unread=zone==='GY'?fixture.addTrack({id:'unread-field-card',zone:'M4',cardId:undefined,state:'candidate'}):undefined;
+  if(zone==='BANISHED')watch.snapshot.pileTouchedAt={BANISHED:now+600};
   await act(async()=>fixture.refresh());
   await fixture.emit({result:{...result,tier:'sure',candidates:[{cardId:cards[1].cardId,score:.99}]}});
   await act(async()=>{now+=1100;await vi.advanceTimersByTimeAsync(1100);});
+  expect(screen.queryByTestId('field-departure-toast')).toBeNull();
+  if(unread)unread.visible=false;
+  await act(async()=>{now+=600;await vi.advanceTimersByTimeAsync(600);});
   expect(fixture.post).not.toHaveBeenCalled();
   const notice=screen.getByTestId('field-departure-toast');
-  expect(notice).toHaveTextContent(`${cards[2].name} left the Graveyard · choose destination`);
+  expect(notice).toHaveTextContent(`${cards[2].name} left the ${pileName} · choose destination`);
   expect(within(notice).getAllByRole('button')[0]).toHaveTextContent('Hand');
+  expect(within(notice).getByRole('button',{name:button})).toBeDisabled();
+  if(zone==='BANISHED')expect(within(notice).getByRole('button',{name:'Banish face-down'})).toBeDisabled();
   await act(async()=>{fireEvent.click(within(notice).getByRole('button',{name:'Hand'}));});
-  expect(fixture.room().state.seats[0].twin.at(-1)).toMatchObject({ref:'pile-2',zone:'hand'});
+  expect(fixture.room().state.seats[0].twin).toContainEqual(expect.objectContaining({ref:'pile-2',zone:'hand'}));
  }finally{fixture.dispose();clock.mockRestore();vi.useRealTimers();}
+});
+
+it.each(['unread outline','recent pile touch'] as const)('waits for %s before prompting for a GY top moving to the field',async(evidence)=>{
+ const members=[cards[1],cards[0]].map((card,i)=>({ref:`pile-${i}`,zone:'graveyard',cardId:card.passcode,name:card.name,faceUp:true,position:'attack'}));
+ const fixture=await typedWatcherFixture(cards[1],'GY',members);
+ let now=performance.now();
+ vi.useFakeTimers();
+ const clock=vi.spyOn(performance,'now').mockImplementation(()=>now);
+ const advance=(ms:number)=>act(async()=>{now+=ms;await vi.advanceTimersByTimeAsync(ms);});
+ try{
+  const watch=state.fieldWatch.watch;
+  watch.getSnapshot=()=>watch.snapshot;
+  Object.assign(fixture.track,{firstSeen:now,lastSeen:now,restSince:now});
+  const destination=fixture.addTrack({id:'destination',zone:'M4',state:'candidate',cardId:undefined,visible:evidence==='unread outline'});
+  if(evidence==='recent pile touch')watch.snapshot.pileTouchedAt={GY:now+600};
+  await fixture.emit({result:{...result,tier:'sure',candidates:[{cardId:cards[1].cardId,score:.99}]}});
+  await advance(1100);
+  expect(screen.queryByTestId('field-departure-toast')).toBeNull();
+
+  Object.assign(destination,{state:'identified',cardId:cards[0].cardId,visible:true,lastSeen:now,restSince:now});
+  await fixture.emit({track:{...destination},result:{...result,tier:'sure',candidates:[{cardId:cards[0].cardId,score:.99}]}});
+  await advance(1000);
+  expect(screen.queryByTestId('field-departure-toast')).toBeNull();
+  expect(fixture.post).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({type:'twin.move',cardRef:'pile-1',zone:'monster',slot:4}),expect.any(String));
+ }finally{fixture.dispose();clock.mockRestore();vi.useRealTimers();}
+});
+
+it('keeps a dismissed pile departure quiet across new sightings until the top returns',async()=>{
+ const members=cards.slice(1,3).map((card,i)=>({ref:`pile-${i}`,zone:'graveyard',cardId:card.passcode,name:card.name,faceUp:true,position:'attack'}));
+ const fixture=await typedWatcherFixture(cards[1],'GY',members);
+ let now=performance.now();
+ vi.useFakeTimers();
+ const clock=vi.spyOn(performance,'now').mockImplementation(()=>now);
+ const advance=(ms:number)=>act(async()=>{now+=ms;await vi.advanceTimersByTimeAsync(ms);});
+ const read=(track:typeof fixture.track)=>fixture.emit({track:{...track},result:{...result,tier:'sure',candidates:[{cardId:track.cardId,score:.99}]}});
+ const sighting=(id:string,cardId:string)=>({id,cardId,firstSeen:now,lastSeen:now,restSince:now,visible:true});
+ try{
+  const watch=state.fieldWatch.watch;
+  watch.getSnapshot=()=>watch.snapshot;
+  Object.assign(fixture.track,sighting('lower-first',cards[1].cardId));
+  await act(async()=>fixture.refresh());
+  await read(fixture.track);
+  await advance(1100);
+  expect(screen.getByTestId('field-departure-toast')).toBeInTheDocument();
+  await advance(5000);
+  expect(screen.queryByTestId('field-departure-toast')).toBeNull();
+
+  fixture.track.visible=false;
+  const lower=fixture.addTrack(sighting('lower-again',cards[1].cardId));
+  await read(lower);
+  await advance(1100);
+  expect(screen.queryByTestId('field-departure-toast')).toBeNull();
+
+  lower.visible=false;
+  const top=fixture.addTrack(sighting('top-returns',cards[2].cardId));
+  await read(top);
+  top.visible=false;
+  await read(fixture.addTrack(sighting('lower-after-return',cards[1].cardId)));
+  await advance(1100);
+  expect(screen.getByTestId('field-departure-toast')).toBeInTheDocument();
+ }finally{fixture.dispose();clock.mockRestore();vi.useRealTimers();}
+});
+
+it.each(['placed','moved'] as const)('sends a known card to the Extra Deck from a %s track',async(type)=>{
+ const entry=zoneEntries[2];
+ const card={ref:'known-extra',zone:'monster',slot:1,cardId:entry.passcode,name:entry.name,faceUp:true,position:'attack'};
+ const fixture=await typedWatcherFixture(entry,'EXTRA',[card],type);
+ try{
+  await fixture.emit();
+  expect(fixture.post).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({type:'twin.move',cardRef:card.ref,zone:'extra'}),expect.any(String));
+  expect(fixture.room().state.seats[0].twin).toMatchObject([{ref:card.ref,zone:'extra'}]);
+ }finally{fixture.dispose();}
 });
 
 it.each(['same sighting','fanned','new top'] as const)('honors a manual pile order according to the next %s',async scenario=>{

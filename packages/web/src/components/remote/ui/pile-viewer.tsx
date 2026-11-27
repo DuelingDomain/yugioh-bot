@@ -133,7 +133,7 @@ export function PileViewer({ fieldHidden = false, seat, name, mine, twin, zone, 
         <button type="button" className={s.ibtn} aria-label="Close pile" onClick={onClose} data-testid="pile-close"><Icon name="x" /></button>
       </div>
       {mine && ordered && onLift && cards.length > 0 ? <div className={s.pileActions}>
-        <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} disabled={saving} onClick={() => void lift("hand")}>Take all</button>
+        <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} disabled={saving} onClick={() => void lift("hand")}>Take all to hand</button>
         <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} disabled={saving} onClick={() => void lift("deck")}>Shuffle all into Deck</button>
       </div> : null}
       <div className={s.pileBody}>
