@@ -52,22 +52,27 @@ export function reasonLine(game: MatchGame | undefined, name: (seat: number) => 
 /** The Konami end of a timed match, in one sentence (tooltip, timer menu, lobby hint). */
 export const MATCH_TIME_RULE = `When time runs out, the turn in play is Turn 0. ${REMOTE_EXTRA_TURNS} extra turns follow, then the player with the most Life Points wins. Equal Life Points is a draw.`;
 
-/** Why the match ended on time. `lp` adds the Life Points to an LP result: "Time — won on LP (8000 vs 3200)". */
-export function matchTimeReason(match: Match, name: (seat: number) => string, lp?: { of: (seat: number) => number; seats: number }): string | undefined {
+/**
+ * Why the match ended on time. LP text only when Life Points decided it: "Time — Alice won on LP (8,000 vs 3,200)".
+ * In a 1v1 an LP result is the last game's winner taking the match on games, so it reads "on games" when the games decided it.
+ */
+export function matchTimeReason(match: Match, name: (seat: number) => string, lp?: { of: (seat: number) => number; seats: number; out?: (seat: number) => boolean }): string | undefined {
   const clock = match.clock;
   if (!clock?.result) return undefined;
-  const byLp = clock.result === "lp";
   const points = (value: number) => value.toLocaleString("en-US");
+  const byLp = clock.result === "lp";
   if (clock.tiedSeats?.length || match.winnerSeat == null) {
     const tied = clock.tiedSeats ?? [];
     const who = tied.length && lp && tied.length < lp.seats ? ` between ${tied.map(name).join(", ")}` : "";
-    const each = byLp && lp && tied.length ? ` (${points(lp.of(tied[0]))} each)` : byLp && lp && lp.seats === 2 ? ` (${points(lp.of(0))} each)` : "";
-    return `Time — draw on ${byLp ? "LP" : "games"}${who}${each}`;
+    const equal = lp && (tied.length ? true : lp.seats === 2 && lp.of(0) === lp.of(1));
+    const each = byLp && lp && equal ? ` (${points(lp.of(tied.length ? tied[0] : 0))} each)` : "";
+    return `Time — draw on ${byLp && (tied.length || equal) ? "LP" : "games"}${who}${each}`;
   }
-  if (!byLp) return "Time — won on games";
   const winner = match.winnerSeat;
-  const others = lp ? Array.from({ length: lp.seats }, (_, seat) => seat).filter(seat => seat !== winner).map(lp.of).sort((a, b) => b - a) : [];
-  return `Time — won on LP${lp ? ` (${[lp.of(winner), ...others].map(points).join(" vs ")})` : ""}`;
+  const lastGame = match.games.at(-1);
+  if (!byLp || !lp || (lp.seats <= 2 && lastGame?.winnerSeat !== winner)) return `Time — ${name(winner)} won on games`;
+  const others = Array.from({ length: lp.seats }, (_, seat) => seat).filter(seat => seat !== winner && !lp.out?.(seat)).map(lp.of).sort((a, b) => b - a);
+  return `Time — ${name(winner)} won on LP (${[lp.of(winner), ...others].map(points).join(" vs ")})`;
 }
 
 /** When a seat's siding clock ends (the server gives each seat its own cutoff). */

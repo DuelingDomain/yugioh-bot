@@ -78,9 +78,10 @@ export function describeEvent(event: RemoteEvent, name: (seat: number) => string
     case "time.called": return { kind: "PH", text: a.seat === null ? "Time! The match is decided on games won." : `Time! This is Turn 0, ${name(a.seat)}’s turn. ${REMOTE_EXTRA_TURNS} extra turns follow.`, undoable: false };
     case "time.extraTurn": return { kind: "PH", text: `Extra turn ${a.extraTurn}/${REMOTE_EXTRA_TURNS}, ${name(a.seat)}’s turn`, undoable: false };
     case "time.result": {
-      const byLp = a.reason === "lp", basis = byLp ? "Life Points" : "games won";
-      const tied = a.tiedSeats?.length ? ` between ${a.tiedSeats.map(name).join(", ")}` : "";
-      return { kind: "PH", text: a.winnerSeat === null ? `Time is over. Draw on ${basis}${tied}.` : `Time is over. ${name(a.winnerSeat)} wins the match on ${basis}.`, undoable: false };
+      // describeEvent does not know the seat count: a 1v1 LP result is decided on games, so only a tie among 3+ seats names the basis.
+      const tied = a.tiedSeats?.length ? ` on Life Points between ${a.tiedSeats.map(name).join(", ")}` : a.reason === "game-ended" || a.reason === "between-games" ? " on games won" : "";
+      const won = a.reason === "game-ended" || a.reason === "between-games" ? " on games won" : "";
+      return { kind: "PH", text: a.winnerSeat === null ? `Time is over. Draw${tied}.` : `Time is over. ${name(a.winnerSeat)} wins the match${won}.`, undoable: false };
     }
     case "time.off": return { kind: "PH", text: `${who} turned off the match timer.`, undoable: false };
     case "table.ended": return { kind: "PH", text: "The table closed", undoable: false };
