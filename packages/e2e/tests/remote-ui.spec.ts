@@ -3127,3 +3127,58 @@ test.describe("remote duels screen, rematch", () => {
     } finally { await alice.close(); await bob.close(); }
   });
 });
+
+test.describe("remote duels screen, match timer", () => {
+  test("the host sets the match time in the lobby, the clock runs in the top bar, and time called shows Turn 0 with the banner", async ({ browser }) => {
+    test.setTimeout(240_000);
+    const url = process.env.E2E_REMOTE_UI_URL!;
+    const options = { baseURL: url, viewport: { width: 1920, height: 1080 }, permissions: ["camera", "microphone"] };
+    const alice = await browser.newContext(options); const bob = await browser.newContext(options);
+    const db = new Database(new URL("../.stack-remote-ui/ui.sqlite", import.meta.url).pathname);
+    await Promise.all([alice, bob].map(bothView));
+    try {
+      for (const [context, userId] of [[alice, 101], [bob, 102]] as const) await authenticatePlayer(context.request, { userId }, process.env.E2E_AUTH_SECRET!, url);
+      const created = await alice.request.post("/api/remote", { data: { gameId: "ygo", seatCount: 2 } });
+      expect(created.status(), await created.text()).toBe(201);
+      const slug = (await created.json()).slug as string, path = `/api/remote/${slug}`;
+      expect((await bob.request.post(`${path}/seat`, { data: { seat: 1 } })).ok()).toBe(true);
+      // Lobby: the host sees the select (default 40 min) and picks 30. Bob sees the same time as plain text.
+      const [a, b] = await Promise.all([alice.newPage(), bob.newPage()]);
+      await Promise.all([a.goto(`/duels/remote/${slug}`), b.goto(`/duels/remote/${slug}`)]);
+      await expect(a.getByTestId("room-match-time-chip")).toContainText("40 min");
+      await pickSelect(a, "Match time", { label: "30 min" });
+      await a.getByTestId("apply-rules").click();
+      await expect(a.getByTestId("room-match-time-chip")).toContainText("30 min");
+      await expect(b.getByTestId("room-match-time-chip")).toContainText("30 min", { timeout: 15_000 });
+      await expect(b.getByTestId("room-match-time-readonly")).toContainText("30 min");
+      await expect(b.getByTestId("room-match-time")).toHaveCount(0);
+      await shot(a, "match-timer-lobby-host"); await shot(b, "match-timer-lobby-guest");
+      for (const api of [alice.request, bob.request]) {
+        const decks = (await (await api.get("/api/decks")).json()).decks as { id: number }[];
+        expect((await api.post(`${path}/deck`, { data: { savedDeckId: decks[0]!.id } })).ok()).toBe(true);
+        expect((await api.post(`${path}/ready`, { data: { ready: true } })).ok()).toBe(true);
+      }
+      expect((await alice.request.post(`${path}/start`, { data: {} })).ok()).toBe(true);
+      // The table: the clock counts down from the 30 minutes, on the server clock.
+      await a.goto(`/duels/remote/${slug}`);
+      const timer = a.getByTestId("match-timer");
+      await expect(timer).toHaveText(/^(29|30):\d\d$/);
+      await timer.click();
+      await expect(a.getByTestId("match-timer-info")).toContainText("3 extra turns");
+      await a.getByTestId("match-time-off").click();
+      await expect(a.getByTestId("match-time-off-confirm")).toBeVisible();
+      await a.getByTestId("match-time-off-no").click();
+      await a.keyboard.press("Escape");
+      // Time travel: 8 s before the end, then the server calls time at the real deadline.
+      const now = Date.now();
+      db.prepare("update remote_tables set started_at=?, state_json=json_set(state_json,'$.match.clock.startedAt',?) where slug=?").run(now - 31 * 60_000, now - 30 * 60_000 + 8_000, slug);
+      await a.reload();
+      await expect(a.getByTestId("match-timer")).toHaveText(/^00:\d\d$/, { timeout: 15_000 });
+      await expect(a.getByTestId("time-call-overlay")).toContainText("This is Turn 0", { timeout: 20_000 });
+      await expect(a.getByTestId("time-call-overlay")).toContainText("3 extra turns");
+      await shot(a, "match-timer-time-called");
+      await expect(a.getByTestId("match-timer")).toHaveText("Time · Turn 0");
+      await expect(a.getByTestId("time-call-overlay")).toHaveCount(0, { timeout: 15_000 });
+    } finally { db.close(); await alice.close(); await bob.close(); }
+  });
+});
