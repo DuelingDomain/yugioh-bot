@@ -274,7 +274,7 @@ export function remoteUndoLabel(action: RemoteAction, position?: RemotePosition)
     case "deck.count": return "Changed Deck count";
     case "pile.order": return `${action.zone === "graveyard" ? "Graveyard" : action.zone === "banished" ? "Banished" : "Extra Deck"} order changed`;
     case "monsters.tribute": return `Tribute: ${action.targets.length} monster${action.targets.length === 1 ? "" : "s"} sent to the Graveyard`;
-    case "pile.lift": return `${action.zone === "graveyard" ? "Graveyard" : "Banished"} picked up (${action.cardRefs.length} card${action.cardRefs.length === 1 ? "" : "s"})`;
+    case "pile.lift": return `${action.zone === "graveyard" ? "Graveyard" : "Banished"} ${action.destination === "deck" ? "shuffled into Deck" : "picked up"} (${action.cardRefs.length} card${action.cardRefs.length === 1 ? "" : "s"})`;
     case "lp.change": return `${action.delta < 0 ? "−" : "+"}${Math.abs(action.delta)} LP`;
     case "phase.set": return action.phase;
     case "chain.ok": return "OK";

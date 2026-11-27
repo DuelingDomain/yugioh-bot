@@ -40,7 +40,7 @@ export const twinCardSchema = z.strictObject({
 });
 const effectSource = z.strictObject({ cardId: cardId.optional(), cardRef: id.optional(), name: z.string().trim().min(1).max(200).optional() })
   .refine(source=>!!(source.cardId || source.cardRef || source.name), "Identify the effect source");
-export const remoteActionSchema = z.discriminatedUnion("type", [
+export const remoteActionEventSchema = z.discriminatedUnion("type", [
   ...remoteMatchActionSchemas,
   z.strictObject({ ...meta, type: z.literal("hand.add"), cardId, source: z.enum(["deck", "gy", "banish", "extra", "field", "unknown"]), by: z.strictObject({cardId, name: z.string().trim().min(1).max(200)}).optional() }),
   z.strictObject({ ...meta, type: z.literal("hand.reveal"), cardId }),
@@ -80,7 +80,7 @@ export const remoteActionSchema = z.discriminatedUnion("type", [
     .refine(a => (!!a.keepInstanceId && !!a.removeInstanceId && !a.keepRef && !a.removeRef) ||
       (!!a.keepRef && !!a.removeRef && !a.keepInstanceId && !a.removeInstanceId), "Choose two instance IDs or two twin refs"),
   z.strictObject({ ...meta, type: z.literal("twin.place"), seat: remoteSeatSchema, zone, card: twinCardSchema, source: z.literal("auto").optional(),
-    /** A visible Pendulum Monster on top of the Extra Deck. */
+    /** Legacy action history only. */
     pendulum: z.literal(true).optional(),
     /** The camera already showed this activation from the hand. */
     fromActivation: id.optional(),
@@ -96,12 +96,13 @@ export const remoteActionSchema = z.discriminatedUnion("type", [
     anotherCopy: z.boolean().optional(),
     /** An Extra Deck summon: the camera saw these monsters go under the card or leave the field just before it. */
     summon: summon.optional() }),
-  /** The player takes selected GY/banished cards into the hand. Old camera lifts remain readable in event history. */
-  z.strictObject({ ...meta, type: z.literal("pile.lift"), seat: remoteSeatSchema, zone: z.enum(["graveyard", "banished"]), cardRefs: z.array(id).min(1).max(120), source: z.literal("auto").optional() }),
+  /** The player moves GY or banished cards to the hand or Deck. Legacy events without a destination preserve pile inspection behavior. */
+  z.strictObject({ ...meta, type: z.literal("pile.lift"), seat: remoteSeatSchema, zone: z.enum(["graveyard", "banished"]),
+    cardRefs: z.array(id).min(1).max(120), destination: z.enum(["hand", "deck"]).optional(), source: z.literal("auto").optional() }),
   /** One tap sends the listed monsters (any field, tokens included) to their owners' Graveyards. A token just leaves the table. One Undo restores them all. */
   z.strictObject({ ...meta, type: z.literal("monsters.tribute"), seat: remoteSeatSchema,
     targets: z.array(z.strictObject({ seat: remoteSeatSchema, cardRef: id })).min(1).max(60) }),
-  /** Orders a public pile (oldest first). For the Extra Deck, only face-up Pendulum Monsters are included. */
+  /** Orders a public pile (oldest first). Extra Deck orders are retained for replay. */
   z.strictObject({ ...meta, type: z.literal("pile.order"), seat: remoteSeatSchema, zone: z.enum(["graveyard", "banished", "extra"]), cardRefs: z.array(id).min(1).max(120)
     .refine(refs => new Set(refs).size === refs.length, "Duplicate pile card"), source: z.literal("auto").optional() }),
   z.strictObject({ ...meta, type: z.literal("twin.move"), seat: remoteSeatSchema, zone, cardRef: id, slot: slot.optional(), position: z.enum(["attack", "defense"]).optional(), faceUp: z.boolean().optional(), source: z.literal("auto").optional(), name: z.string().trim().min(1).max(200).optional(),
@@ -149,7 +150,10 @@ export const remoteActionSchema = z.discriminatedUnion("type", [
   /** Quit the match. 1v1: the opponent wins the match. FFA: only this seat leaves for good. It cannot be undone. */
   z.strictObject({ ...meta, type: z.literal("player.leave") }),
 ]);
-export type RemoteAction = z.infer<typeof remoteActionSchema>;
+export const remoteActionSchema = remoteActionEventSchema.refine(action =>
+  !(action.type === "twin.place" && action.pendulum || action.type === "pile.order" && action.zone === "extra"),
+  "Automatic Extra Deck pile tracking is no longer available");
+export type RemoteAction = z.infer<typeof remoteActionEventSchema>;
 // Distribute over the union so parser proposals retain phase/LP/card-specific fields.
 type Proposal<T> = T extends unknown ? Omit<T, "idempotencyKey" | "at"> : never;
 export type RemoteActionProposal = Proposal<RemoteAction>;

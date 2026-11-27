@@ -12,6 +12,7 @@ import s from "./remote-ui.module.css";
 
 /** Graveyard and Banished are public. Deck and Extra Deck are private: only the owner opens them (the cards the table holds there). */
 export type PileZone = "graveyard" | "banished" | "deck" | "extra";
+type PublicPile = Extract<PileZone, "graveyard" | "banished">;
 export const PILE_LABEL: Record<PileZone, string> = { graveyard: "Graveyard", banished: "Banished", deck: "Deck", extra: "Extra Deck" };
 
 /** The cards of one pile, newest first. The twin list keeps GY and banished cards oldest to newest, so the newest is the last. */
@@ -22,14 +23,15 @@ export const pileCards = (twin: readonly TwinCard[], zone: PileZone): TwinCard[]
  * The owner sees the name of a face-down banished card; the others get a card back (the server never sends them the name).
  * The owner can drag a card from the pile to a zone of the field, or to the hand chip, with the same rules as the field.
  */
-export function PileViewer({ fieldHidden = false, seat, name, mine, twin, zone, onZone, info, drag: dragProp, onOpenCard, onOrder, onName, onRemove, onClose }: {
+export function PileViewer({ fieldHidden = false, seat, name, mine, twin, zone, onZone, info, drag: dragProp, onOpenCard, onOrder, onLift, onName, onRemove, onClose }: {
   /** The virtual field of this seat is hidden: only the hand is a drop target. */ fieldHidden?: boolean;
   seat: number; name: string; mine: boolean; twin: readonly TwinCard[]; zone: PileZone; onZone: (zone: PileZone) => void;
   info: (id: number | undefined) => CardInfo | undefined; drag?: FieldDrag;
   /** Opens the card popup (text, stats and the move buttons) beside the tile. */
   onOpenCard: (card: TwinCard, anchor: Rect) => void; onClose: () => void;
   /** Owner only. Sets the whole pile order, oldest first (one `pile.order`). The promise settles when the write is done. */
-  onOrder?: (zone: PileZone, refsOldestFirst: string[]) => void | Promise<unknown>;
+  onOrder?: (zone: PublicPile, refsOldestFirst: string[]) => void | Promise<unknown>;
+  onLift?: (zone: PublicPile, refsOldestFirst: string[], destination: "hand" | "deck") => void | Promise<unknown>;
   /** Owner only. Names an unnamed face-up card (`card.identified` with its ref), and removes a card (`twin.remove`). */
   onName?: (card: TwinCard, cardId: number, name: string) => void; onRemove?: (card: TwinCard) => void;
 }) {
@@ -44,7 +46,7 @@ export function PileViewer({ fieldHidden = false, seat, name, mine, twin, zone, 
   const [active, setActive] = useState(0);
   const [hot, setHot] = useState<string | null>(null);
   const [dragging, setDragging] = useState<{ ref: string; x: number; y: number; verdict: Verdict["kind"] | null } | null>(null);
-  const [ordering, setOrdering] = useState(false);
+  const [saving, setSaving] = useState(false);
   const narrow = useNarrow();
   const swallow = useRef(false);
   const stop = useRef<(() => void) | null>(null);
@@ -59,7 +61,7 @@ export function PileViewer({ fieldHidden = false, seat, name, mine, twin, zone, 
 
   /** Pointer drag (mouse and pen). A press that moves less than 6 px stays a click. */
   function begin(event: ReactPointerEvent<HTMLElement>, card: TwinCard) {
-    if (!dnd?.can(card) || event.pointerType === "touch" || (event.pointerType === "mouse" && event.button !== 0)) return;
+    if (saving || !dnd?.can(card) || event.pointerType === "touch" || (event.pointerType === "mouse" && event.button !== 0)) return;
     const start = { x: event.clientX, y: event.clientY }; const id = event.pointerId; let started = false; let marked: Element | null = null; let markClass = "";
     const hit = (x: number, y: number): { key: ZoneKey | "hand"; el: Element } | null => {
       // A toast over the target never blocks a drop.
@@ -94,10 +96,20 @@ export function PileViewer({ fieldHidden = false, seat, name, mine, twin, zone, 
 
   /** Swaps a tile with its newer (-1) or older (+1) neighbour. The viewer lists newest first; the action wants oldest first. */
   function shift(index: number, by: -1 | 1) {
-    const next = [...cards]; const to = index + by; if (!canOrder || !onOrder || ordering || to < 0 || to >= next.length) return;
+    const next = [...cards]; const to = index + by; if (!ordered || !onOrder || saving || to < 0 || to >= next.length) return;
     [next[index], next[to]] = [next[to], next[index]];
-    setOrdering(true);
-    void Promise.resolve(onOrder(zone, next.map(card => card.ref).reverse())).finally(() => setOrdering(false));
+    setSaving(true);
+    void Promise.resolve(onOrder(zone, next.map(card => card.ref).reverse())).finally(() => setSaving(false));
+  }
+
+  async function lift(destination: "hand" | "deck") {
+    if (!mine || !ordered || !cards.length || !onLift || saving) return;
+    setSaving(true);
+    try {
+      await onLift(zone, cards.map(card => card.ref).reverse(), destination);
+    } finally {
+      setSaving(false);
+    }
   }
 
   /** Arrow keys move focus over the tiles, Home and End jump to the newest and the oldest. */
@@ -120,6 +132,10 @@ export function PileViewer({ fieldHidden = false, seat, name, mine, twin, zone, 
         </div>
         <button type="button" className={s.ibtn} aria-label="Close pile" onClick={onClose} data-testid="pile-close"><Icon name="x" /></button>
       </div>
+      {mine && ordered && onLift && cards.length > 0 ? <div className={s.pileActions}>
+        <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} disabled={saving} onClick={() => void lift("hand")}>Take all</button>
+        <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} disabled={saving} onClick={() => void lift("deck")}>Shuffle all into Deck</button>
+      </div> : null}
       <div className={s.pileBody}>
         {cards.length ? <ul className={s.pileList} ref={list} role="list" aria-label={`${PILE_LABEL[zone]}${ordered ? ", newest first" : ""}, ${cards.length} card${cards.length === 1 ? "" : "s"}`} onKeyDown={keys}
           onClickCapture={event => { if (swallow.current) { event.stopPropagation(); event.preventDefault(); } }}>
@@ -140,8 +156,8 @@ export function PileViewer({ fieldHidden = false, seat, name, mine, twin, zone, 
                 <span className={s.pileName}>{title}</span>
               </button>
               {canOrder && cards.length > 1 ? <span className={s.pileOrd}>
-                <button type="button" disabled={ordering || index === 0} aria-label={`Move ${title} newer`} title="Move newer (toward the top)" data-testid="pile-newer" onClick={() => shift(index, -1)}>{"\u2190"}</button>
-                <button type="button" disabled={ordering || index === cards.length - 1} aria-label={`Move ${title} older`} title="Move older (toward the bottom)" data-testid="pile-older" onClick={() => shift(index, 1)}>{"\u2192"}</button>
+                <button type="button" disabled={saving || index === 0} aria-label={`Move ${title} newer`} title="Move newer (toward the top)" data-testid="pile-newer" onClick={() => shift(index, -1)}>{"\u2190"}</button>
+                <button type="button" disabled={saving || index === cards.length - 1} aria-label={`Move ${title} older`} title="Move older (toward the bottom)" data-testid="pile-older" onClick={() => shift(index, 1)}>{"\u2192"}</button>
               </span> : null}
             </li>;
           })}

@@ -10,6 +10,7 @@ import { ZoneCardPicker } from '../src/components/remote/ui/zone-card-picker';
 import { RecentDepartures } from '../src/components/remote/ui/recent-departures';
 import { FieldWatcherUI } from '../src/components/remote/field-watcher-ui';
 import { InspectorBody, type CardActions } from '../src/components/remote/ui/card-view';
+import { PileViewer } from '../src/components/remote/ui/pile-viewer';
 import { useTokens } from '../src/components/remote/ui/token-ui';
 import { useLayers } from '../src/components/remote/ui/use-layers';
 import { createChangedZones } from '../src/lib/remote/changed-zones';
@@ -20,6 +21,18 @@ afterEach(() => { cleanup(); sessionStorage.clear(); vi.useRealTimers(); vi.unst
 const monster = (ref='paper'): TwinCard => ({ref,cardId:46986414,name:'Dark Magician',zone:'monster',slot:1,faceUp:true,position:'attack'});
 const placementCard=(ref='paper')=>{const {zone,...card}=monster(ref);return card;};
 const observed = (overrides: Partial<CorrectionObservation> = {}): CorrectionObservation => ({id:'outline',ref:'paper',zone:'monster',slot:1,faceDown:false,position:'attack',removed:false,resting:true,...overrides});
+
+it.each([['Take all','hand'],['Shuffle all into Deck','deck']] as const)('offers the owner %s for all visible pile entries', (label,destination) => {
+  vi.stubGlobal('matchMedia',vi.fn(()=>({matches:false,addEventListener:vi.fn(),removeEventListener:vi.fn()})));
+  const onLift=vi.fn();
+  const props={seat:0,name:'Player',zone:'graveyard' as const,twin:[{...monster('first'),zone:'graveyard'},{...monster('top'),zone:'graveyard'}],
+    onZone:vi.fn(),info:()=>undefined,onOpenCard:vi.fn(),onClose:vi.fn(),onLift};
+  const view=render(<PileViewer {...props} mine={false}/>);
+  expect(screen.queryByRole('button',{name:label})).toBeNull();
+  view.rerender(<PileViewer {...props} mine/>);
+  fireEvent.click(screen.getByRole('button',{name:label}));
+  expect(onLift).toHaveBeenCalledExactlyOnceWith('graveyard',['first','top'],destination);
+});
 
 it.each(['place','name','move','flip','position','remove'] as const)('a manual %s survives camera re-observation without a duplicate', async kind => {
   let room=tapRoom();

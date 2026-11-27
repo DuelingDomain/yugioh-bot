@@ -1248,6 +1248,7 @@
 .pileTitle{margin:0;flex:1 1 auto;min-width:0;display:flex;align-items:baseline;gap:10px;font:700 18px/1.1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .pileTitle small{font-weight:600;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--gold-ink)}
 .pileHead .seg b{margin-left:5px;font:700 12px/1 var(--font-duel-display),Oxanium,sans-serif;color:var(--gold-ink)}
+.pileActions{display:flex;flex-wrap:wrap;gap:8px;padding:8px 12px 0}
 .pileBody{display:flex;gap:14px;min-height:0;flex:1 1 auto;padding:12px}
 .pileList{list-style:none;margin:0;padding:4px 2px 8px;flex:1 1 0;min-width:0;overflow:auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(92px,1fr));gap:12px 10px;align-content:start}
 .pileItem{display:block;min-width:0;position:relative}

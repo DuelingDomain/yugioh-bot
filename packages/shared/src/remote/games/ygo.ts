@@ -2,7 +2,7 @@ import { cloneRemoteCurrent } from "../position.js";
 import { applyRemoteGive, applyRemoteHand, moveRemoteCardToHand, reduceRemoteHandAction, restoreOwnerIdentity, sendGivenCardsHome } from "../hand.js";
 import { rememberRemoteAction, undoRemoteAction } from "../undo.js";
 import { ensureRemoteMatch, finishRemoteGame, initialRemoteMatch, reduceRemoteMatch, remoteOpeningPending, syncRemoteSideStart } from "../match.js";
-import { remoteActionSchema, remoteActivationKey, remoteActivationNotice, remoteAssert, remoteOrderedPileContains, remoteSummonKinds, type RemoteAction, type TwinCard } from "../actions.js";
+import { remoteActionEventSchema, remoteActionSchema, remoteActivationKey, remoteActivationNotice, remoteAssert, remoteOrderedPileContains, remoteSummonKinds, type RemoteAction, type TwinCard } from "../actions.js";
 import type { GameModule, RemoteSeatState, RemoteState } from "../types.js";
 import { resolveAttack } from "../attack-resolver.js";
 import { parseRemoteCommand } from "../command-parser.js";
@@ -110,7 +110,7 @@ function clearZoneLinks(state: RemoteState, at: number, dropIfOwnerOut = false) 
 /** Graveyard and banished piles are ordered by the twin list: oldest first, newest last. Undo restores the list as it was. */
 const enteringPile = (from: string, to: string) => from !== to && (to === "graveyard" || to === "banished");
 function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReductionContext): RemoteState {
-  const parsed = remoteActionSchema.safeParse(input);
+  const parsed = (context?.replay ? remoteActionEventSchema : remoteActionSchema).safeParse(input);
   remoteAssert(parsed.success, "Invalid remote action");
   const action = parsed.data;
   let deckAction = action;
@@ -630,7 +630,11 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
         const card = s.twin.find(c => c.ref === ref);
         remoteAssert(card && card.zone === action.zone, "A card left that pile before it was picked up", 409);
         moveRemoteCardToHand(card);
-        if(!context?.replay||context.handReview===1)card.inspectionFrom=action.zone;
+        if (action.destination === "deck") card.zone = "deck";
+        if (action.destination) {
+          delete card.inspectionFrom;
+          delete card.nameCandidates;
+        } else if (!context?.replay || context.handReview === 1) card.inspectionFrom = action.zone;
       }
       break;
     }

@@ -1312,8 +1312,10 @@ test('private deck outlines never place identities and public pile reads stay si
     const r=fieldRig(),outline:DetectedQuad={...card(x,y,.05,.07),kind:faceDown?'face-down':'face-up'};
     r.outlines=[outline];for(let i=0;i<7;i++)await r.tick();
     const zone=zones.mapFieldZone(outline).zone,placed=r.events.filter(e=>e.type==='placed');
-    if(zone==='DECK'||zone==='EXTRA'&&faceDown)assert.equal(placed.length,0,`${x}/${y}/${faceDown}`);
-    else if(zone==='EXTRA')assert.equal(placed.length,1,'a face-up Extra Deck top can be read');
+    if(zone==='DECK'||zone==='EXTRA'){
+      assert.equal(r.reads,0,`${zone} should stay private`);
+      assert.equal(placed.length,0,`${x}/${y}/${faceDown}`);
+    }
     else assert.ok(placed.length<=1);
     r.watcher.dispose();
   }
@@ -1487,6 +1489,16 @@ for(const zone of ['GY','BANISHED'] as const)test(`a matching field read cannot 
  assert.equal(r.reads,2);assert.equal(r.events.some(e=>e.type==='prompt'),false);
 });
 
+for(const recent of [true,false])test(`a field read reuses a displaced pile top only within its order window (${recent})`,async t=>{
+ const r=fieldRig();t.after(()=>r.watcher.dispose());
+ r.known=[{id:'previous-top',zone:'GY',cardId:'A',pileDisplacedAt:[recent?0:-20_000]},{id:'new-top',zone:'GY',cardId:'B'}];
+ for(let i=0;i<8;i++)await r.tick();
+ const arrivals=r.events.filter(e=>e.type==='moved'||e.type==='placed');
+ assert.equal(arrivals.length,1);
+ assert.equal(arrivals[0].fromRef,recent?'previous-top':undefined);
+ assert.equal(arrivals[0].track.id==='previous-top',recent);
+});
+
 test('a rotated return after explicit removal Undo follows the same restored public ref',async()=>{
  const r=fieldRig();r.embedding=[1,0];for(let i=0;i<8;i++)await r.tick();const id=r.events[0].track.id;r.watcher.confirm(id,'A');r.known=[{id,zone:'M2',cardId:'A'}];
  const pattern=Array.from({length:12},(_,i)=>i%2),mat=Array(12).fill(.2);r.appearanceAt=c=>zones.fieldCenter(c).x>.6?pattern:mat;
@@ -1631,9 +1643,8 @@ test('owner Fenrir: M3 -> GY -> back to M3 face-up with a white Set in M2 and an
  for(let i=0;i<30&&!r.events.some(e=>e.type==='removed'&&e.track.id===named.track.id);i++)await r.tick(100);
  assert.ok(r.events.some(e=>e.type==='removed'&&e.track.id===named.track.id),'removed by detector absence, without a uniform mat ring');
  assert.ok(r.at-goneFrom<=1500,`removed after ${r.at-goneFrom} ms`);
- // Piles: out of view is gone. No Deck on this mat shows as missing; a Deck
- // stack makes it present. The whole GY stack is picked up: GY is missing
- // after 2 full scans (the glue lifts all GY cards in one action).
+ // No Deck on the mat shows as missing. A stack makes it present. The GY
+ // also becomes missing after enough empty scans, without changing its list.
  assert.ok(r.watcher.getSnapshot().missingPiles?.includes('DECK'),'no Deck on the mat');
  const cal=zones.createFieldCalibration([{x:0,y:0},{x:1,y:1}]),dcell=zones.fieldZoneCells('normal',cal.zoneSpacing,cal.zones).find(c=>c.zone==='DECK')!;
  const dc=zones.fieldMatPoint({x:dcell.x+dcell.w/2,y:dcell.y+dcell.h/2},cal),deckOutline={...card(dc.x-.04,dc.y-.06,.08,.12),kind:'face-down' as const,confidence:.9};
@@ -1665,14 +1676,16 @@ test('owner Fenrir: M3 -> GY -> back to M3 face-up with a white Set in M2 and an
  const atS2=r.events.slice(beforeS2).find(e=>(e.type==='placed'||e.type==='moved')&&e.track.zone==='S2');
  assert.ok(atS2,'Ghost Belle shows in S2');assert.equal(atS2.track.id===gid||atS2.fromRef===gid,true,`the GY ref moves to S2 (got ${atS2.type} ${atS2.track.id})`);
  assert.equal(r.events.slice(beforeS2).some(e=>e.type==='placed'&&e.track.cardId==='G'&&e.track.id!==gid&&e.fromRef!==gid),false,'no second Ghost Belle');
- // A 2nd Ghost Belle: GY = [Belle X, card Y on top]. A hand goes over the GY (Y is sent),
- // and 3 s later a new Belle shows in S4. X is not the top and the touch is older than
- // 2.5 s, so X stays in the GY: the new card is a 2nd copy with a new ref.
+ // A second Ghost Belle appears in S4 after the GY return window has ended.
+ // A hand passing over the visible pile leaves its deeper Belle in the GY.
  const s4=card(.54,.72,.1,.15),inS4=(c:DetectedQuad)=>zones.fieldCenter(c).y>.6&&zones.fieldCenter(c).x>.5&&zones.fieldCenter(c).x<.6;
  r.known=[...inHand,{id:'gy-x',zone:'GY',cardId:'G'},{id:'gy-y',zone:'GY',cardId:'B'},{id:gid,zone:'S2',cardId:'G'}];
  r.identityAt=c=>zones.fieldCenter(c).x>.8?'B':'G';
  r.appearanceAt=c=>zones.fieldCenter(c).x>.8?under:zones.fieldCenter(c).y>.6&&zones.fieldCenter(c).x<.4||inS4(c)?belle:mat;r.outlines=[deckOutline,{...gy},s2];
  for(let i=0;i<10;i++)await r.tick(100);
+ const returnedAt=r.watcher.getSnapshot().pileReturnedAt?.GY;
+ assert.ok(returnedAt!==undefined);
+ while(r.at-returnedAt<=10_000)await r.tick(300);
  r.motionAt=c=>zones.fieldCenter(c).x>.8?.2:0;await r.tick(100);r.motionAt=undefined;
  for(let i=0;i<30;i++)await r.tick(100);
  const before2nd=r.events.length;r.outlines=[deckOutline,{...gy},s2,s4];

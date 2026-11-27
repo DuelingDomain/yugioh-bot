@@ -771,8 +771,8 @@ it.each([['GY','graveyard',false],['BANISHED','banished',true]] as const)(
   }
 );
 
-it.each([['GY','graveyard'],['BANISHED','banished'],['EXTRA','extra']] as const)('keeps all three %s entries when the stack is lifted and returned',async(zone,pile)=>{
- const members=cards.slice(0,3).map((card,i)=>({ref:`pile-${i}`,zone:pile,cardId:card.passcode,name:card.name,faceUp:true,position:'attack',...(pile==='extra'?{pendulumUp:true}:{})}));
+it.each([['GY','graveyard'],['BANISHED','banished']] as const)('keeps all three %s entries when the stack is lifted and returned',async(zone,pile)=>{
+ const members=cards.slice(0,3).map((card,i)=>({ref:`pile-${i}`,zone:pile,cardId:card.passcode,name:card.name,faceUp:true,position:'attack'}));
  const fixture=await typedWatcherFixture(cards[2],zone,members);
  let now=performance.now();
  vi.useFakeTimers();
@@ -792,6 +792,7 @@ it.each([['GY','graveyard'],['BANISHED','banished'],['EXTRA','extra']] as const)
   const unread=fixture.addTrack({id:'unread-return',state:'prompt',cardId:undefined,pileReturn:true,removed:false,visible:true,firstSeen:now,lastSeen:now,restSince:now});
   await fixture.emit({type:'prompt',reason:'pile',track:{...unread},result:undefined});
   expect(order()).toEqual(['pile-0','pile-1','pile-2']);
+  expect(screen.getByTestId('field-watcher-prompt')).toHaveTextContent('New card?');
   Object.assign(unread,{removed:true,visible:false});
   const returned=fixture.addTrack({id:'returning-top',removed:false,visible:true,firstSeen:now,lastSeen:now,restSince:now});
   await fixture.emit({track:{...returned}});
@@ -799,12 +800,93 @@ it.each([['GY','graveyard'],['BANISHED','banished'],['EXTRA','extra']] as const)
   expect(fixture.confirm).toHaveBeenCalledWith('returning-top',cards[2].cardId,'pile-2',false);
 
   Object.assign(returned,{removed:true,visible:false});
-  const lower=fixture.addTrack({id:'new-top',cardId:cards[0].cardId,removed:false,visible:true,firstSeen:now,lastSeen:now,restSince:now});
+  const lower=fixture.addTrack({id:'new-top',cardId:cards[0].cardId,pileReturn:true,removed:false,visible:true,firstSeen:now,lastSeen:now,restSince:now});
   await fixture.emit({track:{...lower},result:{...result,tier:'sure',candidates:[{cardId:cards[0].cardId,score:.99}]}});
   await act(async()=>{now+=12_000;await vi.advanceTimersByTimeAsync(12_000);});
   expect(order()).toEqual(['pile-1','pile-2','pile-0']);
   expect(fixture.post.mock.calls.map(([proposal])=>proposal.type)).toEqual(['pile.order']);
  }finally{fixture.dispose();clock.mockRestore();vi.useRealTimers();}
+});
+
+it.each([['M4','monster'],['BANISHED','banished']] as const)('a lower GY reveal preserves the top ref moving to %s',async(zone,destination)=>{
+ const members=[cards[2],cards[1],cards[0]].map((card,i)=>({ref:`pile-${i}`,zone:'graveyard',cardId:card.passcode,name:card.name,faceUp:true,position:'attack'}));
+ const fixture=await typedWatcherFixture(cards[0],zone,members);
+ try{
+  const now=performance.now(),watch=state.fieldWatch.watch;
+  watch.getSnapshot=()=>watch.snapshot;
+  Object.assign(fixture.track,{visible:false,firstSeen:now,lastSeen:now,restSince:now});
+  const lower=fixture.addTrack({id:'revealed',zone:'GY',cardId:cards[1].cardId,visible:true});
+  await fixture.emit({track:{...lower},result:{...result,tier:'sure',candidates:[{cardId:cards[1].cardId,score:.99}]}});
+  expect(fixture.post).not.toHaveBeenCalled();
+  fixture.track.visible=true;
+  await fixture.emit();
+  expect(fixture.post).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({type:'twin.move',cardRef:'pile-2',zone:destination,...(zone==='M4'?{slot:4}:{})}),expect.any(String));
+  expect(fixture.room().state.seats[0].twin).toEqual([members[0],members[1],expect.objectContaining({ref:'pile-2',zone:destination})]);
+ }finally{fixture.dispose();}
+});
+
+it.each(['reorder','bound reorder','clear','return'] as const)('moves the same non-top GY ref with recent %s evidence',async evidence=>{
+ const members=cards.slice(0,3).map((card,i)=>({ref:`pile-${i}`,zone:'graveyard',cardId:card.passcode,name:card.name,faceUp:true,position:'attack'}));
+ const fixture=await typedWatcherFixture(cards[1],'M4',members);
+ try{
+  const now=performance.now(),watch=state.fieldWatch.watch;
+  watch.getSnapshot=()=>watch.snapshot;
+  Object.assign(fixture.track,{firstSeen:now,lastSeen:now,restSince:now});
+  if(evidence==='reorder'||evidence==='bound reorder'){
+   state.fieldWatch.recordEvents=true;
+   await act(async()=>{await fixture.action({type:'pile.order',source:'auto',actorSeat:0,seat:0,zone:'graveyard',cardRefs:['pile-0','pile-2','pile-1']});});
+   await act(async()=>{await fixture.action({type:'pile.order',source:'auto',actorSeat:0,seat:0,zone:'graveyard',cardRefs:['pile-0','pile-1','pile-2']});});
+   fixture.room().events.at(-1).at=Date.now();
+   fixture.addTrack({id:'pile-2',zone:'GY',cardId:cards[2].cardId});
+   fixture.post.mockClear();
+  }else if(evidence==='clear')watch.snapshot.pileClearSince={GY:now};
+  else watch.snapshot.pileReturnedAt={GY:now};
+  await act(async()=>fixture.refresh());
+  await fixture.emit(evidence==='bound reorder'?{fromRef:'pile-1'}:{});
+  expect(fixture.post).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({type:'twin.move',cardRef:'pile-1',zone:'monster',slot:4}),expect.any(String));
+  expect(fixture.room().state.seats[0].twin).toHaveLength(3);
+ }finally{fixture.dispose();}
+});
+
+it('offers Hand first after a lower GY reveal with no settled destination',async()=>{
+ const members=cards.slice(0,3).map((card,i)=>({ref:`pile-${i}`,zone:'graveyard',cardId:card.passcode,name:card.name,faceUp:true,position:'attack'}));
+ const fixture=await typedWatcherFixture(cards[1],'GY',members);
+ let now=performance.now();
+ vi.useFakeTimers();
+ const clock=vi.spyOn(performance,'now').mockImplementation(()=>now);
+ try{
+  const watch=state.fieldWatch.watch;
+  watch.getSnapshot=()=>watch.snapshot;
+  Object.assign(fixture.track,{firstSeen:now,lastSeen:now,restSince:now});
+  await act(async()=>fixture.refresh());
+  await fixture.emit({result:{...result,tier:'sure',candidates:[{cardId:cards[1].cardId,score:.99}]}});
+  await act(async()=>{now+=1100;await vi.advanceTimersByTimeAsync(1100);});
+  expect(fixture.post).not.toHaveBeenCalled();
+  const notice=screen.getByTestId('field-departure-toast');
+  expect(notice).toHaveTextContent(`${cards[2].name} left the Graveyard · choose destination`);
+  expect(within(notice).getAllByRole('button')[0]).toHaveTextContent('Hand');
+  await act(async()=>{fireEvent.click(within(notice).getByRole('button',{name:'Hand'}));});
+  expect(fixture.room().state.seats[0].twin.at(-1)).toMatchObject({ref:'pile-2',zone:'hand'});
+ }finally{fixture.dispose();clock.mockRestore();vi.useRealTimers();}
+});
+
+it.each(['same sighting','fanned','new top'] as const)('honors a manual pile order according to the next %s',async scenario=>{
+ const members=cards.slice(0,3).map((card,i)=>({ref:`pile-${i}`,zone:'graveyard',cardId:card.passcode,name:card.name,faceUp:true,position:'attack'}));
+ const fixture=await typedWatcherFixture(cards[1],'GY',members);
+ try{
+  const watch=state.fieldWatch.watch,now=performance.now();
+  watch.getSnapshot=()=>watch.snapshot;
+  if(scenario==='fanned')watch.snapshot.fannedPiles=['GY'];
+  state.fieldWatch.recordEvents=true;
+  await fixture.action({type:'pile.order',actorSeat:0,seat:0,zone:'graveyard',cardRefs:['pile-0','pile-1','pile-2']});
+  fixture.room().events.at(-1).at=Date.now()-4500;
+  fixture.post.mockClear();
+  Object.assign(fixture.track,{pileReturn:true,firstSeen:scenario==='same sighting'?now-5000:now,restSince:now,lastSeen:now});
+  await act(async()=>fixture.refresh());
+  await fixture.emit({result:{...result,tier:'sure',candidates:[{cardId:cards[1].cardId,score:.99}]}});
+  if(scenario==='new top')expect(fixture.post).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({type:'pile.order',cardRefs:['pile-0','pile-2','pile-1']}),expect.any(String));
+  else expect(fixture.post).not.toHaveBeenCalled();
+ }finally{fixture.dispose();}
 });
 
 it('moves only the GY top when its matching destination settles',async()=>{

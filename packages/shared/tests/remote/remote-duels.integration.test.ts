@@ -1034,10 +1034,15 @@ describe("remote deck registration and live checks", () => {
     expect(s.room.state.seats[0].twin).toEqual(pile);
     expect(s.service.replay(s.room.slug, "g", s.users[0])).toEqual(s.room.state);
   });
-  it("orders the face-up Extra Deck pile without touching its private entries", () => {
+  it("replays historical face-up Extra Deck events while declining new ones", () => {
     let state = ygoModule.initialState({ seatCount: 2 }), seq = 0;
     const act = (action: RemoteActionProposal) => {
-      state = ygoModule.reduce(state, remoteActionSchema.parse({ ...action, at: ++seq, idempotencyKey: `extra-${seq}` }));
+      const event = { ...action, at: ++seq, idempotencyKey: `extra-${seq}` };
+      if (event.type === "twin.place" && event.pendulum || event.type === "pile.order" && event.zone === "extra") {
+        expect(remoteActionSchema.safeParse(event).success).toBe(false);
+        expect(() => ygoModule.reduce(state, event)).toThrow(/Invalid remote action/);
+      }
+      state = ygoModule.reduce(state, event, { replay: true, twinPlacementGuard: 8, handKnowledge: 1 });
     };
     const place = (ref: string, cardId: number, faceUp: boolean) => act({ type: "twin.place", actorSeat: 0, seat: 0,
       zone: "extra", card: { ref, cardId, faceUp, position: "attack" }, ...(faceUp ? { source: "auto", pendulum: true } : {}) });
@@ -1056,6 +1061,26 @@ describe("remote deck registration and live checks", () => {
     ]);
     act({ type: "undo", actorSeat: 0, targetActionId: state.undo!.actionId });
     expect(refs()).toEqual(["first", "private", "top"]);
+  });
+  it.each(["hand", "deck"] as const)("moves a whole public pile to %s in one undoable action", destination => {
+    const s = deckSession(); s.start();
+    s.act({ type: "deck.count", value: 35, cause: "other" });
+    for (const [ref, cardId] of [["bulk-first", 14558127], ["bulk-second", 46986414]] as const)
+      s.act({ type: "twin.place", seat: 0, zone: "banished", card: { ref, cardId, faceUp: ref === "bulk-first" } });
+    const before = structuredClone(s.room.state.seats[0]);
+    const action = { type: "pile.lift", seat: 0, zone: "banished", destination, cardRefs: ["bulk-first", "bulk-second"] } as const;
+    expect(() => s.act({ ...action, cardRefs: ["bulk-first", "missing"] })).toThrow(/left that pile/);
+    expect(s.room.state.seats[0]).toEqual(before);
+    s.act({ ...action, cardRefs: [...action.cardRefs], idempotencyKey: "bulk-move" });
+    const moved = s.room.state.seats[0];
+    expect(moved.twin).toMatchObject(action.cardRefs.map(ref => ({ ref, zone: destination, faceUp: false })));
+    expect(moved.twin.every(card => !card.inspectionFrom)).toBe(true);
+    expect(moved.handCount).toBe(before.handCount! + (destination === "hand" ? 2 : 0));
+    expect(moved.deckCount).toBe(before.deckCount! + (destination === "deck" ? 2 : 0));
+    expect(s.room.state.undo!.actionId).toBe("bulk-move");
+    expect(s.service.replay(s.room.slug, "g", s.users[0])).toEqual(s.room.state);
+    s.act({ type: "undo", targetActionId: "bulk-move" });
+    expect(s.room.state.seats[0]).toEqual(before);
   });
   it("adds the new columns to populated pre-deck tables without rewriting events", () => {
     const { db, service, table, users } = setup();
