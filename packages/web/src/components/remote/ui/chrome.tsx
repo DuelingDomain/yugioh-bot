@@ -1,11 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { remoteMatchDeadline, type RemoteMatch } from "@yugidraft/shared/remote";
 import { serverNow } from "./api";
 import { Icon } from "./icons";
 import { PHASES, PHASE_LONG, PHASE_SHORT, phaseIndex } from "./model";
-import { matchClockDisplay } from "./match-model";
 import s from "./remote-ui.module.css";
 
 /** How long the duel has run: m:ss, and h:mm:ss from one hour. */
@@ -25,24 +23,7 @@ export function DuelTimer({ startedAt, endedAt }: { startedAt: number | null; en
   return <span className={s.dtimer} role="timer" aria-label={`Duel time ${text}`} title="How long this duel has been going" data-testid="duel-timer"><Icon name="clock" /><b>{text}</b></span>;
 }
 
-export function MatchTimer({ match, turn, endedAt }: { match: RemoteMatch; turn: number; endedAt?: number | null }) {
-  const clock = match.clock;
-  const deadline = remoteMatchDeadline(clock);
-  const [now, setNow] = useState(serverNow);
-  const running = deadline !== undefined && !clock?.called && endedAt == null;
-  useEffect(() => {
-    if (!running) return;
-    setNow(serverNow());
-    const interval = window.setInterval(() => setNow(serverNow()), 250);
-    return () => window.clearInterval(interval);
-  }, [running]);
-  const display = matchClockDisplay(match, turn, endedAt ?? now);
-  if (!display) return null;
-  const { text, label, tone } = display;
-  return <span className={s.dtimer} data-tone={tone} role="timer" aria-label={label} title={label} data-testid="match-timer">
-    <Icon name="clock" /><b>{text}</b>
-  </span>;
-}
+export { MatchTimer } from "./match-timer";
 
 export type Player = { seat: number; name: string; color: string; eliminated: boolean };
 

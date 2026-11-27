@@ -14,6 +14,7 @@ import { PhaseTrack, usePhaseAsk } from "./phase-track";
 import { CardPopover, InspectorBody, type CardActions, type CardEdit, type CardSource, type Subject } from "./card-view";
 import { ActivateRow, OkBanner, ThinkingCallout, useOkHold } from "./think";
 import { CoinDieControl, RollOverlay, useRollHold } from "./coin-die";
+import { MatchTimeOff, TimeCallOverlay, useTimeCallHold } from "./match-timer";
 import { activatable, aliveSeats, CHAIN_GAP_MS, chainOf, maySignal, onField, recentlyPlaced, thinkingSeats } from "./think-model";
 /** The client sends Thinking and OK this far apart: a little over the server rule of one a second. */
 const SIGNAL_GAP_MS = 1050;
@@ -222,6 +223,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
   // Thinking, OK and chain links come from the room events, so every screen shows the same.
   const okHold = useOkHold(room.events);
   const rollHold = useRollHold(room.events);
+  const timeCallHold = useTimeCallHold(room.events);
   const thinking = useMemo(() => thinkingSeats(room.events, live), [room.events, live]);
   // What this client just asked for, until the room events echo it. Two fast T presses then toggle correctly.
   const [pendingThink, setPendingThink] = useState<ReadonlyMap<number, boolean>>(() => new Map());
@@ -1973,9 +1975,10 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
   });
   // The result screen already says the match ended: the "table ended" banner waits until it is closed.
   const resultShown = (match.phase === "result" && room.status === "active") || (match.phase === "done" && !boardView);
-  const matchTimeControl = room.status === "active" && !leftMatch && match.clock?.minutes && match.clock.offAt === undefined &&
-    room.seats.some(seat => seat.seat === mySeat && seat.userId === room.createdBy) ?
-    <button type="button" className={`${s.btn} ${s.sm}`} data-testid="match-time-off" onClick={() => void act({ type: "time.off", actorSeat: mySeat })}>Turn off match timer</button> : null;
+  const hostOfTimer = room.status === "active" && !leftMatch && !!match.clock?.minutes && match.clock.offAt === undefined && !match.clock.result &&
+    room.seats.some(seat => seat.seat === mySeat && seat.userId === room.createdBy);
+  const turnOffTimer = hostOfTimer ? () => void act({ type: "time.off", actorSeat: mySeat }) : undefined;
+  const matchTimeControl = turnOffTimer ? <MatchTimeOff onConfirm={turnOffTimer} /> : null;
   return <FeedCardsProvider seats={state.seats} info={info} marks={chainMarks}><div ref={appRef} className={`${duelFontClasses} ${s.app}`} data-drawer={layers.layer === "log" ? drawerTab : layers.layer === "insp" ? "insp" : undefined} data-mode={mode} data-handui={handUiOpen ? "1" : undefined} data-wc={webcamOnly ? "1" : undefined} data-testid="remote-table" data-status={room.status} data-open-chain-link={respondTo?.event.id} {...cardMenu}>
     <AutoFieldWatcher dock={seatDocks[mySeat] ?? null} room={room} transaction={ctl.transaction} diagnosticsAllowed={feedbackPref?.isAdmin===true && feedbackPref.collectionEnabled} />
     <a className={s.skip} href="#stage">Skip to the table</a>
@@ -1983,14 +1986,14 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
       <TopBar crumb={`Table ${room.slug.slice(0, 8)}`} startedAt={room.startedAt} endedAt={room.endedAt} tournament={tournament ? { name: tournament.tournamentName, href: `/tournament/${encodeURIComponent(tournament.tournamentSlug)}` } : null} chip={`${formatLabel} · ${solo ? "Solo test" : `${seatCount} players`}${room.spectatorCount ? ` · ${room.spectatorCount} watching` : ""}`} adminWatchers={(room.adminWatchers ?? []).map(watcher => watcher.name)} cardOpen={layers.layer === "insp"} logOpen={layers.layer === "log" && drawerTab === "log"} logDot={unread} settingsOpen={layers.layer === "log" && drawerTab === "settings"} onSettings={el => toggleDrawerTab("settings", el)} health={{ q: worstQ, text: healthSummary }} healthOpen={layers.layer === "log" && drawerTab === "info"} onHealth={el => openDrawer("info", el)}
         onCard={el => layers.toggle("insp", el)} onLog={el => toggleDrawerTab("log", el)}
         webcamOnly={webcamOnly} onView={multi ? undefined : setWebcamOnly}
-        matchTimer={match.clock ? room.status === "active" && inMatchBreak ? null : <MatchTimer match={match} turn={state.turn} endedAt={room.endedAt} /> : undefined} />
+        matchTimer={match.clock?.minutes ? room.status === "active" && inMatchBreak ? null : <MatchTimer match={match} turn={state.turn} endedAt={room.endedAt} info onTurnOff={turnOffTimer} /> : undefined} />
       <AdminWatchStrip names={(room.adminWatchers ?? []).map(watcher => watcher.name)} />
       <main className={s.stage} id="stage" tabIndex={-1} aria-label="Duel table" ref={stage}>
         {firstPick}
         <LpStrip players={players} turnSeat={turnShown} lp={lpOf} onJump={seat => document.querySelector(`[data-testid="seat-${seat}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" })} />
         {!resultShown && (room.status === "ended" || (state.ended && !state.match)) ? <div className={s.ended} role="status" data-testid="table-ended">
           <b>This table has ended.</b>
-          <span>{matchTimeReason(match, name) ?? endedWhy(room, state.winnerSeat != null ? name(state.winnerSeat) : null)}</span>
+          <span>{matchTimeReason(match, name, { of: seat => state.seats[seat]?.resources.lp ?? 0, seats: seatCount }) ?? endedWhy(room, state.winnerSeat != null ? name(state.winnerSeat) : null)}</span>
           <a className={`${s.btn} ${s.go} ${s.sm}`} href="/duels/new?type=remote" data-testid="new-table">New table</a>
         </div> : null}
         {!solo && seatCount > 2 && mySeat >= 0 && live && state.seats[mySeat]?.eliminated ? <div className={s.ended} role="status" data-testid="out-watching">
@@ -2003,6 +2006,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
         <ThinkingCallout thinking={thinking} name={name} pointer={seatCount > 2} />
         <OkBanner hold={okHold} name={name} />
         <RollOverlay hold={rollHold} name={name} />
+        <TimeCallOverlay hold={timeCallHold} name={name} />
         <svg className={s.arrow} aria-hidden="true">{arrow ? <><defs><marker id="ah" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0 0 10 5 0 10z" fill="#f6dc9a" /></marker></defs>
           <path d={arrow.d} fill="none" stroke="rgba(232,185,79,.35)" strokeWidth="9" strokeLinecap="round" />
           <path className={s.flow} d={arrow.d} fill="none" stroke="#f6dc9a" strokeWidth="3" strokeLinecap="round" markerEnd="url(#ah)" /></> : null}</svg>

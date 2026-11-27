@@ -49,13 +49,25 @@ export function reasonLine(game: MatchGame | undefined, name: (seat: number) => 
   return winnerSeat === null ? "Both players ran out of Life Points." : `${who(winnerSeat)} reduced the last opponent to 0 Life Points.`;
 }
 
-export function matchTimeReason(match: Match, name: (seat: number) => string): string | undefined {
+/** The Konami end of a timed match, in one sentence (tooltip, timer menu, lobby hint). */
+export const MATCH_TIME_RULE = `When time runs out, the turn in play is Turn 0. ${REMOTE_EXTRA_TURNS} extra turns follow, then the player with the most Life Points wins. Equal Life Points is a draw.`;
+
+/** Why the match ended on time. `lp` adds the Life Points to an LP result: "Time — won on LP (8000 vs 3200)". */
+export function matchTimeReason(match: Match, name: (seat: number) => string, lp?: { of: (seat: number) => number; seats: number }): string | undefined {
   const clock = match.clock;
   if (!clock?.result) return undefined;
-  if (clock.tiedSeats?.length) return `Time — draw between ${clock.tiedSeats.map(name).join(", ")}`;
-  if (match.winnerSeat == null) return "Time — match drawn";
-  if (clock.result === "lp" && match.games.at(-1)?.winnerSeat === match.winnerSeat) return "Time — won on LP";
-  return "Time — won on games";
+  const byLp = clock.result === "lp";
+  const points = (value: number) => value.toLocaleString("en-US");
+  if (clock.tiedSeats?.length || match.winnerSeat == null) {
+    const tied = clock.tiedSeats ?? [];
+    const who = tied.length && lp && tied.length < lp.seats ? ` between ${tied.map(name).join(", ")}` : "";
+    const each = byLp && lp && tied.length ? ` (${points(lp.of(tied[0]))} each)` : byLp && lp && lp.seats === 2 ? ` (${points(lp.of(0))} each)` : "";
+    return `Time — draw on ${byLp ? "LP" : "games"}${who}${each}`;
+  }
+  if (!byLp) return "Time — won on games";
+  const winner = match.winnerSeat;
+  const others = lp ? Array.from({ length: lp.seats }, (_, seat) => seat).filter(seat => seat !== winner).map(lp.of).sort((a, b) => b - a) : [];
+  return `Time — won on LP${lp ? ` (${[lp.of(winner), ...others].map(points).join(" vs ")})` : ""}`;
 }
 
 /** When a seat's siding clock ends (the server gives each seat its own cutoff). */
@@ -69,18 +81,21 @@ export function clock(ms: number): string {
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
 }
 
-export function matchClockDisplay(match: Match, turn: number, at: number) {
+export type MatchClockDisplay = { text: string; label: string; tone?: "amber" | "red" | "muted"; rule?: string };
+
+/** What the top-bar match clock shows at time `at` (server ms). Undefined when the match has no timer. */
+export function matchClockDisplay(match: Match, turn: number, at: number): MatchClockDisplay | undefined {
   const timer = match.clock;
-  if (!timer) return undefined;
-  if (!timer.minutes || timer.offAt !== undefined) return { text: "Off", label: "Match time off" };
-  if (timer.result) return { text: "Time", label: "Match time expired", tone: "red" };
+  if (!timer?.minutes) return undefined;
+  if (timer.offAt !== undefined) return { text: "No timer", label: "Match timer is off", tone: "muted" };
+  if (timer.result) return { text: "Time", label: "Match time is over", tone: "red", rule: MATCH_TIME_RULE };
   const extra = remoteTimeTurn({ match, turn });
-  if (extra === 0) return { text: "Turn 0", label: "Time — Turn 0", tone: "red" };
-  if (extra !== undefined) return { text: `Extra ${extra}/${REMOTE_EXTRA_TURNS}`, label: `Extra turn ${extra}/${REMOTE_EXTRA_TURNS}`, tone: "red" };
+  if (extra === 0) return { text: "Time · Turn 0", label: "Time. This is Turn 0", tone: "red", rule: MATCH_TIME_RULE };
+  if (extra !== undefined) return { text: `Extra ${extra}/${REMOTE_EXTRA_TURNS}`, label: `Time. Extra turn ${extra} of ${REMOTE_EXTRA_TURNS}`, tone: "red", rule: MATCH_TIME_RULE };
   const deadline = remoteMatchDeadline(timer);
   const left = deadline === undefined ? timer.minutes * 60_000 : Math.max(0, deadline - at);
   const text = clock(left).padStart(5, "0");
-  return { text, label: `Match time ${text}`, tone: left < 60_000 ? "red" : left < 300_000 ? "amber" : undefined };
+  return { text, label: `Match time left ${text}`, tone: left < 60_000 ? "red" : left < 300_000 ? "amber" : undefined, rule: MATCH_TIME_RULE };
 }
 
 /** The deck of a seat, as the server holds it now (swaps included). Null: the seat plays with physical cards only. */
