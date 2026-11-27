@@ -302,8 +302,7 @@ export class RecognitionPipeline {
           }
           const candidates=closed.length?closed:gallery.length?gallery:[];
           timings.search+=performance.now()-started;
-          const top=candidates[0];
-          if(top && (!deckIds||deckIds.has(top.cardId))) {searchSource=closedSource??'gallery';fastMatch={vector,index:hypothesis.index,rotation:hypothesis.rotation,candidates};break;}
+          if(candidates.length) {searchSource=closedSource??'gallery';fastMatch={vector,index:hypothesis.index,rotation:hypothesis.rotation,candidates};break;}
           // A weak upright deck view falls through immediately; do not pay for extra
           // orientations before the ordinary catalog path has assessed that view.
           if(deckFirst && !opts.gallery?.length)break;

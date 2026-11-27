@@ -2719,10 +2719,13 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
             note(t,'unread stack top: ask for identity');emit('prompt',t,{result,reason:'uncertain'});continue;
           }
           const offDeckUncertain=result?.quality.notInDecklist&&result.tier!=='sure';
-          const safe=result&&!offDeckUncertain&&result.tier!=='low match'&&result.candidates[0]&&!result.quality.fallback&&!result.quality.covered&&!result.quality.partial&&!result.quality.faceDown&&result.candidates[0].cardId!==options.profile.cardBack.cardId;
+          const readable=result&&!result.quality.fallback&&!result.quality.covered&&!result.quality.partial&&!result.quality.faceDown;
+          const deckIds=options.getPriors?.()?.decklist??[];
+          const deckFallback=readable&&offDeckUncertain ? result.candidates.find(c=>c.cardId!==options.profile.cardBack.cardId&&deckIds.includes(c.cardId)) : undefined;
+          const safe=readable&&!offDeckUncertain&&result.tier!=='low match'&&result.candidates[0]&&result.candidates[0].cardId!==options.profile.cardBack.cardId;
           const tentative=options.placeUnsure&&!offDeckUncertain&&t.view.state==='candidate'&&!t.binding&&!t.promptOnly&&!t.identityCheck&&!pending.background&&!pending.verifyOnly&&restOk(t)&&still&&!blurHold&&!handNear(evidence,c)&&!handContact(evidence,c)&&fieldSlot(t.view.zone)&&result?.tier==='low match'?unsureNameCandidates(result,options.profile.cardBack.cardId):undefined;
           if(tentative){t.view.nameCandidates=tentative;t.nameRetry={attempts:0,nextAt:now()+NAME_RETRY_MIN_MS};}
-          let winner=safe?result!.candidates[0].cardId:tentative?.[0].cardId;
+          let winner=safe?result!.candidates[0].cardId:tentative?.[0].cardId??deckFallback?.cardId;
           const lockedRef=t.view.faceDown&&!t.binding?undefined:lockFor(t.binding?.id??t.view.id),locked=lockHolds(lockedRef,result,pixels)?lockedRef:undefined;
           if(result&&!result.quality.fallback&&!result.quality.covered&&!result.quality.partial&&!result.quality.faceDown&&pending.crop)faceState.front=pending.crop;
           // A failed reveal must neither restore private identity nor publish an unnamed front.
@@ -2771,10 +2774,8 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
           }
           t.latestEmbedding=result?.identityEmbedding;t.lastResult=result;
           const recentIds=tracks.filter(old=>old!==t&&old.view.removed&&old.view.cardId).sort((a,b)=>b.view.lastSeen-a.view.lastSeen).map(old=>old.view.cardId!);
-          const deckIds=options.getPriors?.()?.decklist??[];
           const preferred=[...recentIds,...(options.getKnownCards?.()??[]).filter(card=>['DECK','HAND'].includes(card.zone)).map(card=>card.cardId).filter((id):id is string=>!!id),...deckIds].filter(id=>!deckIds.length||deckIds.includes(id));
           const remembered=gallery.resolve(result?.identityEmbedding,preferred);
-          const readable=result&&!result.quality.fallback&&!result.quality.covered&&!result.quality.partial&&!result.quality.faceDown;
           if((!t.binding||!t.binding.cardId||t.binding.faceDown)&&!t.promptOnly&&readable&&remembered.kind!=='new'&&(remembered.kind!=='hold'||result.tier==='low match')) {
             if(remembered.kind==='hold'||!remembered.cardId){t.view.state='dismissed';t.userDismissed=remembered.kind==='match'&&!remembered.cardId;t.prompted=true;t.identityAppearance=pixels;t.best=undefined;continue;}
             winner=remembered.cardId;
@@ -2782,8 +2783,7 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
           // A locked card is never re-guessed: a lower or equal read keeps its name.
           if(locked&&winner!==locked.cardId&&!beatsLock(locked,result)){winner=locked.cardId;note(t,'identity locked');}
           if(tentative&&winner!==tentative[0].cardId){t.view.nameCandidates=undefined;t.nameRetry=undefined;}
-          const deck=options.getPriors?.()?.decklist;
-          const inDeck=!!winner&&!!deck?.some(id=>String(id)===winner)&&!result?.quality.notInDecklist;
+          const inDeck=!!winner&&deckIds.includes(winner);
           const pile=['GY','BANISHED','DECK','EXTRA'].includes(t.view.zone);
           // Follow physical lifts. Pile history needs touch or top-change evidence;
           // an unchanged top remains a separate copy from a new field outline.

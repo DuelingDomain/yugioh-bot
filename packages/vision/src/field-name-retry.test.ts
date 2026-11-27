@@ -5,7 +5,7 @@ import {createFieldIdentityGallery} from './field-gallery';
 import {yugioh} from './games/yugioh';
 import type {DetectedQuad,RecognitionResult} from './types';
 
-function rig(backgroundReread=true,placeUnsure=false,margin=.15,readCostMs=0,quiet=false) {
+function rig(backgroundReread=true,placeUnsure=false,margin=.15,readCostMs=0,quiet=false,decklist?:string[]) {
   const gallery=createFieldIdentityGallery();let known:KnownFieldCard[]=[];
   let at=0,hand=false,motion=0,visible=true,tier:RecognitionResult['tier']='low match',identity='A',pending:Promise<void>|undefined;
   const card:DetectedQuad={kind:'face-up',confidence:.95,partial:false,quad:[{x:.3,y:.3},{x:.4,y:.3},{x:.4,y:.45},{x:.3,y:.45}]};
@@ -17,10 +17,10 @@ function rig(backgroundReread=true,placeUnsure=false,margin=.15,readCostMs=0,qui
   }
   const clear=data.slice();
   const frame:ImageData={width,height,data,colorSpace:'srgb'},events:FieldEvent[]=[],reads:number[]=[];
-  const watcher=createFieldWatcher({profile:yugioh,gallery,getKnownCards:()=>known,nameVoting:false,backgroundReread,placeUnsure,now:()=>at,hidden:()=>false,clone:async f=>f,
+  const watcher=createFieldWatcher({profile:yugioh,gallery,getKnownCards:()=>known,getPriors:()=>({decklist}),nameVoting:false,backgroundReread,placeUnsure,now:()=>at,hidden:()=>false,clone:async f=>f,
     buffer:{sample:async()=>({frame,at})},recognizer:{separateDetector:true,detectCards:async()=>visible?[card]:[],recognize:async()=>{
       reads.push(at);const capturedTier=tier,capturedIdentity=identity;await pending;at+=readCostMs;
-      return {identityEmbedding:{space:'art-box',values:capturedIdentity==='B'?[0,1]:[1,0]},candidates:[{cardId:capturedIdentity,score:capturedTier==='sure'?.95:.65},{cardId:'RUNNER',score:.65-margin}],tier:capturedTier,quality:{detected:true,cornersFound:true,framesUsed:1,selectedFrameIndices:[0],sharpness:20,fallback:false},timingsMs:{sharpness:0,detect:0,warp:0,embed:0,search:0,total:228},backend:'wasm'};
+      return {identityEmbedding:{space:'art-box',values:capturedIdentity==='B'?[0,1]:[1,0]},candidates:[{cardId:capturedIdentity,score:capturedTier==='sure'?.95:.65},{cardId:'RUNNER',score:.65-margin}],tier:capturedTier,quality:{detected:true,cornersFound:true,framesUsed:1,selectedFrameIndices:[0],sharpness:20,fallback:false,notInDecklist:decklist&&!decklist.includes(capturedIdentity)},timingsMs:{sharpness:0,detect:0,warp:0,embed:0,search:0,total:228},backend:'wasm'};
     }},analyze:()=>({scene:quiet?{moving:0,sinceMark:0,mark(){}}:undefined,motion:()=>motion,sharpness:()=>20,crop:()=>frame,appearance:()=>Array(12).fill(.6),halo:()=>Array(12).fill(.8),touched:()=>hand?.5:0,occluded:()=>hand})});
   watcher.subscribe(e=>events.push(e));
   const tick=async(ms=100)=>{at+=ms;await watcher.tick();await new Promise<void>(r=>setImmediate(r));};
@@ -118,6 +118,17 @@ test('an automatically shown Best match also improves on a sure background read'
   for(let i=0;i<80&&r.events.filter(e=>e.type==='placed').length<2;i++)await r.tick();
   const last=r.events.filter(e=>e.type==='placed').at(-1);assert.equal(last?.track.cardId,'B');assert.equal(last?.track.bestMatch,undefined);assert.equal(last?.track.id,first.track.id);
  }finally{r.watcher.dispose();}
+});
+
+for(const inDeck of [true,false])test(`an unsure off-deck winner ${inDeck?'uses the deck candidate':'prompts when there is no deck candidate'}`,async()=>{
+  const r=rig(false,false,.15,0,false,[inDeck?'RUNNER':'OTHER']);
+  try{
+    r.weakNamed();
+    for(let i=0;i<30&&!r.events.some(e=>e.type==='placed'||e.type==='prompt');i++)await r.tick();
+    const event=r.events.find(e=>e.type==='placed'||e.type==='prompt');
+    assert.equal(event?.type,inDeck?'placed':'prompt');
+    if(inDeck){assert.equal(event?.track.cardId,'RUNNER');assert.equal(event?.track.bestMatch,true);}
+  }finally{r.watcher.dispose();}
 });
 
 test('a sure background correction survives the old server name until its save acknowledges it',async()=>{
