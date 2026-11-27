@@ -15,8 +15,9 @@
 .proxyEdge{fill:none;stroke:rgb(232 185 79/.95);stroke-width:.004;stroke-linejoin:round}
 .tag{display:block;transform:translate(-50%,-100%);max-width:40%;padding:0 3px;overflow:hidden;text-overflow:ellipsis;background:rgb(232 185 79/.94);color:#1a1405;font:700 9px/1.2 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;letter-spacing:.04em;text-transform:uppercase;text-shadow:none}
 .proxyName{display:block;white-space:normal;text-align:center;overflow-wrap:anywhere}
-.proxyFallback{position:absolute;z-index:3;inset:8px auto auto 8px;max-width:calc(100% - 16px);display:grid;gap:4px;margin:0;padding:0;list-style:none;pointer-events:none}
-.proxyFallback li{width:fit-content;padding:3px 7px;border-left:2px solid #e8b94f;border-radius:4px;background:rgb(5 8 16/.92);color:#f1ecff;font:700 12px/1.2 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;overflow-wrap:anywhere}
+/* Bottom right: the top left holds the feed tag row and the camera menu, and the camera tools sit on the left. */
+.proxyFallback{position:absolute;z-index:3;inset:auto 8px 8px auto;max-width:min(60%,calc(100% - 16px));display:grid;justify-items:end;gap:4px;margin:0;padding:0;list-style:none;pointer-events:none}
+.proxyFallback li{width:fit-content;text-align:right;padding:3px 7px;border-left:2px solid #e8b94f;border-radius:4px;background:rgb(5 8 16/.92);color:#f1ecff;font:700 12px/1.2 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;overflow-wrap:anywhere}
 /* The chain mark on a feed: a short glow on the card, then a small "Chain N" badge. */
 .chainGlow{fill:rgb(155 126 255/.35);stroke:rgb(246 220 154/.95);stroke-width:.006;stroke-linejoin:round;animation:chainGlow 1.2s ease-out both}
 .chainTag{transform:translate(-50%,-100%);max-width:none;padding:2px 7px;border:1px solid rgb(155 126 255/.85);border-radius:999px;background:rgb(11 7 22/.94);color:#f6dc9a;font:700 10px/1.2 var(--font-duel-display),Oxanium,sans-serif;letter-spacing:.08em;text-transform:uppercase;box-shadow:0 0 12px rgb(155 126 255/.55)}
