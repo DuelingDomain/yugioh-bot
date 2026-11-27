@@ -1930,13 +1930,17 @@
   .handrow{flex-wrap:wrap;height:auto;row-gap:2px}
   .handmain{flex:1 1 160px;height:37px}
   .hnone{white-space:nowrap}
+  /* The webcam-only row wraps instead of cutting "Revealed in hand" to "Reveal...". */
+  .seat[data-wc] .htop{flex-wrap:wrap;height:auto;min-height:22px;row-gap:2px}
+  .seat[data-wc] .htop .hlab{flex:none;overflow:visible}
 }
 @media (pointer:coarse){.zaKey{display:none}.hintClick{display:none}}
 @media (pointer:fine){.hintTap{display:none}}
 .firstHint button{flex:none;white-space:nowrap}
 .firstHint{width:max-content}
 @media (max-width:900px){.firstHint{bottom:auto;top:calc(52*var(--u))}}
-.seat:has(.seatDock:not([data-count="0"])) .firstHint,.seat:has([data-attention]) .firstHint{display:none}
+/* The hint waits while the side question, a calibration dialog or a detection notice is on this seat. */
+.seat:has([data-testid="orientation-hint"]) .firstHint,.seat:has([role="dialog"]) .firstHint,.seat:has(.seatDock:not([data-count="0"])) .firstHint{display:none}
 /* Phone top bar: Card, Log and Settings show a short label under the icon. */
 @media (max-width:480px){
   .top .tb:not(.boardtog):not(.tbStatus){flex-direction:column;justify-content:center;gap:1px;height:calc(40*var(--u));padding:2px 5px}
