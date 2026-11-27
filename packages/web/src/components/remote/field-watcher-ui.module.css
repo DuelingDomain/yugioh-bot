@@ -7,7 +7,8 @@
 .theme button{font:inherit;cursor:pointer}
 .theme button:disabled{cursor:default;opacity:.55}
 .theme :focus-visible{outline:2px solid var(--gold);outline-offset:2px}
-.controls{display:flex;align-items:center;gap:6px;flex:none}
+.controls{display:flex;align-items:center;gap:6px;flex:none;pointer-events:none}
+.controls>*{pointer-events:auto}
 .toggle{cursor:pointer;white-space:nowrap}
 .toggle input{margin:0;accent-color:var(--gold)}
 .chip{display:block;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;border:1px solid rgb(121 217 168/.35);border-radius:4px;padding:3px 6px;background:rgb(7 4 14/.85);color:var(--ok,#79d9a8);font:600 10px/1.2 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;letter-spacing:0}

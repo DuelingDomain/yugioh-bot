@@ -58,6 +58,15 @@ export function shortUndoLabel(event: { action: unknown }, cardName: (seat: numb
   }
 }
 
+const SENT_LABEL: Record<string, string> = { graveyard: "Sent to GY", banished: "Banished", hand: "Sent to hand", deck: "Sent to deck" };
+/** A short text for the bottom-bar Undo chip when the action is a remove or a send; null for the rest (the caller keeps the longer log line). */
+export function undoChipText(event: { action: unknown }): string | null {
+  const a = event.action as AnyAction;
+  if (a.type === "twin.remove") return "Undo · Removed";
+  if (a.type === "twin.move" && SENT_LABEL[a.zone as string] && !a.setRef) return `Undo · ${SENT_LABEL[a.zone as string]}`;
+  return null;
+}
+
 /**
  * The one place that knows how to go back a phase: phase.set to the earlier phase. The caller picks the target,
  * the previous phase from `previousYgoPhase(state)` or the earlier phase the player clicked.

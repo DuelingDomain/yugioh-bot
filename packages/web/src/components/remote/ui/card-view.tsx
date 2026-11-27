@@ -8,7 +8,7 @@ import { BigArt, CardText, PopupFrame, TierChip, type PopAt, type Tier } from ".
 import s from "./remote-ui.module.css";
 import z from "./zone-rules.module.css";
 import { cardTypeLine } from "@/lib/remote/field-legality";
-import type { QuickMove } from "./quick-moves";
+import { SEND_LABELS, type QuickMove } from "./quick-moves";
 
 /** Where the person opened this card. A camera click only looks at the card; the board, a pile and the hand keep their controls. */
 export type CardSource = "camera" | "board" | "pile" | "hand";
@@ -81,6 +81,10 @@ export type CardActions = {
   give?: { label: string; onClick: () => void };
   /** The same card moves as the board zone menu. */
   quick?: QuickMove[];
+  /** Opens the zone menu of this card (a card on top, a token, materials). */
+  onMore?: () => void;
+  /** A face-down card with a known origin (a Set from a trap): pick which card it is. */
+  onChooseSet?: () => void;
   onWrong?: () => void; onPin?: () => void;
   onForgetHand?: () => void;
   /** A remembered card: read the camera again. */
@@ -141,7 +145,7 @@ function Actions({ a, subject }: { a: CardActions; subject: Subject }) {
       {a.give ? <button type="button" className={BTN} onClick={a.give.onClick} data-testid="card-give">{a.give.label}</button> : null}
       <button type="button" className={BTN} onClick={a.onAttack} disabled={!a.canAttack} title={a.attackHint}>Attack from here</button>
     </Group>}
-    {edit ? <MoveGroup edit={edit} /> : null}
+    {edit ? <MoveGroup edit={edit} quick={a.quick} /> : null}
     {a.attach?.options.length ? <Group label={a.attach.label}><select aria-label={a.attach.label} className={s.inp} value="" onChange={e => { if (e.target.value) a.attach?.onPick(e.target.value); }}><option value="">Choose a card…</option>{a.attach.options.map(o => <option key={o.ref} value={o.ref}>{o.label}</option>)}</select></Group> : null}
     {a.readOnly ? null : <Group label="Card">
       {edit ? <button type="button" className={BTN} onClick={edit.onFlip}>{edit.faceUp ? "Turn face down" : "Turn face up"}</button> : null}
@@ -149,6 +153,8 @@ function Actions({ a, subject }: { a: CardActions; subject: Subject }) {
       {a.undo ? <button type="button" className={`${BTN} ${a.undo.reason ? s.cblocked : ""}`} aria-disabled={!!a.undo.reason} aria-describedby={a.undo.reason ? "card-undo-reason" : undefined}
         onClick={a.undo.onUndo} data-testid="card-undo" title={a.undo.label}>Undo last change</button> : null}
       {a.onWrong ? <button type="button" className={BTN} onClick={a.onWrong}>Wrong card?</button> : null}
+      {a.onChooseSet ? <button type="button" className={BTN} onClick={a.onChooseSet} data-testid="card-choose-set">Choose Set card{"\u2026"}</button> : null}
+      {a.onMore ? <button type="button" className={BTN} onClick={a.onMore} data-testid="card-more">More actions{"\u2026"}</button> : null}
       {a.onForgetHand ? <button type="button" className={BTN} onClick={a.onForgetHand}>Remove from revealed hand</button> : null}
       {a.onPin ? <button type="button" className={BTN} onClick={a.onPin} data-testid="pin-inspector">Pin to inspector</button> : null}
       {a.onFlag ? <button type="button" className={BTN} data-layer-opener onClick={event => a.onFlag?.(event.currentTarget)} data-testid="review-flag"><Icon name="warn" />Deck warning</button> : null}
@@ -165,28 +171,39 @@ function Actions({ a, subject }: { a: CardActions; subject: Subject }) {
 const MOVES: { zone: string; label: string; mr5?: boolean }[] = [{ zone: "monster", label: "Monster" }, { zone: "extra-monster", label: "Extra Monster", mr5: true }, { zone: "spell-trap", label: "Spell/Trap" },
   { zone: "pendulum", label: "Pendulum", mr5: true }, { zone: "field", label: "Field" }, { zone: "hand", label: "Hand" }, { zone: "deck", label: "Deck" }, { zone: "extra", label: "Extra Deck" }, { zone: "graveyard", label: "Graveyard" }, { zone: "banished", label: "Banish" }];
 /** Corrections to the virtual field: the camera is the truth, this only fixes what the table believes. */
-function MoveGroup({ edit }: { edit: CardEdit }) {
-  return <Group label="Move to" testid="card-edit">
-    {MOVES.filter(move => move.zone !== edit.zone && (!move.mr5 || edit.extraZones)).map(move => <button type="button" key={move.zone} className={BTN} onClick={() => edit.onMove(move.zone)}>{move.label}</button>)}
+function MoveGroup({ edit, quick }: { edit: CardEdit; quick?: QuickMove[] }) {
+  // The zone menu's "Send to" row and Remove label: when the card has them, they replace the four pile buttons of the grid.
+  const sends = (quick ?? []).filter(move => SEND_LABELS[move.id]);
+  const removeLabel = quick?.find(move => move.id === "remove")?.label ?? "Remove";
+  const sent = sends.length ? new Set(["hand", "deck", "graveyard", "banished"]) : null;
+  return <>{sends.length ? <Group label="Send to" testid="card-send-to">
+    {sends.map(move => <button type="button" key={move.id} className={BTN} onClick={move.run} data-testid={`card-send-${move.id}`}>{SEND_LABELS[move.id]}</button>)}
+  </Group> : null}
+  <Group label="Move to" testid="card-edit">
+    {MOVES.filter(move => move.zone !== edit.zone && !sent?.has(move.zone) && (!move.mr5 || edit.extraZones)).map(move => <button type="button" key={move.zone} className={BTN} onClick={() => edit.onMove(move.zone)}>{move.label}</button>)}
     <i className={s.dgbreak} />
     {edit.zone === "monster" || edit.zone === "spell-trap" ? [1, 2, 3, 4, 5].map(n => { const label = `${edit.zone === "monster" ? "M" : "S"}${n}`;
       return <button type="button" key={label} className={BTN} disabled={edit.slot === n} data-testid={`card-cell-${label}`} aria-label={`Move to ${label}`} onClick={() => edit.onCell(`${edit.zone === "monster" ? "m" : "s"}${n}` as ZoneKey)}>{label}</button>; }) : null}
-    <button type="button" className={`${BTN} ${s.dremove}`} onClick={edit.onRemove} data-testid="card-remove">Remove</button>
-    {edit.onNotACard?<button type="button" className={`${BTN} ${s.dremove}`} onClick={edit.onNotACard} data-testid="card-not-a-card">Not a card</button>:null}
-  </Group>;
+    <span className={s.dreds}>
+      <button type="button" className={`${BTN} ${s.dremove}`} onClick={edit.onRemove} data-testid="card-remove">{removeLabel}</button>
+      {edit.onNotACard?<button type="button" className={`${BTN} ${s.dremove}`} onClick={edit.onNotACard} data-testid="card-not-a-card">Not a card</button>:null}
+    </span>
+  </Group></>;
 }
 
 /** The identified card, large, beside the card that was clicked on a feed. Same layout as the tray, so the two swap without a jump. */
 export function CardPopover({ subject, info, at, warning, actions, onClose }: {
   subject: Subject; info: CardInfo | undefined; at: PopAt; warning?: string; actions: CardActions; onClose: () => void;
 }) {
-  const name = info?.name ?? subject.name ?? `Card ${subject.cardId}`;
+  const name = info?.name ?? subject.name ?? (subject.cardId ? `Card ${subject.cardId}` : "Unidentified card");
   const viewOnly = subject.from === "camera";
-  return <PopupFrame at={at} layer="card" label={`${name}, card details`} testid="card-popover" className={`${s.bigCard} ${subject.from === "pile" ? s.fromPile : ""}`}>
+  return <PopupFrame at={at} layer="card" label={`${name}, card details`} testid="card-popover" className={`${s.bigCard} ${subject.from === "pile" ? s.fromPile : ""} ${subject.from === "board" ? s.fromBoard : ""} ${subject.cardId ? "" : s.noArt}`}>
     <button type="button" className={`${s.ibtn} ${s.bclose}`} aria-label="Close card" onClick={onClose}><Icon name="x" /></button>
-    <BigArt id={subject.cardId} label={name} />
+    {actions.onPin ? <button type="button" className={`${s.ibtn} ${s.bpin}`} aria-label="Pin to inspector" title="Pin to inspector" onClick={actions.onPin} data-testid="pin-inspector"><Icon name="pin" /></button> : null}
+    {subject.cardId ? <BigArt id={subject.cardId} label={name} /> : null}
     <div className={s.bmain}>
-      <CardText id={subject.cardId} info={info} name={subject.name} fallbackName={`Card ${subject.cardId}`}>
+      {!subject.cardId ? <><h2 className={s.bname} data-testid="popover-name">{name}</h2><div className={s.bfacts}><p className={s.bdetails}>Not identified.</p></div></> : null}
+      {subject.cardId ? <CardText id={subject.cardId} info={info} name={subject.name} fallbackName={`Card ${subject.cardId}`}>
         <div className={s.bchips}>
           <TierChip tier={subject.tier} />
           {subject.remembered ? <span className={s.tier} data-testid="card-last-read">Last read here, may have changed · {readAge(subject.rememberedAt)}</span> : null}
@@ -194,7 +211,7 @@ export function CardPopover({ subject, info, at, warning, actions, onClose }: {
           <DeckBadges subject={subject} warning={warning} />
           {viewOnly && actions.materials?.length ? <span className={s.tier} data-testid="card-material-count">{actions.materials.length} material{actions.materials.length === 1 ? "" : "s"}</span> : null}
         </div>
-      </CardText>
+      </CardText> : null}
       {subject.addErrors.length && subject.notInDecklist ? <p className={s.bnote}>{subject.addErrors[0]}</p> : null}
       {viewOnly && actions.zoneCheck ? <ZoneCheck reason={actions.zoneCheck} /> : null}
     </div>
@@ -205,8 +222,7 @@ export function CardPopover({ subject, info, at, warning, actions, onClose }: {
         </Group> : null}
         {actions.onReadAgain ? <button type="button" className={BTN} onClick={actions.onReadAgain} data-testid="card-read-again">Read again</button> : null}
         {actions.onWrong ? <button type="button" className={BTN} onClick={actions.onWrong}>Wrong card?</button> : null}
-        {actions.onPin ? <button type="button" className={BTN} onClick={actions.onPin} data-testid="pin-inspector">Pin to inspector</button> : null}
-      </> : <Actions a={actions} subject={subject} />}
+      </> : <Actions a={{ ...actions, onPin: undefined }} subject={subject} />}
     </div>
   </PopupFrame>;
 }

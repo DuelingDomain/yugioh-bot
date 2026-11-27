@@ -172,7 +172,7 @@ const samePileTop=(track:FieldTrack,top:TwinCard|undefined,owns:(track:FieldTrac
 /** A moved track needs a new face-up identity read at the Banished pile. A retained identity can follow a box before any read there. */
 export function fieldNamedBanish(event:FieldEvent,track:FieldTrack,twins:readonly TwinCard[],owns:(track:FieldTrack)=>string,tracks:readonly FieldTrack[]):boolean {
   return event.track.zone==='BANISHED'&&track.zone==='BANISHED'&&fieldSureSetRead(track,event.result)&&
-    (track.restSince??-Infinity)>=event.track.firstSeen&&!samePileTop(track,twins.findLast(c=>c.zone==='banished'),owns,tracks);
+    (track.restSince??-Infinity)>=event.track.firstSeen&&!samePileTop(track,twins.filter(c=>c.zone==='banished').at(-1),owns,tracks);
 }
 
 /**
@@ -185,7 +185,7 @@ export function fieldPileEvidence({twins,tracks,lastSeen,owns}:{twins:readonly T
   const found=twins.filter(c=>['graveyard','banished'].includes(c.zone)&&c.ref.startsWith('fw-')&&!c.cardId&&!c.passcode&&!c.name).filter(c=>
     tracks.some(t=>owns(t)===c.ref&&t.visible&&!t.removed&&t.firstSeen>=lastSeen-1000&&
       (c.zone==='graveyard'?c.faceUp&&t.zone==='GY':!c.faceUp&&t.zone==='BANISHED'&&committedSet(t)&&recentPileRest(t,lastSeen)&&
-        !samePileTop(t,twins.findLast(other=>other!==c&&other.zone==='banished'),owns,tracks))));
+        !samePileTop(t,twins.filter(other=>other!==c&&other.zone==='banished').at(-1),owns,tracks))));
   return found.length===1?{twin:found[0],zone:found[0].zone as 'graveyard'|'banished',faceUp:found[0].faceUp}:undefined;
 }
 
@@ -202,7 +202,7 @@ export function fieldPileTrackEvidence({twins,tracks,lastSeen,owns,cardId,pileCo
   const found=recent.filter(t=>{
     if(t.restSince===undefined||twins.some(c=>c.ref===owns(t)))return false;
     const zone=t.zone==='GY'?'graveyard':'banished';
-    const top=twins.findLast(c=>c.zone===zone);
+    const top=twins.filter(c=>c.zone===zone).at(-1);
     if(t.zone==='BANISHED'&&(!recentPileRest(t,lastSeen)||samePileTop(t,top,owns,tracks)||
       (t.faceDown?!committedSet(t):!t.cardId||t.state!=='identified'||t.bestMatch||t.nameCandidates?.length)))return false;
     // The tracker can withhold visibility while reading a changed top. The old
@@ -499,8 +499,8 @@ export function fieldSetReturn({track,twins,tracks,owns,events,seat,at,now,pileT
 export function staleFieldOccupant(twins:readonly TwinCard[],tracks:readonly FieldTrack[],zone:FieldTrack['zone'],incomingRef:string,at=Math.max(-Infinity,...tracks.map(track=>track.lastSeen).filter(Number.isFinite))):TwinCard|undefined {
   const location=fieldZoneLocation(zone);
   if(!['monster','extra-monster','spell-trap','field'].includes(location.zone))return;
-  // A token has no physical card, so it is never stale: only the player removes it.
-  return twins.find(card=>!card.token&&card.ref!==incomingRef&&card.zone===location.zone&&card.slot===location.slot&&
+  // Tokens and controlled cards reserve their cell without a physical card on this mat.
+  return twins.find(card=>!card.token&&card.ownerSeat===undefined&&card.ref!==incomingRef&&card.zone===location.zone&&card.slot===location.slot&&
     !tracks.some(track=>track.id===card.ref&&!track.removed&&(track.visible||track.lastSeen>=at)));
 }
 

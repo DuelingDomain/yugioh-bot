@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode, type SyntheticEvent } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode, type SyntheticEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { duelFontClasses } from '@/components/duel/fonts';
 import { placePopup, type Rect } from './ui/popup';
@@ -22,6 +22,8 @@ export type FieldWatcherUIProps={
   prompts:readonly FieldWatcherPrompt[];pending:boolean;onChoose(promptId:string,cardId:string):void;onDismiss(promptId:string):void;
   pileDeck?:readonly number[];onPileChoose?(promptId:string,card:{cardId:number;name:string}):void;onPileOpen?(zone:PublicPile):void;
   notice?:ReactNode;noticeTestId?:string;
+  /** Older notices that still have an Undo, shown under the newest (the dock only). `onNoticeHold` is true while the pointer or the keyboard is on any notice: their timers stop. */
+  kept?:readonly {key:string;node:ReactNode}[];onNoticeHold?(held:boolean):void;
   /** The notification stack beside the field. Prompts and notices go there, never over the camera. */
   dock?:HTMLElement|null;
 };
@@ -81,7 +83,7 @@ function ZonePrompt({prompt,first,zone,pending,onChoose,onWrong,onNotACard}:{pro
 }
 
 /** Feed watcher presentation, independent of recognition and table actions. */
-export function FieldWatcherUI({host,enabled,onEnabledChange,statusLabel,statusTitle,statusExtra,attention,onStatusAction,calibrated,calibrationDisabled,onCalibrate,prompts,pending,onChoose,onDismiss,pileDeck=[],onPileChoose,onPileOpen,notice,noticeTestId,dock,zoneSeat,keepUnresolved=false,onWrong,onNotACard,changes=[],onChanged}:FieldWatcherUIProps) {
+export function FieldWatcherUI({host,enabled,onEnabledChange,statusLabel,statusTitle,statusExtra,attention,onStatusAction,calibrated,calibrationDisabled,onCalibrate,prompts,pending,onChoose,onDismiss,pileDeck=[],onPileChoose,onPileOpen,notice,noticeTestId,kept=[],onNoticeHold,dock,zoneSeat,keepUnresolved=false,onWrong,onNotACard,changes=[],onChanged}:FieldWatcherUIProps) {
   const [collapsed,setCollapsed]=useState<ReadonlySet<string>>(new Set());
   const visible=enabled?prompts:prompts.filter(p=>p.pile);
   const prompt=visible.find(p=>!collapsed.has(promptKey(p))),description=useId();
@@ -91,6 +93,12 @@ export function FieldWatcherUI({host,enabled,onEnabledChange,statusLabel,statusT
   const [promptStyle,setPromptStyle]=useState<CSSProperties>({visibility:'hidden'}),[noticeStyle,setNoticeStyle]=useState<CSSProperties>({visibility:'hidden'});
   const anchorKey=prompt?.quad?.map(point=>`${point.x},${point.y}`).join('|');
   const hasNotice=!!notice;
+  // The pointer or the keyboard is on a notice: asked from the page itself, so a notice that goes away under the pointer cannot leave the hold stuck.
+  const [holding,setHolding]=useState(false);
+  const recheckHold=useCallback(()=>{const canHover=typeof matchMedia==='function'&&matchMedia('(hover:hover)').matches;const held=[...document.querySelectorAll('[data-notice-hold]')].some(el=>(canHover&&el.matches(':hover'))||!!el.querySelector(':focus-visible'));setHolding(held);onNoticeHold?.(held);},[onNoticeHold]);
+  useEffect(()=>{recheckHold();},[notice,kept,recheckHold]);
+  useEffect(()=>{if(!holding)return;const timer=setInterval(recheckHold,1000);return()=>clearInterval(timer);},[holding,recheckHold]);
+  const hold={'data-notice-hold':'',onPointerEnter:recheckHold,onPointerLeave:recheckHold,onFocus:recheckHold,onBlur:()=>{requestAnimationFrame(recheckHold);}};
   useLayoutEffect(()=>{
     if(!host||dock)return;
     const toolbar=host.querySelector<HTMLElement>('[data-feed-toolbar]');
@@ -153,7 +161,8 @@ export function FieldWatcherUI({host,enabled,onEnabledChange,statusLabel,statusT
       </div>
       </>}
     </div>,dock??document.body):null}
-    {notice?createPortal(<div ref={toast} className={`${duelFontClasses} ${s.theme} ${s.notice} ${dock?s.docked:''}`} style={dock?undefined:noticeStyle} role="status" data-testid={noticeTestId} onClick={stop} onPointerDown={stop} onKeyDown={stop}>{notice}</div>,dock??document.body):null}
+    {notice?createPortal(<div ref={toast} className={`${duelFontClasses} ${s.theme} ${s.notice} ${dock?s.docked:''}`} style={dock?undefined:noticeStyle} role="status" data-testid={noticeTestId} onClick={stop} onPointerDown={stop} onKeyDown={stop} {...hold}>{notice}</div>,dock??document.body):null}
+    {dock?kept.map((item,index)=>createPortal(<div key={item.key} className={`${duelFontClasses} ${s.theme} ${s.notice} ${s.docked}`} style={{order:index+1}} role="status" data-testid="field-notice-kept" onClick={stop} onPointerDown={stop} onKeyDown={stop} {...hold}>{item.node}</div>,dock,item.key)):null}
   </>;
 }
 

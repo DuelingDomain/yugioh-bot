@@ -158,7 +158,7 @@ export function beginManualCorrection(room: RemoteRoom, action: RemoteActionProp
     const [ref] = refs;
     if (!ref) return;
     const anchors = refs.flatMap(ref => twins.filter(c => c.ref === ref && (!watchedPile(c.zone) ||
-      action.type === 'twin.remove' && twins.findLast(top => top.zone === c.zone)?.ref === ref)));
+      action.type === 'twin.remove' && [...twins].reverse().find(top => top.zone === c.zone)?.ref === ref)));
     const leavesField = action.type === 'twin.move' && !field(action.zone) && anchors.some(a => field(a.zone));
     undos.push(correctionsFor(room, seat).begin(ref, [...anchors, ...(after ? [after] : [])], refs, coveredRefs, action.type === 'twin.remove' ? 'remove' : leavesField ? 'move' : undefined));
   };

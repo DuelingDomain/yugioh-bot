@@ -640,6 +640,12 @@ it('field legality: a normal Trap seen in M4 goes to S4 (legal by type), no Chec
  expect(freeFieldZones([token],monster)).toEqual(['M1','M3','M4','M5']);
  expect(freeFieldZones([token],{type:'Normal Trap Card'})).toEqual(['S1','S2','S3','S4','S5']);
 });
+it('keeps the Field Zone choice for a Field Spell unless a proxy occupies it',async()=>{
+ const {freeFieldZones}=await import('../src/lib/remote/field-legality');
+ const facts={type:'Spell Card',race:'Field'},field={ref:'field-spell',zone:'field'};
+ expect(freeFieldZones([field],facts)).toEqual(['FIELD']);
+ expect(freeFieldZones([{...field,ownerSeat:0}],facts)).toEqual([]);
+});
 it('field legality: occupied Spell/Trap columns (also a Trap Monster zone) use the nearest free column with lower-column ties',async()=>{
  const {projectFieldZone}=await import('../src/lib/remote/field-legality');
  const twins=[{ref:'occupied',zone:'spell-trap',slot:3}];

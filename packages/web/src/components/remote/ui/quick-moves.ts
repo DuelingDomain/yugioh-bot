@@ -4,6 +4,9 @@ import { cardCode, leavePosition, pileEntryFace, type TwinCard } from "./model";
 /** One card move that both the board zone menu and the Tap-mode card popup offer, in the order of how often players need it. */
 export type QuickMove = { id: "activate" | "give" | "return" | "set" | "position" | "grave" | "banish" | "hand" | "deck" | "remove"; label: string; run: () => void };
 
+/** The short labels of the "Send to" row, the same in the zone menu and the card menu. */
+export const SEND_LABELS: Partial<Record<QuickMove["id"], string>> = { grave: "GY", banish: "Banish", hand: "Hand", deck: "Deck" };
+
 const FIELD = new Set(["monster", "extra-monster", "spell-trap", "pendulum", "field"]);
 const SENDS = [
   { id: "grave", zone: "graveyard", label: "To GY" },
