@@ -430,7 +430,7 @@
 
 /* ============ dock: voice + undo ============ */
 .signals{display:flex;gap:6px;min-width:0}
-.signals>button{flex:1 1 0;min-width:0;max-width:220px;white-space:nowrap}
+.signals>button{flex:1 1 auto;min-width:max-content;max-width:220px;white-space:nowrap}
 .dk{display:flex;align-items:center;gap:12px;min-width:0;min-height:0;overflow:hidden;border:1px solid var(--line);border-radius:10px;background:linear-gradient(180deg,var(--p1),var(--p0));padding:8px 12px}
 .mic{position:relative;transition:border-color .3s,box-shadow .3s}
 .mic.listen{border-color:rgb(232 185 79/.7);box-shadow:0 0 0 1px rgb(232 185 79/.2),0 0 28px rgb(232 185 79/.14)}
@@ -602,17 +602,21 @@
 @media (min-width:901px) and (max-width:1100px){
   .bar{gap:8px;padding:0 8px}
   .bturn{padding-right:8px;gap:8px}.bturn .tn b{max-width:96px;font-size:16px}
-  .bar .dk.undo{flex:0 1 auto;min-width:0}.bar .ubtn{flex:0 1 auto;min-width:0;padding:0 10px}.bar .ubtn .ul{max-width:96px;font-size:14px}
-  .bsig{flex:1 1 auto;min-width:150px}
+  .bar .dk.undo{flex:0 1 auto;min-width:0}.bar .ubtn{flex:0 1 auto;min-width:44px;padding:0 10px}.bar .ubtn .ul{max-width:96px;font-size:14px}
+  .bsig{flex:1 1 auto;min-width:min-content}.signals kbd{display:none}
   .bar .pass{padding:0 12px;font-size:14px}.bar .pass>span:last-child{display:none}
   .bar .pback{padding:0 10px}
   .bvbtn .bvl{display:none}
   .bmore{display:none}
 }
+/* The Hand effect label loses its second word in the narrowest laptop windows, so the bar still fits in one row. */
+@media (min-width:901px) and (max-width:1000px){
+  .hef{display:none}.bturn .tn b{max-width:70px}
+}
 /* 1101-1500 px with the voice controls: the Undo label gives way first, so Think and OK are never squeezed. */
 @media (min-width:1101px) and (max-width:1500px){
   .bar .dk.undo{flex:0 1 auto;min-width:0}.bar .ubtn{flex:0 1 auto;min-width:0}.bar .ubtn .ul{max-width:clamp(90px,13vw,200px)}
-  .bsig{flex:1 1 auto;min-width:150px}
+  .bsig{flex:1 1 auto;min-width:min-content}
 }
 
 @media (max-width:900px){
@@ -627,7 +631,8 @@
   .bover[data-open]{display:flex}
   .bover>.undo{min-width:0}
   .bar .ubtn{flex:1;min-width:0}.bar .ubtn .ul{max-width:none;font-size:14px}.bar .ubtn .ut{display:flex}
-  .bover>.bsig{justify-content:center;flex:none;min-width:0}
+  .bover>.bsig{justify-content:center;flex:none;min-width:0;flex-wrap:wrap}
+  .bover>.bsig .signals{flex:1 1 100%}.bover>.bsig .signals>button{max-width:none}
   .bover>.bmenu{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:6px}.bmenu .bsep{display:none}.bmbtn{height:44px;font-size:14px}.bmore{display:inline}
   .bar .myfield{display:inline-flex}
   .bvbtn .bvl{display:none}
@@ -1803,7 +1808,7 @@
   .app[data-drawer] .bar{gap:8px;padding:0 8px}
   .app[data-drawer] .bturn{padding-right:8px;gap:8px}.app[data-drawer] .bturn .tn b{max-width:170px;font-size:16px}
   .app[data-drawer] .bar .dk.undo{flex:0 1 auto;min-width:0}.app[data-drawer] .bar .ubtn{flex:0 1 auto;min-width:0;padding:0 10px}.app[data-drawer] .bar .ubtn .ut{display:none}
-  .app[data-drawer] .bsig{flex:1 1 auto;min-width:150px}
+  .app[data-drawer] .bsig{flex:1 1 auto;min-width:min-content}.app[data-drawer] .signals kbd,.app[data-drawer] .hef{display:none}
   .app[data-drawer] .bar .pass{padding:0 12px;font-size:14px}.app[data-drawer] .bar .pass>span:last-child{display:none}
   .app[data-drawer] .bar .pback{padding:0 10px}
   .app[data-drawer] .bvbtn .bvl,.app[data-drawer] .bmore{display:none}
