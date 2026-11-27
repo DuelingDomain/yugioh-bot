@@ -75,10 +75,14 @@ export function describeEvent(event: RemoteEvent, name: (seat: number) => string
       return { kind: "PH", text: `Die roll${opening.rounds.length > 1 ? ` (${opening.rounds.length} rounds)` : ""}: ${rolls} · ${name(opening.winnerSeat)} chooses who goes first`, undoable: false };
     }
     case "match.first": return { kind: "PH", text: a.seatGoesFirst === a.actorSeat ? `${who} chose to go first` : `${who} chose that ${name(a.seatGoesFirst)} goes first`, undoable: false };
-    case "time.called": return { kind: "PH", text: a.seat === null ? "Time called between games." : `Time called. Turn 0 is ${name(a.seat)}’s turn.`, undoable: false };
-    case "time.extraTurn": return { kind: "PH", text: `Extra turn ${a.extraTurn}/${REMOTE_EXTRA_TURNS} · ${name(a.seat)}’s turn.`, undoable: false };
-    case "time.result": return { kind: "PH", text: a.winnerSeat === null ? "Time — match drawn." : `Time — ${name(a.winnerSeat)} wins the match.`, undoable: false };
-    case "time.off": return { kind: "PH", text: `${who} turned off match time.`, undoable: false };
+    case "time.called": return { kind: "PH", text: a.seat === null ? "Time! The match is decided on games won." : `Time! This is Turn 0, ${name(a.seat)}’s turn. ${REMOTE_EXTRA_TURNS} extra turns follow.`, undoable: false };
+    case "time.extraTurn": return { kind: "PH", text: `Extra turn ${a.extraTurn}/${REMOTE_EXTRA_TURNS}, ${name(a.seat)}’s turn`, undoable: false };
+    case "time.result": {
+      const byLp = a.reason === "lp", basis = byLp ? "Life Points" : "games won";
+      const tied = a.tiedSeats?.length ? ` between ${a.tiedSeats.map(name).join(", ")}` : "";
+      return { kind: "PH", text: a.winnerSeat === null ? `Time is over. Draw on ${basis}${tied}.` : `Time is over. ${name(a.winnerSeat)} wins the match on ${basis}.`, undoable: false };
+    }
+    case "time.off": return { kind: "PH", text: `${who} turned off the match timer.`, undoable: false };
     case "table.ended": return { kind: "PH", text: "The table closed", undoable: false };
     default: return null;
   }

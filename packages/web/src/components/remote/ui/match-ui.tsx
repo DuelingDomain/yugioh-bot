@@ -78,6 +78,9 @@ function useNow(now: () => number, on = true): number {
   return value;
 }
 
+/** The Life Points of each seat, for the "won on LP" reason line. */
+const lpOf = (room: RemoteRoom) => ({ of: (seat: number) => room.state.seats[seat]?.resources.lp ?? 0, seats: room.seatCount });
+
 /**
  * The result of a game, or of the whole match. It uses the simulator's result screen look: the big word, the reason,
  * the Life Points tray and the match score. A game that did not decide the match offers Continue to side decking;
@@ -109,7 +112,7 @@ export function MatchResultScreen({ room, match, mySeat, name, final, busy, erro
   const wins = winsBySeat(match, seatCount);
   const gameNumber = game?.n ?? match.games.length;
   const reason = final
-    ? matchTimeReason(match, name) ?? (outcome === "win" ? "You won the match." : outcome === "lose" ? `${name(decided as number)} won the match.` : outcome === "draw" ? "Nobody won the match." : decided === null ? "Nobody won the match." : `${name(decided)} won the match.`)
+    ? matchTimeReason(match, name, lpOf(room)) ?? (outcome === "win" ? "You won the match." : outcome === "lose" ? `${name(decided as number)} won the match.` : outcome === "draw" ? "Nobody won the match." : decided === null ? "Nobody won the match." : `${name(decided)} won the match.`)
     : reasonLine(game, name, mySeat, game?.winnerSeat ?? null);
   const titleId = "match-result-title";
   const seats = room.seats.map(seat => seat.seat);
@@ -497,7 +500,7 @@ export function SpectatorEndScreen({ room, match, name, onLeave }: { room: Remot
   const wins = winsBySeat(match, room.seatCount);
   const series = match.bestOf >= 3 || match.games.length > 1;
   const titleId = "spectator-end-title";
-  const reason = matchTimeReason(match, name) ?? (winner !== null ? `${name(winner)} won${match.bestOf >= 3 ? " the match" : ""}.` : "Nobody won.");
+  const reason = matchTimeReason(match, name, lpOf(room)) ?? (winner !== null ? `${name(winner)} won${match.bestOf >= 3 ? " the match" : ""}.` : "Nobody won.");
   return <div ref={rootRef} className={cx(duelFontClasses, resultStyles.root, s.resultRoot)} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}
     data-testid="spectator-end" data-phase="settled" data-reduced="true" data-title="calm" data-outcome="ended">
     <div className={cx(resultStyles.backdrop, s.resultScrim)} aria-hidden="true" />
