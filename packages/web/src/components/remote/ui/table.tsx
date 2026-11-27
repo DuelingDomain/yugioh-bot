@@ -577,9 +577,10 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
   const ownBoardOff = room.mySeat >= 0 && !!detection && !detection.autoDetect && hub.cameraOn;
   const zoneGrid = useZoneGrid();
   /** A bot, manual or Scan mode seat has no camera to read: its board twin is the only view of its cards, so it stays on at a 1v1 table. So does every board while a zone click is the next step (token, give control).
-   *  A 3-way or 4-way table never shows a virtual board: a seat without a camera shows the no-camera panel and its list of cards. */
+   *  A 3-way or 4-way table shows no virtual board, except my own seat with no webcam at all (there is nothing else to show) and a token or give target whose zones are not on the camera. A bot there shows the no-camera panel and its list of cards. */
   const noCamera = (seat: number) => !!room.seats.find(item => item.seat === seat)?.bot || hub.manual(seat) || hub.health(seat).label === "Scan mode";
-  const needsBoard = (seat: number) => !multi && (noCamera(seat) || tokens.placing || control.giving);
+  const zonesOnCamera = (seat: number) => !!(zoneGrid.ownSeat === seat ? zoneGrid.calibration : hub.trackedCalibration?.(seat))?.orientation;
+  const needsBoard = (seat: number) => !multi ? (noCamera(seat) || tokens.placing || control.giving) : ((seat === mySeat && hub.manual(seat)) || ((tokens.placing || control.giving) && !zonesOnCamera(seat)));
   const seatFocus = useSeatFocus({ seatCount, mySeat, turnSeat: turnShown, nextSeat, turn: state.turn, seats: seatIds, hasCamera: seat => !noCamera(seat), eliminated: seat => !!state.seats[seat]?.eliminated, playing: seat => !!hub.sourceFor(seat) });
   const boardOff = (seat: number) => !needsBoard(seat) && (seat === room.mySeat ? ownBoardOff : tapSeats.split(",").includes(String(seat)));
   const flagFor = (seat: number, id: number) => hasDeck(room, seat) ? !deckIdsOf(room, seat).includes(id) : null;
@@ -1701,11 +1702,11 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
   ];
   // Summary chip in the top bar (opens the Info tab): the worst state across the human feeds and the extra rows.
   const humans = healthRows.filter(row => !room.seats.find(item => item.seat === row.seat)?.bot);
-  const weakFeeds = humans.filter(row => row.health.q === "bad" || row.health.q === "warn").length;
+  const downFeeds = humans.filter(row => row.health.q === "bad").length, weakFeeds = humans.filter(row => row.health.q === "warn").length;
   const counted = extras.filter(item => item.health.q === "bad" || item.health.q === "warn");
   const allQ = [...humans.map(row => row.health.q), ...counted.map(item => item.health.q)];
   const worstQ = allQ.includes("bad") ? "bad" : allQ.includes("warn") ? "warn" : humans.every(row => row.health.q === "off") ? "off" : "good";
-  const healthIssues = [...(weakFeeds ? [`${weakFeeds} feed${weakFeeds === 1 ? "" : "s"} weak`] : []), ...counted.map(item => item.health.label)];
+  const healthIssues = [...(downFeeds ? [`${downFeeds} feed${downFeeds === 1 ? "" : "s"} down`] : []), ...(weakFeeds ? [`${weakFeeds} feed${weakFeeds === 1 ? "" : "s"} weak`] : []), ...counted.map(item => item.health.label)];
   const healthSummary = healthIssues.length ? `${healthIssues[0]}${healthIssues.length > 1 ? ` +${healthIssues.length - 1}` : ""}` : worstQ === "off" ? "Cameras off" : "All feeds ok";
   const format = room.format ?? state.deckChecks?.format ?? normalizeRemoteFormat();
   const formatLabel = REMOTE_FORMATS.find(item => item.value === format.id)?.label ?? format.id;
@@ -1765,7 +1766,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
   /** Webcam only: a click where no card is outlined. A card the table knows there opens its info. A hidden card says "Set card". The Graveyard and Banished open their pile. */
   const onZoneCard = (seat: number, at: { x: number; y: number; anchor: Rect; feed: Rect }) => {
     // 3-way and 4-way: placing a token or giving a card is a click on a free zone of the camera's zone grid (no board is shown).
-    if (multi && (tokens.placing || control.giving)) {
+    if (multi && (tokens.placing || control.giving) && zonesOnCamera(seat)) {
       const zone = zoneAtPoint(seat, at.x, at.y), key = zone && /^[MS][1-5]$/.test(zone) ? zone.toLowerCase() as ZoneKey : undefined;
       if (key && (tokens.placeAt(seat, key, twinAtPoint(seat, at.x, at.y)) || control.giveAt(seat, key, twinAtPoint(seat, at.x, at.y)))) { cancelRead(); return true; }
     }
@@ -1825,7 +1826,9 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     if (isPile(key)) return false;
     const card = cellsFor(state.seats[seat]?.twin ?? [], extraZones)[key]?.card; return card ? openCardActions(card) : tokens.create(seat, key);
   });
-  return <FeedCardsProvider seats={state.seats} info={info} marks={chainMarks}><div ref={appRef} className={`${duelFontClasses} ${s.app}`} data-drawer={layers.layer === "log" ? drawerTab : undefined} data-mode={mode} data-wc={webcamOnly ? "1" : undefined} data-testid="remote-table" data-status={room.status} {...cardMenu}>
+  // The result screen already says the match ended: the "table ended" banner waits until it is closed.
+  const resultShown = (match.phase === "result" && room.status === "active") || (match.phase === "done" && !boardView);
+  return <FeedCardsProvider seats={state.seats} info={info} marks={chainMarks}><div ref={appRef} className={`${duelFontClasses} ${s.app}`} data-drawer={layers.layer === "log" ? drawerTab : layers.layer === "insp" ? "insp" : undefined} data-mode={mode} data-wc={webcamOnly ? "1" : undefined} data-testid="remote-table" data-status={room.status} {...cardMenu}>
     <AutoFieldWatcher dock={seatDocks[mySeat] ?? null} room={room} transaction={ctl.transaction} diagnosticsAllowed={feedbackPref?.isAdmin===true && feedbackPref.collectionEnabled} />
     <a className={s.skip} href="#stage">Skip to the table</a>
     <div className={s.shell}>
@@ -1836,7 +1839,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
       <main className={s.stage} id="stage" tabIndex={-1} aria-label="Duel table" ref={stage}>
         {firstPick}
         <LpStrip players={players} turnSeat={turnShown} lp={lpOf} onJump={seat => document.querySelector(`[data-testid="seat-${seat}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" })} />
-        {room.status === "ended" || (state.ended && !state.match) ? <div className={s.ended} role="status" data-testid="table-ended">
+        {!resultShown && (room.status === "ended" || (state.ended && !state.match)) ? <div className={s.ended} role="status" data-testid="table-ended">
           <b>This table has ended.</b>
           <span>{endedWhy(room, state.winnerSeat !== null && state.winnerSeat !== undefined ? name(state.winnerSeat) : null)}</span>
           <a className={`${s.btn} ${s.go} ${s.sm}`} href="/duels/new?type=remote" data-testid="new-table">New table</a>

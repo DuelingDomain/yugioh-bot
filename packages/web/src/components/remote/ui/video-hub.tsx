@@ -302,7 +302,8 @@ export function VideoHubProvider({ room, children }: { room: RemoteRoom; childre
     const feed = snap.feeds.find(f => f.seat === seat);
     if (feed?.video && frozen[seat]) return {q:"bad",label:"Frozen",detail:"No phone frames for 3 s"};
     if (feed?.phone) return {q:"good",label:feed.mode === "scan" ? "Scan mode" : "Phone camera · connected",detail:feed.mode === "scan" ? "Use the board twin and log" : "Live phone field camera"};
-    if (!feed?.video) return { q: "bad", label: "No feed", detail: connected ? "Disconnected" : "Table video is off" };
+    // A connected player with the camera off is not a fault: grey. No feed at all (disconnected, table video off) is a fault.
+    if (!feed?.video) return feed ? { q: "off", label: "Camera off", detail: "This player's camera is off" } : { q: "bad", label: "No feed", detail: connected ? "Disconnected" : "Table video is off" };
     if (frozen[seat]) return { q: "bad", label: "Frozen", detail: "No frames for 3 s" };
     if (seat === mySeat && snap.sendFailed) return { q: "bad", label: "Not sending", detail: "Opponents cannot see your camera" };
     if (feed.muted) return { q: "warn", label: "Camera muted", detail: "" };
