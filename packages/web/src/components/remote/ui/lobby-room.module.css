@@ -4,7 +4,7 @@
 .layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 344px;
-  grid-template-areas: "seats side" "camera side";
+  grid-template-areas: "camera side" "seats side";
   grid-template-rows: auto 1fr;
   gap: 20px clamp(20px, 2.6vw, 32px);
   align-items: start;
@@ -18,6 +18,10 @@
 .primary { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 140px), 1fr)); gap: 10px; }
 .primary > button { padding-inline: 14px; white-space: nowrap; }
 /* Close, Leave and the close confirmation sit below a rule, full width, at the same height and radius as Ready and Start. */
+/* Close table is a quiet red text button at the top right, away from Ready and Start. */
+.closeText { color: var(--duel-loss-ink, #ff9489); }
+.closeText:hover { background: var(--duel-loss-soft); }
+.leaveZone:empty { display: none; }
 .leaveZone { display: grid; margin-top: 4px; padding-top: 14px; border-top: 1px solid var(--duel-rule-lo); }
 .closeConfirm { display: grid; gap: 8px; margin: 0; padding: 12px 14px; border: 1px solid rgb(228 90 77 / 0.4); border-radius: 10px; background: var(--duel-loss-soft); }
 .closeTitle { margin: 0; color: var(--duel-ink); font-size: 15px; font-weight: 450; }
@@ -46,7 +50,7 @@
 .camHead { display: grid; gap: 4px; }
 
 @media (max-width: 1040px) {
-  .layout { grid-template-columns: minmax(0, 1fr); grid-template-areas: "seats" "rules" "camera" "actions"; grid-template-rows: none; }
+  .layout { grid-template-columns: minmax(0, 1fr); grid-template-areas: "camera" "seats" "rules" "actions"; grid-template-rows: none; }
   .side { display: contents; }
   .rulesPanel { grid-area: rules; }
   .actions { grid-area: actions; }

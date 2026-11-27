@@ -1897,3 +1897,7 @@
 /* Status colours: grey = no picture, green = live. The camera tag dot is not red any more. */
 .cams .ctag i{background:var(--ink3);box-shadow:none}
 .cams:has(video) .ctag i{background:var(--ok);box-shadow:0 0 6px var(--ok)}
+
+/* First-run hint on the own webcam: one line, dismissed for good by any click. */
+.firstHint{position:absolute;left:50%;bottom:12px;transform:translateX(-50%);z-index:7;display:flex;align-items:center;gap:12px;max-width:calc(100% - 24px);padding:6px 6px 6px 14px;border-radius:999px;border:1px solid var(--line2);background:rgb(11 7 22);color:var(--ink);font:600 calc(14*var(--u))/1.2 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;box-shadow:0 8px 24px rgb(0 0 0/.5)}
+.firstHint button{height:28px;padding:0 12px;border-radius:999px;border:1px solid var(--line2);background:var(--p1);color:var(--ink);font:inherit;cursor:pointer}
