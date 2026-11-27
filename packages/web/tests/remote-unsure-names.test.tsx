@@ -6,11 +6,37 @@ import {projectRemoteState,remoteActionSchema} from '@yugidraft/shared/remote';
 import {ZoneActions} from '../src/components/remote/ui/zone-actions';
 import {zoneCardAction} from '../src/components/remote/ui/zone-placement';
 import {HoloField} from '../src/components/remote/ui/holo-field';
+import {RecognitionTray} from '../src/components/remote/ui/recognition-tray';
+import {liveCardSubject, type Subject} from '../src/components/remote/ui/card-view';
 import {tapRoom,applyTap} from './tap-room-fixture';
 
 const choices=[{cardId:46986414,name:'Dark Magician',score:.72},{cardId:89631139,name:'Blue-Eyes White Dragon',score:.55}];
 function placed(){return applyTap(tapRoom(),{type:'twin.place',actorSeat:0,seat:0,zone:'monster',source:'auto',card:{ref:'paper',cardId:46986414,name:'Dark Magician',slot:1,faceUp:true,position:'attack',nameCandidates:choices}});}
 afterEach(()=>{cleanup();vi.unstubAllGlobals();});
+
+it('a sure correction shows deck suggestions first and requires a choice',()=>{
+ const onPick=vi.fn();
+ vi.stubGlobal('ResizeObserver',class{observe(){}disconnect(){}});
+ vi.stubGlobal('fetch',vi.fn(async()=>Response.json({cards:[]})));
+ render(<RecognitionTray tray={{seat:0,ownerName:'Player',status:'guesses',guesses:choices,note:'',reader:'vision',at:{anchor:null,feed:null},tier:'sure',correction:true}} inDeck={id=>id===89631139} onPick={onPick} onClose={vi.fn()} saying={false} aiAllowed={false}/>);
+ const [listed,unlisted]=screen.getAllByRole('option');
+ expect(listed.getAttribute('aria-label')).toContain('Blue-Eyes White Dragon');
+ expect(onPick).not.toHaveBeenCalled();
+ const search=screen.getByRole('textbox',{name:'Search any card'});
+ fireEvent.change(search,{target:{value:'whisker'}});
+ fireEvent.keyDown(search,{key:'Enter'});
+ expect(onPick).not.toHaveBeenCalled();
+ fireEvent.click(unlisted);
+ expect(onPick).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({cardId:46986414,via:'click'}));
+});
+
+it('an open card view gets the renamed identity and drops the old read badges',()=>{
+ const room=placed();
+ const opened:Subject={from:'camera',seat:0,ref:'paper',cardId:46986414,name:'Dark Magician',tier:'not sure',notInDecklist:true,addErrors:['Old warning'],via:'tracked'};
+ const updated=applyTap(room,{type:'card.identified',actorSeat:0,seat:0,cardRef:'paper',cardId:89631139,name:'Blue-Eyes White Dragon',source:'typed'});
+ expect(liveCardSubject(opened,updated.state.seats[0].twin[0])).toMatchObject({cardId:89631139,name:'Blue-Eyes White Dragon',tier:undefined,notInDecklist:null,addErrors:[]});
+ expect(liveCardSubject(opened,undefined)).toBeNull();
+});
 
 it('an unsure name and choices reach both seats; a sure correction is one undoable identification on the same ref',()=>{
  let room=placed();

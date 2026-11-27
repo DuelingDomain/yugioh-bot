@@ -15,6 +15,8 @@ export type TrayState = {
   tier?: Tier; aiToken?: number; covered?: boolean; faceDown?: boolean;
   /** The top guess is shown alone as "Best match". "Wrong card?" opens the top 5 and the search. */
   best?: boolean;
+  /** An explicit correction always exposes the candidate list and search. */
+  correction?: boolean;
   /** "hand": the chosen card is added to the hand, not placed on the board. */
   /** The card this read just added to the board. "Wrong card?" can take it off again. */
   placedRef?: string;
@@ -32,7 +34,7 @@ export type Pick = { cardId: number; name: string; via: "click" | "typed" | "voi
 export function RecognitionTray({ tray, inDeck, onPick, onClose, onRemovePlaced, onSay, saying, aiAllowed, dock }: {
   onRemovePlaced?: (ref: string) => void; dock?: HTMLElement | null; tray: TrayState; aiAllowed: boolean; inDeck: (cardId: number) => boolean | null; onPick: (pick: Pick) => void; onClose: () => void; onSay?: () => void; saying: boolean;
 }) {
-  const [query, setQuery] = useState(""); const [found, setFound] = useState<Guess[] | null>(null); const [, tick] = useState(0);
+  const [query, setQuery] = useState(""); const [search, setSearch] = useState<{ query: string; guesses: Guess[] } | null>(null); const [, tick] = useState(0);
   const [cursor, setCursor] = useState(0); const [wrong, setWrong] = useState(false);
   const input = useRef<HTMLInputElement>(null);
   const hub = useVideoHub();
@@ -48,20 +50,23 @@ export function RecognitionTray({ tray, inDeck, onPick, onClose, onRemovePlaced,
   const guessKey = tray.guesses.map(g => g.cardId).join(",");
   useEffect(() => { void loadCards(tray.guesses.map(g => g.cardId)).then(() => tick(n => n + 1)); setCursor(0); setWrong(false); }, [guessKey, tray.guesses]);
   useEffect(() => {
-    const text = query.trim(); if (text.length < 2) { setFound(null); return; }
+    const text = query.trim(); if (text.length < 2) return;
     let live = true; const timer = setTimeout(() => {
-      void searchCards(text).then(list => { if (live) { setFound(list.map(card => ({ cardId: card.id, name: card.name, score: null }))); setCursor(0); } });
+      void searchCards(text).then(list => { if (live) { setSearch({ query: text, guesses: list.map(card => ({ cardId: card.id, name: card.name, score: null })) }); setCursor(0); } });
     }, 220);
     return () => { live = false; clearTimeout(timer); };
   }, [query]);
 
-  const base = ai.guess ? [ai.guess, ...tray.guesses.filter(g => g.cardId !== ai.guess?.cardId)].slice(0, 5) : tray.guesses;
-  const list = found ?? base;
+  const found = search && search.query === query.trim() ? search.guesses : null;
+  const base = ai.guess ? [ai.guess, ...tray.guesses.filter(g => g.cardId !== ai.guess?.cardId)] : tray.guesses;
+  const deckFirst = tray.correction || wrong;
+  const suggestions = deckFirst ? [...base].sort((a, b) => Number(inDeck(b.cardId) === true) - Number(inDeck(a.cardId) === true)) : base;
+  const list = found ?? suggestions.slice(0, 5);
   const nameOf = (g: Guess) => g.name || cardInfo(g.cardId)?.name || `Card ${g.cardId}`;
   const choose = (g: Guess, via: Pick["via"]) => onPick({ cardId: g.cardId, name: nameOf(g), via, feedback: g.source === "ai" ? "ai" : found ? "search" : "pick" });
   const current = list[Math.min(cursor, list.length - 1)];
-  const alone = !!tray.best && !wrong && found === null;
-  const strip = !alone && (found !== null || tray.status === "empty" || tray.tier !== "sure" || !!tray.covered);
+  const alone = !!tray.best && !deckFirst && found === null;
+  const strip = !alone && (deckFirst || found !== null || tray.status === "empty" || tray.tier !== "sure" || !!tray.covered);
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
       if (event.target === input.current || event.ctrlKey || event.metaKey || event.altKey) return;
@@ -85,7 +90,7 @@ export function RecognitionTray({ tray, inDeck, onPick, onClose, onRemovePlaced,
       {current ? <>
         <CardText id={current.cardId} info={info} name={nameOf(current)} fallbackName={`Card ${current.cardId}`}>
           <div className={s.bchips}>
-            {found ? <span className={s.tier}>Search result</span> : alone ? <span className={s.tier} data-testid="best-match">Best match</span> : current === list[0] ? <TierChip tier={tray.tier} /> : null}
+            {found ? <span className={s.tier}>Search result</span> : alone ? <span className={s.tier} data-testid="best-match">Best match</span> : current.cardId === tray.guesses[0]?.cardId ? <TierChip tier={tray.tier} /> : null}
             {tray.covered ? <span className={`${s.tier} ${s.tierLow}`}>Covered</span> : null}
             {current.source === "ai" ? <span className={s.tier}>AI second opinion</span> : null}
             {inDeck(current.cardId) === false ? <span className={`${s.cb} ${s.w}`}><Icon name="warn" />NOT IN DECKLIST</span> : null}
@@ -103,7 +108,7 @@ export function RecognitionTray({ tray, inDeck, onPick, onClose, onRemovePlaced,
           </li>)}
       </ul> : null}
       {strip || tray.status === "empty" ? <div className={s.srch}><Icon name="search" /><input ref={input} type="text" placeholder="Not it? Search any card" aria-label="Search any card" autoComplete="off" value={query}
-        onChange={event => setQuery(event.target.value)} onKeyDown={event => { if (event.key === "Enter" && list[0]) { event.preventDefault(); choose(list[Math.min(cursor, list.length - 1)], found ? "typed" : "click"); } }} /></div> : null}
+        onChange={event => setQuery(event.target.value)} onKeyDown={event => { if (event.key === "Enter" && found?.length) { event.preventDefault(); choose(found[Math.min(cursor, found.length - 1)], "typed"); } }} /></div> : null}
       {ai.note ? <p className={s.bnote} role="status" data-testid="ask-ai-note">{ai.status === "off" ? "AI second opinion is not available for this account." : ai.note}</p> : null}
     </div>
     <div className={s.bbar}>
