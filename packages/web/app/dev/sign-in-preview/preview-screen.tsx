@@ -58,17 +58,17 @@ export function PreviewScreen({ step, resendAvailableAt }: { step: PreviewStep; 
         />
       );
     case "err-invite":
-      return <NotInvitedStep identifier={EMAIL} onRetry={noop} />;
+      return <NotInvitedStep identifier={EMAIL} onRetry={noop} onCheck={noop} />;
     case "err-invite-pending":
-      return <NotInvitedStep identifier={EMAIL} onRetry={noop} previewPhase="pending" />;
+      return <NotInvitedStep identifier={EMAIL} onRetry={noop} onCheck={noop} previewPhase="pending" />;
     case "err-invite-joined":
-      return <NotInvitedStep identifier={EMAIL} onRetry={noop} previewPhase="joined" />;
+      return <NotInvitedStep identifier={EMAIL} onRetry={noop} onCheck={noop} previewPhase="joined" />;
     case "err-invite-exists":
-      return <NotInvitedStep identifier={EMAIL} onRetry={noop} previewPhase="exists" />;
+      return <NotInvitedStep identifier={EMAIL} onRetry={noop} onCheck={noop} previewPhase="exists" />;
     case "err-invite-limited":
-      return <NotInvitedStep identifier={EMAIL} onRetry={noop} previewPhase="limited" />;
+      return <NotInvitedStep identifier={EMAIL} onRetry={noop} onCheck={noop} previewPhase="limited" />;
     case "err-invite-failed":
-      return <NotInvitedStep identifier={EMAIL} onRetry={noop} previewPhase="failed" />;
+      return <NotInvitedStep identifier={EMAIL} onRetry={noop} onCheck={noop} previewPhase="failed" />;
     case "err-invite-username":
       return <NotInvitedStep identifier="cardshark" onRetry={noop} />;
     case "err-signup":
