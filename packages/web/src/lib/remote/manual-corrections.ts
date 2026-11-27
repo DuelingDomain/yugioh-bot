@@ -2,8 +2,8 @@ import { z } from 'zod';
 import type { RemoteActionProposal, RemoteRoom } from '@yugidraft/shared/remote';
 
 const location = z.object({ zone: z.string(), slot: z.number().optional() });
-const evidence = location.extend({ id: z.string(), faceDown: z.boolean(), position: z.string().optional() });
-const correction = z.object({ ref: z.string(), anchors: z.array(location), physical: evidence.optional(), refs: z.array(z.string()).optional(), coveredIds: z.array(z.string()).optional() });
+const evidence = location.extend({ id: z.string(), faceDown: z.boolean(), position: z.string().optional(), cardId: z.string().optional() });
+const correction = z.object({ ref: z.string(), anchors: z.array(location), physical: evidence.optional(), refs: z.array(z.string()).optional(), coveredIds: z.array(z.string()).optional(), departure: z.enum(['remove', 'move']).optional() });
 type Location = z.infer<typeof location>;
 type Correction = z.infer<typeof correction>;
 export type CorrectionObservation = z.infer<typeof evidence> & { ref: string; removed: boolean; resting: boolean };
@@ -11,6 +11,7 @@ const cell=(a:Location)=>a.zone==='pendulum'?`spell-trap:${a.slot===2?5:1}`:`${a
 const sameCell = (a: Location, b: Location) => cell(a)===cell(b);
 const samePhysical = (a: z.infer<typeof evidence>, b: z.infer<typeof evidence>) => sameCell(a, b) && a.faceDown === b.faceDown && a.position === b.position;
 const field = (zone: string) => ['monster', 'spell-trap', 'field', 'pendulum', 'extra-monster'].includes(zone);
+const watchedPile = (zone: string) => zone === 'graveyard' || zone === 'banished';
 
 /** One record per physical ref. No timer accepts a camera guess over a player's choice. */
 export function createManualCorrections(storage: Pick<Storage, 'getItem' | 'setItem'> | undefined, key: string) {
@@ -35,15 +36,15 @@ export function createManualCorrections(storage: Pick<Storage, 'getItem' | 'setI
       holds.delete(hold.ref);
       holds.set(to,{...hold,ref:to,...(restored?{physical:undefined,coveredIds:[]}: {})});save();
     },
-    begin(ref: string, anchors: Location[], refs: string[] = [ref], coveredRefs: string[] = []) {
-      anchors=anchors.filter(a=>field(a.zone));
+    begin(ref: string, anchors: Location[], refs: string[] = [ref], coveredRefs: string[] = [], departure?: Correction['departure']) {
+      anchors=anchors.filter(a=>field(a.zone)||departure==='remove'&&watchedPile(a.zone));
       const previous = holds.get(ref);
       refs = [...new Set([...(previous?.refs ?? []), ...refs])];
       const displaced=[...holds].filter(([other,h])=>other!==ref&&anchors.some(a=>h.anchors.some(b=>sameCell(a,b))||!!h.physical&&sameCell(a,h.physical)));
       for(const [other] of displaced)holds.delete(other);
       const coveredIds = [...new Set([...(previous?.coveredIds ?? []), ...observations.filter(t => coveredRefs.includes(t.ref)).map(t => t.id)])];
       const physical = observations.find(t => !coveredRefs.includes(t.ref) && !t.removed && t.resting && (t.ref === ref || anchors.some(a => sameCell(a, t))));
-      const hold: Correction = { ref, anchors, refs, coveredIds, ...(physical ? { physical } : {}) };
+      const hold: Correction = { ref, anchors, refs, coveredIds, ...(physical ? { physical } : {}), ...(departure ? { departure } : {}) };
       holds.set(ref, hold); changing.delete(ref); save();
       // A rejected write restores the earlier choice; it cannot erase a later click.
       return () => { if (holds.get(ref) !== hold) return; if (previous) holds.set(ref, previous); else holds.delete(ref); for(const [other,h]of displaced)if(!holds.has(other))holds.set(other,h);save(); };
@@ -51,24 +52,53 @@ export function createManualCorrections(storage: Pick<Storage, 'getItem' | 'setI
     observe(next: readonly CorrectionObservation[], now: number) {
       observations = next;
       let changed = false;
+      const releasedTracks: string[] = [];
       for (const [ref, hold] of holds) {
         const eligible = next.filter(t => !hold.coveredIds?.includes(t.id) && !(t.ref !== ref && hold.refs?.includes(t.ref)));
-        const track = eligible.find(t => t.ref === ref || t.id === hold.physical?.id)
-          ?? eligible.find(t => !t.removed && hold.anchors.some(a => sameCell(a, t)));
-        if (!track) continue; // Camera off, occlusion and reload are not physical departures.
-        if (track.removed) { if(hold.physical){holds.delete(ref); changing.delete(ref); changed = true;} continue; }
+        const bound = eligible.find(t => t.id === hold.physical?.id) ?? eligible.find(t => t.ref === ref);
+        const replacement = eligible.find(t => !t.removed && hold.anchors.some(a => sameCell(a, t)));
+        const track = bound && !bound.removed ? bound : replacement ?? bound;
+        if (!track) { changing.delete(ref); continue; }
+        if (track.removed) {
+          if (!hold.departure && hold.physical) { holds.delete(ref); changing.delete(ref); changed = true; }
+          else if (hold.departure) {
+            const value = `removed:${track.id}`;
+            const before = changing.get(ref);
+            if (before?.value !== value) changing.set(ref, { value, since: now });
+            else if (now - before.since >= 1500) {
+              holds.delete(ref); changing.delete(ref); changed = true;
+              if (hold.departure === 'remove') releasedTracks.push(track.id);
+            }
+          }
+          continue;
+        }
         if (!track.resting) { changing.delete(ref); continue; }
-        if (!hold.physical) { hold.physical = track; changed = true; continue; }
-        if (samePhysical(hold.physical, track)) { if(hold.physical.id!==track.id){hold.physical=track;changed=true;} changing.delete(ref); continue; }
-        const value = JSON.stringify([track.zone, track.slot, track.faceDown, track.position]);
+        const physical = hold.physical;
+        if (!physical) { hold.physical = track; changed = true; continue; }
+        const inSameCell = sameCell(physical, track);
+        const differentCard = !!physical.cardId && !!track.cardId && track.cardId !== physical.cardId;
+        const sameRemovedTrack = hold.departure === 'remove' && physical.id === track.id;
+        const unchanged = hold.departure ? (inSameCell || sameRemovedTrack) && !differentCard : samePhysical(physical, track);
+        if (unchanged) {
+          if (sameRemovedTrack && !inSameCell) hold.anchors = hold.anchors.filter(anchor => !sameCell(anchor, physical));
+          if (!inSameCell || physical.id !== track.id || !physical.cardId && track.cardId) {
+            hold.physical = { ...track, cardId: track.cardId ?? physical.cardId }; changed = true;
+          }
+          changing.delete(ref); continue;
+        }
+        const value = JSON.stringify([track.zone, track.slot, track.faceDown, track.position, track.cardId]);
         const before = changing.get(ref);
         if (!before || before.value !== value) changing.set(ref, { value, since: now });
-        else if (now - before.since >= 2000) { holds.delete(ref); changing.delete(ref); changed = true; }
+        else if (now - before.since >= 2000) {
+          holds.delete(ref); changing.delete(ref); changed = true;
+          if (hold.departure === 'remove') releasedTracks.push(physical.id);
+        }
       }
       if (changed) save();
+      return releasedTracks;
     },
     blocks(refs: readonly string[], at?: Location) {
-      return [...holds.values()].some(h => refs.includes(h.ref) || h.refs?.some(ref => refs.includes(ref)) || !!at && field(at.zone) &&
+      return [...holds.values()].some(h => refs.includes(h.ref) || h.refs?.some(ref => refs.includes(ref)) || !!at && (field(at.zone)||h.departure==='remove'&&watchedPile(at.zone)) &&
         (h.anchors.some(a => sameCell(a, at)) || !!h.physical && sameCell(h.physical, at)));
     },
   };
@@ -127,8 +157,10 @@ export function beginManualCorrection(room: RemoteRoom, action: RemoteActionProp
     refs = [...new Set(refs.flatMap(ref => [ref, ...(twins.find(c => c.ref === ref)?.materials ?? [])]))];
     const [ref] = refs;
     if (!ref) return;
-    const anchors = refs.flatMap(ref => twins.filter(c => c.ref === ref));
-    undos.push(correctionsFor(room, seat).begin(ref, [...anchors, ...(after ? [after] : [])], refs, coveredRefs));
+    const anchors = refs.flatMap(ref => twins.filter(c => c.ref === ref && (!watchedPile(c.zone) ||
+      action.type === 'twin.remove' && [...twins].reverse().find(top => top.zone === c.zone)?.ref === ref)));
+    const leavesField = action.type === 'twin.move' && !field(action.zone) && anchors.some(a => field(a.zone));
+    undos.push(correctionsFor(room, seat).begin(ref, [...anchors, ...(after ? [after] : [])], refs, coveredRefs, action.type === 'twin.remove' ? 'remove' : leavesField ? 'move' : undefined));
   };
   if (action.type === 'undo') {
     const entry = room.state.undoHistory?.find(e => e.actionId === action.targetActionId);

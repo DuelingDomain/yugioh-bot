@@ -1325,7 +1325,7 @@ test('review E: a removed monster reappearing on GY moves its original ref, neve
  r.outlines=[card(.84,.3)];for(let i=0;i<7;i++)await r.tick();assert.equal(r.events.filter(e=>e.type==='placed').length,1);assert.equal(r.events.filter(e=>e.type==='moved'&&e.track.id===id&&e.track.zone==='GY').length,1);r.watcher.dispose();
 });
 test('review S3: forgetting a placement suppresses auto reapply for the same physical evidence',async()=>{
- const r=fieldRig();for(let i=0;i<7;i++)await r.tick();r.watcher.forget(r.watcher.getSnapshot().tracks[0].id);for(let i=0;i<7;i++)await r.tick();assert.equal(r.events.filter(e=>e.type==='placed').length,1);assert.equal(r.watcher.getSnapshot().tracks[0].state,'dismissed');r.watcher.dispose();
+ const r=fieldRig();for(let i=0;i<7;i++)await r.tick();r.watcher.forget(r.watcher.getSnapshot().tracks[0].id);for(let i=0;i<7;i++)await r.tick();assert.equal(r.events.filter(e=>e.type==='placed').length,1);assert.deepEqual(r.watcher.getSnapshot().tracks,[]);r.watcher.dispose();
 });
 
 test('a different face revealed after a flip never restores the hidden old identity',async()=>{

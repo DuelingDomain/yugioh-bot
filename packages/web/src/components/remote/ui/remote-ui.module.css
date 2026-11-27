@@ -1053,6 +1053,12 @@
 .pop.big[data-side=left]::before{display:block;left:-7px;border-left:1px solid var(--gold);border-bottom:1px solid var(--gold)}
 .pop.big[data-side=right]::before{display:block;right:-7px;border-right:1px solid var(--gold);border-top:1px solid var(--gold)}
 .bclose{position:absolute;right:8px;top:8px;z-index:2}
+.bpin{position:absolute;right:44px;top:8px;z-index:2}
+.bigCard .bname{padding-right:76px}
+.pop.big.show.fromBoard.noArt{grid-template-columns:minmax(0,1fr)}
+.pop.big.fromBoard.noArt:not(.docked){width:min(420px,calc(100vw - 16px))}
+/* Short desktop screens (1366x768): small art beside the text, so the popup stays below the header. */
+@media(min-width:901px) and (max-height:820px){.pop.big.show.fromBoard{--aw:120px;width:calc(var(--aw) + 440px);gap:8px 14px}.pop.big.fromBoard .bbar{grid-column:1/-1}}
 .bigart{position:relative;width:var(--aw);aspect-ratio:59/86;border-radius:8px;overflow:hidden;background:#05030b;box-shadow:0 12px 30px rgb(0 0 0/.55),0 0 22px rgb(167 139 255/.22)}
 .bigart img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block;animation:artin .22s ease-out both}
 @keyframes artin{from{opacity:0}}
@@ -1124,6 +1130,9 @@
   .fromPile .bmain{order:-1}
   .fromPile .bigart{order:1;justify-self:start}
   .fromPile .bbar{order:2}
+  /* A card opened from the virtual field: small art beside the text, so the actions show without scrolling. */
+  .pop.big.show.fromBoard{--aw:min(30vw,112px);grid-template-columns:var(--aw) minmax(0,1fr);justify-items:stretch}
+  .pop.big.show.fromBoard .bbar{grid-column:1/-1}
 }
 
 /* Gold flash on the live video where a click landed */
@@ -1161,7 +1170,8 @@
 .dgbreak{flex-basis:100%;height:0}
 .dgrow .btn:disabled{opacity:.5;cursor:default;border-color:var(--line2)}
 @media (pointer:coarse){.dgrow .btn.sm,.bbar .btn.sm{height:32px}}
-.btn.dremove{margin-left:auto;color:var(--bad,#ff8a8f);border-color:color-mix(in srgb,var(--bad,#e5484d) 45%,transparent)}
+.dreds{margin-left:auto;display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.btn.dremove{color:var(--bad,#ff8a8f);border-color:color-mix(in srgb,var(--bad,#e5484d) 45%,transparent)}
 .btn.dremove:hover{border-color:var(--bad,#e5484d)}
 /* Short laptop screens: the art sits beside the name, so the controls fit with no scroll. */
 @media (max-height:850px) and (min-width:701px),(max-width:700px){
@@ -1563,6 +1573,16 @@
   .zoneMenu header.zmHead .zpClose{padding:0 12px}
 }
 @media(max-width:900px){.pop.big.show.zonePicker.zoneMenu{max-height:72dvh}}
+/* Mobile: the "Send to" chips are real tap targets. */
+@media(pointer:coarse),(max-width:900px){.zaSend{padding-top:4px;padding-bottom:4px}.zaSend .btn{min-height:40px;padding:0 12px}}
+/* A short window (1366x768): two columns of smaller rows keep the menu low, so the clicked card stays in view. */
+@media(min-width:901px) and (max-height:820px){
+  .pop.big.show.zonePicker.zoneMenu{width:min(430px,calc(100vw - 16px))}
+  .zoneMenu .zaList{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px}
+  .zoneMenu .zaRow{min-height:34px;padding:4px 8px;gap:6px;font-size:13px}
+  .zoneMenu .zaSend{grid-column:1/-1;min-height:32px}
+  .zoneMenu .zaList>.zpNote{grid-column:1/-1}
+}
 .zaRow:focus-visible,.zmCheck:has(input:focus-visible){outline:2px solid var(--gold);outline-offset:1px}
 
 /* A monster with cards under it: edges of the stack and a small layers + count chip in the top-left corner, outside the art. The tap opens the zone actions, which list the materials. */

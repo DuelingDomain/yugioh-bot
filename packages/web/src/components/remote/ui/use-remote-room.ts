@@ -223,14 +223,17 @@ export function useRemoteRoom(slug: string, options: { watchAsAdmin?: boolean } 
     try {
       const path = `/${slug}/actions`;
       const http = remoteApi<RemoteRoom>(path, input, stop?.signal).catch(async error => {
-        if (error?.code !== "STALE_SEQUENCE" || (payload.type !== "log.note" && payload.type !== "chain.respond" && payload.type !== "chain.thinking" && payload.type !== "chain.ok") || tableKey.current !== slug || !mounted.current) throw error;
+        const playerRemove = payload.type === "twin.remove" && payload.source !== "auto" && payload.cam?.by !== "camera";
+        const signal = payload.type === "log.note" || payload.type === "chain.respond" || payload.type === "chain.thinking" || payload.type === "chain.ok";
+        if (error?.code !== "STALE_SEQUENCE" || (!signal && !playerRemove) || tableKey.current !== slug || !mounted.current) throw error;
         if ((roomRef.current?.lastSeq ?? 0) <= input.baseSeq) {
           try { await refreshAfterWrite(); } catch { throw error; }
         }
         const held = roomRef.current;
         if (stop?.signal.aborted || !mounted.current || !held || held.slug !== slug || held.status !== "active" || held.lastSeq <= input.baseSeq ||
-          held.state.gameId !== current.state.gameId || hasPendingTwinConfirmation(current) || hasPendingTwinConfirmation(held)) throw error;
-        // Retry a log note or a response with its original stamp. Camera retries revalidate physical evidence in the watcher.
+          held.state.gameId !== current.state.gameId || held.state.match.games.length !== current.state.match.games.length ||
+          (signal && (hasPendingTwinConfirmation(current) || hasPendingTwinConfirmation(held)))) throw error;
+        // The removal addresses the same ref even if another client advanced the sequence.
         attemptedSeq = held.lastSeq;
         return remoteApi<RemoteRoom>(path, { ...input, baseSeq: attemptedSeq }, stop?.signal);
       });
