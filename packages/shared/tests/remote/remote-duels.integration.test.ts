@@ -4599,7 +4599,7 @@ it('gives a card to an opponent as a proxy: the owner keeps it, the camera never
   expect(service.get(slug, 'g', b).state.seats[1].twin.find(card => card.ref === 'kaiju')).not.toHaveProperty('ownerIdentity');
   expect(state().seats[0].twin.some(card => card.ref === 'kaiju')).toBe(false);
   // The zone must be free, the target another seat, and a camera action is refused.
-  expect(() => send(a, 0, { type: 'twin.place', seat: 1, zone: 'monster', give: true, card: { ...kaiju, ref: 'kaiju-2' } })).toThrow(/occupied/i);
+  expect(() => send(a, 0, { type: 'twin.place', seat: 1, zone: 'monster', give: true, card: { ...kaiju, ref: 'kaiju-2' } })).toThrow('This zone has a face-down card (proxy). Move your card to a free zone.');
   expect(() => send(a, 0, { type: 'twin.place', seat: 0, zone: 'monster', give: true, card: { ...kaiju, ref: 'kaiju-3', slot: 3 } })).toThrow(/opponent/i);
 
   // The camera of the holder never removes it; the third seat cannot touch it; the owner and the holder can turn it.
@@ -4613,6 +4613,19 @@ it('gives a card to an opponent as a proxy: the owner keeps it, the camera never
   send(a, 0, { type: 'twin.flip', seat: 1, cardRef: 'kaiju', faceUp: true, position: 'defense' });
   expect(proxy()).toMatchObject({ position: 'defense', faceUp: true, cardId: 14558127 });
   expect(proxy()).not.toHaveProperty('ownerIdentity');
+  expect(service.get(slug, 'g', a).state.seats[1].twin.find(card => card.ref === 'kaiju')).toMatchObject({
+    ref: 'kaiju', zone: 'monster', slot: 2, ownerSeat: 0, faceUp: true, cardId: 14558127,
+  });
+  expect(service.get(slug, 'g', b).state.seats[1].twin.find(card => card.ref === 'kaiju')).toEqual(proxy());
+  const paper = { ...kaiju, ref: 'paper', faceUp: true };
+  expect(() => send(b, 1, { type: 'twin.place', seat: 1, zone: 'monster', source: 'auto', card: paper })).toThrow('This zone has Gameciel (proxy). Move your card to a free zone.');
+  // Recorded placements could reuse a proxy before proxyPlacementGuard was persisted.
+  const legacyPlacement = remoteActionSchema.parse({ type: 'twin.place', actorSeat: 1, seat: 1, zone: 'monster', source: 'auto', card: paper, idempotencyKey: 'legacy-proxy-placement' });
+  expect(ygoModule.reduce(state(), legacyPlacement, { replay: true, givenCards: 1, twinPlacementGuard: 9 }).seats[1].twin).toMatchObject([{ ref: 'kaiju', slot: 2, ownerSeat: 0 }]);
+  send(b, 1, { type: 'twin.place', seat: 1, zone: 'monster', source: 'auto', card: { ...paper, slot: 3 } });
+  expect(state().seats[1].twin).toEqual([expect.objectContaining({ ref: 'kaiju', ownerSeat: 0, slot: 2 }), expect.objectContaining({ ref: 'paper', slot: 3 })]);
+  expect(service.replay(slug, 'g', a)).toEqual(state());
+  send(b, 1, { type: 'twin.remove', seat: 1, cardRef: paper.ref });
 
   // It leaves the field to the OWNER's Graveyard, not the holder's.
   send(b, 1, { type: 'twin.move', seat: 1, cardRef: 'kaiju', zone: 'graveyard' });
