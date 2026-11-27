@@ -1,7 +1,8 @@
 "use client";
 
 import { createContext, useContext, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { fieldMatPoint, hasExtraMonsterZones, type FieldCalibration, type FieldFormat } from "@yugidraft/vision";
+import { fieldMatPoint, hasExtraMonsterZones, type FieldCalibration, type FieldFormat, type FieldZone } from "@yugidraft/vision";
+import { fieldZoneLabel } from "@/lib/remote/field-legality";
 import { fieldGridCells, useZoneGrid } from "@/lib/remote/zone-grid";
 import type { CardInfo } from "./catalog";
 import { cardArt } from "./catalog";
@@ -12,10 +13,10 @@ import { isFresh, markLabel, useLiveMarks, type ChainMark } from "./chain-marks"
 import t from "./stats-tokens.module.css";
 
 /** The cards of every seat and the card facts, for the labels drawn on camera feeds. The table and the spectator screen provide it. */
-type Source = { seats: readonly { twin: readonly TwinCard[] }[]; info: (id: number | undefined) => CardInfo | undefined; marks?: readonly ChainMark[] };
+type Source = { seats: readonly { twin: readonly TwinCard[] }[]; info: (id: number | undefined) => CardInfo | undefined; ownerName?: (seat: number) => string; marks?: readonly ChainMark[] };
 const Ctx = createContext<Source | null>(null);
-export function FeedCardsProvider({ seats, info, marks, children }: Source & { children: ReactNode }) {
-  const value = useMemo(() => ({ seats, info, marks }), [seats, info, marks]);
+export function FeedCardsProvider({ seats, info, ownerName, marks, children }: Source & { children: ReactNode }) {
+  const value = useMemo(() => ({ seats, info, ownerName, marks }), [seats, info, ownerName, marks]);
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 
@@ -44,21 +45,22 @@ const through = (calibration: FieldCalibration, cell: { x: number; y: number; w:
 const inView = (p: Point) => p.x > .01 && p.x < .99 && p.y > .01 && p.y < .99;
 
 /** The saved calibration of a feed, read again twice a second (a calibration someone else shares arrives over the data channel). */
-function useCalibration(read: () => FieldCalibration | undefined): FieldCalibration | undefined {
+function useCalibration(read: () => FieldCalibration | undefined, visible: boolean): FieldCalibration | undefined {
   const latest = useRef(read); latest.current = read;
   const [value, setValue] = useState<FieldCalibration | undefined>(() => read());
   useEffect(() => {
+    if (!visible) return;
     const refresh = () => { const next = latest.current(); setValue(old => JSON.stringify(old) === JSON.stringify(next) ? old : next); };
     refresh(); const timer = setInterval(refresh, 500); return () => clearInterval(timer);
-  }, []);
+  }, [visible]);
   return value;
 }
 
 type Cell = { x: number; y: number; w: number; h: number };
 type Item = { key: string; card: TwinCard; stats: CardStats; cell: Cell };
-type Proxy = { key: string; card: TwinCard; cell: Cell };
 type Counted = { key: string; card: TwinCard; cell: Cell };
-const ZONE_OF: Record<string, string> = { m1: "M1", m2: "M2", m3: "M3", m4: "M4", m5: "M5", e1: "EMZ1", e2: "EMZ2", s1: "S1", s2: "S2", s3: "S3", s4: "S4", s5: "S5", f: "FIELD" };
+type Proxy = { key: string; card: TwinCard; cell: Cell; zone: FieldZone };
+const ZONE_OF: Record<string, FieldZone> = { m1: "M1", m2: "M2", m3: "M3", m4: "M4", m5: "M5", e1: "EMZ1", e2: "EMZ2", s1: "S1", s2: "S2", s3: "S3", s4: "S4", s5: "S5", f: "FIELD" };
 
 /**
  * A card this seat controls but does not own (given to it, or taken: `ownerSeat` names the real owner). Its paper card
@@ -73,7 +75,7 @@ const matrixOf = ([a, b, , d]: Point[]) => `matrix(${b.x - a.x} ${b.y - a.y} ${d
  * Over one camera feed: the ATK / DEF of each face-up monster, each token as a card drawn in its zone, and each card the
  * seat controls for another player as a proxy (art, ATK / DEF and a Controlled tag). Everything is placed through the
  * calibration, so it follows the mat's perspective. A token or proxy lies turned in Defense. The text is plain HTML, so
- * it reads upright for whoever looks at the feed. Without a saved calibration (zones placed on the mat) nothing is drawn.
+ * it reads upright for whoever looks at the feed. If the mat location is unavailable, show the proxy's zone in text.
  */
 export function FeedCards(props: { seat: number; frame: CSSProperties | null; format: FieldFormat; read: () => FieldCalibration | undefined }) {
   return <><FeedStats {...props} /><FeedChain {...props} /></>;
@@ -87,7 +89,7 @@ export function FeedCards(props: { seat: number; frame: CSSProperties | null; fo
 function FeedChain({ seat, frame, format, read }: { seat: number; frame: CSSProperties | null; format: FieldFormat; read: () => FieldCalibration | undefined }) {
   const data = useContext(Ctx);
   const { live, now } = useLiveMarks(data?.marks);
-  const calibration = useCalibration(read);
+  const calibration = useCalibration(read, !!frame);
   const emz = hasExtraMonsterZones(format);
   const cells = useMemo(() => fieldGridCells(format, calibration?.zoneSpacing, calibration?.zones), [format, calibration?.zoneSpacing, calibration?.zones]);
   const twin = data?.seats[seat]?.twin;
@@ -117,7 +119,7 @@ function FeedChain({ seat, frame, format, read }: { seat: number; frame: CSSProp
 function FeedStats({ seat, frame, format, read }: { seat: number; frame: CSSProperties | null; format: FieldFormat; read: () => FieldCalibration | undefined }) {
   const data = useContext(Ctx);
   const clipBase = useId().replace(/\W/g, "");
-  const calibration = useCalibration(read);
+  const calibration = useCalibration(read, !!frame);
   const emz = hasExtraMonsterZones(format);
   const cells = useMemo(() => fieldGridCells(format, calibration?.zoneSpacing, calibration?.zones), [format, calibration?.zoneSpacing, calibration?.zones]);
   const twin = data?.seats[seat]?.twin;
@@ -129,12 +131,24 @@ function FeedStats({ seat, frame, format, read }: { seat: number; frame: CSSProp
       const card = placed[key as keyof typeof placed]?.card; const cell = cells.find(item => item.zone === ZONE_OF[key]);
       if (!card || !cell) continue;
       if (card.counters) counted.push({ key: card.ref, card, cell });
-      if (isControlled(card, seat)) proxies.push({ key: card.ref, card, cell });
+      if (isControlled(card, seat)) proxies.push({ key: card.ref, card, cell, zone: ZONE_OF[key] });
       const stats = key[0] === "m" || key[0] === "e" ? statsOf(card, data.info(cardCode(card))) : null; if (stats) items.push({ key: card.ref, card, stats, cell });
     }
     return { items, proxies, counted };
   }, [twin, data, emz, cells, seat]);
-  if (!frame || !calibration?.orientation || !(items.length || proxies.length || counted.length)) return null;
+  const controlLabel = (card: TwinCard) => {
+    if (card.ownerSeat === undefined) return "Controlled";
+    return `Controlled (owned by ${data?.ownerName?.(card.ownerSeat) ?? `Seat ${card.ownerSeat + 1}`})`;
+  };
+  if (!frame || !calibration?.orientation) return proxies.length ? <ul className={t.proxyFallback} aria-label="Controlled cards" data-testid="feed-proxy-fallback">
+    {proxies.map(({ key, card, zone }) => {
+      const name = card.faceUp ? cardName(card, data?.info(cardCode(card))) : "Face-down card";
+      return <li key={key} title={`${fieldZoneLabel(zone)} · ${name} · ${controlLabel(card)}`}>
+        <span className={t.zLong}>{fieldZoneLabel(zone)}</span><span className={t.zShort}>{zone}</span> · {name} · <span className={t.ctl}>{controlLabel(card)}</span>
+      </li>;
+    })}
+  </ul> : null;
+  if (!(items.length || proxies.length || counted.length)) return null;
   const tokens = items.filter(item => item.card.token);
   return <div className={t.feedLayer} style={frame} aria-hidden="true" data-testid={`feed-cards-${seat}`}>
     <svg viewBox="0 0 1 1" preserveAspectRatio="none">
@@ -147,12 +161,12 @@ function FeedStats({ seat, frame, format, read }: { seat: number; frame: CSSProp
           <line className={t.tokenFront} x1={a.x} y1={a.y} x2={b.x} y2={b.y} />
         </g>;
       })}
-      {proxies.map(({ key, card, cell }, index) => {
+      {proxies.map(({ key, card, cell, zone }, index) => {
         const shape = cardInCell(card.position === "defense");
         const pts = shape.corners.map(p => through(calibration, cell, p));
         const code = card.faceUp ? cardCode(card) : undefined;
         const points = pts.map(p => `${p.x},${p.y}`).join(" "), clip = `${clipBase}-${index}`;
-        return <g key={key} data-testid="feed-proxy" data-position={card.position === "defense" ? "defense" : "attack"} data-face={code ? "up" : "down"}>
+        return <g key={key} data-testid="feed-proxy" data-zone={zone} data-position={card.position === "defense" ? "defense" : "attack"} data-face={card.faceUp ? "up" : "down"}>
           <polygon className={t.tokenFill} points={points} />
           {code ? <><clipPath id={clip}><polygon points={points} /></clipPath>
             <g clipPath={`url(#${clip})`}><image href={cardArt(code)} width="1" height="1" preserveAspectRatio="none" transform={matrixOf(pts)} /></g></> : null}
@@ -163,7 +177,11 @@ function FeedStats({ seat, frame, format, read }: { seat: number; frame: CSSProp
     {proxies.map(({ key, card, cell }) => {
       const at = through(calibration, cell, { x: .5, y: card.position === "defense" ? .22 : .02 });
       if (!inView(at)) return null;
-      return <span key={key} className={`${t.label} ${t.tag}`} style={{ left: `${at.x * 100}%`, top: `${at.y * 100}%` }} data-testid="feed-proxy-tag">Controlled</span>;
+      const named = card.faceUp && !cardCode(card) && card.name ? through(calibration, cell, { x: .5, y: .5 }) : undefined;
+      return <span key={key}>
+        <span className={`${t.label} ${t.tag}`} style={{ left: `${at.x * 100}%`, top: `${at.y * 100}%` }} data-testid="feed-proxy-tag">{controlLabel(card)}</span>
+        {named && inView(named) ? <span className={`${t.label} ${t.proxyName}`} style={{ left: `${named.x * 100}%`, top: `${named.y * 100}%` }}>{card.name}</span> : null}
+      </span>;
     })}
     {counted.map(({ key, card, cell }) => {
       const at = through(calibration, cell, { x: .88, y: .14 });

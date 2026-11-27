@@ -47,12 +47,12 @@ export function VoxSection({ recognition = true, transcript, proposal, samples, 
   </section>;
 }
 
-export function UndoSection({ recognition = true, spokenUndo = true, label, enabled, reason, flash, histOpen, onUndo, onHist }: {
-  recognition?: boolean; spokenUndo?: boolean; label: string; enabled: boolean; reason?: string; flash: number; histOpen: boolean; onUndo: () => void; onHist: (el: HTMLElement) => void;
+export function UndoSection({ recognition = true, spokenUndo = true, label, chip, enabled, reason, flash, histOpen, onUndo, onHist }: {
+  recognition?: boolean; spokenUndo?: boolean; label: string; /** A short text for the chip (the full label stays in the tooltip). */ chip?: string; enabled: boolean; reason?: string; flash: number; histOpen: boolean; onUndo: () => void; onHist: (el: HTMLElement) => void;
 }) {
   return <section className={`${s.dk} ${s.undo}`} aria-label="Undo">
     <button type="button" className={`${s.ubtn} ${flash ? s.flash : ""}`} key={flash} disabled={!enabled} onClick={onUndo} data-testid="undo" title={enabled ? `Undo: ${label}` : "Nothing to undo"} aria-label={enabled ? `Undo: ${label}` : "Nothing to undo"}>
-      <Icon name="undo" /><span className={s.ut}><span className={s.ul} data-testid="undo-label">{enabled ? `Undo: ${label}` : "Nothing to undo"}</span>
+      <Icon name="undo" /><span className={s.ut}><span className={s.ul} data-testid="undo-label">{enabled ? chip ?? `Undo: ${label}` : "Nothing to undo"}</span>
         <span className={s.usub}>{reason ? `${reason} · ` : ""}<kbd>Ctrl</kbd> <kbd>Z</kbd>{recognition && spokenUndo ? " · or say “undo”" : ""}</span></span>
     </button>
     <button type="button" className={s.hbtn} aria-haspopup="dialog" aria-expanded={histOpen} aria-label="Show recent actions" data-layer-opener data-testid="history-button"

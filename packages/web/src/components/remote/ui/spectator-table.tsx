@@ -14,7 +14,7 @@ import { watchVideoFrames } from "@/lib/remote/video-protocol";
 import { useCardInfo, warmCardArt } from "./catalog";
 import { HandStrip } from "./hand-ui";
 import { handCountOf, knownHandOf } from "./reveal-model";
-import { CardPopover, InspectorBody, type CardActions, type Subject } from "./card-view";
+import { CardPopover, InspectorBody, liveCardSubject, type CardActions, type Subject } from "./card-view";
 import { HoloField } from "./holo-field";
 import { ZoneGridOverlay } from "./zone-grid";
 import { Rail, LpStrip, MatchTimer } from "./chrome";
@@ -180,7 +180,8 @@ function SpectatorTable({ room }: { room: RemoteRoom }) {
   const chain = useMemo(() => chainOf(room.events, aliveSeats(state)), [room.events, state]);
   const chainLinks = chain.links;
   const chainMarks = useMemo(() => chainMarksOf(chain), [chain]);
-  const [subject, setSubject] = useState<Subject | null>(null);
+  const [openedSubject, setSubject] = useState<Subject | null>(null);
+  const subject = liveCardSubject(openedSubject, openedSubject?.ref ? state.seats[openedSubject.seat]?.twin.find(card => card.ref === openedSubject.ref) : undefined);
   const [popAt, setPopAt] = useState<PopAt>({ anchor: null, feed: null });
   const publicIds = state.seats.flatMap(item => [...item.twin.map(card => cardCode(card) ?? card.token?.artId), ...(item.knownHand ?? []).map(card => card.cardId)]);
   const info = useCardInfo([...publicIds, subject?.cardId]);
@@ -287,7 +288,7 @@ function SpectatorTable({ room }: { room: RemoteRoom }) {
   // The end and siding screens carry their own words; the note is for a game result and for video problems.
   const note = ended || siding ? null : readNote || (match.phase === "result" ? "This game is over. The next game starts soon." : snapshot.error || null);
 
-  return <FeedCardsProvider seats={state.seats} info={info} marks={chainMarks}><ChainBadges marks={chainMarks} /><div className={`${duelFontClasses} ${s.app} ${v.app}`} data-mode={seatCount === 2 ? "1v1" : String(seatCount)} data-wc={webcamOnly ? "1" : undefined} data-testid="spectator-table" data-status={room.status}>
+  return <FeedCardsProvider seats={state.seats} info={info} ownerName={name} marks={chainMarks}><ChainBadges marks={chainMarks} /><div className={`${duelFontClasses} ${s.app} ${v.app}`} data-mode={seatCount === 2 ? "1v1" : String(seatCount)} data-wc={webcamOnly ? "1" : undefined} data-testid="spectator-table" data-status={room.status}>
     <ThinkingCallout thinking={thinking} name={name} pointer={seatCount > 2} />
     <OkBanner hold={okHold} name={name} />
     <RollOverlay hold={rollHold} name={name} />

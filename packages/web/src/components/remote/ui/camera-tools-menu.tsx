@@ -117,6 +117,7 @@ export function CameraToolsMenu({ seat, name, you, scan, advice, warn, onToken, 
   const seatLive = !!hub.sourceFor(seat);
   const canZones = hasCamera && !!grid.calibrate && grid.ownSeat !== null;
   const calibrate = () => { close(); grid.calibrate?.(); };
+  const gridHint = zonesOn ? "Recommended: shows where your zones are." : "Zones are hidden on my webcam.";
   return <>
     <button type="button" ref={trigger} className={s.toolsBtn} popoverTarget={id} aria-haspopup="menu" aria-expanded={open} aria-label={`Camera tools for ${name}`} data-testid={`camera-tools-${seat}`} data-warn={warn || need ? "" : undefined}>
       <Icon name="cam" /><span className={s.toolsLbl}>Camera</span></button>
@@ -128,9 +129,11 @@ export function CameraToolsMenu({ seat, name, you, scan, advice, warn, onToken, 
       </Group> : null}
       <Group label="Zones">
         <Row icon="grid" role="menuitemcheckbox" aria-checked={zonesOn} pill={onOff(zonesOn)} hint={you ? "G" : undefined} aria-keyshortcuts={you ? "G" : undefined} data-testid={you ? "zone-grid-toggle" : `zone-grid-toggle-opponent-${seat}`}
-          sub={you ? (zonesOn ? "Recommended: shows where your zones are." : "Zones are hidden on my webcam.") : "An opponent who uses Tap to identify has no zone grid, so none shows on that camera."}
+          aria-label={you ? "Show zone grid" : undefined} aria-describedby={you ? `${id}-zone-hint` : undefined}
+          sub={you ? gridHint : "An opponent who uses Tap to identify has no zone grid, so none shows on that camera."}
           onClick={() => writeGridPref(you, !zonesOn)}>{you ? "Show zone grid" : "Show zone grid on opponent webcams"}</Row>
         {you ? <>
+          <span id={`${id}-zone-hint`} className={s.sr} data-testid="zone-grid-hint">{gridHint}</span>
           <Row icon="grid" role="menuitemcheckbox" aria-checked={opponentsOn} pill={onOff(opponentsOn)} data-testid="zone-grid-toggle-opponent" sub="An opponent who uses Tap to identify has no zone grid, so none shows on that camera." onClick={() => writeGridPref(false, !opponentsOn)}>Show zone grid on opponent webcams</Row>
           <Row icon="scan" disabled={!canZones} data-testid="zone-grid-fit" sub={canZones ? "Fit the zone grid to your mat." : "Available once your camera video is showing."} onClick={calibrate}>Fit to my mat</Row>
           <Row icon="sliders" disabled={!canZones} data-testid="zone-grid-adjust" sub="Move, resize or turn the zone grid, and drag the sideways Banished zone." onClick={calibrate}>Adjust zones</Row></> : null}

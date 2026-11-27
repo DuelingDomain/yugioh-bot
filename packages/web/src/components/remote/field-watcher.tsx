@@ -32,7 +32,8 @@ import {useTestRecording,type RecordingCalibration} from './ui/use-test-recordin
 import {useRecognitionBackend,gpuLossReason} from './ui/recognition-backend';
 import {useVideoHub} from './ui/video-hub';
 import type {RescanReply} from '@/lib/remote/video-protocol';
-import {cardCode,sameObservedCard,deckIdsOf,placedTwin} from './ui/model';
+import {cardCode,sameObservedCard,deckIdsOf,facingSeat,hasExtraZones,mirrorEmz,placedTwin} from './ui/model';
+import {proxyAtLanding,proxyClashLabel} from './ui/placement';
 import {FieldCalibrationControl} from './field-calibration';
 import {NOTIFY_OPEN_EVENT} from './ui/notify-dock';
 import {publishZoneGrid,clearZoneGrid,defaultSideFor,fieldDebugEnabled,publishFieldDebug,publishMissingPiles,publishFieldScan} from '@/lib/remote/zone-grid';
@@ -136,6 +137,10 @@ const physicalZonePattern=/^(?:M[1-5]|S[1-5]|EMZ[12]|FIELD)$/;
 /** A hand over the GY/banished pile counts as exit evidence for a card that shows on the field up to 10 s later. */
 const PILE_EXIT_MS=10_000;
 /** How long a card shown from the hand stays linked to the play that follows it (field or pile placement, one Undo). */
+/** A notice shows 5 s; one with Undo shows at least 8 s, and at most this many notices stack (the newest on top). */
+const NOTICE_MS=5000,UNDO_NOTICE_MS=8000,NOTICE_STACK=3;
+type KeptNotice={key:string;text:string;undoId:string;left:number};
+type UndoLink={ids:string[];/** The pile track that follows the departed card, restored to its stand-in by Undo. */rebind?:{trackId:string;ref:string}};
 /** An Equip effect on this field makes a monster in a Spell & Trap Zone plausible (an Equip Card). */
 const equipSourceOn=(twins:readonly TwinCard[])=>equipSourceOnField(twins,c=>cardInfo(cardCode(c)));
 /** The slow-camera hint shows once per page load. */
@@ -148,7 +153,7 @@ function readPhysicalZones(key:string):Map<string,FieldZone> {
   return new Map();
 }
 type Entry={cardId:string;passcode:number;name:string;frameClass?:string};
-type FieldMutation=(proposal:Parameters<RoomMutation>[0],key?:string,evidence?:FieldEvent)=>ReturnType<RoomMutation>;
+type FieldMutation=(proposal:Parameters<RoomMutation>[0],key?:string,evidence?:FieldEvent,verify?:()=>boolean)=>ReturnType<RoomMutation>;
 /** Camera proof that a departed card lies on a pile: an unread stand-in the board holds, or a pile track the board has no card for yet. */
 type PileSeen=NonNullable<ReturnType<typeof fieldPileEvidence>>|NonNullable<ReturnType<typeof fieldPileTrackEvidence>>;
 type Departure={ref:string;name:string;zone:string;/** Face-down: only a banished card (Banish face-down). */down?:boolean};
@@ -210,7 +215,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   const vanishes=useRef<FieldVanish[]>([]),summons=useRef(new Map<string,{kind:RemoteSummonKind;name:string;rating?:number;at:number;count:number;pending:string[];trackId:string}>());
   // Stacks the glue holds back (a card moved on top of another card): the summon window decides, then the default applies.
   // stackKept: a stack whose default the player undid; the camera leaves it alone while it stays stacked.
-  const heldStacks=useRef(new Set<string>()),stackKept=useRef(new Set<string>()),stackTimers=useRef(new Set<ReturnType<typeof setTimeout>>()),undoChain=useRef<{after:string;ids:string[];/** The pile track that follows the departed card, restored to its stand-in by Undo. */rebind?:{trackId:string;ref:string}}>({after:'',ids:[]}),watchStartedAt=useRef(performance.now());
+  const heldStacks=useRef(new Set<string>()),stackKept=useRef(new Set<string>()),stackTimers=useRef(new Set<ReturnType<typeof setTimeout>>()),undoChain=useRef(new Map<string,UndoLink>()),watchStartedAt=useRef(performance.now());
   useEffect(()=>{separatedStackCards.current.clear();vanishes.current=[];summons.current.clear();heldStacks.current.clear();stackKept.current.clear();watchStartedAt.current=performance.now();},[room.slug,seat,source]);
   useEffect(()=>()=>{for(const timer of stackTimers.current)clearTimeout(timer);stackTimers.current.clear();},[]);
   /**
@@ -239,6 +244,16 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   /** A plain monster that stands in a Spell & Trap Zone: Move / Keep. `rowKept` holds the refs the player kept there. */
   const [rowPrompts,setRowPrompts]=useState<{ref:string;name:string}[]>([]),rowKept=useRef(new Set<string>());
   const [tokenPrompt,setTokenPrompt]=useState<{event:FieldEvent;token:TwinCard;zone:FieldZone;name:string;facts?:ReturnType<typeof cardInfo>;choosing?:boolean}|null>(null);
+  const [proxyClashes,setProxyClashes]=useState<{event:FieldEvent;zone:FieldZone;proxy:TwinCard;holder:number}[]>([]);
+  const proxyBlockedTracks=useRef(new Map<string,FieldZone>());
+  const proxyMarkers=useRef(new Set<string>());
+  const proxyPrompt=proxyClashes[0];
+  useEffect(()=>{proxyBlockedTracks.current.clear();proxyMarkers.current.clear();setProxyClashes([]);},[room.slug,seat,source]);
+  /** One link per Undo-able action: the earlier actions that Undo takes back with it. A newer notice never overwrites an older link. */
+  const setChain=(after:string,link:UndoLink)=>{const map=undoChain.current;map.delete(after);map.set(after,link);if(map.size>40)map.delete(map.keys().next().value!);};
+  const [kept,setKept]=useState<KeptNotice[]>([]),[noticeHeld,setNoticeHeld]=useState(false);
+  /** The notice on screen and when it came up; a new notice pushes an Undo notice that still has time into `kept`. */
+  const shownNotice=useRef<{text:string;undoId:string}|null>(null),noticeLeft=useRef(0),noticeKey=useRef(''),settledUndo=useRef(new Set<string>());
   const [notice,setNotice]=useState(''),[undoId,setUndoId]=useState(''),[pending,setPending]=useState(false),[recovery,setRecovery]=useState<StaleFieldPlacementError|null>(null);
   const heldTimers=useRef(new Map<string,ReturnType<typeof setInterval>>()),departureTimers=useRef(new Map<string,ReturnType<typeof setTimeout>>());
   /** Monsters out of view during the departure wait (track id): an Extra Deck summon in that window takes them as materials. */
@@ -521,11 +536,16 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       current.current.room=latest;markFieldTiming(event?.timing,'dequeued');
       console.info('[remote field] dequeued',event?.type,event?.track.id,latest.lastSeq);
       const queuedEvent=event;
-      const apply:FieldMutation=async (input,idempotencyKey,event=queuedEvent)=>{
+      const apply:FieldMutation=async (input,idempotencyKey,event=queuedEvent,verify)=>{
         const {cam:_cam,...bare}=input,sig=JSON.stringify(bare),slot=step++,saved=idempotencyKey===undefined&&kept[slot]?.sig===sig?kept[slot]:undefined;
         const actionId=idempotencyKey??saved?.key??crypto.randomUUID();
         // A Trap that the camera sees go from S/T to a Monster Zone is a Trap Monster: it keeps its S/T zone.
-        let proposal=input;if(input.type==='twin.move'&&input.faceUp!==false&&input.trapMonster===undefined){const moving=current.current.room.state.seats[seat].twin.find(c=>c.ref===input.cardRef);if(becomesTrapMonster(moving,cardInfo(moving&&cardCode(moving)),input.zone))proposal={...input,trapMonster:true};}if(!proposal.cam)proposal={...proposal,cam:humanChoice?fieldCameraStamp(event?.timing,'player',event?.reason==='card-presence'?'set-card':'prompt-choice'):fieldCameraStamp(event?.timing,'camera',proposal.type==='undo'?'auto-undo':undefined)};if(event?.track.setEvidence&&proposal.cam)proposal={...proposal,cam:{...proposal.cam,set:event.track.setEvidence}};
+        let proposal=input;if(input.type==='twin.move'&&input.faceUp!==false&&input.trapMonster===undefined){const moving=current.current.room.state.seats[seat].twin.find(c=>c.ref===input.cardRef);if(becomesTrapMonster(moving,cardInfo(moving&&cardCode(moving)),input.zone))proposal={...input,trapMonster:true};}
+        const observedAt=event&&event.type!=='removed'?event.track.lastSeen:performance.now();
+        if(!proposal.cam)proposal={...proposal,cam:humanChoice?fieldCameraStamp(event?.timing,'player',event?.reason==='card-presence'?'set-card':'prompt-choice',observedAt):fieldCameraStamp(event?.timing,'camera',proposal.type==='undo'?'auto-undo':undefined,observedAt)};
+        if(event?.track.setEvidence&&proposal.cam)proposal={...proposal,cam:{...proposal.cam,set:event.track.setEvidence}};
+        if(humanChoice&&proposal.type==='card.identified')proposal={...proposal,source:'click'};
+        if(humanChoice&&(proposal.type==='twin.place'&&cardCode(proposal.card)||proposal.type==='twin.flip'&&proposal.cardId))proposal={...proposal,confirmIdentity:true};
         // A Retry of this work reuses the saved key AND the saved proposal (its stamp too): the server compares a repeated key field by field.
         if(saved)proposal=saved.proposal;else if(idempotencyKey===undefined)kept[slot]={sig,key:actionId,proposal};
         bindFieldTiming(actionId,current.current.room.slug,event?.timing);
@@ -536,7 +556,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
         const stillValid=()=>{
           if(cameraCorrectionBlocked(current.current.room,proposal))return false;
           if(proposal.type==='undo')return true;
-          if(!live())return false;
+          if(!live()||verify?.()===false)return false;
           if(!event)return true;
           // A write that waited (facts, a retry) stops when its card was given away in the meantime.
           if(givenHold(event.track))return false;
@@ -559,10 +579,27 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
             if(!observed||observed.zone!==event.track.zone||slideFor(observed)?.card.ref!==proposal.cardRef)return false;
           }
           const observed=trackForChoice(event);
+          if(event.type==='moved'&&(observed?.zone!==event.track.zone||observed.position!==event.track.position))return false;
           if(event.type==='flipped'&&!event.track.faceDown&&observed?.zone!==event.track.zone)return false;
           return fieldEvidenceMatches(event,observed,humanChoice,!!setReturn&&fieldSetRebind(event));
         };
-        console.info('[remote field] write',proposal.type,actionId);markFieldTiming(event?.timing,'mutation',{actionId});const updated=await retryFieldMutation(act,proposal,actionId,stillValid,error=>{const text=error instanceof Error?error.message:String(error);console.warn('[remote field] save failed',proposal.type,text);lastWriteError.current=`${new Date().toLocaleTimeString()} ${text}`;markFieldTiming(event?.timing,'writeFailed',{type:proposal.type});if(!quiet)setNotice(text);},{quiet});console.info('[remote field] write result',proposal.type,updated?.lastSeq??'not saved');if(!updated)console.info('[remote field] write skipped: the card changed before it was saved',proposal.type);if(updated){current.current.room=updated;holdReplacedFieldCards(before,updated.state.seats[seat].twin);prunePhysical();}return updated;};
+        console.info('[remote field] write',proposal.type,actionId);markFieldTiming(event?.timing,'mutation',{actionId});
+        const updated=await retryFieldMutation(act,proposal,actionId,stillValid,error=>{const text=error instanceof Error?error.message:String(error);console.warn('[remote field] save failed',proposal.type,text);lastWriteError.current=`${new Date().toLocaleTimeString()} ${text}`;markFieldTiming(event?.timing,'writeFailed',{type:proposal.type});if(!quiet)setNotice(text);},{quiet});
+        console.info('[remote field] write result',proposal.type,updated?.lastSeq??'not saved');
+        if(!updated)return null;
+        current.current.room=updated;holdReplacedFieldCards(before,updated.state.seats[seat].twin);prunePhysical();
+        // A camera write without an event may be obsolete or may have kept a confirmed name.
+        if(proposal.cam?.by==='camera'&&['twin.place','twin.move','twin.flip','twin.remove','card.identified'].includes(proposal.type)&&
+          !updated.events.some(e=>e.id===actionId)){
+          if(proposal.type==='card.identified'&&proposal.source==='auto'){
+            const ref=proposal.cardRef;
+            const confirmed=updated.state.seats[seat].twin.some(c=>c.ref===ref&&c.identityConfirmed);
+            if(confirmed&&stillValid())return updated;
+          }
+          return null;
+        }
+        return updated;
+      };
       await work(apply);console.info('[remote field] flushed',event?.type,event?.track.id,current.current.room.lastSeq);workKeys.current.delete(work);setFailedUpdate(previous=>previous?.work===work?null:previous);
     },lanes??fieldLanes(event)).catch(error=>{if(error instanceof RemoteDuelError&&error.code==='ACTIVATION_LIMIT'){setNotice(error.message);return;}console.error('[remote field] update failed',error);if(quiet)return;if(error instanceof StaleFieldPlacementError)setRecovery(error);else{setFailedUpdate({work,event,humanChoice});setNotice(error instanceof Error?error.message:'Could not save the field update. Use Retry field update.');}});
   }
@@ -575,8 +612,14 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     !!(cardCode(card)||card.name)&&!sameObservedCard(card,identity);
   function resolveExisting(event:FieldEvent,track:FieldTrack,entry:Entry|undefined,twins:readonly TwinCard[]) {
     const differentSet=(card:TwinCard)=>!track.faceDown&&!!entry&&differentKnownSet(card,{cardId:catalogCardId(entry),name:entry.name});
-    const reusable=(card:TwinCard)=>!differentSet(card)&&(publicField(card.zone)||['deck','hand','extra'].includes(card.zone)||card.ref===event.fromRef||['GY','BANISHED'].includes(track.zone)&&card.zone===fieldZoneLocation(track.zone).zone||leftField(card,serverNow(),fieldZoneLocation(track.zone)));
+    const reusable=(card:TwinCard)=>card.ownerSeat===undefined&&!differentSet(card)&&(publicField(card.zone)||['deck','hand','extra'].includes(card.zone)||card.ref===event.fromRef||['GY','BANISHED'].includes(track.zone)&&card.zone===fieldZoneLocation(track.zone).zone||leftField(card,serverNow(),fieldZoneLocation(track.zone)));
     let existing=twins.find(c=>c.ref===track.id&&reusable(c)&&(!track.faceDown||c.zone!=='hand'));
+    // A read can inherit a reserved ref while a different card takes its cell.
+    // Follow the newly read identity when the old named card was elsewhere.
+    const readFacts=entry&&cardInfo(catalogCardId(entry));
+    if(existing?.faceUp&&entry&&cardCode(existing)&&event.type!=='prompt'&&publicField(existing.zone)&&
+      !sameObservedCard(existing,{cardId:catalogCardId(entry),name:entry.name})&&
+      (knownZone(existing)!==track.zone||existing.zone==='field'&&track.zone!=='FIELD'&&readFacts&&!isFieldSpell(readFacts)))existing=undefined;
     // An unread arriving top may be covered before its read finishes. A later
     // named top in that pile owns its own ref when it has a different identity.
     if(existing&&(track.zone==='GY'||track.zone==='BANISHED')&&bindings.current.has(event.track.id)&&
@@ -590,13 +633,13 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       const bound=twins.find(c=>c.ref===event.bindRef&&reusable(c));
       if(bound&&tracks.current.some(t=>t.id!==event.track.id&&owns(t,bound.ref)&&t.visible&&!t.removed)){return {existing,blocked:true};}
       // The physical card can move while its prompt waits; keep its reservation.
-      existing=bound??twins.find(c=>publicField(c.zone)&&!differentSet(c)&&sameSlot(c)&&!tracks.current.some(t=>owns(t,c.ref)&&t.visible&&!t.removed));
+      existing=bound??twins.find(c=>publicField(c.zone)&&reusable(c)&&sameSlot(c)&&!tracks.current.some(t=>owns(t,c.ref)&&t.visible&&!t.removed));
     }
     if(existing&&entry&&!publicField(existing.zone)&&publicField(fieldZoneLocation(track.zone).zone)&&
       !twins.some(c=>['graveyard','banished'].includes(c.zone)&&!leftField(c,serverNow(),fieldZoneLocation(track.zone))&&sameObservedCard(c,{cardId:catalogCardId(entry),name:entry.name}))){
       // Reader reservations are inferred. An absent field owner takes priority
       // over a private ref unless a second current physical copy is witnessed.
-      for(const copy of twins.filter(c=>(publicField(c.zone)||leftField(c,serverNow(),fieldZoneLocation(track.zone)))&&sameObservedCard(c,{cardId:catalogCardId(entry),name:entry.name})).sort((a,b)=>Number(publicField(b.zone))-Number(publicField(a.zone)))){
+      for(const copy of twins.filter(c=>c.ownerSeat===undefined&&(publicField(c.zone)||leftField(c,serverNow(),fieldZoneLocation(track.zone)))&&sameObservedCard(c,{cardId:catalogCardId(entry),name:entry.name})).sort((a,b)=>Number(publicField(b.zone))-Number(publicField(a.zone)))){
         if(copy.ref===existing.ref)continue;
         const cached=tracks.current.find(t=>t.id!==event.track.id&&owns(t,copy.ref));
         const other=watch.getTrack(copy.ref)??(cached?watch.getTrack(cached.id):undefined);
@@ -689,6 +732,55 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     setTokenPrompt(prompt=>prompt?.event.track.id===event.track.id&&prompt.token.ref===token.ref?prompt:{event,token,zone,name:name??'the card',facts});
     return true;
   }
+  function proxyAt(zone:FieldZone,exceptRef?:string) {
+    const room=current.current.room, seats=room.state.seats,land=fieldZoneLocation(zone);
+    const extra=hasExtraZones(room.format?.id??room.state.deckChecks.format.id);
+    const own=proxyAtLanding(seats[seat].twin,land,extra,exceptRef);
+    if(own)return {proxy:own,holder:seat};
+    if(land.zone!=='extra-monster'||!land.slot)return;
+    const other=facingSeat(seat,seats.length);
+    if(other===null)return;
+    const proxy=proxyAtLanding(seats[other].twin,{...land,slot:mirrorEmz(land.slot)},extra,exceptRef);
+    if(proxy)return {proxy,holder:other};
+  }
+  // A marker stays out of the twin while its track stays in the observed cell.
+  const isProxyMarker=(track:Pick<FieldTrack,'id'|'zone'>)=>proxyMarkers.current.has(track.id)&&proxyBlockedTracks.current.get(track.id)===track.zone;
+  function proxyClash(event:FieldEvent,zone=event.track.zone) {
+    if(isProxyMarker(event.track))return true;
+    const occupant=proxyAt(zone,bindings.current.get(event.track.id)??event.track.id);
+    if(!occupant)return false;
+    proxyBlockedTracks.current.set(event.track.id,event.track.zone);
+    setProxyClashes(list=>{
+      const previous=list.find(p=>p.event.track.id===event.track.id);
+      if(previous?.proxy.ref===occupant.proxy.ref&&previous.zone===zone&&previous.event.track.zone===event.track.zone&&previous.event.track.revision===event.track.revision&&previous.event.type===event.type)return list;
+      const clash={event,zone,...occupant};
+      return previous?list.map(p=>p===previous?clash:p):[...list,clash];
+    });
+    return true;
+  }
+  function leaveProxyMarker(id:string) {
+    proxyMarkers.current.add(id);
+    setProxyClashes(list=>list.filter(p=>p.event.track.id!==id));
+    setPrompts(list=>list.filter(p=>p.track.id!==id));
+  }
+  function replaceProxy(clash:NonNullable<typeof proxyPrompt>) {
+    const {event,zone,proxy,holder}=clash;
+    const stillClashing=()=>{
+      const observed=trackForChoice(event);
+      const occupant=proxyAt(zone);
+      return observed?.zone===event.track.zone&&fieldEvidenceMatches(event,observed,event.type==='prompt')&&occupant?.proxy.ref===proxy.ref&&occupant.holder===holder;
+    };
+    setPending(true);
+    void queue(async act=>{
+      const updated=await act({type:'twin.remove',actorSeat:seat,seat:holder,cardRef:proxy.ref,cam:playerStamp('replace-proxy')},undefined,event,stillClashing);
+      if(!updated)return;
+      // A manual removal normally holds its cell against the camera. This one invites the detected card into it.
+      correctionsFor(updated,holder).release(proxy.ref);
+      setProxyClashes(list=>list.filter(p=>p!==clash));
+      setNotice('Proxy removed · Undo');setUndoId(updated.state.undo?.actionId??'');
+      handle(event);
+    },event).finally(()=>setPending(false));
+  }
   function abstain(event:FieldEvent,message:string) {
     if(watch.getTrack(event.track.id)?.state==='prompt')offer({...event,type:'prompt',reason:'uncertain'});
     setNotice(message);
@@ -697,24 +789,27 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     const read=faceReads.current.get(track.zone);
     if(read?.track.id===track.id&&read.track.revision===track.revision&&read.track.cardId===track.cardId)return read.result;
   }
-  async function removePlaceholder(id:string,act:RoomMutation) {
+  async function removePlaceholder(id:string,act:RoomMutation,retired=false) {
     const ref=placeholders.current.get(id);if(!ref)return true;
+    const track=watch.getTrack(id);
+    if(retired&&track&&!track.removed&&track.state!=='dismissed')return false;
     const card=current.current.room.state.seats[seat].twin.find(c=>c.ref===ref);
     // A manual identification owns the twin now; never delete that correction.
     if(card&&cardCode(card)){placeholders.current.delete(id);bindings.current.set(id,ref);return true;}
     // This intermediate removal belongs to the reader, so the room update
     // must not forget and suppress the live track before its identity is saved.
     readerRemovals.current.add(ref);
-    try{if(card&&!await act({type:'twin.remove',source:'auto',actorSeat:seat,seat,cardRef:ref})){readerRemovals.current.delete(ref);return false;}}
+    try{if(card&&!await act({type:'twin.remove',source:'auto',actorSeat:seat,seat,cardRef:ref,...(retired?{}:{cam:fieldCameraStamp(undefined,'camera','replace-placeholder',track?.lastSeen??performance.now())})})){readerRemovals.current.delete(ref);return false;}}
     catch(error){readerRemovals.current.delete(ref);throw error;}
+    if(retired&&!correctionsFor(current.current.room,seat).has(ref))watch.forget(id);
     placeholders.current.delete(id);bindings.current.delete(id);return true;
   }
   async function showPlaceholder(event:FieldEvent,act:RoomMutation) {
     console.info('[remote field] placeholder',event.track.id,event.track.zone);
     const observed=watch.getTrack(event.track.id);
-    if(!live()||!fieldEvidenceMatches(event,observed)||placeholders.current.has(event.track.id))return;
+    if(!live()||!fieldEvidenceMatches(event,observed)||isProxyMarker(observed!)||placeholders.current.has(event.track.id))return;
     const location=fieldZoneLocation(observed!.zone),twins=current.current.room.state.seats[seat].twin;
-    if(piles.has(observed!.zone)||twins.some(c=>c.zone===location.zone&&c.slot===location.slot))return;
+    if(piles.has(observed!.zone)||proxyAt(observed!.zone)||twins.some(c=>c.zone===location.zone&&c.slot===location.slot))return;
     // A projected card still owns its physical camera cell as well.
     if(twins.some(c=>c.faceUp&&cardCode(c)&&knownZone(c)===observed!.zone))return;
     const proposal=fieldPlacementProposals({track:{...observed!,cardId:undefined},seat})[0];if(!proposal||proposal.type!=='twin.place')return;
@@ -722,7 +817,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     const saved=updated.state.seats[seat].twin.find(c=>c.zone===location.zone&&c.slot===location.slot);if(!saved)return;
     placeholders.current.set(event.track.id,saved.ref);bindings.current.set(event.track.id,saved.ref);
     const after=watch.getTrack(event.track.id);
-    if(!after||after.removed||after.revision!==event.track.revision)await removePlaceholder(event.track.id,act);
+    if(!after||after.removed||after.revision!==event.track.revision)await removePlaceholder(event.track.id,act,!after||after.removed);
   }
   function recentHandActivation(code?:number) {
     const now=serverNow(),state=current.current.room.state;
@@ -798,6 +893,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     };
     const observed=watch.getTrack(event.track.id);
     if(!live()||!matchesEvidence(observed)){defer(observed);return;}
+    if(proxyClash(event,observed!.zone))return;
     let track={...observed!,id:bindings.current.get(event.track.id)??event.track.id,...(chosen?{cardId:chosen,faceDown:false}:{})};
     const entry=track.cardId?entries.current.get(track.cardId):undefined;
     let twins=current.current.room.state.seats[seat].twin;
@@ -930,9 +1026,10 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     }
     // Settle only the name of an admitted unsure card. Its location and materials keep their own actions.
     if(existing?.nameCandidates&&!track.nameCandidates&&event.result?.tier==='sure'&&entry&&!chosen&&publicField(existing.zone)&&existing.faceUp){
-      const code=catalogCardId(entry);if(!code)return;
-      const updated=await mutate({type:'card.identified',actorSeat:seat,seat,cardRef:existing.ref,cardId:code,name:entry.name,source:'auto',nameCandidates:null,bestMatch:false,zone:existing.zone,...(existing.slot?{slot:existing.slot}:{})});
-      if(updated){bindings.current.set(event.track.id,existing.ref);watch.confirm(event.track.id,track.cardId,existing.ref,false);setPrompts(list=>list.filter(p=>p.track.id!==event.track.id));setNotice(`${entry.name} identified · auto`);setUndoId(updated.state.undo?.actionId??'');}
+      const code=catalogCardId(entry),ref=existing.ref;if(!code)return;
+      const updated=await mutate({type:'card.identified',actorSeat:seat,seat,cardRef:ref,cardId:code,name:entry.name,source:'auto',nameCandidates:null,bestMatch:false,zone:existing.zone,...(existing.slot?{slot:existing.slot}:{})});
+      const saved=updated?.state.seats[seat].twin.find(card=>card.ref===ref);
+      if(updated&&saved&&cardCode(saved)===code){bindings.current.set(event.track.id,saved.ref);watch.confirm(event.track.id,track.cardId,saved.ref,false);setPrompts(list=>list.filter(p=>p.track.id!==event.track.id));setNotice(`${entry.name} identified · auto`);setUndoId(updated.state.undo?.actionId??'');}
       return;
     }
     // A revive: the same card lies in the GY/banished pile and a hand was just over that pile. Let the pile settle
@@ -955,6 +1052,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     const summonType=(!existing||!publicField(existing.zone))&&!track.faceDown&&code?fieldSummonKind(cardInfo(code)):undefined;
     const materialRefs=summonType&&/^(M[1-5]|EMZ[12])$/.test(track.zone)?fieldSummonMaterials({kind:summonType.kind,rating:summonType.rating,covered:stackUnder(event.track.id),vanished:vanishes.current,pending:[...pendingLeft.current.values()],firstSeen:track.firstSeen,twins,removed:outOfView,now:serverNow(),separated:separatedStackCards.current}):undefined;
     const summon=summonType&&materialRefs?{kind:summonType.kind,materialRefs}:undefined;
+    if(fieldSpell&&proxyClash(event,'FIELD'))return;
     const stale=staleFieldOccupant(twins,watch.getTracks().map(track=>({...track,id:bindings.current.get(track.id)??track.id})),track.zone,existing?.ref??track.id);
     // Release a slot only for a card that lands in it: a Trap seen in M4 goes to the Spell/Trap row and leaves the M4 twin alone.
     // Facts still missing after the cap: a card in the monster row is placed in its observed cell, the zone-rule effect corrects it later.
@@ -1001,14 +1099,16 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     const projected=lateFacts&&!facts&&(!existing||knownZone(existing)!==track.zone)?{zone:track.zone,label:''}:
       projectObserved(track,twins,existing,facts);
     if(!projected.zone){abstain(event,projected.reason??'Choose a legal zone manually.');return;}
-    if(tokenClash(event,projected.zone,twins,entry?.name,entry?cardInfo(catalogCardId(entry)):undefined))return;
+    if(proxyClash(event,projected.zone)||tokenClash(event,projected.zone,twins,entry?.name,entry?cardInfo(catalogCardId(entry)):undefined))return;
     const physicalAtSave={zone:track.zone,position:track.position};
     track={...track,zone:projected.zone};location=fieldZoneLocation(projected.zone);
     if(!fieldSpell&&!piles.has(track.zone)&&twins.some(c=>c.ref!==existing?.ref&&!summon?.materialRefs.includes(c.ref)&&c.zone===location.zone&&c.slot===location.slot)) {abstain(event,'This zone is occupied. Choose a free zone.');return;}
     // The reader already placed this physical card. Identify it in place rather
     // than removing and recreating it while the next camera event is queued.
     const readingCard=current.current.room.state.seats[seat].twin.find(c=>c.ref===placeholderRef);
-    if(!existing&&!fromActivation&&!track.faceDown&&entry&&readingCard?.faceUp&&readingCard.zone===location.zone&&readingCard.slot===location.slot){
+    let placeReadingCard=false;
+    if(!existing&&!track.faceDown&&entry&&readingCard?.faceUp&&publicField(readingCard.zone)){
+      placeReadingCard=!!fromActivation||readingCard.zone!==location.zone||readingCard.slot!==location.slot;
       existing=readingCard;track={...track,id:readingCard.ref};
     }
     setPending(true);
@@ -1047,7 +1147,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       const copyProof=!existing&&copyCount?{simultaneousQuads:copyCount+1,at:Math.floor(serverNow()-999-Math.max(0,performance.now()-track.lastSeen))}:undefined;
       const choices=track.nameCandidates?.map(candidate=>{const named=entries.current.get(candidate.cardId);if(!named)throw new Error('Candidate names are still loading. Retry the field update.');const code=catalogCardId(named);if(!code)throw new Error('Candidate identity is unavailable. Retry the field update.');return {cardId:code,name:named.name,score:candidate.score};});
       const nameCandidates=choices??(existing?.nameCandidates?null:undefined);
-      for(const proposal of atomicReveal||matchingMove?[]:fieldPlacementProposals({track,seat,nameCandidates,cardId:entry?catalogCardId(entry):undefined,name:entry?.name,existing:!!existing&&!originReturn,fromRef:originReturn?existing!.ref:undefined,copyProof,summon})){
+      for(const proposal of atomicReveal||matchingMove?[]:fieldPlacementProposals({track,seat,nameCandidates,cardId:entry?catalogCardId(entry):undefined,name:entry?.name,existing:!!existing&&!originReturn&&!placeReadingCard,fromRef:originReturn?existing!.ref:undefined,copyProof,summon})){
         // The camera row was not legal for this card type: the log line says so ("Trap → S3"). No prompt.
         updated=await mutate(proposal.type==='twin.place'?{...proposal,...(projected.moved?{zoneRule:projected.moved}:{}),
           ...(fromActivation&&!track.faceDown&&!piles.has(track.zone)?{fromActivation}:{}),
@@ -1068,10 +1168,11 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       const currentTarget=()=>{
         const observed=watch.getTrack(event.track.id);if(!live()||!matchesEvidence(observed))return;
         const twins=current.current.room.state.seats[seat].twin,card=twins.find(item=>item.ref===track.id);if(!card)return;
+        const targetCode=!observed!.faceDown&&card.identityConfirmed?cardCode(card)??code:code,targetFacts=cardInfo(targetCode);
         // After a place made without facts (slowFacts), the observed zone is the target; the zone-rule effect corrects it once the facts arrive.
-        const target=lateFacts&&!cardInfo(code!)?{zone:observed!.zone,label:''} as ReturnType<typeof projectFieldZone>:projectObserved(observed!,twins,card,cardInfo(code),!!existing&&!existing.faceUp);
+        const target=lateFacts&&!targetFacts?{zone:observed!.zone,label:''} as ReturnType<typeof projectFieldZone>:projectObserved(observed!,twins,card,targetFacts,!!existing&&!existing.faceUp);
         if(!target.zone){abstain(event,target.reason??'Choose a legal zone manually.');return;}
-        if(tokenClash(event,target.zone,twins,entry?.name,entry?cardInfo(catalogCardId(entry)):undefined))return;
+        if(proxyClash(event,target.zone)||tokenClash(event,target.zone,twins,targetCode===code?entry?.name:card.name,targetFacts))return;
         return {observed:observed!,card,location:fieldZoneLocation(target.zone),position:fieldTwinPosition({...observed!,zone:target.zone})};
       };
       const matches=(target:NonNullable<ReturnType<typeof currentTarget>>)=>target.card.zone===target.location.zone&&target.card.slot===target.location.slot&&fieldPositionMatches(target.location.zone,target.card.position,target.position);
@@ -1089,17 +1190,22 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       if(!matchesEvidence(watch.getTrack(event.track.id)))return;
       placeholders.current.delete(event.track.id);
       bindings.current.set(event.track.id,target.card.ref);
-      watch.confirm(event.track.id,track.cardId,target.card.ref,event.type==='prompt');
+      const savedCode=cardCode(target.card),ignoredName=!track.faceDown&&savedCode!==code;
+      if(ignoredName&&(!target.card.identityConfirmed||!savedCode))return;
+      // Reapply the player's confirmation to stop retries for the discarded guess.
+      watch.confirm(event.track.id,ignoredName?String(savedCode):track.cardId,target.card.ref,ignoredName||event.type==='prompt');
+      proxyBlockedTracks.current.delete(event.track.id);
       // The departed card may return on a track with its original board ref.
       if(event.track.id!==target.card.ref&&!watch.getTrack(event.track.id)&&
         current.current.room.state.seats[seat].twin.some(c=>c.ref===event.track.id))bindings.current.delete(event.track.id);
       rememberPhysical(target.card.ref,target.observed.zone);setPrompts(list=>list.filter(p=>p.track.id!==event.track.id));
-      const materialName=(ref:string)=>{const c=current.current.room.state.seats[seat].twin.find(t=>t.ref===ref);return c?.name??entries.current.get(watch.getTracks().find(t=>(bindings.current.get(t.id)??t.id)===ref)?.cardId??'')?.name??'Card';};
       const wasLeaving=departureRef.current?.ref===target.card.ref;setDeparture(null);
+      if(ignoredName)return;
+      const materialName=(ref:string)=>{const c=current.current.room.state.seats[seat].twin.find(t=>t.ref===ref);return c?.name??entries.current.get(watch.getTracks().find(t=>(bindings.current.get(t.id)??t.id)===ref)?.cardId??'')?.name??'Card';};
       // Turning a board card over is no news: the table's Undo covers it. Only an uncertain read asks for a look.
       if(existing&&!originReturn&&(track.faceDown||atomicReveal&&!track.bestMatch)){if(wasLeaving)setNotice('');if(projected.moved||projected.shiftTo)noteRowFix(target.card.ref);return;}
       setNotice(summon?`${fieldSummonNotice(summon.kind,entry?.name??'Card',summon.materialRefs.map(materialName))} · auto`:`${track.bestMatch?'Best match · ':''}${track.faceDown?'Face-down card':entry?.name} placed${projected.moved?` · ${projected.moved}`:''} · auto`);setUndoId(updated?.state.undo?.actionId??'');
-      if(tokenUndo.current?.trackId===event.track.id&&updated?.state.undo?.actionId){undoChain.current={after:updated.state.undo.actionId,ids:[tokenUndo.current.actionId]};tokenUndo.current=undefined;}
+      if(tokenUndo.current?.trackId===event.track.id&&updated?.state.undo?.actionId){setChain(updated.state.undo.actionId,{ids:[tokenUndo.current.actionId]});tokenUndo.current=undefined;}
       if(fromActivation&&updated?.state.undoHistory?.some(item=>item.actionId===updated.state.undo?.actionId&&item.undoWith===fromActivation))
         setNotice(`${entry?.name??'Card'} activated from hand, then placed · auto`);
       if(projected.moved||projected.shiftTo)noteRowFix(target.card.ref);
@@ -1211,8 +1317,13 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   }
   function handle(event:FieldEvent,departureOrigin?:Pick<TwinCard,'ref'|'zone'|'slot'>,factsStarted=false,moveRetry=0) {
     if(!factsStarted&&event.result&&event.track.state==='identified'&&!event.track.faceDown)faceReads.current.set(event.track.zone,event);
-    const observedRef=bindings.current.get(event.track.id)??event.track.id;
-    if(givenHold(event.track)){watch.finishInstantPreview(event.track.id);return;}
+    const {id,zone}=event.track,observed=watch.getTrack(id);
+    const observedRef=bindings.current.get(id)??id;
+    if(event.type==='removed'){
+      proxyBlockedTracks.current.delete(id);proxyMarkers.current.delete(id);
+    }else if(proxyMarkers.current.has(id)&&(!observed||observed.removed||!isProxyMarker(observed)))proxyMarkers.current.delete(id);
+    if(isProxyMarker(event.track)){cancelDeparture(id);watch.finishInstantPreview(id);return;}
+    if(givenHold(event.track)){watch.finishInstantPreview(id);return;}
     if(!factsStarted&&live()&&event.type!=='removed'){
       const waiting=fieldFacts(event);
       if(waiting){void waiting.then(()=>{if(live())handle(event,departureOrigin,true);});return;}
@@ -1247,7 +1358,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
           const latest=current.current.room.state.seats[seat].twin.find(c=>c.ref===ref);
           if(!live()||!latest||!publicField(latest.zone)||undoKept.current.has(ref)||!watch.isRemoved(event.track.id))return;
           const updated=await act({type:'twin.remove',source:'auto',actorSeat:seat,seat,cardRef:ref});
-          if(updated){setNotice(`${latest.faceUp?'Unread card':'Face-down card'} removed: nothing on the mat there · auto`);setUndoId(updated.state.undo?.actionId??'');}
+          if(updated&&!updated.state.seats[seat].twin.some(c=>c.ref===ref)){watch.forget(event.track.id);setNotice(`${latest.faceUp?'Unread card':'Face-down card'} removed: nothing on the mat there · auto`);setUndoId(updated.state.undo?.actionId??'');}
         },event);
         return;
       }
@@ -1319,6 +1430,16 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       lastMessage.current=message;published.current=JSON.stringify(message);hub.publishFieldTracks(message);
     }
     if(diagnosticsAllowed&&(event.type==='prompt'||(event.type==='placed'&&event.track.bestMatch)))void saveLocalFieldDiagnostic(event,entries.current);
+    const heldIntoPile=(zone==='GY'||zone==='BANISHED')&&observed?.zone===zone&&
+      (event.type==='moved'||event.type==='placed'||event.type==='prompt')&&proxyBlockedTracks.current.delete(id);
+    if(live()&&['placed','moved','flipped','prompt'].includes(event.type)){
+      const observed=trackForChoice(event);
+      if(observed?.zone===event.track.zone&&fieldEvidenceMatches(event,observed,event.type==='prompt')&&proxyClash(event)){
+        if(event.type==='prompt')offer(event);
+        if(event.type==='placed')watch.finishInstantPreview(id);
+        return;
+      }
+    }
     if(event.type==='prompt'){
       if(event.reason==='recognition-error')setNotice('Card recognition failed. Keep the card still and choose its card, or use the feed reader.');
       if(event.reason==='pile'&&event.result?.tier==='sure'&&['GY','BANISHED'].includes(event.track.zone))void queue(act=>apply(event,act),event);
@@ -1353,6 +1474,13 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       return;
     }
     void queue(async act=>{
+      if(live()&&event.type!=='removed'&&event.type!=='reading'&&event.type!=='covered'){
+        const observed=trackForChoice(event);
+        if(observed?.zone===event.track.zone&&fieldEvidenceMatches(event,observed)&&proxyClash(event)){
+          if(event.type==='placed')watch.finishInstantPreview(id);
+          return;
+        }
+      }
       if(event.previousId&&!await removePlaceholder(event.previousId,act))return;
       // The watcher placed a provisional Set that was really a card lifted from
       // a pile: drop that unnamed back before the pile ref moves to its slot.
@@ -1361,7 +1489,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
         if(provisional&&!provisional.faceUp&&!cardCode(provisional)&&publicField(provisional.zone)&&!await act({type:'twin.remove',source:'auto',actorSeat:seat,seat,cardRef:provisional.ref}))return;
       }
       if(event.type==='reading'){await showPlaceholder(event,act);return;}
-      if(event.type==='removed'&&placeholders.current.has(event.track.id)){await removePlaceholder(event.track.id,act);setPrompts(list=>list.filter(p=>p.track.id!==event.track.id));return;}
+      if(event.type==='removed'&&placeholders.current.has(event.track.id)){await removePlaceholder(event.track.id,act,true);setPrompts(list=>list.filter(p=>p.track.id!==event.track.id));return;}
       if(event.type==='placed'){
         try{await apply(event,act);}finally{watch.finishInstantPreview(event.track.id);}
         return;
@@ -1372,7 +1500,12 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       // Back on the field: it is no longer a vanished material candidate.
       if(event.type==='moved')vanishes.current=vanishes.current.filter(v=>v.ref!==ref);
       const card=current.current.room.state.seats[seat].twin.find(c=>c.ref===ref);
-      if(!live()||!card)return;
+      if(!live())return;
+      if(!card){
+        // A card held at a proxy may have no twin yet. Its first move to a free cell or tracked pile is its first placement.
+        if(event.type==='moved'&&(heldIntoPile||!piles.has(zone)&&proxyBlockedTracks.current.has(id)))await apply(event,act);
+        return;
+      }
       if(card.zone==='hand'&&fieldSetRebind(event)){
         const zone=event.track.zone,origin=reboundSetOrigin(card,event);
         const track=watch.getTrack(event.track.id);
@@ -1454,7 +1587,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
             const ordered=await act({type:'pile.order',source:'auto',actorSeat:seat,seat,zone:proposal.zone as 'graveyard'|'banished',cardRefs});
             const orderId=ordered?.state.undo?.actionId;
             // One Undo reverts the order, then the move (and any chain the move already had).
-            if(orderId&&undoTarget){undoChain.current={after:orderId,ids:[undoTarget,...(undoChain.current.after===undoTarget?undoChain.current.ids:[])]};undoTarget=orderId;}
+            if(orderId&&undoTarget){{const older=undoChain.current.get(undoTarget);undoChain.current.delete(undoTarget);setChain(orderId,{ids:[undoTarget,...(older?.ids??[])]});}undoTarget=orderId;}
           }
         }
         if(!live()||!watch.isRemoved(card.ref))return;
@@ -1499,6 +1632,8 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
         if(keepsManual(card.ref,fieldZoneLocation(observed.zone),observed.position))return;
         const code=cardCode(card),facts=cardInfo(code),twinsNow=current.current.room.state.seats[seat].twin;
         const read=observed.cardId?entries.current.get(observed.cardId):undefined;
+        if(read&&code&&card.faceUp&&!observed.faceDown&&knownZone(card)!==observed.zone&&
+          !sameObservedCard(card,{cardId:catalogCardId(read),name:read.name})){await apply(event,act);return;}
         if(!card.faceUp&&!observed.faceDown&&(isFieldSpell(facts)||read&&differentKnownSet(card,{cardId:catalogCardId(read),name:read.name}))){await apply(event,act);return;}
         const observedLocation=fieldZoneLocation(observed.zone),frame=entries.current.get(observed.cardId??'')?.frameClass;
         const followGeometry=code&&!facts&&!cardFailed(code)&&mainDeckOwnRow(frame,observed.zone)&&
@@ -1511,7 +1646,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
           });
           setNotice(projected.reason??'Choose a legal zone manually.');return;
         }
-        if(tokenClash(event,projected.zone,current.current.room.state.seats[seat].twin,card.name,cardInfo(code)))return;
+        if(proxyClash(event,observed.zone)||proxyClash(event,projected.zone)||tokenClash(event,projected.zone,current.current.room.state.seats[seat].twin,card.name,cardInfo(code)))return;
         const location=fieldZoneLocation(projected.zone);
         if(keepsManual(card.ref,location,observed.position))return;
         const under=stackUnder(event.track.id);
@@ -1539,7 +1674,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
               const moved=await next({type:'twin.move',source:'auto',actorSeat:seat,seat,cardRef:mover.ref,...location,position:fieldTwinPosition(live_)});
               // One Undo puts both back: the top card's move first, then the card under it.
               const leftId=left.state.undo?.actionId??'',movedId=moved?.state.undo?.actionId??'';
-              undoChain.current={after:movedId,ids:moved&&leftId?[leftId]:[]};setDeparture(null);
+              setChain(movedId,{ids:moved&&leftId?[leftId]:[]});setDeparture(null);
               setNotice(`${name} → ${fieldLeaveLabel(departure.zone,departure.faceUp)} (covered)${moved?'':' · move failed'} · Undo`);setUndoId(moved?movedId:leftId);
               stackKept.current.add(mover.ref);
             },event);},SUMMON_WINDOW_MS);
@@ -1697,7 +1832,8 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   },[watch.enabled,watch.calibrationNeeded,syncHold,room.state,seat]);
   const restingReads=useRef(new Map<string,FieldEvent>());
   function observeCorrections(tracks:readonly FieldTrack[]){
-    correctionsFor(current.current.room,seat).observe(tracks.map(t=>({id:t.id,ref:bindings.current.get(t.id)??t.id,...fieldZoneLocation(t.zone),faceDown:t.faceDown,position:t.position,removed:t.removed,resting:!!t.visible&&t.restSince!==undefined})),performance.now());
+    const released=correctionsFor(current.current.room,seat).observe(tracks.map(t=>({id:t.id,ref:bindings.current.get(t.id)??t.id,...fieldZoneLocation(t.zone),faceDown:t.faceDown,position:t.position,cardId:t.cardId,removed:t.removed,resting:!!t.visible&&t.restSince!==undefined})),performance.now());
+    for(const id of released)watch.forget(id,{suppress:false});
   }
   function publishReadings(){
     const key=String(seat),holds=correctionsFor(current.current.room,seat);
@@ -1729,7 +1865,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   useEffect(()=>()=>setFieldGhosts(String(seat),[]),[seat]);
   useEffect(()=>{
     const abandoned=[...placeholders.current.keys()].filter(id=>{const track=watch.getTrack(id);return !track||track.state==='dismissed'||track.removed;});
-    if(abandoned.length)void queue(async act=>{for(const id of abandoned)await removePlaceholder(id,act);},undefined,false,false,laneOf([...abandoned,...abandoned.map(id=>placeholders.current.get(id))]));
+    if(abandoned.length)void queue(async act=>{for(const id of abandoned)await removePlaceholder(id,act,true);},undefined,false,false,laneOf([...abandoned,...abandoned.map(id=>placeholders.current.get(id))]));
   },[watch.snapshot,watch.enabled,source]);
   useEffect(()=>{missingCopies.current.clear();mergedCopies.current.clear();},[room.slug,seat]);
   // Only the watcher's clear-footprint removal window can send a card to
@@ -1775,8 +1911,13 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
         seq>previous.seq&&action.type==='twin.remove'&&action.source!=='auto'&&action.seat===seat&&action.cardRef===ref);
       if(removedFromPile){
         // Discard the camera observation and let the reader suppress its outline, including tracks bound under another ID.
-        for(const track of watch.getTracks())if((bindings.current.get(track.id)??track.id)===ref)watch.forget(track.id);
-      }else if(!correctionsFor(current.current.room,seat).has(ref))watch.forget(ref);
+        const tracks=watch.getTracks().filter(track=>(bindings.current.get(track.id)??track.id)===ref);
+        if(tracks.length)for(const track of tracks)watch.forget(track.id);
+        else watch.forget(ref);
+      }else if(!correctionsFor(current.current.room,seat).has(ref)){
+        const track=watch.getTracks().find(t=>(bindings.current.get(t.id)??t.id)===ref);
+        watch.forget(track?.id??ref);
+      }
     }
     // Consume the exemption only after the server removal is observed, or after
     // a batched replacement already contains the identified card.
@@ -1860,7 +2001,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     readerRemovals.current.add(seen.twin.ref);
     const dropped=await act({type:'twin.remove',source:'auto',actorSeat:seat,seat,cardRef:seen.twin.ref});
     if(!dropped?.state.undo?.actionId){readerRemovals.current.delete(seen.twin.ref);return;}
-    undoChain.current={after:dropped.state.undo.actionId,ids:movedId?[movedId]:[],...(pileTrack?{rebind:{trackId:pileTrack.id,ref:seen.twin.ref}}:{})};
+    setChain(dropped.state.undo.actionId,{ids:movedId?[movedId]:[],...(pileTrack?{rebind:{trackId:pileTrack.id,ref:seen.twin.ref}}:{})});
     return {state:dropped,undoTarget:dropped.state.undo.actionId};
   }
   /** Adopt the pile evidence for a rule-defaulted GY or Extra Deck departure. */
@@ -2019,11 +2160,11 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   const flipFace=async(act:FieldMutation,{track,card,proposal}:FieldFaceFix)=>{
     const backoff=()=>face.current.failed(card.ref,performance.now());
     const refuse=(message:string)=>{face.current.hold(card.ref,track.faceDown);setNotice(message);};
+    const event:FieldEvent={type:'flipped',track,source:'auto',result:faceReadFor(track)};
+    if(proxyClash(event))return backoff();
     if(proposal.faceUp){
       if(differentKnownSet(card,proposal)){
-        const result=faceReadFor(track);
-        if(!fieldSureSetRead(track,result))return backoff();
-        const event:FieldEvent={type:'flipped',track,source:'auto',result};
+        if(!fieldSureSetRead(track,event.result))return backoff();
         let written:RemoteRoom|null=null;
         try{await apply(event,async(proposal,key)=>{
           const updated=await act(proposal,key,event);
@@ -2048,13 +2189,13 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     if(track.faceDown && track.zone!==knownZone(card)){
       const twins=current.current.room.state.seats[seat].twin;
       const projected=projectObserved(track,twins,card,cardInfo(cardCode(card)));
-      if(!projected.zone)return backoff();
+      if(!projected.zone||proxyClash(event,projected.zone))return backoff();
       const setMove=fieldSetMove(card,{...track,zone:projected.zone},seat,true);
       if (!setMove || keepsManual(card.ref,fieldZoneLocation(track.zone),track.position) || twins.some(c=>c.ref!==card.ref&&c.zone===setMove.zone&&c.slot===setMove.slot))return backoff();
       action=setMove;
     }
     let updated:RemoteRoom|null;
-    try{updated=await applyFieldFaceFlip(track,()=>watch.getTrack(track.id),act,action,!!card.faceUp&&!!card.materials?.length);}
+    try{updated=await applyFieldFaceFlip(track,()=>watch.getTrack(track.id),(proposal,id)=>act(proposal,id,event),action,!!card.faceUp&&!!card.materials?.length);}
     catch(error){if(error instanceof RemoteDuelError&&error.code==='ACTIVATION_LIMIT'){refuse(error.message);return;}throw error;}
     if(!updated)return backoff();
     if(card.faceUp===track.faceDown)face.current.flipped(card.ref,performance.now());
@@ -2089,9 +2230,12 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       let changes=0,lastUndo='';const snap=watch.getSnapshot?.(),fullAt=snap?.lastFullAt;
       if(!snap||!live()||fullAt===undefined&&!provenOnly)return;
       const refOf=(t:FieldTrack)=>bindings.current.get(t.id)??t.id;
-      const write=async(key:string,proposal:Parameters<RoomMutation>[0])=>{
+      const write=async(key:string,proposal:Parameters<RoomMutation>[0],evidence?:FieldEvent|number)=>{
         if(outageDown()){resynced.current.delete(key);return;} // not tried: the server is out of reach
-        try{const updated=await act(proposal);if(updated){changes++;lastUndo=updated.state.undo?.actionId??lastUndo;}return updated;}catch(error){fixFailed(key,error);}
+        try{
+          const updated=typeof evidence==='number'?await act({...proposal,cam:fieldCameraStamp(undefined,'camera',undefined,evidence)}):await act(proposal,undefined,evidence);
+          if(updated){changes++;lastUndo=updated.state.undo?.actionId??lastUndo;}return updated;
+        }catch(error){fixFailed(key,error);}
       };
       // Scan field: every board card with a track or a resting back of the other face in its zone turns over (never removed, never to the hand).
       // A back seen in both passes beats a track that still says up: such a card is never turned up first, and the face check leaves it until that track turns.
@@ -2109,7 +2253,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
           const card=current.current.room.state.seats[seat].twin.find(c=>c.ownerSeat===undefined&&(c.faceUp||c.publicIdentity&&!c.setBy&&!c.knownFaceDown)&&publicField(c.zone)&&knownZone(c)===zone&&![...placeholders.current.values()].includes(c.ref));if(!card)continue;
           const proposal=fieldFaceProposal(card,{faceDown:true,position:'attack',identityUncertain:true},seat);if(!proposal)continue;
           const wasUp=card.faceUp;
-          if(!await write(`flip:${card.ref}:true`,proposal))continue;
+          if(!await write(`flip:${card.ref}:true`,proposal,snap.lastScanAt))continue;
           if(wasUp)face.current.flipped(card.ref,performance.now());
           if(snap.tracks.some(t=>!t.removed&&!t.faceDown&&refOf(t)===card.ref))holdFace(card.ref);
         }
@@ -2126,17 +2270,17 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
         const faceDiffers=card.faceUp===t.faceDown;if(faceDiffers&&(t.faceDown||!face.current.held(card.ref)))continue;
         const facts=cardInfo(cardCode(card));
         if(faceDiffers&&isFieldSpell(facts))continue;
-        const projected=projectObserved(t,twins,card,facts);if(!projected.zone)continue;
+        const event={type:'moved',track:t,source:'auto'} as const;
+        const stillThere=()=>{const observed=watch.getTrack(t.id);return observed?.zone===t.zone&&fieldEvidenceMatches(event,observed);};
+        if(!stillThere()||proxyClash(event))continue;
+        const projected=projectObserved(t,twins,card,facts);if(!projected.zone||proxyClash(event,projected.zone))continue;
         // A hard-rule fix (Field Spell → FIELD) the player undid is not redone here either.
         if(ruleFixes.current.has(`${card.ref}:${toZone(card.zone,card.slot)}:${projected.zone}`))continue;
         const location=fieldZoneLocation(projected.zone),position=faceDiffers?card.position:fieldTwinPosition({...t,zone:projected.zone});
-        const event={type:'moved',track:t,source:'auto'} as const;
-        const stillThere=()=>{const observed=watch.getTrack(t.id);return observed?.zone===t.zone&&fieldEvidenceMatches(event,observed);};
-        if(!stillThere())continue;
         const setMove=card.publicIdentity&&!card.faceUp?fieldSetMove(card,{...t,zone:projected.zone},seat,t.zone!==knownZone(card)):undefined;
         if(setMove||card.zone!==location.zone||card.slot!==location.slot||card.position!==position){
           const key=`move:${card.ref}>${location.zone}${location.slot??''}${position}${setMove?.physicalZoneChanged?t.zone:''}`;
-          if(!tryFix(key)||!await write(key,setMove ?? {type:'twin.move',source:'auto',actorSeat:seat,seat,cardRef:card.ref,...location,position}))continue;
+          if(!tryFix(key)||!await write(key,setMove ?? {type:'twin.move',source:'auto',actorSeat:seat,seat,cardRef:card.ref,...location,position},event))continue;
         }
         if(!faceDiffers&&stillThere())rememberPhysical(card.ref,t.zone);
       }
@@ -2159,7 +2303,8 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
         if(undoKept.current.has(ref)||keepsManual(ref,fieldZoneLocation(t.zone),t.position)||card?.zone==='hand'||card&&recentFieldDeparture(card,serverNow()))continue;
         const key=`place:${t.id}:${t.zone}:${t.revision??0}`;if(!tryFix(key))continue;
         const before=current.current.room.lastSeq;
-        try{await apply({type:'placed',track:t,source:'auto'},act);}catch(error){fixFailed(key,error);}
+        const event:FieldEvent={type:'placed',track:t,source:'auto'};
+        try{await apply(event,(proposal,id)=>act(proposal,id,event));}catch(error){fixFailed(key,error);}
         if(current.current.room.lastSeq>before){changes++;lastUndo=current.current.room.state.undo?.actionId??lastUndo;}
       }
       // 4. A field card whose zone shows no card in 2 full scans (no hand, no moving shadow), with or
@@ -2170,7 +2315,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
         const since=missingSince.current.get(ref)??performance.now();missingSince.current.set(ref,since);
         // Scan field is authoritative: its two fresh passes already showed the zone empty, so it does not wait.
         const card=current.current.room.state.seats[seat].twin.find(c=>c.ref===ref);
-        if(!card||!publicField(card.zone))continue;
+        if(!card||card.ownerSeat!==undefined||!publicField(card.zone))continue;
         const currentSnap=watch.getSnapshot?.(),zone=knownZone(card);
         const proofAt=zone&&fieldEmptyProofs(currentSnap)?.[zone];
         const proven=proofAt!==undefined&&!currentSnap?.tracks.some(t=>!t.removed&&t.visible&&(t.zone===zone||refOf(t)===ref));
@@ -2189,7 +2334,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
         const unnamedSet=strict&&!card.faceUp&&!cardCode(card)&&card.ref.startsWith('fw-');
         const proposal=unnamedSet?{type:'twin.remove' as const,source:'auto' as const,actorSeat:seat,seat,cardRef:card.ref}:fieldDepartureProposal(card,seat,seen?{zone:seen.zone,faceUp:seen.faceUp}:undefined,cardInfo(code));if(!proposal)continue;
         const key=`remove:${ref}`;if(!tryFix(key))continue;
-        const updated=await write(key,proposal);
+        const updated=await write(key,proposal,now);
         if(updated&&seen){const adopted=await adoptPileCard(act,seen,ref,lastUndo);if(adopted)lastUndo=adopted.undoTarget;}
       }
       const text=`Board re-synced (${changes} change${changes===1?'':'s'})`;
@@ -2392,18 +2537,51 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   useEffect(()=>()=>hub.publishFieldTracks({type:'field.tracks',cards:[]}),[hub.publishFieldTracks]);
   useEffect(()=>{for(const [id,away] of tokenAway.current)if(!tokenInCell(room.state.seats[seat].twin,away.cell))tokenAway.current.delete(id);},[room.state.seats,seat]);
   useEffect(()=>{if(!tokenPrompt)return;if(!room.state.seats[seat].twin.some(c=>c.ref===tokenPrompt.token.ref)||!watch.getTrack(tokenPrompt.event.track.id)||watch.isRemoved(tokenPrompt.event.track.id))setTokenPrompt(null);},[room.state.seats,tokenPrompt,seat,watch]);
-  useEffect(()=>{if(!notice)return;const timer=setTimeout(()=>{setNotice('');setDeparture(null);setUndoId('');},5000);return()=>clearTimeout(timer);},[notice,undoId]);
-  const glareTracks=watch.enabled&&!syncHold?watch.snapshot.tracks.filter(track=>track.glare):[];
-  const shownGlare=useRef(new Set<string>());
-  useEffect(()=>{shownGlare.current.clear();},[room.slug]);
   useEffect(()=>{
-    if(notice||failedUpdate||recovery||leaveChoice||shiftHint||tokenPrompt||rowPrompts.length||heldPick||calibrating)return;
+    for(const id of proxyMarkers.current){
+      const track=watch.getTrack(id);
+      if(!track||track.removed)proxyBlockedTracks.current.delete(id);
+      if(!track||track.removed||!isProxyMarker(track))proxyMarkers.current.delete(id);
+    }
+    if(!proxyClashes.length)return;
+    const active=proxyClashes.filter(({event,zone,proxy})=>{
+      const track=trackForChoice(event);
+      return live()&&track&&!track.removed&&track.zone===event.track.zone&&(track.revision??0)===(event.track.revision??0)&&proxyAt(zone)?.proxy.ref===proxy.ref;
+    });
+    if(active.length!==proxyClashes.length)setProxyClashes(active);
+  });
+  // A new notice never kicks out an Undo notice that still has time: it moves down the stack and keeps its Undo and its time left.
+  // This runs before the timer effect below, after its cleanup has counted the time left.
+  const linkedUndo=room.state.undoHistory?.find(entry=>entry.actionId===undoId)?.undoWith;
+  useEffect(()=>{
+    const prev=shownNotice.current;shownNotice.current=notice?{text:notice,undoId}:null;
+    if(!prev?.undoId||prev.undoId===undoId||settledUndo.current.has(prev.undoId))return;
+    // A newer action took this one back in its chain: its own Undo would be refused, so only the newer one stays.
+    if(linkedUndo===prev.undoId)return;
+    for(const link of undoChain.current.values())if(link.ids.includes(prev.undoId))return;
+    const left=noticeLeft.current;if(left<=0)return;
+    setKept(list=>[{key:prev.undoId,text:prev.text,undoId:prev.undoId,left},...list.filter(item=>item.key!==prev.undoId)].slice(0,NOTICE_STACK-1));
+  },[notice,undoId,linkedUndo]);
+  // The timer stops while the pointer or the keyboard is on a notice, and an Undo notice stays longer. After a hold it goes on with the time left.
+  useEffect(()=>{
+    if(!notice)return;
+    const key=`${notice}\u0000${undoId}`;if(noticeKey.current!==key){noticeKey.current=key;noticeLeft.current=undoId?UNDO_NOTICE_MS:NOTICE_MS;}
+    if(noticeHeld)return;
+    const started=Date.now(),timer=setTimeout(()=>{noticeLeft.current=-1;setNotice('');setDeparture(null);setUndoId('');},noticeLeft.current);
+    return()=>{clearTimeout(timer);if(noticeLeft.current>=0)noticeLeft.current=Math.max(1500,noticeLeft.current-(Date.now()-started));};
+  },[notice,undoId,noticeHeld]);
+  useEffect(()=>{if(!kept.length||noticeHeld)return;const timer=setInterval(()=>setKept(list=>list.map(item=>({...item,left:item.left-500})).filter(item=>item.left>0)),500);return()=>clearInterval(timer);},[kept.length,noticeHeld]);
+  const glareTracks=watch.enabled&&!syncHold?watch.snapshot.tracks.filter(track=>track.glare&&!isProxyMarker(track)):[];
+  const shownGlare=useRef(new Set<string>());
+  useEffect(()=>{shownGlare.current.clear();undoChain.current.clear();},[room.slug]);
+  useEffect(()=>{
+    if(notice||failedUpdate||recovery||leaveChoice||shiftHint||tokenPrompt||proxyPrompt||rowPrompts.length||heldPick||calibrating)return;
     const track=glareTracks.find(track=>!shownGlare.current.has(track.id)&&watch.getTrack(track.id)?.glare);
     if(!track)return;
     shownGlare.current.add(track.id);
     setUndoId('');setNotice(`Glare on ${track.zone}: tilt the card or move the light`);
-  },[glareTracks,notice,failedUpdate,recovery,leaveChoice,shiftHint,tokenPrompt,rowPrompts.length,heldPick,calibrating,watch.getTrack]);
-  const activePrompts=prompts.filter(event=>{const live=watch.getTrack(event.track.id);return live?.state==='prompt'&&(live.revision??0)===(event.track.revision??0)&&!correctionsFor(current.current.room,seat).blocks([bindings.current.get(live.id)??live.id],fieldZoneLocation(live.zone));});
+  },[glareTracks,notice,failedUpdate,recovery,leaveChoice,shiftHint,tokenPrompt,proxyPrompt,rowPrompts.length,heldPick,calibrating,watch.getTrack]);
+  const activePrompts=prompts.filter(event=>{const live=watch.getTrack(event.track.id);return live?.state==='prompt'&&(live.revision??0)===(event.track.revision??0)&&!isProxyMarker(live)&&!proxyAt(live.zone)&&!correctionsFor(current.current.room,seat).blocks([bindings.current.get(live.id)??live.id],fieldZoneLocation(live.zone));});
   if(glareTracks.length){
     const registered=new Set(registeredDeckPasscodes(room,seat));
     for(const track of glareTracks){
@@ -2447,10 +2625,19 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       })};
   });
   const st=room.state;
-  autoIdle.current=!promptViews.length&&!notice&&!failedUpdate&&!recovery&&!leaveChoice&&!shiftHint&&!tokenPrompt&&!rowPrompts.length&&!heldPick&&!calibrating&&!st.attack&&!st.twinConfirmation&&!(st.twinConfirmationQueue?.length);
+  const incomingId=proxyPrompt?.event.track.cardId;
+  const proxyFacts=incomingId?cardInfo(catalogCardId(entries.current.get(incomingId))??Number(incomingId)):undefined;
+  const peerTwins=st.seats[facingSeat(seat,st.seats.length)??-1]?.twin;
+  const proxyOptions=proxyPrompt?freeFieldZones(st.seats[seat].twin,proxyFacts,proxyPrompt.event.track.faceDown,gridFormat)
+    .filter(zone=>{
+      const land=fieldZoneLocation(zone);
+      return !proxyAt(zone)&&!(land.zone==='extra-monster'&&land.slot&&peerTwins?.some(card=>card.zone===land.zone&&card.slot===mirrorEmz(land.slot!)))&&
+        !watch.getTracks().some(track=>track.id!==proxyPrompt.event.track.id&&track.visible&&!track.removed&&track.zone===zone);
+    }):[];
+  autoIdle.current=!promptViews.length&&!notice&&!failedUpdate&&!recovery&&!leaveChoice&&!shiftHint&&!tokenPrompt&&!proxyPrompt&&!rowPrompts.length&&!heldPick&&!calibrating&&!st.attack&&!st.twinConfirmation&&!(st.twinConfirmationQueue?.length);
   // What waits for the player must never be silent: the chip says it, and a click opens the Card notices dock (or resumes a sync hold).
-  const waiting=syncHold?0:promptViews.length,scanAdvice=watch.enabled&&!syncHold&&!waiting&&!scanning&&!watch.calibrationNeeded&&!watch.aspectChanged&&!watcherError?adviceReason:null,attention=watch.enabled&&(syncHold||waiting>0||!!scanAdvice);
-  const label=!watch.enabled?'Tap to identify':syncHold?'Auto-detect paused · sync board':waiting>0?`${waiting} card${waiting===1?'':'s'} need${waiting===1?'s':''} you`:watch.aspectChanged?'Camera shape changed · Calibrate zones':scanning&&!syncHold?'Scanning field…':scanAdvice?`${scanAdvice} · Scan field`:watch.calibrationNeeded?(watch.calibration?.orientation?'Calibrate your zones':'Choose your side'):watch.snapshot.status==='starting'?'Preparing card reader…':watch.snapshot.status==='hidden'?'Paused · tab hidden':watch.snapshot.status==='busy'?'Paused · busy':watcherError?'Reader off':watch.snapshot.status==='budget'?'Watching field · CPU guard':hub.cameraOn?'Watching field':'Camera off';
+  const waiting=syncHold?0:promptViews.length+proxyClashes.length,scanAdvice=watch.enabled&&!syncHold&&!waiting&&!scanning&&!watch.calibrationNeeded&&!watch.aspectChanged&&!watcherError?adviceReason:null,attention=watch.enabled&&(syncHold||waiting>0||!!scanAdvice);
+  const label=!watch.enabled?'Tap to identify':syncHold?'Auto-detect paused · sync board':waiting>0?`${waiting} card${waiting===1?'':'s'} need${waiting===1?'s':''} you`:watch.aspectChanged?'Camera shape changed · Calibrate zones':scanning&&!syncHold?'Scanning field…':scanAdvice?`${scanAdvice} · Scan field`:watch.calibrationNeeded?(watch.calibration?.orientation?'Calibrate your zones · auto-placement paused':'Choose your side · auto-placement paused'):watch.snapshot.status==='starting'?'Preparing card reader…':watch.snapshot.status==='hidden'?'Paused · tab hidden':watch.snapshot.status==='busy'?'Paused · busy':watcherError?'Reader off':watch.snapshot.status==='budget'?'Watching field · CPU guard':hub.cameraOn?'Watching field':'Camera off';
   // Only the "Identify card" prompt needs text injected; the plain "Reading…" card is drawn by the board itself.
   const readingStyles=room.state.seats.flatMap((player,index)=>player.twin.flatMap(card=>{
     if(index!==seat||!card.ref.startsWith('fw-')||cardCode(card)||!card.faceUp||!publicField(card.zone))return [];
@@ -2459,6 +2646,20 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     const selector=`[data-testid="field-${index}"] [data-zone="${zone}"]`;
     return [`${selector}>div:first-child{animation:none;background:linear-gradient(110deg,#233c3b 20%,#507b70 45%,#233c3b 70%)}${selector}>div:first-child>span{font-size:0}${selector}>div:first-child>span::after{content:"Identify card";font-size:10px;color:#e5f5ef}`];
   })).join('');
+  /** Undo from a notice: the one on screen, or an older one kept in the stack. It ends with the card changes of that notice only. */
+  const undoNotice=(id:string)=>{const isCurrent=id===undoId;void queueHuman('undo',async act=>{
+    clipAction('undo',{actionId:id});const departed=isCurrent?departureRef.current?.ref:undefined,link=undoChain.current.get(id),chain=link?.ids??[];undoChain.current.delete(id);
+    try{
+      let updated=await act({type:'undo',actorSeat:seat,targetActionId:id});for(const next of chain)if(updated)updated=await act({type:'undo',actorSeat:seat,targetActionId:next})??updated;
+      if(updated){settledUndo.current.add(id);if(link?.rebind){bindings.current.set(link.rebind.trackId,link.rebind.ref);watch.confirm(link.rebind.trackId,undefined,link.rebind.ref,false);readerRemovals.current.delete(link.rebind.ref);}if(departed&&updated.state.seats[seat].twin.some(card=>card.ref===departed&&publicField(card.zone)))watch.dismiss(departed);if(isCurrent){setDeparture(null);setNotice('Automatic field change undone');setUndoId('');}else setKept(list=>list.map(item=>item.key===id?{...item,text:'Automatic field change undone',undoId:'',left:2500}:item));}
+    }catch(error){
+      // An older notice that cannot be undone any more says why in its own place, and does not replace the notice on top or ask for a retry.
+      if(isCurrent||!(error instanceof RemoteDuelError))throw error;
+      setKept(list=>list.map(item=>item.key===id?{...item,text:error.message,undoId:'',left:2500}:item));
+    }
+  });};
+  /** The Undo button shows while the table still holds that action as undoable; a newer action elsewhere does not take it away. */
+  const undoOk=(id:string)=>{const history=room.state.undoHistory;return history?history.some(entry=>entry.actionId===id&&!entry.undone&&!entry.reason):room.state.undo?.actionId===id;};
   return <>
     <style>{readingStyles}</style>
     <FieldWatcherUI keepUnresolved zoneSeat={seat} changes={syncHold?[]:changes} onChanged={zone=>requestManualZone({seat,zone,actions:true})} onWrong={id=>{const event=activePrompts.find(p=>p.track.id===id);if(event)requestManualZone({seat,zone:event.track.zone,ref:bindings.current.get(id)??event.bindRef??id,faceDown:event.track.faceDown});}} onNotACard={id=>{
@@ -2491,7 +2692,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
           if(card&&!card.token&&publicField(card.zone))await act({type:'twin.remove',actorSeat:seat,seat,cardRef:ref});
         });
       }}
-      noticeTestId={departure?'field-departure-toast':undefined}
+      noticeTestId={departure?'field-departure-toast':undefined} onNoticeHold={setNoticeHeld} kept={kept.filter(item=>!item.undoId||undoOk(item.undoId)).map(item=>({key:item.key,node:<>{item.text}{item.undoId?<button type="button" onClick={()=>undoNotice(item.undoId)}>Undo</button>:null}</>}))}
       notice={tokenPrompt?.choosing?<span data-testid="token-clash-zones">Which zone is the card in?
         {freeFieldZones(room.state.seats[seat].twin,tokenPrompt.facts,tokenPrompt.event.track.faceDown).map(zone=><button type="button" key={zone} disabled={pending} data-testid={`token-clash-zone-${zone}`} onClick={()=>{const {event,zone:cell}=tokenPrompt;setTokenPrompt(null);tokenAway.current.set(event.track.id,{cell,zone});void queue(act=>apply(event,act),event);}}>{zone}</button>)}
         <button type="button" onClick={()=>setTokenPrompt({...tokenPrompt,choosing:false})}>Back</button></span>:tokenPrompt?<span data-testid="token-clash">A token is in {tokenPrompt.zone}. Tribute/remove the token and place {tokenPrompt.name} here?
@@ -2500,7 +2701,12 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
         <button type="button" disabled={pending} data-testid="monster-in-st-move" onClick={()=>moveFromSpellTrap(rowPrompts[0])}>Move to {rowTarget??'a Monster Zone'}</button>
         <button type="button" data-testid="monster-in-st-keep" onClick={()=>{const first=rowPrompts[0];rowKept.current.add(first.ref);setRowPrompts(list=>list.filter(p=>p.ref!==first.ref));}}>Keep (equipped or placed by a card)</button></span>:failedUpdate?<>{notice||'Could not save the field update.'}<button type="button" disabled={pending} onClick={()=>void queue(failedUpdate.work,failedUpdate.event,failedUpdate.humanChoice)}>Retry field update</button></>:recovery?<>{recovery.message}<button type="button" onClick={recover}>Remove stale placement</button></>:leaveChoice?<span data-testid="leave-choice">The camera saw a card {leaveChoice.zone==='banished'?`banished${leaveChoice.faceUp?'':' face-down'}`:'in the Graveyard'}. Which card was it?{leaveChoice.options.map(o=><button type="button" key={o.ref} disabled={pending} onClick={()=>chooseLate(o.ref)}>{o.name}</button>)}<button type="button" onClick={()=>{choiceClosed.current.add(leaveChoice.twinRef);setLeaveChoice(null);}}>Neither</button></span>:syncHold?<span data-testid="sync-board-hold">Auto-detect is on. The board keeps its cards until you sync it.<button type="button" onClick={()=>{scanField();}}>Sync board to camera</button></span>:shiftHint?<span data-testid="zone-shift-hint">Zones look shifted — Recalibrate?<button type="button" onClick={()=>{setShiftHint(false);setCalibrating(true);}}>Recalibrate</button><button type="button" onClick={()=>setShiftHint(false)}>Dismiss</button></span>:notice?<>{notice}{departure?<span data-leave-tags> → {fieldLeaveLabel(departure.zone,!departure.down)} {attachTargets.map(t=><button type="button" key={`attach-${t.ref}`} disabled={pending} onClick={()=>attachTo(t)}>Attach to {t.name}</button>)}{destinations.map(d=><button type="button" key={d.title} disabled={pending||d.zone===departure.zone&&(d.zone!=='banished'||('down' in d)===!!departure.down)} onClick={()=>redirect(d.zone,'down' in d)}>{d.title}</button>)}</span>:null}
         {departure?.zone==='pending'?<button type="button" disabled={pending} onClick={()=>redirect('hand')}>Retry removal</button>:null}
-        {undoId&&room.state.undo?.actionId===undoId&&serverNow()<=room.state.undo.at+5000?<button type="button" onClick={()=>void queueHuman('undo',async act=>{clipAction('undo',{actionId:undoId});const departed=departureRef.current?.ref,link=undoChain.current.after===undoId?undoChain.current:undefined,chain=link?.ids??[];undoChain.current={after:'',ids:[]};let updated=await act({type:'undo',actorSeat:seat,targetActionId:undoId});for(const id of chain)if(updated)updated=await act({type:'undo',actorSeat:seat,targetActionId:id})??updated;if(updated){if(link?.rebind){bindings.current.set(link.rebind.trackId,link.rebind.ref);watch.confirm(link.rebind.trackId,undefined,link.rebind.ref,false);readerRemovals.current.delete(link.rebind.ref);}if(departed&&updated.state.seats[seat].twin.some(card=>card.ref===departed&&publicField(card.zone)))watch.dismiss(departed);setDeparture(null);setNotice('Automatic field change undone');setUndoId('');}})}>Undo</button>:null}</>:heldPick?<span data-testid="held-pick">Which card did you hold up?
+        {undoId&&undoOk(undoId)?<button type="button" onClick={()=>undoNotice(undoId)}>Undo</button>:null}</>:proxyPrompt?<span data-testid="proxy-clash">
+        {proxyClashLabel(proxyAt(proxyPrompt.zone)?.proxy??proxyPrompt.proxy)}
+        {proxyOptions.length?<span> Free zones: {proxyOptions.join(', ')}.</span>:null}
+        {proxyPrompt.holder===seat||proxyPrompt.proxy.ownerSeat===seat?<button type="button" disabled={pending} onClick={()=>replaceProxy(proxyPrompt)}>Remove proxy and place here</button>:null}
+        <button type="button" disabled={pending} onClick={()=>leaveProxyMarker(proxyPrompt.event.track.id)}>Leave it (marker)</button>
+      </span>:heldPick?<span data-testid="held-pick">Which card did you hold up?
         {heldPick.options.map(o=><button type="button" key={o.cardId} disabled={pending} data-testid="held-pick-card" onClick={()=>{const pick=heldPick;setHeldPick(null);void queueHuman('held-pick',act=>commitHeld(act,o.cardId,o.name,`${pick.id}-pick`,performance.now(),`${pick.id}-pick`));}}>{o.name}</button>)}
         <button type="button" data-testid="held-pick-none" onClick={()=>setHeldPick(null)}>Not an activation</button></span>:tapOffer?<span data-testid="tap-identify-offer">{tournament?'This computer is slow for live tracking. Switch to tap-to-identify? Your opponent will see the switch.':'This computer is slow for live tracking. Switch to tap-to-identify?'}<button type="button" onClick={()=>answerTapOffer('switch')}>Switch</button><button type="button" onClick={()=>answerTapOffer('keep')}>Keep</button></span>:videoOfferShowing?<span data-testid="video-fps-offer">Your computer is struggling with video. Switch to 15 fps to reduce lag?<button type="button" onClick={()=>answerVideoOffer(15)}>Switch</button><button type="button" onClick={()=>answerVideoOffer(30)}>Keep</button></span>:lightHintShowing?<span data-testid="low-light-hint">Camera is slow — add light or turn off auto exposure<button type="button" onClick={()=>setLightHint(false)}>Dismiss</button></span>:softHintShowing?<span data-testid="soft-camera-hint">Camera is out of focus — tap to focus or move closer<button type="button" onClick={()=>setSoftDismissed(true)}>Dismiss</button></span>:undefined}/>
     {calibrating?<FieldCalibrationControl defaultSide={defaultSideFor(phone?'phone':'webcam')} video={video} initialCalibration={watch.calibration} placed={watch.placed} format={room.format?.id??room.state.deckChecks.format.id} detectCalibrationCards={async frame=>{const result=await detectCards(await createImageBitmap(frame));if(result.status!=='ready')throw new Error(result.note);return result.cards;}} onSave={grid=>{updateCalibration(grid,true);setCalibrating(false);}} onCancel={()=>{if(watch.calibrationNeeded&&!watch.calibration?.orientation)setDetection(false);setCalibrating(false);}}/>:null}

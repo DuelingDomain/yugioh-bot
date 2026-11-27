@@ -1,24 +1,24 @@
 "use client";
 
 import { useState, type CSSProperties, type ReactNode } from "react";
-import type { ZoneKey } from "./model";
+import { cardCode, type TwinCard, type ZoneKey } from "./model";
 import { cardArt, hasBattleStats, isLinkInfo, useCardStatus, type CardInfo } from "./catalog";
 import { Icon } from "./icons";
 import { BigArt, CardText, PopupFrame, TierChip, type PopAt, type Tier } from "./popup";
 import s from "./remote-ui.module.css";
 import z from "./zone-rules.module.css";
 import { cardTypeLine } from "@/lib/remote/field-legality";
-import type { QuickMove } from "./quick-moves";
+import { SEND_LABELS, type QuickMove } from "./quick-moves";
 import { Row } from "./zone-actions";
 import { CountersRow } from "./counters-row";
 
-/** Where the person opened this card. A camera click only looks at the card; the board, a pile and the hand keep their controls. */
+/** Where the person opened this card. A camera click offers webcam actions, and the board, a pile and the hand have their own controls. */
 export type CardSource = "camera" | "board" | "pile" | "hand";
 
 /** One card the table is looking at: from a feed click, the field, or the tray. */
 export type Subject = {
   from: CardSource;
-  cardId: number; seat: number; ref?: string; name?: string;
+  cardId: number; seat: number; ref?: string; name?: string; handEntryId?: string;
   /** null = no decklist to compare with. */
   notInDecklist: boolean | null; addErrors: string[]; via: string;
   /** How sure the reader was when it named this card (feed reads only). */
@@ -26,6 +26,17 @@ export type Subject = {
   /** From this browser's Tap to identify memory: only this player sees it, and it offers only "Wrong card?". */
   remembered?: boolean; rememberedAt?: number;
 };
+
+export function liveCardSubject(subject: Subject | null, card: TwinCard | undefined): Subject | null {
+  if (!subject?.ref) return subject;
+  if (!card) return null;
+  if (!cardCode(card) && !card.token && !card.faceUp && subject.cardId) return { ...subject, revealed: false };
+  const cardId = cardCode(card) ?? card.token?.artId ?? 0;
+  const changed = cardId !== subject.cardId;
+  return { ...subject, cardId, name: cardId ? card.name ?? (changed ? undefined : subject.name) : card.faceUp ? "Unidentified card" : "Face-down card",
+    bestMatch: card.bestMatch, revealed: !!card.publicIdentity && !card.faceUp,
+    ...(changed ? { tier: undefined, covered: undefined, notInDecklist: null, addErrors: [] } : {}) };
+}
 
 function Art({ id }: { id: number }) {
   // The failure belongs to one card: a new card starts with a clean state, and one failed load is tried again once.
@@ -84,9 +95,14 @@ export type CardActions = {
   control?: { label: string; onClick: () => void };
   /** Give my card on the field to an opponent: it shows there as a proxy that I keep owning. */
   give?: { label: string; onClick: () => void };
-  /** The same important card moves as the board zone menu (give control, position, send, remove proxy). Shown on a camera click too. */
+  /** The same card moves as the board zone menu. */
   quick?: QuickMove[];
+  /** Opens the zone menu of this card (a card on top, a token, materials). */
+  onMore?: () => void;
+  /** A face-down card with a known origin (a Set from a trap): pick which card it is. */
+  onChooseSet?: () => void;
   onWrong?: () => void; onPin?: () => void;
+  onForgetHand?: () => void;
   /** A remembered card: read the camera again. On a webcam card it is a row of the card menu. */
   onReadAgain?: () => void;
   /** Webcam card menu: read a face-down or unnamed card (a Set card of mine privately). A named face-up card has Pin to inspector (`onPin`) instead. */
@@ -152,7 +168,7 @@ function Actions({ a, subject }: { a: CardActions; subject: Subject }) {
       <button type="button" className={BTN} onClick={a.onAttack} disabled={!a.canAttack} title={a.attackHint}>Attack from here</button>
     </Group>}
     {a.counters && !a.readOnly ? <CountersRow count={a.counters.count} onChange={a.counters.onChange} /> : null}
-    {edit ? <MoveGroup edit={edit} /> : null}
+    {edit ? <MoveGroup edit={edit} quick={a.quick} /> : null}
     {a.attach?.options.length ? <Group label={a.attach.label}><select aria-label={a.attach.label} className={s.inp} value="" onChange={e => { if (e.target.value) a.attach?.onPick(e.target.value); }}><option value="">Choose a card…</option>{a.attach.options.map(o => <option key={o.ref} value={o.ref}>{o.label}</option>)}</select></Group> : null}
     {a.readOnly ? null : <Group label="Card">
       {edit ? <button type="button" className={BTN} onClick={edit.onFlip}>{edit.faceUp ? "Turn face down" : "Turn face up"}</button> : null}
@@ -160,6 +176,9 @@ function Actions({ a, subject }: { a: CardActions; subject: Subject }) {
       {a.undo ? <button type="button" className={`${BTN} ${a.undo.reason ? s.cblocked : ""}`} aria-disabled={!!a.undo.reason} aria-describedby={a.undo.reason ? "card-undo-reason" : undefined}
         onClick={a.undo.onUndo} data-testid="card-undo" title={a.undo.label}>Undo last change</button> : null}
       {a.onWrong ? <button type="button" className={BTN} onClick={a.onWrong}>Wrong card? Pick the right one</button> : null}
+      {a.onChooseSet ? <button type="button" className={BTN} onClick={a.onChooseSet} data-testid="card-choose-set">Choose Set card{"\u2026"}</button> : null}
+      {a.onMore ? <button type="button" className={BTN} onClick={a.onMore} data-testid="card-more">More actions{"\u2026"}</button> : null}
+      {a.onForgetHand ? <button type="button" className={BTN} onClick={a.onForgetHand}>Remove from revealed hand</button> : null}
       {a.onPin ? <button type="button" className={BTN} onClick={a.onPin} data-testid="pin-inspector">Pin to inspector</button> : null}
       {a.onFlag ? <button type="button" className={BTN} data-layer-opener onClick={event => a.onFlag?.(event.currentTarget)} data-testid="review-flag"><Icon name="warn" />Deck warning</button> : null}
       {a.undo?.reason ? <small className={s.cureason} id="card-undo-reason" data-testid="card-undo-reason">{a.undo.reason}</small> : null}
@@ -175,21 +194,30 @@ function Actions({ a, subject }: { a: CardActions; subject: Subject }) {
 const MOVES: { zone: string; label: string; mr5?: boolean }[] = [{ zone: "monster", label: "Monster" }, { zone: "extra-monster", label: "Extra Monster", mr5: true }, { zone: "spell-trap", label: "Spell/Trap" },
   { zone: "pendulum", label: "Pendulum", mr5: true }, { zone: "field", label: "Field" }, { zone: "hand", label: "Hand" }, { zone: "deck", label: "Deck" }, { zone: "extra", label: "Extra Deck" }, { zone: "graveyard", label: "Graveyard" }, { zone: "banished", label: "Banish" }];
 /** Corrections to the virtual field: the camera is the truth, this only fixes what the table believes. */
-function MoveGroup({ edit }: { edit: CardEdit }) {
-  return <Group label="Move to" testid="card-edit">
-    {MOVES.filter(move => move.zone !== edit.zone && (!move.mr5 || edit.extraZones)).map(move => <button type="button" key={move.zone} className={BTN} onClick={() => edit.onMove(move.zone)}>{move.label}</button>)}
+function MoveGroup({ edit, quick }: { edit: CardEdit; quick?: QuickMove[] }) {
+  // The zone menu's "Send to" row and Remove label: when the card has them, they replace the four pile buttons of the grid.
+  const sends = (quick ?? []).filter(move => SEND_LABELS[move.id]);
+  const removeLabel = quick?.find(move => move.id === "remove")?.label ?? "Remove";
+  const sent = sends.length ? new Set(["hand", "deck", "graveyard", "banished"]) : null;
+  return <>{sends.length ? <Group label="Send to" testid="card-send-to">
+    {sends.map(move => <button type="button" key={move.id} className={BTN} onClick={move.run} data-testid={`card-send-${move.id}`}>{SEND_LABELS[move.id]}</button>)}
+  </Group> : null}
+  <Group label="Move to" testid="card-edit">
+    {MOVES.filter(move => move.zone !== edit.zone && !sent?.has(move.zone) && (!move.mr5 || edit.extraZones)).map(move => <button type="button" key={move.zone} className={BTN} onClick={() => edit.onMove(move.zone)}>{move.label}</button>)}
     <i className={s.dgbreak} />
     {edit.zone === "monster" || edit.zone === "spell-trap" ? [1, 2, 3, 4, 5].map(n => { const label = `${edit.zone === "monster" ? "M" : "S"}${n}`;
       return <button type="button" key={label} className={BTN} disabled={edit.slot === n} data-testid={`card-cell-${label}`} aria-label={`Move to ${label}`} onClick={() => edit.onCell(`${edit.zone === "monster" ? "m" : "s"}${n}` as ZoneKey)}>{label}</button>; }) : null}
-    <button type="button" className={`${BTN} ${s.dremove}`} onClick={edit.onRemove} data-testid="card-remove">Remove</button>
-    {edit.onNotACard?<button type="button" className={`${BTN} ${s.dremove}`} onClick={edit.onNotACard} data-testid="card-not-a-card">Not a card</button>:null}
-  </Group>;
+    <span className={s.dreds}>
+      <button type="button" className={`${BTN} ${s.dremove}`} onClick={edit.onRemove} data-testid="card-remove">{removeLabel}</button>
+      {edit.onNotACard?<button type="button" className={`${BTN} ${s.dremove}`} onClick={edit.onNotACard} data-testid="card-not-a-card">Not a card</button>:null}
+    </span>
+  </Group></>;
 }
 
 /**
  * The panel of a card on a webcam (click, right click or long press). It shows the card first: name, art, type line, ATK / DEF and the full text (the
  * same text block as the other card popups), then the actions. The camera shows the card and how it lies, so the actions are only what the camera cannot show:
- * activate (chain glow), send it away, give control, remove a proxy, read again. No position, no Set, no flip: the player does those by hand.
+ * activate (chain glow), send it away, give control, correct a misplaced twin, read again. The player changes position, Sets and flips by hand.
  */
 function CameraCardMenu({ subject, info, at, warning, actions, onClose }: {
   subject: Subject; info: CardInfo | undefined; at: PopAt; warning?: string; actions: CardActions; onClose: () => void;
@@ -199,8 +227,7 @@ function CameraCardMenu({ subject, info, at, warning, actions, onClose }: {
   const move = (id: QuickMove["id"]) => actions.quick?.find(m => m.id === id);
   const go = (m: QuickMove) => { onClose(); m.run(); };
   const activate = move("activate"), give = move("give") ?? move("return"), remove = move("remove");
-  const sends = (["grave", "banish", "hand"] as const).map(move).filter((m): m is QuickMove => !!m);
-  const sendIcon = { grave: "cardback", banish: "ban", hand: "hand" } as const;
+  const sends = actions.quick?.filter(m => SEND_LABELS[m.id]) ?? [];
   const chips = subject.revealed || !!actions.materials?.length || subject.notInDecklist === true || warning || subject.remembered;
   const wrong = known && actions.onWrong ? <button type="button" className={s.cmWrong} onClick={actions.onWrong} data-testid="card-menu-wrong">Wrong card?</button> : null;
   const where = actions.where ? `Webcam card \u00b7 ${actions.where}` : "Webcam card";
@@ -229,11 +256,13 @@ function CameraCardMenu({ subject, info, at, warning, actions, onClose }: {
         {!known && actions.onPeek ? <Row icon="eye" primary={!activate} data-autofocus={activate ? undefined : ""} sub="Then search by name if the read is wrong" onClick={actions.onPeek} data-testid="card-peek">Read this card</Row> : null}
         <div className={s.cmGrid}>
           {known && actions.onPeek ? <Row icon="eye" onClick={actions.onPeek} data-testid="card-peek">Look at this card</Row> : null}
-          {sends.map(m => <Row key={m.id} icon={sendIcon[m.id as "grave" | "banish" | "hand"]} onClick={() => go(m)} data-testid={`quick-${m.id}`}>{m.label}</Row>)}
           {give ? <Row icon="swap" onClick={() => go(give)} data-testid={`quick-${give.id}`}>{give.label}</Row> : null}
           {remove ? <Row icon="x" onClick={() => go(remove)} data-testid="quick-remove">{remove.label}</Row> : null}
           {actions.onReadAgain ? <Row icon="refresh" onClick={actions.onReadAgain} data-testid="card-read-again">Read again</Row> : null}
         </div>
+        {sends.length ? <div className={s.zaSend} role="group" aria-label="Send the card to" data-testid="card-send-to"><span>Send to</span>
+          {sends.map(m => <button type="button" key={m.id} className={BTN} onClick={() => go(m)} data-testid={`quick-${m.id}`}>{SEND_LABELS[m.id]}</button>)}
+        </div> : null}
       </div>
       {actions.counters ? <CountersRow count={actions.counters.count} onChange={actions.counters.onChange} /> : null}
       {activate ? <p className={s.zaTip} data-testid="card-menu-tip">Faster: hover + <kbd>E</kbd>{known && actions.voice ? <>, or say {"\u201c"}effect {name}{"\u201d"}</> : null}.</p> : null}
@@ -246,23 +275,25 @@ export function CardPopover({ subject, info, at, warning, actions, onClose }: {
   subject: Subject; info: CardInfo | undefined; at: PopAt; warning?: string; actions: CardActions; onClose: () => void;
 }) {
   if (subject.from === "camera") return <CameraCardMenu subject={subject} info={info} at={at} warning={warning} actions={actions} onClose={onClose} />;
-  const name = info?.name ?? subject.name ?? `Card ${subject.cardId}`;
-  return <PopupFrame at={at} layer="card" label={`${name}, card details`} testid="card-popover" className={`${s.bigCard} ${subject.from === "pile" ? s.fromPile : ""}`}>
+  const name = info?.name ?? subject.name ?? (subject.cardId ? `Card ${subject.cardId}` : "Unidentified card");
+  return <PopupFrame at={at} layer="card" label={`${name}, card details`} testid="card-popover" className={`${s.bigCard} ${subject.from === "pile" ? s.fromPile : ""} ${subject.from === "board" ? s.fromBoard : ""} ${subject.cardId ? "" : s.noArt}`}>
     <button type="button" className={`${s.ibtn} ${s.bclose}`} aria-label="Close card" onClick={onClose}><Icon name="x" /></button>
-    <BigArt id={subject.cardId} label={name} />
+    {actions.onPin ? <button type="button" className={`${s.ibtn} ${s.bpin}`} aria-label="Pin to inspector" title="Pin to inspector" onClick={actions.onPin} data-testid="pin-inspector"><Icon name="pin" /></button> : null}
+    {subject.cardId ? <BigArt id={subject.cardId} label={name} /> : null}
     <div className={s.bmain}>
-      <CardText id={subject.cardId} info={info} name={subject.name} fallbackName={`Card ${subject.cardId}`}>
+      {!subject.cardId ? <><h2 className={s.bname} data-testid="popover-name">{name}</h2><div className={s.bfacts}><p className={s.bdetails}>Not identified.</p></div></> : null}
+      {subject.cardId ? <CardText id={subject.cardId} info={info} name={subject.name} fallbackName={`Card ${subject.cardId}`}>
         <div className={s.bchips}>
           <TierChip tier={subject.tier} />
           {subject.remembered ? <span className={s.tier} data-testid="card-last-read">Last read here, may have changed · {readAge(subject.rememberedAt)}</span> : null}
           {subject.covered ? <span className={`${s.tier} ${s.tierLow}`}>Covered</span> : null}
           <DeckBadges subject={subject} warning={warning} />
         </div>
-      </CardText>
+      </CardText> : null}
       {subject.addErrors.length && subject.notInDecklist ? <p className={s.bnote}>{subject.addErrors[0]}</p> : null}
     </div>
     <div className={s.bbar} data-testid="card-popover-footer">
-      <Actions a={actions} subject={subject} />
+      <Actions a={{ ...actions, onPin: undefined }} subject={subject} />
     </div>
   </PopupFrame>;
 }

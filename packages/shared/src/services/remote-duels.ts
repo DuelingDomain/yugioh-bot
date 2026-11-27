@@ -16,7 +16,7 @@ import { deleteRemoteRooms, pruneRemoteSessions } from "./remote-cleanup.js";
 import { captureRemoteTournamentEvidence } from "./tournament-remote-evidence.js";
 import { HAND_ACTIVATION_FALLBACK_MS, initializeRemoteHandCounts, pendingRemoteHandActivations } from "../remote/hand.js";
 import { diffView } from "../remote/delta.js";
-import { remoteFieldZone } from "../remote/twin-placement.js";
+import { obsoleteCameraTwinAction, remoteFieldZone } from "../remote/twin-placement.js";
 import type { RemoteHistoryItem, RemoteHistoryOptions, RemoteHistoryPage, RemoteReplay, RemoteReplayStep } from "../remote/history.js";
 import type Database from "better-sqlite3";
 import { isOwnerUser } from "../access/owner-access.js";
@@ -831,6 +831,9 @@ export function createRemoteDuelService(db: Database.Database, options: {
           if (activation && stamp - activation.at < HAND_ACTIVATION_FALLBACK_MS) return room(row, userId, undefined, before);
         }
         let action = { ...command, at: stamp };
+        // The base sequence may have been refreshed while the camera was
+        // waiting on recognition. Drop obsolete evidence before catalog work.
+        if (obsoleteCameraTwinAction(before, action)) return room(row, userId, undefined, before);
         const effects: RemoteReductionContext = {...REMOTE_REDUCTION_VERSIONS,showCardsSetFromDeck:before.showCardsSetFromDeck};
         const target = 'cardRef' in command && 'seat' in command
           ? before.seats[command.seat]?.twin.find(c => c.ref === command.cardRef) : undefined;

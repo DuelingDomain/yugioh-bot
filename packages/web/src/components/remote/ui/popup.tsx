@@ -68,8 +68,13 @@ export function PopupFrame({ at, layer, label, busy, testid, className, dock, mo
   useLayoutEffect(() => {
     const node = box.current; if (!node || dock) return;
     const place = () => setPlaced(old => {
-      const avoid = Array.from(document.querySelectorAll('[data-testid="rail"], [data-mine] [data-testid^="phase-track-"], [data-mine] [data-testid^="lp-"]')).map(el => { const r = el.getBoundingClientRect(); return { left: r.left, top: r.top, right: r.right, bottom: r.bottom }; });
-      const next = placePopup({ ...at, avoid }, node.offsetWidth, node.offsetHeight, window.innerWidth, window.innerHeight);
+      // The zone menu and the card popup stay above the bottom bar, so it never covers Undo and the turn buttons.
+      const rail = document.querySelector('[data-testid="rail"]')?.getBoundingClientRect();
+      const avoid = [...(at.avoid ?? []), ...Array.from(document.querySelectorAll('[data-mine] [data-testid^="phase-track-"], [data-mine] [data-testid^="lp-"]'), el => el.getBoundingClientRect())];
+      if (rail) avoid.push(rail);
+      const keepAboveRail = layer === "zone" || layer === "card";
+      const floor = keepAboveRail && rail && rail.top > window.innerHeight / 2 ? Math.round(rail.top) - 4 : window.innerHeight;
+      const next = placePopup({ ...at, avoid }, node.offsetWidth, node.offsetHeight, window.innerWidth, Math.min(window.innerHeight, floor));
       return old && old.left === next.left && old.top === next.top && old.side === next.side && old.arrow === next.arrow ? old : next;
     });
     place();
@@ -78,7 +83,7 @@ export function PopupFrame({ at, layer, label, busy, testid, className, dock, mo
     return () => { observer.disconnect(); window.removeEventListener("resize", place); };
     // `key` stands for the two boxes in `at`.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, dock]);
+  }, [key, dock, layer]);
   const style: CSSProperties = placed ? { left: placed.left, top: placed.top, ["--arrow" as string]: `${placed.arrow}px` } : { left: 8, top: 8, visibility: "hidden" };
   const frame = <div ref={box} className={`${s.pop} ${s.big} ${s.show} ${dock ? s.docked : ""} ${className ?? ""}`} data-layer={layer} data-modal={modal ? "true" : undefined} data-side={dock ? "none" : placed?.side ?? "none"} role="dialog" aria-label={label} aria-busy={busy} style={dock ? undefined : style} data-testid={testid}>
     {children}

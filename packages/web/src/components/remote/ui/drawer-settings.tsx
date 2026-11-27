@@ -9,8 +9,8 @@ import { SET_GUARD_SETTINGS, useSetGuards } from "@/lib/remote/set-card-settings
 import { PhonePairing } from "../phone/pairing";
 import { adminWatchHref, useAdminWatchTables } from "./admin-watch-list";
 import { remoteFormatName } from "./create";
-import { CARD_READERS, RECOGNITION_MODES, setCardReader, setRecognitionMode, useRecognitionBackend } from "./recognition-backend";
-import { RecognitionBadge } from "./recognition-setting";
+import { CARD_READERS, RECOGNITION_MODES, retryRecognitionGpu, setCardReader, setRecognitionMode } from "./recognition-backend";
+import { RecognitionBadge, useRecognitionGpuStatus } from "./recognition-setting";
 import { useVideoHub } from "./video-hub";
 import { Icon } from "./icons";
 import d from "./table-drawer.module.css";
@@ -46,7 +46,8 @@ function SetChecks() {
 /** Card detection, recognition and the reader as rows: the label on the left, the control on the right. */
 function DetectionRows({ phone }: { phone: boolean }) {
   const detection = useCardDetection();
-  const { mode, reader, hybridEnabled } = useRecognitionBackend();
+  const { recognition, reason, canRetry } = useRecognitionGpuStatus();
+  const { mode, reader, hybridEnabled } = recognition;
   const readers = hybridEnabled ? CARD_READERS : CARD_READERS.filter(item => item.value === "current");
   const hint = RECOGNITION_MODES.find(item => item.value === mode)?.hint;
   return <>
@@ -59,7 +60,10 @@ function DetectionRows({ phone }: { phone: boolean }) {
         choices={RECOGNITION_MODES.map(item => ({ value: item.value, label: item.label, description: item.hint }))} onChange={setRecognitionMode} />
     </Row>
     <Row label="Reading model"><ThemedSelect variant="menu" label="Reading model" hideLabel testId="card-reader" value={reader} choices={readers} onChange={setCardReader} /></Row>
-    <Row label="Reading on" note="Where cards are read, and the last read time."><RecognitionBadge phoneCamera={phone} bare /></Row>
+    <Row label="Reading on" note={reason ? <span role="status" data-testid="recognition-reason">{reason}</span> : "Where cards are read, and the last read time."}>
+      <RecognitionBadge phoneCamera={phone} bare />
+      {canRetry ? <button type="button" className={d.mini} onClick={retryRecognitionGpu}>Try GPU again</button> : null}
+    </Row>
   </>;
 }
 

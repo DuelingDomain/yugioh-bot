@@ -83,6 +83,8 @@ export const remoteActionSchema = z.discriminatedUnion("type", [
     .refine(a => (!!a.keepInstanceId && !!a.removeInstanceId && !a.keepRef && !a.removeRef) ||
       (!!a.keepRef && !!a.removeRef && !a.keepInstanceId && !a.removeInstanceId), "Choose two instance IDs or two twin refs"),
   z.strictObject({ ...meta, type: z.literal("twin.place"), seat: remoteSeatSchema, zone, card: twinCardSchema, source: z.literal("auto").optional(),
+    /** A player picked the name while placing a camera-tracked card. */
+    confirmIdentity: z.literal(true).optional(),
     /** Links a physical placement or a timed pile move to an accepted hand activation. */
     fromActivation: id.optional(),
     handFallback: z.literal(true).optional(),
@@ -132,6 +134,7 @@ export const remoteActionSchema = z.discriminatedUnion("type", [
     zone: z.enum(["graveyard", "banished", "hand", "deck", "extra"]).default("graveyard") }),
   z.strictObject({ ...meta, type: z.literal("twin.flip"), seat: remoteSeatSchema, cardRef: id, faceUp: z.boolean(),
     cardId:cardId.optional(),name:sighting.name,bestMatch:z.boolean().optional(),position:z.enum(['attack','defense']).optional(),source:z.literal('auto').optional(),
+    confirmIdentity: z.literal(true).optional(),
     /** A token's new ATK/DEF, set by its controller or creator. Only a face-up token takes it. */
     tokenStats:z.strictObject({atk:z.number().int().min(0).max(999999),def:z.number().int().min(0).max(999999)}).optional(),
     /** A camera back does not establish that the previously public identity still applies. */
@@ -202,6 +205,8 @@ export type TwinCard = z.infer<typeof twinCardSchema> & {
   publicIdentity?: boolean;
   /** Server-authored: a face-down field card whose identity was already public on the field, including to spectators. */
   knownFaceDown?: true;
+  /** Server-authored: the location where the player confirmed this identity. */
+  identityConfirmed?: { seat: number; zone: string; slot?: number };
 };
 export class RemoteDuelError extends Error {
   constructor(message: string, public readonly status = 400, public readonly code = "REMOTE_INVALID") { super(message); this.name = "RemoteDuelError"; }

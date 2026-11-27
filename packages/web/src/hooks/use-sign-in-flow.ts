@@ -12,7 +12,7 @@ import { useRecoveryReload } from "./use-recovery-reload";
 export function useSignInFlow(opts: { returnTo: string; marketingUrl: string | null }): {
   state: AuthFlowState;
   actions: {
-    submitIdentifier(identifier: string): Promise<void>; continueWithDiscord(): Promise<void>;
+    submitIdentifier(identifier: string): Promise<void>; recheckIdentifier(identifier: string): Promise<void>; continueWithDiscord(): Promise<void>;
     submitPassword(password: string): Promise<void>; forgotPassword(): Promise<void>;
     submitCode(code: string): Promise<void>; resendCode(): Promise<void>;
     submitNewPassword(password: string, confirm: string): Promise<void>; back(): void;
@@ -28,6 +28,8 @@ export function useSignInFlow(opts: { returnTo: string; marketingUrl: string | n
   const recovering = useRef(false);
   const ssoAttempt = useRef(false);
   const mounted = useRef(true);
+  // Set while a recheck runs: the typed email becomes the card's email only once the check answers definitively.
+  const recheckEmail = useRef<string | null>(null);
   const destination = useRef(state.returnTo);
   const pending = state.pending || signal.fetchStatus === "fetching" || !signal.signIn;
   useRecoveryReload(state.step);
@@ -86,7 +88,12 @@ export function useSignInFlow(opts: { returnTo: string; marketingUrl: string | n
       }
       return;
     }
-    if (mounted.current) dispatch({ type: "error", view: mapClerkError(error, context) });
+    if (!mounted.current) return;
+    const view = mapClerkError(error, context);
+    // A refusal of the typed email (not found, or a format error on it) is a definite answer about that email.
+    const definite = (view.kind === "step" && view.step === "err-invite") || (view.kind === "field" && view.field === "identifier");
+    if (recheckEmail.current !== null && definite) dispatch({ type: "identified", identifier: recheckEmail.current });
+    dispatch({ type: "error", view });
   };
   const signalError = (context: Parameters<typeof mapClerkError>[1]) => {
     const errors = latest.current.errors;
@@ -174,6 +181,22 @@ export function useSignInFlow(opts: { returnTo: string; marketingUrl: string | n
           dispatch({ type: "identified", identifier });
           if (await call(() => latest.current.signIn!.create({ identifier }), "identifier", () => latest.current.signIn!.status !== "needs_identifier")) await advance();
         });
+      },
+      // The not-invited card lets the person edit the email in place; this runs the same check again with the new value.
+      recheckIdentifier: async (identifier) => {
+        if (state.step !== "err-invite") return;
+        recheckEmail.current = identifier;
+        await run("identifier", async () => {
+          const previous = latest.current.signIn!;
+          if (previous.id) {
+            if (!await call(() => previous.reset(), "identifier")) return;
+            if (!await waitForFreshSignIn(previous)) { fail({ code: "network_error" }, "identifier"); return; }
+          }
+          if (await call(() => latest.current.signIn!.create({ identifier }), "identifier", () => latest.current.signIn!.status !== "needs_identifier")) {
+            dispatch({ type: "identified", identifier });
+            await advance();
+          }
+        }).finally(() => { recheckEmail.current = null; });
       },
       continueWithDiscord: async () => {
         if (state.step !== "signin") return;

@@ -24,7 +24,7 @@ import type { TournamentMode } from "@/lib/remote/tournament-detection";
 import { watchTapFeed } from "./tap-preread";
 
 /** A card the table has identified on a feed. Normalized to the video frame (0..1). `quad` is set when it came from an outline. */
-export type FeedMark = { id: string; x: number; y: number; label: string; notInDecklist: boolean; show: boolean; cardCode?: number; quad?: Pt[];
+export type FeedMark = { id: string; x: number; y: number; label: string; notInDecklist: boolean; show: boolean; cardCode?: number; ref?: string; quad?: Pt[];
   /** The person may add this card to the decklist: it is theirs (or a solo table) and the deck stays valid. */
   canAdd?: boolean };
 /** A reticle for a read in progress, finished or failed. */
@@ -137,7 +137,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
   /** The pointer left the camera picture (also onto this feed's toolbar): no card is under it. */
   onHoverEnd?: (seat: number) => void;
   /** The name line for the card under the pointer, from the outlines or from the zone. */
-  hoverTip?: (seat: number, x: number, y: number) => { label: string; detail?: string; /** A key hint under the name, e.g. "Activate" for E. Hidden on small cameras. */ hint?: string } | null;
+  hoverTip?: (seat: number, x: number, y: number, track?: boolean) => { label: string; detail?: string; /** A key hint under the name, e.g. "Activate" for E. Hidden on small cameras. */ hint?: string } | null;
   /** Right click (or a long press) on the camera. The table opens the card actions for the card under the point, if it knows one. The event goes on to the table menu. */
   onCardMenu?: (seat: number, at: { x: number; y: number }, mouse: boolean, where: { anchor: Rect; feed: Rect }) => void;
   /** A strip under the video box (camera controls). It never covers the video. */
@@ -182,6 +182,8 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
   // Webcam only: the name line that follows the pointer over a card.
   // The text changes state; the position follows the pointer through the element, so a move does not render the whole feed.
   const [tip, setTip] = useState<{ left: number; top: number; label: string; detail?: string; hint?: string; wide: boolean; flip: boolean } | null>(null);
+  const tipPoint = useRef<Pt | null>(null);
+  const tipContent = tip && tipPoint.current && !silentHover ? hoverTip?.(seat, tipPoint.current.x, tipPoint.current.y, false) : null;
   const tipBox = useRef<HTMLDivElement>(null);
   const setFrozenHealth = hub.setFrozen;
 
@@ -447,6 +449,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
     const p = point(event.clientX, event.clientY);
     const f = frozenRef.current;
     if (hoverTip && !f && p && event.pointerType === "mouse") {
+      tipPoint.current = p;
       const found = hoverTip(seat, p.x, p.y); const area = cam.current?.getBoundingClientRect();
       if (silentHover) { /* no label while the board is shown */ } else if (found && area) {
         const left = event.clientX - area.left + 14; const y = event.clientY - area.top; const top = y + 16 > area.height - 56 ? y - 54 : y + 16; const flip = left > area.width - 300;
@@ -598,11 +601,11 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
       </div>}
       {frozen ? <div className={s.still} style={boxStyle} data-testid="frozen-frame"><div className={s.stillCanvas} ref={holder} /><i className={s.stillScan} hidden={frozen.status !== "detecting"} /></div> : null}
       <div className={s.grain} />
-      {tip && !frozen ? <div className={s.peek2} ref={tipBox} data-testid="hover-tip" style={{ left: tip.left, top: tip.top, transform: tip.flip ? "translateX(calc(-100% - 28px))" : undefined }} aria-hidden="true">
-        <b>{tip.label}</b>{tip.detail ? <em>{tip.detail}</em> : null}{tip.hint && tip.wide ? <span className={s.peekKey} data-testid="hover-tip-key"><kbd>E</kbd>{tip.hint}</span> : null}</div> : null}
+      {tip && tipContent && !frozen ? <div className={s.peek2} ref={tipBox} data-testid="hover-tip" style={{ left: tip.left, top: tip.top, transform: tip.flip ? "translateX(calc(-100% - 28px))" : undefined }} aria-hidden="true">
+        <b>{tipContent.label}</b>{tipContent.detail ? <em>{tipContent.detail}</em> : null}{tipContent.hint && tip.wide ? <span className={s.peekKey} data-testid="hover-tip-key"><kbd>E</kbd>{tipContent.hint}</span> : null}</div> : null}
       {source && !frozen ? <ZoneGridOverlay seat={seat} box={box} visible={(gridOn && !tapSeat) || !!openZones?.length} openZones={openZones} onControlsEnter={calmHover} /> : null}
       {source && !frozen && you ? <FirstRunHint camRef={cam} /> : null}
-      {source && !frozen ? <HubFeedCards seat={seat} frame={box ? boxStyle : null} /> : null}
+      {!frozen ? <HubFeedCards seat={seat} frame={source && box ? boxStyle : null} /> : null}
       {source && !frozen && you && debugOn ? <FieldDebugOverlay box={box} /> : null}
       {flash && !frozen ? <svg key={flash.key} className={s.qflash} style={boxStyle} viewBox="0 0 1 1" preserveAspectRatio="none" aria-hidden="true" data-testid="click-flash">
         <polygon points={flash.quad.map(p => `${p.x},${p.y}`).join(" ")} /></svg> : null}

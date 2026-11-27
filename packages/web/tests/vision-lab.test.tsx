@@ -631,13 +631,16 @@ it.each(['face-down restart','face-down restart needs flip','different-card rest
  const {ygoModule}=await import('@yugidraft/shared/remote');
  const faceDown=scenario.startsWith('face-down'),secondCopy=scenario.includes('second copy'),automatic=scenario.startsWith('automatic'),unbound=scenario.startsWith('unbound'),moved=scenario.includes('moved');
  const old={ref:'old-twin',zone:'monster',slot:2,faceUp:!faceDown||scenario==='face-down restart needs flip',cardId:46986414,name:'Dark Magician',position:'attack' as const};
- let room:any={guildId:'g',slug:'round2',mySeat:0,lastSeq:0,status:'active',seats:[{seat:0,userId:1}],state:ygoModule.initialState({seatCount:2})};room.state.seats[0].twin=[old];
+ let room:any={guildId:'g',slug:'round2',mySeat:0,lastSeq:0,status:'active',seats:[{seat:0,userId:1}],events:[],state:ygoModule.initialState({seatCount:2})};room.state.seats[0].twin=[old];
  const track:any={id:faceDown?old.ref:'candidate',zone:secondCopy?'M3':'M2',card:quads[0],faceDown,position:'attack',state:automatic||faceDown?'identified':'prompt',...(automatic?{cardId:cards[0].cardId}:{}),visible:true,removed:false,firstSeen:0,seenAt:undefined as number|undefined,get lastSeen(){return this.seenAt??performance.now()-1;},set lastSeen(value:number){this.seenAt=value;}};
  const tracks=secondCopy||unbound?[{...track,id:old.ref,zone:'M2',state:'identified',visible:false,cardId:'46986414'},track]:[track];
  const confirm=vi.fn((id:string,cardId?:string,ref?:string)=>{const i=tracks.findIndex(t=>t.id===ref&&t.id!==id);if(i>=0)tracks.splice(i,1);Object.assign(track,{id:ref??id,cardId,state:'identified'});});
  const fixture:any={ready:false,watch:{enabled:true,setEnabled:vi.fn(),setCalibration:vi.fn(),snapshot:{status:'watching',tracks,metrics:{detectorMs:1,dutyPercent:1}},getTrack:(id:string)=>tracks.find(t=>t.id===id),confirm,forget:vi.fn(),isRemoved:()=>false,dismiss:vi.fn()}};state.fieldWatch=fixture;
  const source={local:true};state.feedHub={phones:[],cameraOn:true,sourceFor:()=>source,publishFieldTracks:vi.fn()};
- const post=vi.fn(async(proposal:any)=>{room={...room,lastSeq:room.lastSeq+1,state:ygoModule.reduce(room.state,{...proposal,idempotencyKey:`r2-${room.lastSeq+1}`})};return room;});
+ const post=vi.fn(async(proposal:any,key=`r2-${room.lastSeq+1}`)=>{
+  const action={...proposal,idempotencyKey:key},seq=room.lastSeq+1;
+  room={...room,lastSeq:seq,state:ygoModule.reduce(room.state,action),events:[...room.events,{id:key,seq,actorSeat:proposal.actorSeat,userId:null,at:0,action}]};return room;
+ });
  const queue=createRoomMutationQueue(()=>room,post);
  const host=document.createElement('div');host.dataset.testid='feed-box-0';host.innerHTML='<span data-field-watcher-status-slot></span><div data-feed-toolbar><span data-field-watcher-controls></span></div>';document.body.append(host);
  try{
@@ -726,14 +729,17 @@ describe('remote room navigation',()=>{
 
 async function typedWatcherFixture(entry:{cardId:string;passcode:number;name:string},zone:string,twins:any[]=[],type:'placed'|'prompt'|'moved'='placed',bindRef?:string,beforePost?:(proposal:any)=>Promise<void|false>,diagnosticsAllowed=false){
  const {AutoFieldWatcher}=await import('../src/components/remote/field-watcher'),{createRoomMutationQueue}=await import('../src/lib/remote/room-mutations'),{ygoModule}=await import('@yugidraft/shared/remote');
- let room:any={guildId:'g',slug:'typed-zone',mySeat:0,lastSeq:0,status:'active',format:{id:'normal'},seats:[{seat:0,userId:1}],state:ygoModule.initialState({seatCount:2})};room.state.seats[0].twin=twins;
+ let room:any={guildId:'g',slug:'typed-zone',mySeat:0,lastSeq:0,status:'active',format:{id:'normal'},seats:[{seat:0,userId:1}],events:[],state:ygoModule.initialState({seatCount:2})};room.state.seats[0].twin=twins;
  const track:any={id:type==='moved'?twins[0].ref:'physical-typed',zone,card:quads[0],cardId:entry.cardId,faceDown:false,position:'attack',state:type==='prompt'?'prompt':'identified',visible:true,removed:false,firstSeen:0,seenAt:undefined as number|undefined,get lastSeen(){return this.seenAt??performance.now()-1;},set lastSeen(value:number){this.seenAt=value;}};
  const confirm=vi.fn((id:string,cardId?:string,ref?:string)=>Object.assign(track,{id:ref??id,cardId,state:'identified'}));
  const fixture:any={entries:[...cards,...zoneEntries,entry],ready:false,watch:{enabled:true,setEnabled:vi.fn(),setCalibration:vi.fn(),snapshot:{status:'watching',tracks:[track],metrics:{detectorMs:1,dutyPercent:1}},getTrack:(id:string)=>track.id===id?track:undefined,confirm,forget:vi.fn(),isRemoved:()=>false,dismiss:vi.fn()}};state.fieldWatch=fixture;
  let source={local:true};state.feedHub={phones:[],cameraOn:true,sourceFor:()=>source,publishFieldTracks:vi.fn()};
- const post=vi.fn(async(proposal:any)=>{if(await beforePost?.(proposal)===false)return null;const key=`typed-${room.lastSeq+1}`;
+ const post=vi.fn(async(proposal:any,key=`typed-${room.lastSeq+1}`)=>{if(await beforePost?.(proposal)===false)return null;
   const fieldPlay=proposal.type==='twin.place'&&proposal.card.cardId===69299029?{spellTrapPlay:{field:true as const,activationLimit:'Treasures of the Kings'}}:undefined;
-  room={...room,lastSeq:room.lastSeq+1,state:ygoModule.reduce(room.state,{...proposal,idempotencyKey:key},fieldPlay),...(fixture.recordEvents?{events:[...(room.events??[]),{id:key,seq:room.lastSeq+1,actorSeat:proposal.actorSeat,userId:null,at:0,action:{...proposal,idempotencyKey:key}}]}:{})};if(fixture.refreshAfterPosts)flushSync(()=>view.rerender(<AutoFieldWatcher room={room} transaction={queue.transaction} diagnosticsAllowed={diagnosticsAllowed}/>));return room;});
+  const action={...proposal,idempotencyKey:key},seq=room.lastSeq+1;
+  const next=ygoModule.reduce(room.state,action,fieldPlay);
+  if(next===room.state)return room;
+  room={...room,lastSeq:seq,state:next,events:[...room.events,{id:key,seq,actorSeat:proposal.actorSeat,userId:null,at:0,action}]};if(fixture.refreshAfterPosts)flushSync(()=>view.rerender(<AutoFieldWatcher room={room} transaction={queue.transaction} diagnosticsAllowed={diagnosticsAllowed}/>));return room;});
  const queue=createRoomMutationQueue(()=>room,post),host=document.createElement('div');host.dataset.testid='feed-box-0';host.innerHTML='<span data-field-watcher-status-slot></span><div data-feed-toolbar><span data-field-watcher-controls></span></div>';document.body.append(host);
  let view=render(<AutoFieldWatcher room={room} transaction={queue.transaction} diagnosticsAllowed={diagnosticsAllowed}/>);await waitFor(()=>expect(fixture.ready).toBe(true));
  return {addTrack(values:any){const added=Object.assign(Object.create(Object.getPrototypeOf(track),Object.getOwnPropertyDescriptors(track)),values),tracks=fixture.watch.snapshot.tracks;tracks.push(added);fixture.watch.getTrack=(id:string)=>tracks.find((t:any)=>t.id===id);confirm.mockImplementation((id:string,cardId?:string,ref?:string)=>Object.assign(tracks.find((t:any)=>t.id===id)??track,{id:ref??id,cardId,state:'identified'}));view.rerender(<AutoFieldWatcher room={room} transaction={queue.transaction} diagnosticsAllowed={diagnosticsAllowed}/>);return added;},refreshAfterPosts(){fixture.refreshAfterPosts=true;},refresh(){view.rerender(<AutoFieldWatcher room={room} transaction={queue.transaction} diagnosticsAllowed={diagnosticsAllowed}/>);},setTwins(twins:any[]){room={...room,lastSeq:room.lastSeq+1,state:{...room.state,seats:room.state.seats.map((seat:any,i:number)=>i===0?{...seat,twin:twins}:seat)}};view.rerender(<AutoFieldWatcher room={room} transaction={queue.transaction} diagnosticsAllowed={diagnosticsAllowed}/>);},async restart(){view.unmount();fixture.ready=false;view=render(<AutoFieldWatcher room={room} transaction={queue.transaction} diagnosticsAllowed={diagnosticsAllowed}/>);await waitFor(()=>expect(fixture.ready).toBe(true));},switchCamera(){source={local:true};view.rerender(<AutoFieldWatcher room={room} transaction={queue.transaction} diagnosticsAllowed={diagnosticsAllowed}/>);},action:queue.action,known:()=>fixture.config.getKnownCards(),track,post,confirm,room:()=>room,async emit(event:any={}){await act(async()=>fixture.onEvent({type,track:{...track},source:'auto',...(bindRef?{bindRef}:{}),result:{...result,candidates:[{cardId:entry.cardId,score:.99}]},...event}));},dispose(){cleanup();host.remove();state.fieldWatch=null;}};
@@ -792,6 +798,114 @@ it('names an unread Graveyard entry in place from the pile viewer', async () => 
 });
 
 const physicalHintsKey='dd-field-physical:v1:g:typed-zone:0';
+it('forgets the camera track when a player removal hold releases',async()=>{
+ const old={ref:'removed-by-player',zone:'monster',slot:1,cardId:46986414,faceUp:true,position:'attack'};
+ const fixture=await typedWatcherFixture(cards[0],'M1',[old],'moved');
+ const watch=state.fieldWatch.watch;
+ const clock=vi.spyOn(performance,'now');
+ try{
+  const started=performance.now();
+  Object.assign(fixture.track,{restSince:started-100});
+  await fixture.emit({type:'reading'});
+  await act(async()=>{await fixture.action({type:'twin.remove',actorSeat:0,seat:0,cardRef:old.ref});});
+  Object.assign(fixture.track,{removed:true,visible:false});
+  await fixture.emit({type:'removed'});
+  expect(watch.forget).not.toHaveBeenCalled();
+  clock.mockReturnValue(started+1600);
+  await fixture.emit({type:'removed'});
+  expect(watch.forget).toHaveBeenCalledExactlyOnceWith(old.ref,{suppress:false});
+ }finally{clock.mockRestore();fixture.dispose();}
+});
+
+it.each(['move','replace'] as const)('holds a physical card on a controlled proxy zone until the player can %s',async resolution=>{
+ const {judgeMove}=await import('../src/components/remote/ui/placement');
+ const proxy={ref:'given',cardId:cards[0].passcode,name:cards[0].name,ownerSeat:1,zone:'monster',slot:4,faceUp:true,position:'attack'} as const;
+ const message='This zone has Dark Magician (proxy). Move your card to a free zone.';
+ const fixture=await typedWatcherFixture(cards[0],'M4',[proxy]);
+ try{
+  await fixture.emit();
+  const prompt=await screen.findByTestId('proxy-clash');
+  expect(prompt).toHaveTextContent(message);
+  expect(fixture.post).not.toHaveBeenCalled();
+  expect(judgeMove({card:{...proxy,ref:'paper',ownerSeat:undefined,slot:2},info:undefined,land:{zone:'monster',slot:4},twin:[proxy],extraZones:true})).toEqual({kind:'refuse',message:message.replace('Move your card to a free zone.','Drop your card in a free zone.')});
+  expect(prompt).toHaveTextContent(/Free zones: .*M2/);
+  expect(prompt).not.toHaveTextContent('M4');
+  if(resolution==='move'){
+   Object.assign(fixture.track,{zone:'M2',revision:1});
+   await fixture.emit({type:'moved'});
+  }else{
+   fireEvent.click(within(prompt).getByRole('button',{name:'Remove proxy and place here'}));
+   await waitFor(()=>expect(fixture.post).toHaveBeenCalledWith(expect.objectContaining({type:'twin.remove',cardRef:proxy.ref}),expect.anything()));
+  }
+  await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());
+  expect(fixture.room().state.seats[0].twin).toEqual([
+   ...(resolution==='move'?[proxy]:[]),expect.objectContaining({cardId:cards[0].passcode,zone:'monster',slot:resolution==='move'?2:4}),
+  ]);
+  fixture.refresh();
+  expect(screen.queryByTestId('proxy-clash')).toBeNull();
+ }finally{fixture.dispose();}
+});
+
+it.each(['moved','removed'] as const)('leaves a proxy marker out of Card notices until the track is %s',async change=>{
+ const proxy={ref:'given',cardId:cards[0].passcode,name:cards[0].name,ownerSeat:1,zone:'monster',slot:4,faceUp:true,position:'attack'} as const;
+ const fixture=await typedWatcherFixture(cards[0],'M4',[proxy,{...proxy,ref:'other-given',slot:3}]);
+ try{
+  await fixture.emit();
+  fireEvent.click(within(await screen.findByTestId('proxy-clash')).getByRole('button',{name:'Leave it (marker)'}));
+  Object.assign(fixture.track,{position:'defense',revision:1});
+  await fixture.emit({type:'moved'});
+  expect(screen.queryByTestId('proxy-clash')).toBeNull();
+  expect(screen.getByTestId('field-watcher-status')).toHaveTextContent('Watching field');
+  expect(fixture.post).not.toHaveBeenCalled();
+  if(change==='removed'){
+   Object.assign(fixture.track,{removed:true,visible:false});
+   await fixture.emit({type:'removed'});
+   Object.assign(fixture.track,{removed:false,visible:true});
+  }else fixture.track.zone='M3';
+  fixture.track.revision=2;
+  await fixture.emit({type:change==='removed'?'placed':'moved'});
+  expect(await screen.findByTestId('proxy-clash')).toBeInTheDocument();
+ }finally{fixture.dispose();}
+});
+
+it.each(['Undo','Retry field update'])('shows the %s notice ahead of a proxy clash',async notice=>{
+ const proxy={ref:'given',cardId:cards[0].passcode,name:cards[0].name,ownerSeat:1,zone:'monster',slot:4,faceUp:true,position:'attack'} as const;
+ const fixture=await typedWatcherFixture(cards[0],'M2',[proxy],'placed',undefined,async()=>{if(notice==='Retry field update')return false;});
+ try{
+  await fixture.emit();
+  if(notice==='Undo'){
+   await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());
+   fixture.room().state.undo.at=Date.now();
+   fixture.refresh();
+  }
+  expect(await screen.findByRole('button',{name:notice})).toBeInTheDocument();
+  const clashing=fixture.addTrack({id:'clashing',zone:'M4'});
+  await fixture.emit({track:{...clashing}});
+  expect(screen.getByRole('button',{name:notice})).toBeInTheDocument();
+  expect(screen.queryByTestId('proxy-clash')).toBeNull();
+  expect(screen.getByTestId('field-watcher-status')).toHaveTextContent('1 card needs you');
+ }finally{fixture.dispose();}
+});
+
+it.each([['GY','graveyard'],['BANISHED','banished']] as const)('records a card moved from a proxy zone into %s',async(zone,pile)=>{
+ const proxy={ref:'given',cardId:cards[0].passcode,name:cards[0].name,ownerSeat:1,zone:'monster',slot:4,faceUp:true,position:'attack'} as const;
+ const fixture=await typedWatcherFixture(cards[0],'M4',[proxy]);
+ const realNow=performance.now.bind(performance),clock=vi.spyOn(performance,'now').mockImplementation(()=>realNow()+3000);
+ try{
+  fixture.track.firstSeen=performance.now();
+  await fixture.emit();
+  expect(await screen.findByTestId('proxy-clash')).toBeInTheDocument();
+  const {watch}=state.fieldWatch;
+  watch.getSnapshot=()=>({...watch.snapshot,pileTouchedAt:{[zone]:performance.now()}});
+  fixture.refresh();
+  Object.assign(fixture.track,{zone,revision:1});
+  await fixture.emit({type:'moved'});
+  await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());
+  expect(fixture.room().state.seats[0].twin).toEqual([proxy,expect.objectContaining({zone:pile,cardId:cards[0].passcode})]);
+  expect(screen.queryByTestId('proxy-clash')).toBeNull();
+ }finally{clock.mockRestore();fixture.dispose();}
+});
+
 it.each([false,true])('flips a projected Trap in place even when the physical monster row is full: %s',async full=>{
  const old={ref:'projected-trap',zone:'spell-trap',slot:4,cardId:41420027,name:'Solemn Judgment',faceUp:true,position:'attack'};
  const others=full?Array.from({length:5},(_,i)=>({ref:`monster-${i}`,zone:'monster',slot:i+1,cardId:46986414,faceUp:true,position:'attack'})):[];
@@ -864,11 +978,12 @@ it('board re-sync: one undoable fix per change, Undo is left alone, a failed wri
  const moves=()=>fixture.post.mock.calls.filter(([proposal])=>proposal.type==='twin.move');
  try{
   // The last full detector pass saw the card in S2; the board has it in S4.
-  state.fieldWatch.recordEvents=true;fixture.track.lastSeen=3000;
+  fixture.track.lastSeen=3000;
   state.fieldWatch.watch.getSnapshot=()=>({status:'watching',tracks:[{...fixture.track}],lastFullAt:fixture.track.lastSeen,metrics:{detectorMs:1,dutyPercent:1}});
   fixture.refresh();await resync();
   await waitFor(()=>expect(fixture.room().state.seats[0].twin[0]).toMatchObject({zone:'spell-trap',slot:2}));
   await waitFor(()=>expect(fixture.post.mock.calls.map(([proposal])=>proposal.type)).toEqual(['twin.move','log.note']));
+  expect(moves()[0][0].cam.observedAt).toBe(Math.round(performance.timeOrigin+fixture.track.lastSeen));
   // The log note is no undo step: the newest undo entry is the fix itself.
   const newest=[...fixture.room().state.undoHistory].sort((a:any,b:any)=>b.order-a.order)[0];
   expect(newest.action).toMatchObject({type:'twin.move',cardRef:'solemn',slot:2});
@@ -899,7 +1014,6 @@ it('board re-sync: one undoable fix per change, Undo is left alone, a failed wri
    expect(fixture.room().state.seats[0].twin.filter((c:any)=>!c.faceUp)).toEqual([expect.objectContaining({ref:back.id,zone:'spell-trap',slot:5})]);
    // A stale, invisible but committed track remains when a player moves its card to Hand.
    // It must not be re-placed after the recent-departure window expires.
-   state.fieldWatch.recordEvents=false;
    fixture.setTwins(fixture.room().state.seats[0].twin.map((c:any)=>c.ref===back.id?{...c,zone:'hand',slot:undefined,
      departedFrom:{zone:'spell-trap',slot:5,at:Date.now()-5000}}:c));
    const writes=fixture.post.mock.calls.length;
@@ -1182,6 +1296,7 @@ describe('typed watcher zone projection',()=>{
    }
    await act(async()=>{await vi.advanceTimersByTimeAsync(removedAt+999-performance.now());});
    expect(fixture.post).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({type:'twin.move',cardRef:old.ref,zone:'hand'}),expect.anything());
+   expect(fixture.post.mock.calls[0][0].cam.observedAt).toBeGreaterThan(Math.round(performance.timeOrigin+removedAt));
    expect(fixture.room().state.seats[0].twin).toEqual([expect.objectContaining({ref:old.ref,zone:'hand'})]);
   }finally{fixture.dispose();vi.useRealTimers();}
  });
@@ -1545,7 +1660,6 @@ describe('typed watcher zone projection',()=>{
    vi.spyOn(performance,'now').mockImplementation(()=>now);
    const removedAt=now-(scenario==='stale removal'?10_001:4000);
    const watch=state.fieldWatch.watch;
-   state.fieldWatch.recordEvents=true;
    fixture.room().state.seats[0].handCount=5;
    fixture.refreshAfterPosts();
    Object.assign(fixture.track,{card:{...fixture.track.card,kind:'face-down'},faceDown:true,cardId:undefined,visible:false,revision:1,lastSeen:now-3100,setEvidence:committedBack});
@@ -1925,14 +2039,20 @@ it('saves the watcher tentative candidates on the real twin through the owner ac
 });
 
 it('a sure automatic placement withdraws an unanswered name question without a tap',async()=>{
- const fixture=await typedWatcherFixture(cards[0],'M4',[],'prompt');
- try{
-  await fixture.emit({type:'prompt',reason:'uncertain',result:{...result,tier:'low match'}});
-  await screen.findByTestId('field-watcher-prompt');
-  Object.assign(fixture.track,{state:'identified',cardId:cards[0].cardId});
-  await fixture.emit({type:'placed',result:{...result,tier:'sure'}});
-  await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());
-  expect(screen.queryByTestId('field-watcher-prompt')).toBeNull();
-  expect(fixture.post.mock.calls.map(([proposal])=>proposal.type)).toEqual(['twin.place']);
- }finally{fixture.dispose();}
+ for(const locked of [undefined,cards[1]]){
+  const ref='physical-typed',location={zone:'monster',slot:4};
+  const twins=locked?[{ref,...location,cardId:locked.passcode,name:locked.name,faceUp:true,position:'attack',identityConfirmed:{seat:0,...location}}]:[];
+  const observed=locked?zoneEntries[1]:cards[0];
+  const fixture=await typedWatcherFixture(observed,'M4',twins,'prompt');
+  try{
+   await fixture.emit({type:'prompt',reason:'uncertain',result:{...result,tier:'low match'}});
+   await screen.findByTestId('field-watcher-prompt');
+   Object.assign(fixture.track,{state:'identified',cardId:observed.cardId});
+   await fixture.emit({type:'placed',result:{...result,tier:'sure'}});
+   await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledExactlyOnceWith(ref,locked?.cardId??observed.cardId,ref,!!locked));
+   expect(fixture.track.cardId).toBe(locked?.cardId??observed.cardId);
+   expect(screen.queryByTestId('field-watcher-prompt')).toBeNull();
+   expect(fixture.post.mock.calls.map(([proposal])=>proposal.type)).toEqual([locked?'card.identified':'twin.place']);
+  }finally{fixture.dispose();}
+ }
 });

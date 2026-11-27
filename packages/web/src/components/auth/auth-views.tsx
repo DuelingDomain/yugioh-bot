@@ -53,7 +53,7 @@ export function SignInView({ flow: { state, actions }, marketingUrl }: ViewProps
           case "success":
             return <SuccessStep />;
           case "err-invite":
-            return <NotInvitedStep identifier={state.identifier ?? ""} waitlistUrl={APP_WAITLIST_PATH} onRetry={actions.back} onJoined={() => setWaitlisted(true)} />;
+            return <NotInvitedStep identifier={state.identifier ?? ""} error={fieldErrors.identifier} banner={banner} pending={pending} onRetry={actions.back} onCheck={actions.recheckIdentifier} onJoined={() => setWaitlisted(true)} />;
           case "err-signup":
             return <SignupClosedStep waitlistUrl={APP_WAITLIST_PATH} onRetry={restart} />;
           case "err-banned":

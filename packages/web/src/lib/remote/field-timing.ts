@@ -8,18 +8,19 @@ export function markFieldTiming(timing:FieldTiming|undefined,stage:string,extra:
   window.dispatchEvent(new CustomEvent('remote-field-latency',{detail:{...timing,stage,elapsedMs:Math.max(0,performance.timeOrigin+performance.now()-timing.originAt),...extra}}));
 }
 /**
- * Camera timing for the saved event. All three times are on one clock, `performance.timeOrigin + performance.now()` (what the watcher uses),
- * so they line up with the recorder start the test recording sends on the same clock: the detector's first outline of the card, the end of the
- * last read (the name), and now (the board write). With `v`, the build id. `by` and `ui` say who made the change and with which control
- * (evidence only; the default is the camera on its own).
+ * Camera timing for the saved event uses `performance.timeOrigin + performance.now()` to line up with the test recording.
+ * It records the first outline, the observation that settled the action, the last identity read and the board write. `v` is the build id.
+ * `by` and `ui` record who made the change and with which control.
  */
-export function fieldCameraStamp(timing:FieldTiming|undefined,by:'camera'|'player'='camera',ui?:string):RemoteCameraStamp {
+export function fieldCameraStamp(timing:FieldTiming|undefined,by:'camera'|'player'='camera',ui?:string,observedAt?:number):RemoteCameraStamp {
   const stages=timing?.stagesMs,named=stages?.searchDoneLast??stages?.searchDone,v=process.env.NEXT_PUBLIC_SENTRY_RELEASE?.slice(0,12);
   const saved=timing&&stages?.read!==undefined?{timing:{id:timing.id,stagesMs:{
     detectorWait:Math.round(stages.detectorWait),restGate:Math.round(stages.restGate),handGate:Math.round(stages.handGate),
     read:Math.round(stages.read),nameVote:Math.round(stages.nameVote),post:0,
   }}}:{};
-  return {...saved,...(timing?{seenAt:Math.round(timing.originAt+(stages?.firstOutline??0))}:{}),...(timing&&named!==undefined?{namedAt:Math.round(timing.originAt+named)}:{}),sentAt:Math.round(performance.timeOrigin+performance.now()),...(v?{v}:{}),by,...(ui?{ui}:{}),...(timing?.reader?{reader:timing.reader}:{})};
+  return {...saved,...(timing?{seenAt:Math.round(timing.originAt+(stages?.firstOutline??0))}:{}),
+    ...(observedAt!==undefined?{observedAt:Math.round(performance.timeOrigin+observedAt)}:{}),
+    ...(timing&&named!==undefined?{namedAt:Math.round(timing.originAt+named)}:{}),sentAt:Math.round(performance.timeOrigin+performance.now()),...(v?{v}:{}),by,...(ui?{ui}:{}),...(timing?.reader?{reader:timing.reader}:{})};
 }
 /** A person's change: the same clock as the watcher stamps, no build id (small). */
 export const playerStamp=(ui?:string):RemoteCameraStamp=>({sentAt:Math.round(performance.timeOrigin+performance.now()),by:'player',...(ui?{ui}:{})});

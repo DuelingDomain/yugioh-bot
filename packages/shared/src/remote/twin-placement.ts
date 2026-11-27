@@ -6,6 +6,24 @@ type Identity = { cardId?: number; passcode?: number; name?: string; token?: unk
 const fold = (name?: string) => name?.normalize("NFKC").trim().toLowerCase().replace(/\s+/g, " ");
 export const remoteFieldZone = (zone: string) => ["monster", "spell-trap", "extra-monster", "field", "pendulum"].includes(zone);
 
+/** A controlled card reserves its physical cell even though its paper card is elsewhere. */
+export function remoteProxyInSlot(twins: readonly TwinCard[], land: { zone: string; slot?: number }, exceptRef?: string): TwinCard | undefined {
+  if (!remoteFieldZone(land.zone)) return;
+  const slot = remotePhysicalSlot(land.zone, land.slot);
+  if (land.zone !== "field" && slot === undefined) return;
+  const spellSlot = land.zone === "spell-trap" ? slot : land.zone === "pendulum" ? (slot === 1 ? 1 : 5) : undefined;
+  return twins.find(card => card.ownerSeat !== undefined && !card.token && card.ref !== exceptRef && (
+    card.zone === land.zone && (land.zone === "field" || card.slot === slot) ||
+    spellSlot !== undefined && (card.zone === "spell-trap" && card.slot === spellSlot ||
+      card.zone === "pendulum" && (card.slot === 1 && spellSlot === 1 || card.slot === 2 && spellSlot === 5))
+  ));
+}
+
+export function remoteProxyClashMessage(card: TwinCard, catalogName?: string): string {
+  const name = card.faceUp || card.publicIdentity ? card.name ?? catalogName ?? "an unidentified card" : "a face-down card";
+  return `This zone has ${name} (proxy). Move your card to a free zone.`;
+}
+
 /** Catalog copy groups include alternate artworks. Names cover manual/catalog-free twins. */
 export function sameTwinIdentity(state: RemoteState, seat: number, a: Identity, b: Identity, context?: RemoteReductionContext): boolean {
   // Two tokens of one name are two table objects, never copies of one physical card.
@@ -27,6 +45,23 @@ export function sameTwinIdentity(state: RemoteState, seat: number, a: Identity, 
 type Placement = Extract<RemoteAction, { type: "twin.place" }>;
 type Reuse = { ref: string; card?: TwinCard } | { pending: true } | { noop: true };
 const pileZone = (zone: string) => zone === "graveyard" || zone === "banished";
+
+export const cameraTwinGuardOn = (context?: RemoteReductionContext) => !context?.replay || (context.twinPlacementGuard ?? 0) >= 10;
+
+/** Keep a delayed camera observation from recreating a card the player removed. */
+export function obsoleteCameraTwinAction(state: RemoteState, action: RemoteAction): boolean {
+  if (action.type !== "twin.place" && action.type !== "twin.move" && action.type !== "twin.remove" &&
+      action.type !== "twin.flip" && action.type !== "card.identified") return false;
+  const ref = action.type === "twin.place" ? action.fromRef ?? action.card.ref : action.cardRef;
+  const observedAt = action.cam?.observedAt;
+  if (observedAt === undefined || !ref || action.actorSeat !== action.seat || action.cam?.by === "player" ||
+      (action.cam?.by !== "camera" && action.source !== "auto")) return false;
+  if (state.seats[action.seat]?.twin.some(card => card.ref === ref)) return false;
+  return state.undoHistory?.some(({ undone, action: earlier, at }) =>
+    !undone && earlier.type === "twin.remove" && earlier.seat === action.seat && earlier.cardRef === ref &&
+    earlier.cam?.by !== "camera" && (earlier.cam?.by === "player" || earlier.source !== "auto") &&
+    observedAt < (earlier.cam?.sentAt ?? at)) ?? false;
+}
 /**
  * Guard 6: a card the camera sent from the field to a pile or the Extra Deck by the rules (no camera evidence) still owns its field
  * origin, but only for 30 s, and (for a card put back on the field) only into the same zone and physical slot. A later second copy is
@@ -70,6 +105,20 @@ export function recentFieldDeparture(card: TwinCard, at: number): boolean {
 export function guardTwinPlacement(state: RemoteState, action: Placement, context?: RemoteReductionContext): Reuse | undefined {
   if (context?.replay && context.twinPlacementGuard === 1) return legacyTwinPlacement(state, action, context);
   if (context?.replay && context.twinPlacementGuard === 2) return versionTwoTwinPlacement(state, action, context);
+  // The watcher can move an unnamed card or finish naming it. Its explicit
+  // ref still identifies that instance, even when there is no name to match.
+  if (cameraTwinGuardOn(context) && action.source === "auto" && !action.fromRef) {
+    const exact = state.seats[action.seat].twin.find(t => t.ref === action.card.ref && !t.token && t.ownerSeat === undefined && t.zone !== "material");
+    if (exact) {
+      const sameCell = exact.zone === action.zone && exact.slot === action.card.slot;
+      const sameObservation = (Object.keys(action.card) as (keyof Placement["card"])[])
+        .every(key => JSON.stringify(action.card[key]) === JSON.stringify(exact[key]));
+      if (sameCell && (sameObservation || pileZone(action.zone) && sameTwinIdentity(state, action.seat, action.card, exact, context)) &&
+          !action.summon && !action.fromActivation) return { noop: true };
+      if (remoteFieldZone(exact.zone) || exact.zone === "hand" || context?.replay && context.twinPlacementGuard === 10)
+        return { ref: exact.ref, card: exact };
+    }
+  }
   // A face-down return has no identity to match. Preserve the named card
   // that the camera just lifted from this exact slot; old replays keep v3.
   if ((!context?.replay || (context.twinPlacementGuard ?? 0) >= 4) && action.source === "auto" && remoteFieldZone(action.zone) &&
@@ -79,7 +128,8 @@ export function guardTwinPlacement(state: RemoteState, action: Placement, contex
       .sort((a,b) => b.departedFrom!.at! - a.departedFrom!.at!)[0];
     if (returned) return {ref:returned.ref,card:returned};
   }
-  const matches = state.seats[action.seat].twin.filter(t => sameTwinIdentity(state, action.seat, action.card, t, context));
+  const physical = action.source === "auto" && (!context?.replay || context.proxyPlacementGuard === 1);
+  const matches = state.seats[action.seat].twin.filter(t => (!physical || t.ownerSeat === undefined) && sameTwinIdentity(state, action.seat, action.card, t, context));
   if (action.fromRef) {
     const selected = matches.find(t => t.ref === action.fromRef);
     remoteAssert(selected, "The chosen card origin is no longer available", 409);

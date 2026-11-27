@@ -190,7 +190,7 @@ export function useFieldWatcher(options:UseFieldWatcherOptions) {
       saveSetMemory(setKey,setMemory.current.value);
     },[setKey]),
     dismiss:useCallback((id:string)=>{clipAction('dismiss',{trackId:id});return watcher.current?.dismiss(id);},[]),
-    forget:useCallback((id:string)=>{clipAction('forget',{trackId:id});return watcher.current?.forget(id);},[]),
+    forget:useCallback((id:string,options?:Parameters<FieldWatcher['forget']>[1])=>{clipAction('forget',{trackId:id,...options});return watcher.current?.forget(id,options);},[]),
     resetBaselines:useCallback(()=>watcher.current?.resetBaselines(),[]),
     /** Live watcher snapshot (the React `snapshot` can be one render behind). */
     getSnapshot:useCallback((options?:Parameters<FieldWatcher['getSnapshot']>[0])=>watcher.current?.getSnapshot(options),[]),

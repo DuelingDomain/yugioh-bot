@@ -6,7 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 export type LayerId = "log" | "insp" | "health" | "hist" | "tray" | "card" | "flag" | "effect" | "pile" | "surrender" | "deck" | "token" | "control" | "zone";
 
 const FOCUSABLE = 'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
-const FIRST = '[data-autofocus],li[role=option],input[type=text]';
+const FIRST = 'li[role=option],input[type=text]';
 
 /** A sticky layer (the table drawer) does not trap Tab or close on an outside press when the page is wide enough to push the table. */
 const pushed = (root: HTMLElement | null) => !!root && root.dataset.sticky === "true" && window.matchMedia("(min-width: 1100px)").matches;
@@ -46,7 +46,11 @@ export function useLayers(keepEscape?: () => boolean) {
       // A layer that opens by itself (a finished card read) does not take the keyboard from a field the person is typing in.
       const active = document.activeElement;
       if (active?.matches('input,textarea,select,[contenteditable="true"]') && !active.closest("[data-layer]")) return;
-      (root.querySelector<HTMLElement>(FIRST) ?? root.querySelector<HTMLElement>(FOCUSABLE) ?? root).focus({ preventScroll: true });
+      const target = root.querySelector<HTMLElement>("[data-autofocus]:not(:disabled)")
+        ?? root.querySelector<HTMLElement>(FIRST)
+        ?? root.querySelector<HTMLElement>(FOCUSABLE)
+        ?? root;
+      target.focus({ preventScroll: true });
     });
     function key(event: KeyboardEvent) {
       const root = document.querySelector<HTMLElement>(`[data-layer="${layerRef.current}"]`); if (!root) return;

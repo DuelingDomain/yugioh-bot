@@ -12,7 +12,7 @@ import { fieldSummonKind } from '@/lib/remote/field-summons';
 import { isFieldSpell } from '@/lib/remote/field-legality';
 import { recentReadsFor } from '@/lib/remote/recent-reads';
 import { playerStamp } from '@/lib/remote/field-timing';
-import type { QuickMove } from './quick-moves';
+import { SEND_LABELS, type QuickMove } from './quick-moves';
 import s from './remote-ui.module.css';
 
 
@@ -23,11 +23,12 @@ export function Row({ icon, next, primary, sub, hint, pill, children, ...rest }:
     {pill ? <em className={s.zaPill} aria-hidden="true">{pill}</em> : null}{hint ? <kbd className={s.zaKey} aria-hidden="true">{hint}</kbd> : null}{next ? <Icon name="chev" className={s.zaNext} /> : null}</button>;
 }
 
-export function ZoneActions({ tokenOnly, room, seat, zone, at, deck, targetRef, startPicker=false, initialFaceUp, busy, error, onPick, onAction, onSet, onToken, onGive, onDetails, onWrong, onClose, quick = [] }: {
+export function ZoneActions({ tokenOnly, room, seat, zone, at, deck, targetRef, startPicker=false, initialFaceUp, busy, error, onPick, onAction, onSet, onToken, onGive, onDetails, onWrong, onClose, quick = [], details = true }: {
   room: RemoteRoom; seat: number; zone: ZoneKey; at: PopAt; deck: number[]; targetRef?: string; initialFaceUp?: boolean;
   busy: boolean; error: string; startPicker?: boolean; onPick(pick: ZonePick): void; onAction(action: ZoneCardAction): void;
   onSet(): void; onToken(): void; /** An empty zone of another player's field: the menu only offers a token and a card from my hand. */ tokenOnly?: boolean; /** Give a card from my hand to this zone (the opponent's field only). */ onGive?: () => void; onDetails(card: TwinCard): void; /** "Wrong card?" under the card info of a face-up card. */ onWrong?(card: TwinCard): void; onClose(): void;
-  /** The important card moves (give control, position, send, remove proxy). The webcam card menu offers the same moves except the battle position. */ quick?: QuickMove[];
+  /** Card moves available in this zone, including battle position on the virtual board. */ quick?: QuickMove[];
+  /** Whether to link to the separate card popup from this menu. */ details?: boolean;
 }) {
   const twins = room.state.seats[seat].twin;
   const card = cellsFor(twins, hasExtraZones(room.format?.id))[zone]?.card;
@@ -39,7 +40,7 @@ export function ZoneActions({ tokenOnly, room, seat, zone, at, deck, targetRef, 
   const topChanged = !!pick && card?.ref !== topRef;
   const actorSeat = room.solo ? seat : room.mySeat;
   const action = (proposal: ZoneCardAction) => onAction({ ...proposal, cam: playerStamp('zone-actions') });
-  const names = (c: TwinCard) => c.token ? (c.name ?? 'Token') : (c.name ?? info(cardCode(c))?.name ?? (c.faceUp ? 'Card' : 'Face-down card'));
+  const names = (c: TwinCard) => c.token ? (c.name ?? 'Token') : (c.name ?? info(cardCode(c))?.name ?? (c.faceUp ? 'Unidentified card' : 'Face-down card'));
   if (pick && (!card || topChanged)) return <PopupFrame at={at} layer="zone" label="Zone changed" testid="zone-changed-error"><p role="alert">This zone changed. Close and open it again.</p><button type="button" className={s.btn} onClick={onClose}>Close</button></PopupFrame>;
   if (pick && card) {
     const summon = fieldSummonKind(info(pick.cardId));
@@ -78,7 +79,8 @@ export function ZoneActions({ tokenOnly, room, seat, zone, at, deck, targetRef, 
   const move = (id: QuickMove['id']) => quick.find(m => m.id === id);
   // Close first: a move that opens its own layer (the Return control zone choice) must be the last layer change.
   const go = (m: QuickMove) => { onClose(); m.run(); };
-  const sends = (['grave', 'banish', 'hand'] as const).map(move).filter((m): m is QuickMove => !!m);
+  const sends = (['grave', 'banish', 'hand', 'deck'] as const).map(move).filter((m): m is QuickMove => !!m);
+  const remove = move('remove');
   const set = /^[ms][1-5]$/.test(zone);
   return <PopupFrame at={at} layer="zone" label={`Actions in ${ZN[zone]}`} className={`${s.zonePicker} ${s.zoneMenu}`} testid="zone-actions" busy={busy}>
     <header className={s.zmHead}>
@@ -110,12 +112,12 @@ export function ZoneActions({ tokenOnly, room, seat, zone, at, deck, targetRef, 
           {set ? <Row icon="cardback" disabled={busy} onClick={onSet}>Set a card here</Row> : null}
         </>}
         {!tokenOnly && card && sends.length ? <div className={s.zaSend} role="group" aria-label="Send the card to"><span>Send to</span>
-          {sends.map(m => <button type="button" key={m.id} className={`${s.btn} ${s.sm} ${s.q}`} disabled={busy} onClick={() => go(m)} data-testid={`zone-${m.id}`}>{m.id === 'grave' ? 'GY' : m.id === 'hand' ? 'Hand' : m.label}</button>)}</div> : null}
-        {!tokenOnly && move('remove') ? <Row icon="x" disabled={busy} onClick={() => go(move('remove')!)} data-testid="zone-remove-proxy">{move('remove')!.label}</Row> : null}
+          {sends.map(m => <button type="button" key={m.id} className={`${s.btn} ${s.sm} ${s.q}`} disabled={busy} onClick={() => go(m)} data-testid={`zone-${m.id}`}>{SEND_LABELS[m.id] ?? m.label}</button>)}</div> : null}
+        {!tokenOnly && remove ? <Row icon="x" disabled={busy} onClick={() => go(remove)} data-testid={card?.ownerSeat === undefined ? "zone-remove" : "zone-remove-proxy"}>{remove.label}</Row> : null}
         {!tokenOnly || /^m[1-5]$/.test(zone) ? <Row icon="coin" next primary={tokenOnly} data-autofocus={tokenOnly ? "" : undefined} disabled={busy} onClick={onToken} data-testid="zone-token">{!card && /^m[1-5]$/.test(zone) ? 'Add token here' : 'Add token'}</Row> : null}
         {tokenOnly && onGive ? <Row icon="hand" next primary={!/^m[1-5]$/.test(zone)} data-autofocus={/^m[1-5]$/.test(zone) ? undefined : ""} disabled={busy} onClick={() => { onClose(); onGive(); }} data-testid="zone-give-hand">Give a card from my hand here</Row> : null}
         {card && !tokenOnly && ['monster', 'extra-monster', 'spell-trap', 'field', 'pendulum'].includes(card.zone) ? <CountersRow count={card.counters ?? 0} disabled={busy} onChange={delta => action({ type: 'twin.counters', actorSeat, seat, cardRef: card.ref, delta })} /> : null}
-        {card && !tokenOnly ? <Row icon="info" next disabled={busy} onClick={() => onDetails(card)}>Card details</Row> : null}
+        {card && !tokenOnly && details ? <Row icon="info" next disabled={busy} onClick={() => onDetails(card)}>Card details</Row> : null}
       </div>
       {card?.materials?.length ? <section className={s.zmMats} aria-label="Materials">
         <h3>Materials <b>{card.materials.length}</b></h3>
@@ -125,7 +127,7 @@ export function ZoneActions({ tokenOnly, room, seat, zone, at, deck, targetRef, 
           const label = material ? names(material) : 'Material';
           return <div role="group" aria-label={`Detach ${label}`} className={s.zmMat} key={ref}>
             {code ? <img src={cardArt(code, 'small')} alt="" loading="lazy" draggable={false} /> : <i aria-hidden="true" />}
-            <span title={label}>{label}</span>
+            {material && !tokenOnly ? <button type="button" className={s.btn} disabled={busy} onClick={() => onDetails(material)}>{label}</button> : <span title={label}>{label}</span>}
             {(['graveyard', 'banished'] as const).map(destination => <button type="button" className={s.btn} key={destination} disabled={busy} aria-label={`Detach material to ${destination === 'graveyard' ? 'GY' : 'banished'}`}
               onClick={() => action({ type: 'twin.detach', actorSeat, seat, cardRef: card.ref, materialRef: ref, zone: destination })}>{destination === 'graveyard' ? 'To GY' : 'Banish'}</button>)}
           </div>;
