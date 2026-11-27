@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useLayoutEffect, useRef, useState, type CSSProperties, type FocusEvent, type KeyboardEvent, type ReactNode, type SyntheticEvent } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode, type SyntheticEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { duelFontClasses } from '@/components/duel/fonts';
 import { placePopup, type Rect } from './ui/popup';
@@ -88,7 +88,12 @@ export function FieldWatcherUI({host,enabled,onEnabledChange,statusLabel,statusT
   const [promptStyle,setPromptStyle]=useState<CSSProperties>({visibility:'hidden'}),[noticeStyle,setNoticeStyle]=useState<CSSProperties>({visibility:'hidden'});
   const anchorKey=prompt?.quad?.map(point=>`${point.x},${point.y}`).join('|');
   const hasNotice=!!notice;
-  const hold={onPointerEnter:()=>onNoticeHold?.(true),onPointerLeave:()=>onNoticeHold?.(false),onFocus:(event:FocusEvent<HTMLElement>)=>{if(event.target.matches(':focus-visible'))onNoticeHold?.(true);},onBlur:()=>onNoticeHold?.(false)};
+  // The pointer or the keyboard is on a notice: asked from the page itself, so a notice that goes away under the pointer cannot leave the hold stuck.
+  const [holding,setHolding]=useState(false);
+  const recheckHold=useCallback(()=>{const held=[...document.querySelectorAll('[data-notice-hold]')].some(el=>el.matches(':hover')||!!el.querySelector(':focus-visible'));setHolding(held);onNoticeHold?.(held);},[onNoticeHold]);
+  useEffect(()=>{recheckHold();},[notice,kept,recheckHold]);
+  useEffect(()=>{if(!holding)return;const timer=setInterval(recheckHold,1000);return()=>clearInterval(timer);},[holding,recheckHold]);
+  const hold={'data-notice-hold':'',onPointerEnter:recheckHold,onPointerLeave:recheckHold,onFocus:recheckHold,onBlur:()=>{requestAnimationFrame(recheckHold);}};
   useLayoutEffect(()=>{
     if(!host||dock)return;
     const toolbar=host.querySelector<HTMLElement>('[data-feed-toolbar]');

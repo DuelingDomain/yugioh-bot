@@ -2556,7 +2556,10 @@ test.describe("remote duels screen, tokens and the camera", () => {
     await expect.poll(cell).toEqual(["monster:3:card"]);
     // The Undo notice stays past the old 5 s, and a hover on it keeps it: the first click lands.
     const undo = page.getByRole("button", { name: "Undo", exact: true }).first();
-    await page.waitForTimeout(5500); await undo.hover(); await page.waitForTimeout(4000); await expect(undo).toBeVisible();
+    await page.waitForTimeout(5500);
+    // The older "Token removed" notice is not kept with its own Undo: the newer one takes that action back with it, so a click there would be refused.
+    await expect(page.getByRole("status").filter({ hasText: "Token removed" }).getByRole("button", { name: "Undo", exact: true })).toHaveCount(0);
+    await undo.hover(); await page.waitForTimeout(4000); await expect(undo).toBeVisible();
     await undo.click();
     // The whole board is back: the token in M3, the first card in M4, no card in M3.
     await expect.poll(mine).toEqual(["monster:3:token", "monster:4:card"]);
