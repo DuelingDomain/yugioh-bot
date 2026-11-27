@@ -29,7 +29,7 @@
 /* Only the card name gives way (ellipsis); "Respond to", the chain number and the seconds always show. */
 .rtext{display:flex;gap:.3em;min-width:0;white-space:nowrap}
 .rlead{flex:none}
-.rname{min-width:0;overflow:hidden;text-overflow:ellipsis;font-weight:700}
+.rname{min-width:4em;overflow:hidden;text-overflow:ellipsis;font-weight:700}
 .rchain{flex:none;white-space:nowrap}
 .rsec{flex:none;min-width:2.2ch;font:700 12px/1 var(--font-duel-display,Oxanium,sans-serif);font-variant-numeric:tabular-nums;color:var(--ink2,#b9b0cc)}
 .ring{flex:none;width:20px;height:20px;transform:rotate(-90deg)}
@@ -45,6 +45,7 @@
 .autoGy .toastUndo:hover{border-color:rgb(155 126 255)}
 .autoGy .toastUndo:focus-visible{outline:2px solid var(--gold-ink,#f6dc9a);outline-offset:1px}
 
+@media (min-width:901px){.respond{max-width:min(560px,max(300px,calc(var(--aw,100vw) - 260px)))}}
 @media (max-width:900px){
   .row,.respond{left:50%!important;bottom:calc(var(--dockh,64px) + 10px)}
   .row{width:calc(100vw - 16px);max-width:none;max-height:calc(100dvh - 160px);overflow:auto}

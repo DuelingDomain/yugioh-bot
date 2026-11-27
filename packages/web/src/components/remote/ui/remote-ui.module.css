@@ -120,6 +120,7 @@
 .ph.on .dot{background:#1b1204;border-color:#1b1204}
 .ph.on:disabled{opacity:1}
 .pass{display:inline-flex;align-items:center;gap:8px;flex:none;height:42px;padding:0 18px;border-radius:9px;border:1px solid var(--gold);background:var(--gold-soft);color:var(--gold-ink);font:700 15px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;white-space:nowrap}
+.bar .pass>span:last-child{max-width:clamp(64px,8vw,150px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pass:hover:not(:disabled){background:var(--gold);color:#1b1204}
 .pass:disabled{border-color:var(--line2);color:var(--ink3);background:none;cursor:default}
 .pass.hot{background:var(--gold);color:#1b1204;box-shadow:0 0 0 4px rgb(232 185 79/.18),0 0 26px rgb(232 185 79/.5);animation:hot 1.6s ease-in-out infinite}
@@ -617,7 +618,7 @@
 }
 /* 1101-1500 px with the voice controls: the Undo label gives way first, so Think and OK are never squeezed. */
 @media (min-width:1101px) and (max-width:1500px){
-  .bar .dk.undo{flex:0 1 auto;min-width:0}.bar .ubtn{flex:0 1 auto;min-width:0}.bar .ubtn .ul{max-width:clamp(90px,13vw,200px)}
+  .bar .dk.undo{flex:0 1 auto;min-width:150px}.bar .ubtn{flex:0 1 auto;min-width:0}.bar .ubtn .ul{max-width:clamp(90px,13vw,200px)}
   .bsig{flex:1 1 auto;min-width:min-content}
 }
 
