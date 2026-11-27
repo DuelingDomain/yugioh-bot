@@ -304,6 +304,8 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     setLogCard(cur => mode === "pin" ? (cur?.pinned && cur.row.cardId === row.cardId ? null : { row, pinned: true }) : cur?.pinned ? cur : mode === "hover" ? { row, pinned: false } : null);
   }, []);
   const openDrawer = useCallback((tab: DrawerTab, from?: HTMLElement | null) => { setDrawerTab(tab); layers.open("log", from); }, [layers]);
+  // The Log and Settings buttons: a press on the tab that is open closes the drawer, a press on another tab switches to it.
+  const toggleDrawerTab = useCallback((tab: DrawerTab, from?: HTMLElement | null) => { if (layers.layer === "log" && drawerTab === tab) layers.close("log"); else openDrawer(tab, from); }, [layers, drawerTab, openDrawer]);
   const logTurns = useMemo(() => layers.layer !== "log" || drawerTab !== "log" ? [] : buildLog({
     events: room.events, turn: state.turn, turnSeat: state.turnSeat, name, cardName: nameOfCard, refName: refNameOf, chain: chain.links, lpNow: lpOf, room, fmtTime, firstSeq: firstSeq.current,
     publicCode: (seat, ref) => { const card = state.seats[seat]?.twin.find(item => item.ref === ref); return card && (card.faceUp || card.publicIdentity || ["material", "graveyard", "banished"].includes(card.zone)) ? cardCode(card) : undefined; },
@@ -1341,7 +1343,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
   // Thinking, OK and E need a live duel; E also works before a card is placed.
   const think = signalShown ? thinkNow : null; const ok = signalShown ? okNow : null;
   const activate = live && (solo || mySeat >= 0) && !room.spectator ? activateNow : null;
-  const latest = useRef({ chip, cancelChip, doUndo, picking, ptt, toggleView, think, ok, activate, activateRow, pickFromRow }); latest.current = { chip, cancelChip, doUndo, picking, ptt, toggleView, think, ok, activate, activateRow, pickFromRow }; escapeBusy.current = !!(chip || picking || activateRow);
+  const latest = useRef({ chip, cancelChip, doUndo, picking, ptt, toggleView, think, ok, activate, activateRow, pickFromRow, toggleDrawerTab }); latest.current = { chip, cancelChip, doUndo, picking, ptt, toggleView, think, ok, activate, activateRow, pickFromRow, toggleDrawerTab }; escapeBusy.current = !!(chip || picking || activateRow);
   useEffect(() => {
     function down(event: KeyboardEvent) {
       const L = latest.current;
@@ -1352,6 +1354,8 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
       if (R.current.layer && !(R.current.layer === "log" && isPushedLayer("log"))) return;
       // T thinks, Space says OK, E activates. A modal dialog, a focused control or a held key keeps its own behavior.
       const modal = !!document.querySelector('[role="alertdialog"],[role="dialog"][aria-modal="true"]');
+      // The comma key opens Settings (and closes it again), like the Settings button in the top bar.
+      if (event.key === "," && !event.repeat && !event.shiftKey && !modal) { event.preventDefault(); L.toggleDrawerTab("settings"); return; }
       if (L.activateRow) {
         const row = L.activateRow;
         if (event.key === "Escape") { event.preventDefault(); setActivateRow(null); return; }
@@ -1796,8 +1800,8 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     <AutoFieldWatcher dock={seatDocks[mySeat] ?? null} room={room} transaction={ctl.transaction} diagnosticsAllowed={feedbackPref?.isAdmin===true && feedbackPref.collectionEnabled} />
     <a className={s.skip} href="#stage">Skip to the table</a>
     <div className={s.shell}>
-      <TopBar crumb={`Table ${room.slug.slice(0, 8)}`} startedAt={room.startedAt} endedAt={room.endedAt} tournament={tournament ? { name: tournament.tournamentName, href: `/tournament/${encodeURIComponent(tournament.tournamentSlug)}` } : null} chip={`${formatLabel} · ${solo ? "Solo test" : `${seatCount} players`}${room.spectatorCount ? ` · ${room.spectatorCount} watching` : ""}`} adminWatchers={(room.adminWatchers ?? []).map(watcher => watcher.name)} cardOpen={layers.layer === "insp"} logOpen={layers.layer === "log"} logDot={unread} health={{ q: worstQ, text: healthSummary }} healthOpen={layers.layer === "log" && drawerTab === "info"} onHealth={el => openDrawer("info", el)}
-        onCard={el => layers.toggle("insp", el)} onLog={el => layers.layer === "log" ? layers.close("log") : openDrawer("log", el)}
+      <TopBar crumb={`Table ${room.slug.slice(0, 8)}`} startedAt={room.startedAt} endedAt={room.endedAt} tournament={tournament ? { name: tournament.tournamentName, href: `/tournament/${encodeURIComponent(tournament.tournamentSlug)}` } : null} chip={`${formatLabel} · ${solo ? "Solo test" : `${seatCount} players`}${room.spectatorCount ? ` · ${room.spectatorCount} watching` : ""}`} adminWatchers={(room.adminWatchers ?? []).map(watcher => watcher.name)} cardOpen={layers.layer === "insp"} logOpen={layers.layer === "log" && drawerTab === "log"} logDot={unread} settingsOpen={layers.layer === "log" && drawerTab === "settings"} onSettings={el => toggleDrawerTab("settings", el)} health={{ q: worstQ, text: healthSummary }} healthOpen={layers.layer === "log" && drawerTab === "info"} onHealth={el => openDrawer("info", el)}
+        onCard={el => layers.toggle("insp", el)} onLog={el => toggleDrawerTab("log", el)}
         webcamOnly={webcamOnly} onView={multi ? undefined : setWebcamOnly} />
       <AdminWatchStrip names={(room.adminWatchers ?? []).map(watcher => watcher.name)} />
       <main className={s.stage} id="stage" tabIndex={-1} aria-label="Duel table" ref={stage}>
@@ -1856,7 +1860,6 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
             <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} aria-pressed={thinkOn} onClick={event => { thinkNow(); event.currentTarget.blur(); }} title="Thinking: tell the table you are deciding. Press again to cancel. No time limit." data-testid="think-button">{thinkOn ? "Thinking…" : "Think"} <kbd>T</kbd></button>
             <button type="button" className={`${s.btn} ${s.sm} ${s.q}`} onClick={event => { okNow(); event.currentTarget.blur(); }} title="OK: no response" data-testid="ok-button">OK <kbd>Space</kbd></button>
           </div> : null}</>}
-        settingsOpen={layers.layer === "log" && drawerTab === "settings"} onSettings={el => openDrawer("settings", el)}
         onSurrender={canSurrender ? el => openLeave("game", el) : undefined} onQuit={canQuit ? el => openLeave("match", el) : undefined}
         voice={micSection ? { state: micState, muted, onMute: () => setMuted(v => !v), level: voice.level, recognition: voiceRecognition, proposal: !!chip, onOpenSettings: () => openDrawer("settings"), details:
           <VoxSection recognition={voiceRecognition} transcript={shownTranscript} proposal={chip} samples={voiceRecognition ? [...voiceCommands] : []} onConfirm={() => { chip?.run(); setProposal(null); }} onCancel={cancelChip}

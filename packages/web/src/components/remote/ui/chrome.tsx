@@ -30,11 +30,11 @@ export function AdminWatchStrip({ names }: { names: string[] }) {
   return names.length ? <div className={s.adminStrip}><span className={s.adminPill} role="status" data-testid="admin-watching-strip">Admin watching · {names.join(", ")}</span></div> : null;
 }
 
-export function TopBar({ crumb, tournament = null, chip, startedAt = null, endedAt = null, adminWatchers = [], health, healthOpen, cardOpen, logOpen, logDot, onHealth, onCard, onLog, webcamOnly, onView }: {
+export function TopBar({ crumb, tournament = null, chip, startedAt = null, endedAt = null, adminWatchers = [], health, healthOpen, cardOpen, logOpen, logDot, settingsOpen, onHealth, onCard, onLog, onSettings, webcamOnly, onView }: {
   crumb: string; /** When the duel started, in ms. Null before it starts. */ startedAt?: number | null; endedAt?: number | null; /** A tournament table: its name and page. The logo goes there too, so a phone has the way back. */ tournament?: { name: string; href: string } | null; chip: string; /** Names of the admins who watch now. The players see them as "Admin watching". */ adminWatchers?: string[];
-  cardOpen: boolean; logOpen: boolean; logDot: boolean;
+  cardOpen: boolean; /** The drawer is open on its Log tab. */ logOpen: boolean; logDot: boolean; /** The drawer is open on its Settings tab. */ settingsOpen: boolean;
   /** Worst feed state in one line; the chip opens the drawer's Info tab. */ health: { q: "good" | "warn" | "bad" | "off"; text: string }; healthOpen: boolean; onHealth: (el: HTMLElement) => void;
-  onCard: (el: HTMLElement) => void; onLog: (el: HTMLElement) => void;
+  onCard: (el: HTMLElement) => void; onLog: (el: HTMLElement) => void; /** Opens the drawer on its Settings tab, or closes it when it is already there. */ onSettings: (el: HTMLElement) => void;
   /** True when the virtual fields are hidden and the camera feeds take the space. */ webcamOnly: boolean; /** Absent on a 3-way or 4-way table: only the cameras show, so there is no board switch. */ onView?: (webcamOnly: boolean) => void;
 }) {
   return <header className={s.top}>
@@ -51,8 +51,11 @@ export function TopBar({ crumb, tournament = null, chip, startedAt = null, ended
       <span className={`${s.hdot} ${health.q === "warn" ? s.warn : health.q === "bad" ? s.bad : ""}`} /><span>{health.text}</span></button>
     <button type="button" className={s.tb} aria-haspopup="dialog" aria-expanded={cardOpen} data-layer-opener data-testid="card-button" onClick={e => onCard(e.currentTarget)}>
       <Icon name="card" /><span className={s.lbl}>Card</span></button>
-    <button type="button" className={s.tb} aria-haspopup="dialog" aria-expanded={logOpen} data-layer-opener data-testid="log-button" onClick={e => onLog(e.currentTarget)}>
+    <button type="button" className={s.tb} aria-haspopup="dialog" aria-expanded={logOpen} aria-label="Log" title="Log: what happened at this table" data-layer-opener data-testid="log-button" onClick={e => onLog(e.currentTarget)}>
       <Icon name="log" /><span className={s.lbl}>Log</span><span className={`${s.nb} ${logDot ? s.on : ""}`} /></button>
+    {/* The one Settings button: camera, voice, sound and display. The comma key opens it too. */}
+    <button type="button" className={s.tb} aria-haspopup="dialog" aria-expanded={settingsOpen} aria-label="Settings" aria-keyshortcuts="," title="Settings (press ,)" data-layer-opener data-testid="settings-button" onClick={e => onSettings(e.currentTarget)}>
+      <Icon name="gear" /><span className={s.lbl}>Settings</span></button>
   </header>;
 }
 

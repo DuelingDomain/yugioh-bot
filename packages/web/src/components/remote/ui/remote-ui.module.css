@@ -547,8 +547,8 @@
 .bsig:empty{display:none}
 .bar .myfield{display:none}
 .bvoice{position:relative;display:flex;align-items:center;gap:6px;flex:none}
-/* Settings, Surrender and Quit match: always in sight, no drawer to open first. Leave buttons are quiet red, never gold. */
-.bmenu{display:flex;align-items:center;gap:6px;flex:none}
+/* Surrender and Quit match: always in sight, no drawer to open first. Leave buttons are quiet red, never gold. Settings lives in the top bar. */
+.bmenu{display:flex;align-items:center;gap:6px;flex:none}.bmenu:empty{display:none}
 .bmbtn{display:inline-flex;align-items:center;justify-content:center;gap:7px;height:36px;padding:0 11px;border:1px solid var(--line2);border-radius:8px;background:var(--p0);color:var(--ink);font:700 13px/1 var(--font-duel-ui),"Sofia Sans Semi Condensed",system-ui,sans-serif;white-space:nowrap}
 .bmbtn .ic{width:16px;height:16px;color:var(--ink2)}
 .bmbtn:hover,.bmbtn.on{border-color:var(--pen);background:var(--p2)}
