@@ -850,7 +850,16 @@
 /* ============ phone ============ */
 .scrim{display:none}
 @media (max-width:900px){
-  .seatDock{--dock-anchor:bottom;top:auto;bottom:12px;width:min(280px,calc(100% - 20px));max-height:46%;justify-content:flex-end}
+  /* Phone: the notice stack is one fixed panel just above the bottom bar, full width, with its own scroll. It never sits under the bar, and every prompt button and Undo can be reached. Hide still folds it away. The seat-drag offset does not apply here. */
+  .seatDock,.seat[data-wc] .seatDock{--dock-anchor:bottom;position:fixed;top:auto;left:8px;right:8px;bottom:calc(var(--dockh,128px) + 8px);width:auto;max-height:45dvh;justify-content:flex-end;transform:none!important;z-index:260}
+  .seatDock[data-open="1"] .ndSlot{background:rgb(20 13 38/.96);border:1px solid var(--line2);border-radius:10px;padding:6px}
+  /* One panel at a time: while my seat has notices, other seats' stacks wait. */
+  .app:has(.seat.mine .seatDock:not([data-count="0"])) .seat:not(.mine) .seatDock{display:none}
+  .seat .seatDock:is([data-count="1"],:has(.bigTray)){max-height:45dvh}
+  .seat .seatDock:has(.bigTray),.seatDock:has(.bigTray){width:auto}
+  .seatDock .ndSlot,.seatDock[data-tight] .ndSlot{flex:1 1 auto;overflow:auto;overscroll-behavior:contain}
+  .seatDock .ndGrip,.seatDock .ndBtn[aria-label="Reset notification position"]{display:none}
+  .seatDock[data-tight] .bigTray.docked .btext{display:-webkit-box;-webkit-line-clamp:3;line-clamp:3;overflow:hidden}
   .pop.big.show.docked{grid-template-columns:72px minmax(0,1fr);--aw:72px}
   .app{overflow-x:hidden;overflow-y:auto}
   .app,.app:has(.bar){--hdr:50px;--dock:0px;--gap:10px;--bar:64px}
