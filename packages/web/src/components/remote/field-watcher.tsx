@@ -180,7 +180,8 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   },[room.slug,seat,ownsSource,hub.cameraOn,deckKey]);
   const enabledRef=useRef(true),calibrationBusy=useRef(false),tracks=useRef<FieldTrack[]>([]);
   const manual=useRef(new Map<string,{zone:string;slot?:number;position?:string}>());
-  const entries=useRef(new Map<string,Entry>()),bindings=useRef(new Map<string,string>()),published=useRef(''),lastMessage=useRef<ReturnType<typeof fieldTrackMessage>>({type:'field.tracks',cards:[]}),previousRefs=useRef(new Set<string>());
+  const entries=useRef(new Map<string,Entry>()),bindings=useRef(new Map<string,string>()),published=useRef(''),lastMessage=useRef<ReturnType<typeof fieldTrackMessage>>({type:'field.tracks',cards:[]});
+  const previousBoard=useRef({seq:room.lastSeq,zones:new Map<string,string>()});
   if(e2eFieldHook&&typeof window!=='undefined')Object.assign(window,{__e2eField:{entries,handle:(e:FieldEvent)=>handle(e),live:()=>live(),watching:()=>!!watch.getSnapshot()}});
   const physicalKey=`dd-field-physical:v1:${room.guildId}:${room.slug}:${seat}`,physical=useRef<{key:string;zones:Map<string,FieldZone>}|null>(null);
   if(physical.current?.key!==physicalKey)physical.current={key:physicalKey,zones:readPhysicalZones(physicalKey)};
@@ -266,7 +267,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   // A monster the camera took off the field can go under an Xyz Monster (hint order: Xyz that attach cards first); not once it is on a pile.
   const departed=departure?room.state.seats[seat].twin.find(c=>c.ref===departure.ref):undefined;
   const attachTargets=departed&&!departed.token&&['monster','extra-monster'].includes(departed.departedFrom?.zone??departed.zone)&&['hand','monster','extra-monster'].includes(departed.zone)?xyzAttachTargets(room.state.seats,c=>cardInfo(cardCode(c)),departed.ref):[];
-  useEffect(()=>{setHost(document.querySelector<HTMLElement>(`[data-testid="feed-box-${seat}"]`));setPrompts([]);prompted.current.clear();previousRefs.current=new Set();bindings.current.clear();faceReads.current.clear();},[room.slug,seat,source]);
+  useEffect(()=>{setHost(document.querySelector<HTMLElement>(`[data-testid="feed-box-${seat}"]`));setPrompts([]);prompted.current.clear();previousBoard.current={seq:room.lastSeq,zones:new Map()};bindings.current.clear();faceReads.current.clear();},[room.slug,seat,source]);
   useEffect(()=>{placeholders.current.clear();readerRemovals.current.clear();},[room.slug,seat]);
   const savePhysical=()=>{try{sessionStorage.setItem(physical.current!.key,JSON.stringify(Object.fromEntries(physical.current!.zones)));}catch{/* Memory-only fallback. */}};
   const forgetPhysical=(ref:string)=>{if(physical.current!.zones.delete(ref))savePhysical();};
@@ -1271,10 +1272,21 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       else{
         // A new pile top that cannot be read still counts: push an unnamed card now; the player names it from the prompt or the pile.
         if(['GY','BANISHED'].includes(event.track.zone))void queue(async act=>{
+          const observed=watch.getTrack(event.track.id);
+          if(!live()||observed?.zone!==event.track.zone||!fieldEvidenceMatches(event,observed))return;
           const twins=current.current.room.state.seats[seat].twin,ref=bindings.current.get(event.track.id)??event.track.id;
-          if(!live()||twins.some(c=>c.ref===ref))return;
+          if(twins.some(c=>c.ref===ref))return;
           const zone=event.track.zone==='GY'?'graveyard':'banished';
-          if(!pileEntry(event.track)){const top=twins.filter(c=>c.zone===zone).at(-1);if(top)bindings.current.set(event.track.id,top.ref);return;}
+          const top=twins.filter(c=>c.zone===zone).at(-1),departure=top?.departedFrom;
+          const move=top&&departure?.auto?current.current.room.events.findLast(({at,action})=>
+            at===departure.at&&action.type==='twin.move'&&action.seat===seat&&action.cardRef===top.ref&&action.zone===zone)?.action:undefined;
+          const stamp=move?.type==='twin.move'?move.cam:undefined;
+          // The field departure can save while the camera is still reading the same card in the pile.
+          // Compare the first outline with that move's camera times, before treating the hand touch as another arrival.
+          const firstSeen=Math.round(performance.timeOrigin+event.track.firstSeen);
+          const overlapsMove=stamp?.seenAt!==undefined&&firstSeen>=stamp.seenAt-1000&&firstSeen<=stamp.sentAt;
+          if(top&&(event.bindRef===top.ref||overlapsMove)){bindings.current.set(event.track.id,top.ref);return;}
+          if(!pileEntry(event.track)){if(top)bindings.current.set(event.track.id,top.ref);return;}
           // A card that was just shown from the hand and then reaches a pile unread is that card: name it, so the hand count stays exact.
           const active=handActivation.current,mine=current.current.room.state.seats[seat];
           // Only while the shown card is still in the known hand (a field play already took it out) and no field departure is waiting.
@@ -1707,18 +1719,28 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     const active=new Set(watch.snapshot.tracks.filter(t=>t.state==='prompt'&&!t.removed).map(t=>`${t.id}:${t.revision??0}`));
     for(const key of prompted.current)if(!active.has(key))prompted.current.delete(key);
     setPrompts(list=>{const next=list.filter(p=>{const live=watch.getTrack(p.track.id);return live?.state==='prompt'&&(live.revision??0)===(p.track.revision??0);});return next.length===list.length?list:next;});
-    const refs=new Set(room.state.seats[seat].twin.map(c=>c.ref));
-    for(const ref of previousRefs.current)if(!refs.has(ref)&&!readerRemovals.current.has(ref)){forgetPhysical(ref);if(!correctionsFor(current.current.room,seat).has(ref))watch.forget(ref);}
+    const zones=new Map(room.state.seats[seat].twin.map(c=>[c.ref,c.zone]));
+    const previous=previousBoard.current;
+    for(const [ref,zone] of previous.zones){
+      if(zones.has(ref)||readerRemovals.current.has(ref))continue;
+      forgetPhysical(ref);
+      const removedFromPile=(zone==='graveyard'||zone==='banished')&&room.events?.some(({seq,action})=>
+        seq>previous.seq&&action.type==='twin.remove'&&action.source!=='auto'&&action.seat===seat&&action.cardRef===ref);
+      if(removedFromPile){
+        // Discard the camera observation and let the reader suppress its outline, including tracks bound under another ID.
+        for(const track of watch.getTracks())if((bindings.current.get(track.id)??track.id)===ref)watch.forget(track.id);
+      }else if(!correctionsFor(current.current.room,seat).has(ref))watch.forget(ref);
+    }
     // Consume the exemption only after the server removal is observed, or after
     // a batched replacement already contains the identified card.
-    for(const ref of readerRemovals.current)if(!refs.has(ref)||room.state.seats[seat].twin.some(card=>card.ref===ref&&cardCode(card)))readerRemovals.current.delete(ref);
+    for(const ref of readerRemovals.current)if(!zones.has(ref)||room.state.seats[seat].twin.some(card=>card.ref===ref&&cardCode(card)))readerRemovals.current.delete(ref);
     prunePhysical();
-    previousRefs.current=refs;
+    previousBoard.current={seq:room.lastSeq,zones};
     const value=departureRef.current;if(!value)return;
     const card=room.state.seats[seat].twin.find(c=>c.ref===value.ref);
     if(!card||(value.zone==='pending'&&!outOfView(value.ref))||(!destinations.some(d=>d.zone===card.zone)&&value.zone!=='pending')){setDeparture(null);setNotice('');}
     else if(destinations.some(d=>d.zone===card.zone)&&(card.zone!==value.zone||card.zone==='banished'&&(card.faceUp===false)!==!!value.down))setDeparture({...value,zone:card.zone,down:card.zone==='banished'&&card.faceUp===false});
-  },[room.state,seat,watch.snapshot]);
+  },[room.state,room.events,room.lastSeq,seat,watch.snapshot]);
   // "Out of view is gone" for piles. A missing GY/Banished stack was picked up
   // as a whole: its cards go to the hand in one undoable action. A missing
   // Deck/Extra only dims on the board (nothing is created, no prompt). When a
