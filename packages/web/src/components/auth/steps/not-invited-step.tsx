@@ -1,15 +1,24 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { DoneRow, HeardFromSelect, NoteBox, type HeardFromValue } from "../fields";
+import type { FormEvent } from "react";
+import { DoneRow, HeardFromSelect, TextField, type HeardFromValue } from "../fields";
 import { SignInBanner } from "../sign-in-error";
 import { SignInFootLinks, SignInStep } from "../sign-in-step";
 import shell from "../sign-in-shell.module.css";
 
 export interface NotInvitedStepProps {
   identifier: string;
-  waitlistUrl: string;
+  /** Field error from the sign-in check (shown under the email field). */
+  error?: string;
+  /** Banner from the sign-in check, e.g. the service is unreachable. */
+  banner?: { tone: "bad" | "info"; body: string; code?: string } | null;
+  /** The sign-in check is running. */
+  pending?: boolean;
+  /** Back to the first sign-in card. */
   onRetry(): void;
+  /** Runs the sign-in check again with the edited email. The page moves on if it passes, or stays here if it does not. */
+  onCheck?(email: string): void | Promise<void>;
   /** Called once the email is on the list (new or already there), so the page can drop the error tone. */
   onJoined?(): void;
   /** Review page only: start on a state that is otherwise reached by a click and a response. */
@@ -18,7 +27,7 @@ export interface NotInvitedStepProps {
 
 export type WaitlistPhase = "idle" | "pending" | "joined" | "exists" | "limited" | "failed";
 
-/** The same shape `POST /api/waitlist` checks. A username (Clerk also resolves those) fails it and keeps the marketing link. */
+/** The same shape `POST /api/waitlist` checks. */
 const EMAIL_SHAPE = /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/;
 const isEmail = (value: string) => value.length <= 254 && EMAIL_SHAPE.test(value);
 
@@ -27,8 +36,12 @@ const ERROR_COPY: Record<"limited" | "failed", string> = {
   failed: "Couldn’t add you just now. Try again.",
 };
 
-export function NotInvitedStep({ identifier, waitlistUrl, onRetry, onJoined, previewPhase = "idle" }: NotInvitedStepProps) {
-  const email = identifier.trim();
+export function NotInvitedStep({ identifier, error, banner, pending: checking = false, onRetry, onCheck, onJoined, previewPhase = "idle" }: NotInvitedStepProps) {
+  const checked = identifier.trim();
+  // The field is editable: `email` is what is typed now, `checked` is what the sign-in check last refused.
+  const [email, setEmail] = useState(checked);
+  const [localError, setLocalError] = useState<string>();
+  const [stillClosed, setStillClosed] = useState<string | null>(null);
   const [phase, setPhase] = useState<WaitlistPhase>(previewPhase);
   // A ref, not state: two clicks in one tick both see the same render, so state alone would let both through.
   const inFlight = useRef(false);
@@ -48,8 +61,23 @@ export function NotInvitedStep({ identifier, waitlistUrl, onRetry, onJoined, pre
     if (heading) { heading.tabIndex = -1; heading.focus(); }
   }, [joined]);
 
-  async function join() {
-    if (inFlight.current) return;
+  const edited = email.trim() !== checked;
+  const typed = (value: string) => { setEmail(value.trim()); setLocalError(undefined); };
+  const valid = () => {
+    if (isEmail(email)) return true;
+    setLocalError("Enter a valid email.");
+    return false;
+  };
+
+  async function check() {
+    if (!valid() || !onCheck) return;
+    await onCheck(email);
+    setStillClosed(email);
+  }
+
+  async function join(event?: FormEvent) {
+    event?.preventDefault();
+    if (inFlight.current || checking || !valid()) return;
     inFlight.current = true;
     setPhase("pending");
     try {
@@ -90,7 +118,8 @@ export function NotInvitedStep({ identifier, waitlistUrl, onRetry, onJoined, pre
     );
   }
 
-  const pending = phase === "pending";
+  const pending = phase === "pending" || checking;
+  const shownBanner = banner && <SignInBanner tone={banner.tone} code={banner.code}>{banner.body}</SignInBanner>;
   return (
     <SignInStep
       eyebrow="Closed alpha"
@@ -99,20 +128,37 @@ export function NotInvitedStep({ identifier, waitlistUrl, onRetry, onJoined, pre
       screen="err-invite"
       foot={<SignInFootLinks waitlist={false} />}
     >
-      <div className={shell.form} data-clerk="identifier-not-found" aria-busy={pending}>
-        <NoteBox label="Email"><span data-email="">{identifier}</span></NoteBox>
+      <form className={shell.form} data-clerk="identifier-not-found" noValidate aria-busy={pending} onSubmit={join}>
+        {shownBanner}
         {(phase === "limited" || phase === "failed") && <SignInBanner tone="bad" code={phase}>{ERROR_COPY[phase]}</SignInBanner>}
-        {isEmail(email) && <HeardFromSelect id="f-heard-wl" onChange={(value) => { heard.current = value; }} />}
-        {isEmail(email) ? (
-          <button type="button" className={`${shell.btn} ${shell["btn-primary"]}`} disabled={pending} onClick={join}>
-            {pending && <span className={shell.spinner} aria-hidden="true" />}
-            <span>Join the waitlist</span>
+        <TextField
+          id="f-email-wl"
+          name="email"
+          type="email"
+          label="Email"
+          autoComplete="email"
+          inputMode="email"
+          placeholder="you@email.com"
+          defaultValue={identifier}
+          error={localError ?? error}
+          onChange={typed}
+          autoFocus
+        />
+        {!edited && stillClosed === checked && !banner && !error && <SignInBanner tone="info" code="still-closed">Still not in the alpha. You can join the waitlist with this email.</SignInBanner>}
+        <HeardFromSelect id="f-heard-wl" onChange={(value) => { heard.current = value; }} />
+        <button type="submit" className={`${shell.btn} ${shell["btn-primary"]}`} disabled={pending}>
+          {phase === "pending" && <span className={shell.spinner} aria-hidden="true" />}
+          <span>Join the waitlist</span>
+        </button>
+        {edited && onCheck ? (
+          <button type="button" className={`${shell.btn} ${shell["btn-alt"]}`} onClick={check} disabled={pending}>
+            {checking && <span className={shell.spinner} aria-hidden="true" />}
+            <span>Check this email</span>
           </button>
         ) : (
-          <a className={`${shell.btn} ${shell["btn-primary"]}`} href={waitlistUrl}>Join the waitlist</a>
+          <button type="button" className={`${shell.btn} ${shell["btn-alt"]}`} onClick={onRetry} disabled={pending}>Try a different email</button>
         )}
-        <button type="button" className={`${shell.btn} ${shell["btn-alt"]}`} onClick={onRetry} disabled={pending}>Try a different email</button>
-      </div>
+      </form>
     </SignInStep>
   );
 }

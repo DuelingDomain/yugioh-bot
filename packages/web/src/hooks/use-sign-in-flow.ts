@@ -12,7 +12,7 @@ import { useRecoveryReload } from "./use-recovery-reload";
 export function useSignInFlow(opts: { returnTo: string; marketingUrl: string | null }): {
   state: AuthFlowState;
   actions: {
-    submitIdentifier(identifier: string): Promise<void>; continueWithDiscord(): Promise<void>;
+    submitIdentifier(identifier: string): Promise<void>; recheckIdentifier(identifier: string): Promise<void>; continueWithDiscord(): Promise<void>;
     submitPassword(password: string): Promise<void>; forgotPassword(): Promise<void>;
     submitCode(code: string): Promise<void>; resendCode(): Promise<void>;
     submitNewPassword(password: string, confirm: string): Promise<void>; back(): void;
@@ -172,6 +172,19 @@ export function useSignInFlow(opts: { returnTo: string; marketingUrl: string | n
         if (state.step !== "signin") return;
         await run("identifier", async () => {
           dispatch({ type: "identified", identifier });
+          if (await call(() => latest.current.signIn!.create({ identifier }), "identifier", () => latest.current.signIn!.status !== "needs_identifier")) await advance();
+        });
+      },
+      // The not-invited card lets the person edit the email in place; this runs the same check again with the new value.
+      recheckIdentifier: async (identifier) => {
+        if (state.step !== "err-invite") return;
+        await run("identifier", async () => {
+          dispatch({ type: "identified", identifier });
+          const previous = latest.current.signIn!;
+          if (previous.id) {
+            if (!await call(() => previous.reset(), "identifier")) return;
+            if (!await waitForFreshSignIn(previous)) { fail({ code: "network_error" }, "identifier"); return; }
+          }
           if (await call(() => latest.current.signIn!.create({ identifier }), "identifier", () => latest.current.signIn!.status !== "needs_identifier")) await advance();
         });
       },
