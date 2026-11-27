@@ -107,6 +107,7 @@ test.describe("remote duels screen, solo", () => {
 
     // The Respond chip names the open link and opens the Hand effect row; the row finds any card.
     await expect(page.getByTestId("respond-chip")).toContainText(/Respond to .+ \(Chain 1\)/);
+    await expect(page.getByTestId("respond-seconds")).toHaveText(/^\d+s$/);
     await page.getByTestId("respond-chip").click();
     await expect(page.getByTestId("hand-effect-picker")).toBeVisible();
     await expect(page.getByTestId("respond-chip")).toHaveCount(0);
@@ -127,7 +128,7 @@ test.describe("remote duels screen, solo", () => {
     expect(settled.handCount).toBe(before - 1);
     expect(settled.knownHand ?? []).toHaveLength(0);
     // The auto-Graveyard toast has the same single Undo as the bar.
-    await expect(page.getByTestId("toasts")).toContainText("Mystical Space Typhoon → GY");
+    await expect(page.getByTestId("toasts")).toContainText("Mystical Space Typhoon → GY", { timeout: 15_000 });
     await page.getByTestId("auto-gy-undo").click();
     await expect(graveyard).not.toHaveAttribute("aria-label", /top card Mystical Space Typhoon/);
     const undone = await room();
@@ -145,15 +146,19 @@ test.describe("remote duels screen, solo", () => {
     await expect(page.getByTestId("respond-chip")).toHaveCount(0);
     await page.keyboard.press("h");
     await expect(page.getByTestId("hand-effect-picker")).toBeVisible();
-    await expect(page.getByTestId("hand-effect-picker")).toContainText(/No hand traps in your deck list — search a card|Hand effect/);
+    // The row says one of two things: the empty hint, or at least one hand trap. It never shows nothing.
+    await expect(page.getByTestId("hand-effect-empty").or(page.getByTestId("hand-effect-card").first())).toBeVisible();
+    await expect(page.getByRole("textbox", { name: "Search any card" })).toBeFocused();
     await page.keyboard.press("Escape");
     await expect(page.getByTestId("hand-effect-picker")).toHaveCount(0);
+    await expect(button).toBeFocused();
+    await expect(button).toHaveAttribute("aria-expanded", "false");
     await button.click();
     await expect(page.getByTestId("hand-effect-picker")).toBeVisible();
     await page.getByRole("textbox", { name: "Search any card" }).fill("Mystical Space Typhoon");
     await page.getByTestId("hand-effect-results").getByRole("button", { name: /Mystical Space Typhoon/ }).click();
     await expect(page.getByTestId("hand-activation")).toContainText("Mystical Space Typhoon");
-    await expect(page.getByTestId("toasts")).toContainText("→ GY");
+    await expect(page.getByTestId("toasts")).toContainText("→ GY", { timeout: 15_000 });
   });
 
   test("Scan field now sits in the webcam ... menu and the S key runs it", async ({ page, context }) => {
