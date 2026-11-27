@@ -33,7 +33,7 @@ export function applyLiveDeckChecks(input: RemoteState, action: RemoteAction, co
   };
   if (action.type === "card.identified" || action.type === "cards.identified") {
     const sightings = action.type === "card.identified" ? [action] : action.cards;
-    const confirmed = (!context.replay || context.playerIdentityLock === 1) && action.source !== 'auto';
+    const confirmed = (!context.replay || context.playerIdentityLock === 1) && (action.source === 'click' || action.source === 'typed');
     for (const card of sightings) {
       const twin = card.cardRef ? next.seats[action.seat].twin.find(t => t.ref === card.cardRef) : undefined;
       // A new physical Set has no catalog instance until its first reveal.
@@ -52,10 +52,11 @@ export function applyLiveDeckChecks(input: RemoteState, action: RemoteAction, co
       if (twin && (legacy ? twin.faceUp : isPublic(twin))) {
         const sameCode = (twin.cardId ?? twin.passcode) === code;
         twin.cardId = card.cardId; twin.passcode = card.passcode;
-        twin.name = next.identified.name ?? (!confirmed || sameCode ? twin.name : undefined);
+        twin.name = next.identified.name ?? (sameCode || !confirmed && !twin.identityConfirmed ? twin.name : undefined);
         if(confirmed||action.source!=='auto'||card.nameCandidates===null||card.bestMatch===false)delete twin.bestMatch;else if(card.bestMatch)twin.bestMatch=true;
         if(confirmed||action.source!=='auto'||card.nameCandidates===null)delete twin.nameCandidates;else if(card.nameCandidates)twin.nameCandidates=structuredClone(card.nameCandidates);
         if (confirmed) twin.identityConfirmed = { seat: action.seat, zone: twin.zone, ...(twin.slot === undefined ? {} : { slot: twin.slot }) };
+        else if (!sameCode) delete twin.identityConfirmed;
       }
     }
   }
