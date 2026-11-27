@@ -171,13 +171,15 @@ function zoneTaken(twins:readonly FieldTwin[],target:FieldZone,ref?:string,skipT
  * The free zones a player can pick for a card on a token's cell. A face-down or unknown card: every free Monster and Spell & Trap Zone.
  * A known card: its row only (Monster Zones, Spell & Trap Zones, or the Field Zone for a Field Spell). A token holds its cell.
  */
-export function freeFieldZones(twins:readonly FieldTwin[],facts?:FieldZoneFacts,faceDown=false):FieldZone[] {
+export function freeFieldZones(twins:readonly FieldTwin[],facts?:FieldZoneFacts,faceDown=false,format?:FieldFormat):FieldZone[] {
   const row=(prefix:'M'|'S')=>([1,2,3,4,5] as const).map(slot=>`${prefix}${slot}` as FieldZone).filter(zone=>!zoneTaken(twins,zone));
   const kind=cardKind(facts);
   if(faceDown||!kind.known)return [...row('M'),...row('S')];
-  if(kind.field)return ['FIELD'];
+  if(kind.field)return zoneTaken(twins,'FIELD')?[]:['FIELD'];
   if(kind.trapMonster)return [...row('M'),...row('S')];
-  return kind.monster?row('M'):row('S');
+  if(!kind.monster)return row('S');
+  const extra=(['EMZ1','EMZ2'] as const).filter(zone=>format&&hasExtraMonsterZones(format)&&zoneVerdict(facts,zone,undefined,{}).legal==='ok'&&!zoneTaken(twins,zone));
+  return [...row('M'),...extra];
 }
 
 /** The token that holds this Main Monster Zone cell, if any. A camera card standing there asks the player; it is never moved away or placed over the token. */

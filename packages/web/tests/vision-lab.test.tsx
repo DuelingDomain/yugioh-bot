@@ -740,6 +740,37 @@ async function typedWatcherFixture(entry:{cardId:string;passcode:number;name:str
 }
 
 const physicalHintsKey='dd-field-physical:v1:g:typed-zone:0';
+it.each(['move','replace'] as const)('holds a physical card on a controlled proxy zone until the player can %s',async resolution=>{
+ const {judgeMove}=await import('../src/components/remote/ui/placement');
+ const proxy={ref:'given',cardId:cards[0].passcode,name:cards[0].name,ownerSeat:1,zone:'monster',slot:4,faceUp:true,position:'attack'} as const;
+ const message='This zone has Dark Magician (proxy). Move your card to a free zone.';
+ const fixture=await typedWatcherFixture(cards[0],'M4',[proxy]);
+ try{
+  await fixture.emit();
+  const prompt=await screen.findByTestId('proxy-clash');
+  expect(prompt).toHaveTextContent(message);
+  expect(fixture.post).not.toHaveBeenCalled();
+  expect(judgeMove({card:{...proxy,ref:'paper',ownerSeat:undefined,slot:2},info:undefined,land:{zone:'monster',slot:4},twin:[proxy],extraZones:true})).toEqual({kind:'refuse',message});
+  expect(within(prompt).queryByRole('button',{name:'Main Monster Zone 4'})).toBeNull();
+  if(resolution==='move'){
+   fireEvent.click(within(prompt).getByRole('button',{name:'Main Monster Zone 2'}));
+   expect(prompt).toHaveTextContent('Move your card to Main Monster Zone 2.');
+   expect(fixture.post).not.toHaveBeenCalled();
+   Object.assign(fixture.track,{zone:'M2',revision:1});
+   await fixture.emit({type:'moved'});
+  }else{
+   fireEvent.click(within(prompt).getByRole('button',{name:'Replace proxy'}));
+   await waitFor(()=>expect(fixture.post).toHaveBeenCalledWith(expect.objectContaining({type:'twin.remove',cardRef:proxy.ref}),expect.anything()));
+  }
+  await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());
+  expect(fixture.room().state.seats[0].twin).toEqual([
+   ...(resolution==='move'?[proxy]:[]),expect.objectContaining({cardId:cards[0].passcode,zone:'monster',slot:resolution==='move'?2:4}),
+  ]);
+  fixture.refresh();
+  expect(screen.queryByTestId('proxy-clash')).toBeNull();
+ }finally{fixture.dispose();}
+});
+
 it.each([false,true])('flips a projected Trap in place even when the physical monster row is full: %s',async full=>{
  const old={ref:'projected-trap',zone:'spell-trap',slot:4,cardId:41420027,name:'Solemn Judgment',faceUp:true,position:'attack'};
  const others=full?Array.from({length:5},(_,i)=>({ref:`monster-${i}`,zone:'monster',slot:i+1,cardId:46986414,faceUp:true,position:'attack'})):[];

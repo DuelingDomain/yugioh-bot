@@ -1,5 +1,6 @@
-import { isMonsterInfo, type CardInfo } from "./catalog";
-import { cellsFor, foundationZone, frameOf, mirrorEmz, PENDULUM_CELLS, type TwinCard, type ZoneKey } from "./model";
+import { remoteProxyClashMessage, remoteProxyInSlot } from "@yugidraft/shared/remote";
+import { cardInfo, isMonsterInfo, type CardInfo } from "./catalog";
+import { cardCode, cellsFor, foundationZone, frameOf, mirrorEmz, PENDULUM_CELLS, type TwinCard, type ZoneKey } from "./model";
 
 /** Where a card goes: a twin zone with an optional slot. */
 export type Landing = { zone: string; slot?: number };
@@ -56,6 +57,18 @@ export const landingLabel = (land: Landing): string => {
   }
 };
 
+export const proxyClashLabel = (card: TwinCard) => remoteProxyClashMessage(card, cardInfo(cardCode(card))?.name);
+
+/** Legacy row cards can take a drawn cell even with no saved slot. */
+export function proxyAtLanding(twin: readonly TwinCard[], land: Landing, extraZones: boolean, exceptRef?: string): TwinCard | undefined {
+  const proxy = remoteProxyInSlot(twin, land, exceptRef);
+  if (proxy) return proxy;
+  const cell = cellForLanding(land);
+  if (!cell || !twin.some(card => card.ownerSeat !== undefined)) return;
+  const drawn = cellsFor(twin, extraZones)[cell].card;
+  return drawn && drawn.ownerSeat !== undefined && drawn.ref !== exceptRef ? drawn : undefined;
+}
+
 /**
  * Can this card go there? One policy for drag, keyboard and voice.
  * Occupied zone: refuse with a short message (never swap), so one drag is always one action with one Undo.
@@ -71,6 +84,8 @@ export function judgeMove(args: {
   const cell = cellForLanding(land);
   if (cell) {
     const holder = cellsFor(twin, extraZones)[cell].card;
+    const proxy = remoteProxyInSlot(twin, land, card.ref) ?? (holder && holder.ref !== card.ref && holder.ownerSeat !== undefined ? holder : undefined);
+    if (proxy) return { kind: "refuse", message: proxyClashLabel(proxy) };
     if (holder && holder.ref === card.ref) return { kind: "same" };
     if (holder) return { kind: "refuse", message: `${labelOfCell(land)} is taken. Move that card first.` };
     // Pendulum Zones 1/2 are S1/S5, so a held S1/S5 also blocks them.
@@ -79,6 +94,8 @@ export function judgeMove(args: {
       return { kind: "refuse", message: `${labelOfCell(land)} is held by a Trap Monster until it leaves the field.` };
     if (land.zone === "extra-monster" && land.slot) {
       const shared = facing?.twin.find(other => other.zone === "extra-monster" && other.slot === mirrorEmz(land.slot!));
+      const proxy = facing && proxyAtLanding(facing.twin,{ zone: "extra-monster", slot: mirrorEmz(land.slot) },extraZones,card.ref);
+      if (proxy) return { kind: "refuse", message: proxyClashLabel(proxy) };
       if (shared) return { kind: "refuse", message: `That Extra Monster Zone is shared with ${facing!.name} and taken.` };
     }
   } else if (card.zone === land.zone && (land.zone === "graveyard" || land.zone === "banished" || land.zone === "hand" || land.zone === "extra" || land.zone === "deck")) return { kind: "same" };
