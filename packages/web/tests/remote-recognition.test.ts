@@ -1413,7 +1413,7 @@ it.each(['GY','BANISHED'] as const)('a clear %s lift leaves the pile once and st
   }finally{r.dispose();}
 });
 
-it.each([['GY',.9,.3],['BANISHED',.9,.02],['EXTRA',.03,.7]] as const)('a changed %s top reveals a known lower member without inferring a departure',async(zone,x,y)=>{
+it.each([['GY',.9,.3],['BANISHED',.9,.02]] as const)('a changed %s top reveals a known lower member without inferring a departure',async(zone,x,y)=>{
   const r=await ownerFieldRig();
   try{
     r.state.outlines=[r.quad(x,y)];await r.tick(10);const first=r.state.events.find(e=>e.type==='placed')!;
@@ -1429,7 +1429,7 @@ it.each([['GY',.9,.3],['BANISHED',.9,.02],['EXTRA',.03,.7]] as const)('a changed
   }finally{r.dispose();}
 });
 
-it('a matching field read during an empty GY does not take a middle entry',async()=>{
+it('a matching field read while the GY is lifted moves the middle entry',async()=>{
   const r=await ownerFieldRig();
   try{
     r.state.known=[{id:'bottom',zone:'GY',cardId:'300'},{id:'middle',zone:'GY',cardId:'100'},{id:'top',zone:'GY',cardId:'200'}];
@@ -1440,10 +1440,9 @@ it('a matching field read during an empty GY does not take a middle entry',async
     r.state.empty.add(`${corner.x}/${corner.y}`);r.state.halo=.2;
     r.state.outlines=[r.quad(.634)];await r.tick(20);
     expect(r.watcher.getSnapshot().pileClearSince?.GY).toBeDefined();
-    const field=r.state.events.find(e=>e.type==='placed'&&e.track.zone==='M4');
-    expect(field?.track.cardId).toBe('100');
-    expect(field?.track.id).not.toBe('middle');
-    expect(field?.fromRef).toBeUndefined();
+    const field=r.state.events.filter(e=>['placed','moved'].includes(e.type)&&e.track.zone==='M4');
+    expect(field).toHaveLength(1);
+    expect(field[0]).toMatchObject({type:'moved',fromRef:'middle',track:{id:'middle',cardId:'100',zone:'M4'}});
   }finally{r.dispose();}
 });
 

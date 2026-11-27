@@ -173,7 +173,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   const vanishes=useRef<FieldVanish[]>([]),summons=useRef(new Map<string,{kind:RemoteSummonKind;name:string;rating?:number;at:number;count:number;pending:string[];trackId:string}>());
   // Stacks the glue holds back (a card moved on top of another card): the summon window decides, then the default applies.
   // stackKept: a stack whose default the player undid; the camera leaves it alone while it stays stacked.
-  const heldStacks=useRef(new Set<string>()),stackKept=useRef(new Set<string>()),stackTimers=useRef(new Set<ReturnType<typeof setTimeout>>()),undoChain=useRef<{after:string;ids:string[];/** The pile track that follows the departed card, restored to its stand-in by Undo. */rebind?:{trackId:string;ref:string}}>({after:'',ids:[]}),watchStartedAt=useRef(performance.now());
+  const heldStacks=useRef(new Set<string>()),stackKept=useRef(new Set<string>()),stackTimers=useRef(new Set<ReturnType<typeof setTimeout>>()),undoChain=useRef<{after:string;ids:string[];/** The pile track that follows the departed card, restored to its stand-in by Undo. */rebind?:{trackId:string;ref:string;adoptedRef:string}}>({after:'',ids:[]}),watchStartedAt=useRef(performance.now());
   useEffect(()=>{separatedStackCards.current.clear();vanishes.current=[];summons.current.clear();heldStacks.current.clear();stackKept.current.clear();watchStartedAt.current=performance.now();},[room.slug,seat,source]);
   useEffect(()=>()=>{for(const timer of stackTimers.current)clearTimeout(timer);stackTimers.current.clear();},[]);
   /**
@@ -1907,7 +1907,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     readerRemovals.current.add(seen.twin.ref);
     const dropped=await act({type:'twin.remove',source:'auto',actorSeat:seat,seat,cardRef:seen.twin.ref});
     if(!dropped?.state.undo?.actionId){readerRemovals.current.delete(seen.twin.ref);return;}
-    undoChain.current={after:dropped.state.undo.actionId,ids:movedId?[movedId]:[],...(pileTrack?{rebind:{trackId:pileTrack.id,ref:seen.twin.ref}}:{})};
+    undoChain.current={after:dropped.state.undo.actionId,ids:movedId?[movedId]:[],...(pileTrack?{rebind:{trackId:pileTrack.id,ref:seen.twin.ref,adoptedRef:cardRef}}:{})};
     return {state:dropped,undoTarget:dropped.state.undo.actionId};
   }
   /** Adopt the pile evidence for a rule-defaulted GY or Extra Deck departure. */
@@ -2517,9 +2517,10 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
         return {id:candidate.cardId,label:`${observed.faceDown?'Confirm face-down card':entry?.name??candidate.cardId} · ${resolved.blocked?'Another physical card owns this ref':projected.zone?`To ${projected.label}`:projected.reason}`,disabled:resolved.blocked||!projected.zone};
       })};
   });
-  function acceptPilePrompt(id:string,card:{cardId:number;name:string}) {
+  function acceptPilePrompt(id:string,{cardId,name}:{cardId:number;name:string}) {
     const event=activePrompts.find(p=>p.track.id===id),zone=event&&observedPile(event.track.zone);
     if(!event||!zone||reviewing(event))return;
+    const card={cardId,name};
     const entry=[...entries.current.values()].find(item=>catalogCardId(item)===card.cardId)??{...card,cardId:String(card.cardId),passcode:card.cardId};
     setPending(true);
     void transaction(async (latest,post)=>{
@@ -2542,11 +2543,12 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
         if(updated)ref=placedTwin(updated.state.seats[seat].twin,{...card,ref,zone})?.ref??ref;
       }
       if(!updated)return;
+      let trackId=id;
       if(unnamed&&ref!==unnamed.ref){
         const adopted=await adoptPileCard(act,{twin:unnamed,zone,faceUp:true},ref,updated.state.undo?.actionId??'');
-        if(adopted)updated=adopted.state;
+        if(adopted){updated=adopted.state;trackId=watch.getTrack(id)?id:ref;}
       }
-      bindings.current.set(id,ref);watch.confirm(id,entry.cardId,ref,true);
+      bindings.current.set(id,ref);watch.confirm(trackId,entry.cardId,ref,true);
       setPrompts(prompts=>prompts.filter(prompt=>prompt.track.id!==id));
       if(updated!==latest){setNotice(`${card.name} → ${zone==='graveyard'?'GY':'Banished'}`);setUndoId(updated.state.undo?.actionId??'');}
     }).catch(error=>setNotice(error instanceof Error?error.message:'Could not update the pile.')).finally(()=>setPending(false));
@@ -2616,7 +2618,23 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
         <button type="button" disabled={pending} data-testid="monster-in-st-move" onClick={()=>moveFromSpellTrap(rowPrompts[0])}>Move to {rowTarget??'a Monster Zone'}</button>
         <button type="button" data-testid="monster-in-st-keep" onClick={()=>{const first=rowPrompts[0];rowKept.current.add(first.ref);setRowPrompts(list=>list.filter(p=>p.ref!==first.ref));}}>Keep (equipped or placed by a card)</button></span>:failedUpdate?<>{notice||'Could not save the field update.'}<button type="button" disabled={pending} onClick={()=>void queue(failedUpdate.work,failedUpdate.event,failedUpdate.humanChoice)}>Retry field update</button></>:recovery?<>{recovery.message}<button type="button" onClick={recover}>Remove stale placement</button></>:leaveChoice?<span data-testid="leave-choice">The camera saw a card {leaveChoice.zone==='banished'?`banished${leaveChoice.faceUp?'':' face-down'}`:'in the Graveyard'}. Which card was it?{leaveChoice.options.map(o=><button type="button" key={o.ref} disabled={pending} onClick={()=>chooseLate(o.ref)}>{o.name}</button>)}<button type="button" onClick={()=>{choiceClosed.current.add(leaveChoice.twinRef);setLeaveChoice(null);}}>Neither</button></span>:syncHold?<span data-testid="sync-board-hold">Auto-detect is on. The board keeps its cards until you sync it.<button type="button" onClick={()=>{scanField();}}>Sync board to camera</button></span>:shiftHint?<span data-testid="zone-shift-hint">Zones look shifted — Recalibrate?<button type="button" onClick={()=>{setShiftHint(false);setCalibrating(true);}}>Recalibrate</button><button type="button" onClick={()=>setShiftHint(false)}>Dismiss</button></span>:notice?<>{notice}{departure?<span data-leave-tags>{departure.zone!=='pending'?` → ${fieldLeaveLabel(departure.zone,!departure.down)}`:null} {attachTargets.map(t=><button type="button" key={`attach-${t.ref}`} disabled={pending} onClick={()=>attachTo(t)}>Attach to {t.name}</button>)}{(departure.pile?handFirst:destinations).map(d=><button type="button" key={d.title} disabled={pending||(departure.zone==='pending'&&d.zone===departure.pile)||d.zone===departure.zone&&(d.zone!=='banished'||('down' in d)===!!departure.down)} onClick={()=>redirect(d.zone,'down' in d)}>{d.title}</button>)}</span>:null}
         {departure?.zone==='pending'&&!departure.pile?<button type="button" disabled={pending} onClick={()=>redirect('hand')}>Retry removal</button>:null}
-        {undoId&&room.state.undo?.actionId===undoId&&serverNow()<=room.state.undo.at+5000?<button type="button" onClick={()=>void queueHuman('undo',async act=>{clipAction('undo',{actionId:undoId});const departed=departureRef.current?.ref,link=undoChain.current.after===undoId?undoChain.current:undefined,chain=link?.ids??[];undoChain.current={after:'',ids:[]};let updated=await act({type:'undo',actorSeat:seat,targetActionId:undoId});for(const id of chain)if(updated)updated=await act({type:'undo',actorSeat:seat,targetActionId:id})??updated;if(updated){if(link?.rebind){bindings.current.set(link.rebind.trackId,link.rebind.ref);watch.confirm(link.rebind.trackId,undefined,link.rebind.ref,false);readerRemovals.current.delete(link.rebind.ref);}if(departed&&updated.state.seats[seat].twin.some(card=>card.ref===departed&&publicField(card.zone)))watch.dismiss(departed);setDeparture(null);setNotice('Automatic field change undone');setUndoId('');}})}>Undo</button>:null}</>:heldPick?<span data-testid="held-pick">Which card did you hold up?
+        {undoId&&room.state.undo?.actionId===undoId&&serverNow()<=room.state.undo.at+5000?<button type="button" onClick={()=>void queueHuman('undo',async act=>{
+          clipAction('undo',{actionId:undoId});
+          const departed=departureRef.current?.ref,link=undoChain.current.after===undoId?undoChain.current:undefined;
+          undoChain.current={after:'',ids:[]};
+          let updated=await act({type:'undo',actorSeat:seat,targetActionId:undoId});
+          for(const id of link?.ids??[])if(updated)updated=await act({type:'undo',actorSeat:seat,targetActionId:id})??updated;
+          if(updated){
+            if(link?.rebind){
+              const {trackId,ref,adoptedRef}=link.rebind;
+              bindings.current.set(trackId,ref);
+              watch.confirm(watch.getTrack(trackId)?trackId:adoptedRef,undefined,ref,false);
+              readerRemovals.current.delete(ref);
+            }
+            if(departed&&updated.state.seats[seat].twin.some(card=>card.ref===departed&&publicField(card.zone)))watch.dismiss(departed);
+            setDeparture(null);setNotice('Automatic field change undone');setUndoId('');
+          }
+        })}>Undo</button>:null}</>:heldPick?<span data-testid="held-pick">Which card did you hold up?
         {heldPick.options.map(o=><button type="button" key={o.cardId} disabled={pending} data-testid="held-pick-card" onClick={()=>{const pick=heldPick;setHeldPick(null);void queueHuman('held-pick',act=>commitHeld(act,o.cardId,o.name,`${pick.id}-pick`,performance.now(),`${pick.id}-pick`));}}>{o.name}</button>)}
         <button type="button" data-testid="held-pick-none" onClick={()=>setHeldPick(null)}>Not an activation</button></span>:tapOffer?<span data-testid="tap-identify-offer">{tournament?'This computer is slow for live tracking. Switch to tap-to-identify? Your opponent will see the switch.':'This computer is slow for live tracking. Switch to tap-to-identify?'}<button type="button" onClick={()=>answerTapOffer('switch')}>Switch</button><button type="button" onClick={()=>answerTapOffer('keep')}>Keep</button></span>:videoOfferShowing?<span data-testid="video-fps-offer">Your computer is struggling with video. Switch to 15 fps to reduce lag?<button type="button" onClick={()=>answerVideoOffer(15)}>Switch</button><button type="button" onClick={()=>answerVideoOffer(30)}>Keep</button></span>:lightHintShowing?<span data-testid="low-light-hint">Camera is slow — add light or turn off auto exposure<button type="button" onClick={()=>setLightHint(false)}>Dismiss</button></span>:softHintShowing?<span data-testid="soft-camera-hint">Camera is out of focus — tap to focus or move closer<button type="button" onClick={()=>setSoftDismissed(true)}>Dismiss</button></span>:undefined}/>
     {calibrating?<FieldCalibrationControl defaultSide={defaultSideFor(phone?'phone':'webcam')} video={video} initialCalibration={watch.calibration} placed={watch.placed} format={room.format?.id??room.state.deckChecks.format.id} detectCalibrationCards={async frame=>{const result=await detectCards(await createImageBitmap(frame));if(result.status!=='ready')throw new Error(result.note);return result.cards;}} onSave={grid=>{updateCalibration(grid,true);setCalibrating(false);}} onCancel={()=>{if(watch.calibrationNeeded&&!watch.calibration?.orientation)setDetection(false);setCalibrating(false);}}/>:null}

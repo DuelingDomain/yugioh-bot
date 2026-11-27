@@ -1031,6 +1031,30 @@ test('hidden and busy tabs do not infer or count time toward a stable placement'
   r.hidden=false;r.busy=true;await r.tick();assert.equal(r.detects,1);r.busy=false;await r.tick();assert.equal(r.reads,0);r.motion=0;
   for(let i=0;i<5;i++)await r.tick();assert.equal(r.reads,1);r.watcher.dispose();
 });
+test('a new M5 monster that touches the GY top stays M5',async t=>{
+  for(const position of ['attack','defense'] as const)await t.test(position,async()=>{
+    const r=fieldRig(),gy=card(position==='attack'?.82:.848,.39,.10,.22);
+    // In Defense Position the edge crosses into the GY cell, but its centre is still in M5.
+    const monster=position==='attack'?card(.73,.39,.10,.22):card(.72,.43,.14,.14);
+    r.watcher.setCalibration(zones.createFieldCalibration([{x:0,y:0},{x:1,y:1}]));
+    r.decklist=['A','B'];
+    r.identityAt=c=>zones.fieldCenter(c).x>.84?'A':'B';
+    r.outlines=[gy];
+    try{
+      for(let i=0;i<15&&!r.events.some(e=>e.type==='placed'&&e.track.zone==='GY');i++)await r.tick(100);
+      const top=r.events.find(e=>e.type==='placed'&&e.track.zone==='GY');
+      assert.ok(top);
+      r.known=[{id:top.track.id,zone:'GY',cardId:'A'}];
+      r.outlines=[gy,monster];
+      for(let i=0;i<20&&!r.events.some(e=>e.type==='placed'&&e.track.cardId==='B');i++)await r.tick(100);
+      assert.deepEqual(r.events.filter(e=>e.type==='placed').map(e=>[e.track.cardId,e.track.zone,e.track.position]),[
+        ['A','GY','attack'],['B','M5',position],
+      ]);
+      assert.equal(r.watcher.getSnapshot().fannedPiles?.includes('GY'),false);
+    }finally{r.watcher.dispose();}
+  });
+});
+
 test('field calibration maps perspective grid, side piles, EMZ and defense orientation',()=>{
   const calibration=zones.createFieldCalibration([{x:.1,y:.1},{x:.9,y:.15},{x:.85,y:.95},{x:.15,y:.9}]);
   assert.equal(zones.mapFieldZone(card(.44,.35,.04,.06),calibration).zone,'M3');

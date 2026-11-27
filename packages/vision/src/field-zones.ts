@@ -441,12 +441,18 @@ export function publicPileOutlines<T extends DetectedQuad>(cards:readonly T[],ca
   for(const zone of ['GY','BANISHED'] as const){
     const cell=cells.find(c=>c.zone===zone)!;
     const cellQuad=[{x:cell.x,y:cell.y},{x:cell.x+cell.w,y:cell.y},{x:cell.x+cell.w,y:cell.y+cell.h},{x:cell.x,y:cell.y+cell.h}];
-    const row=outlines.filter(c=>c.center.y>=cell.y&&c.center.y<=cell.y+cell.h&&!piles.GY.includes(c.card));
-    const overlaps=(a:typeof row[number],b:typeof row[number])=>Math.abs(a.center.x-b.center.x)>=cell.w*.05&&
-      polygonArea(clipToConvex(a.quad,b.quad))/Math.min(a.area,b.area)>=.02;
-    const members=new Set(row.filter(c=>zoneCellAt(c.center,cells)?.zone===zone));
+    const row=outlines.filter(c=>c.center.y>=cell.y&&c.center.y<=cell.y+cell.h&&!piles.GY.includes(c.card)).map(c=>{
+      const centerZone=zoneCellAt(c.center,cells)?.zone;
+      const pileShare=polygonArea(clipToConvex(c.quad,cellQuad))/c.area;
+      // A card centred in a neighbouring cell can brush the pile without joining its fan.
+      const minOverlap=(!centerZone||centerZone===zone)&&pileShare>=.05?.02:.15;
+      return {...c,centerZone,pileShare,minOverlap};
+    });
+    const overlaps=(candidate:typeof row[number],other:typeof row[number])=>Math.abs(candidate.center.x-other.center.x)>=cell.w*.05&&
+      polygonArea(clipToConvex(candidate.quad,other.quad))/Math.min(candidate.area,other.area)>=candidate.minOverlap;
+    const members=new Set(row.filter(c=>c.centerZone===zone));
     // A card straddling the line can anchor the fan even if its centre is just outside the cell.
-    for(const c of row)if(polygonArea(clipToConvex(c.quad,cellQuad))/c.area>=.05&&row.some(other=>overlaps(c,other)))members.add(c);
+    for(const c of row)if(c.pileShare>=.05&&row.some(other=>overlaps(c,other)))members.add(c);
     for(const member of members)for(const c of row){
       if(!members.has(c)&&overlaps(c,member))members.add(c);
     }

@@ -3,7 +3,7 @@ import React from "react";
 import { flushSync } from "react-dom";
 import { act, cleanup, fireEvent, render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { DetectedQuad, RecognitionResult } from "@yugidraft/vision";
+import type { DetectedQuad, FieldTrack, RecognitionResult } from "@yugidraft/vision";
 import { SWRConfig } from "swr";
 import type { RemoteRoom, TwinCard } from "@yugidraft/shared/remote";
 
@@ -776,20 +776,55 @@ it.each([['GY','graveyard',false],['BANISHED','banished',true]] as const)(
   }
 );
 
-it('a pile notice stays actionable in Tap mode and Enter moves the existing field card',async()=>{
+it.each(['Tap mode','field card with a stand-in','known hand card with a stand-in'] as const)('accepts a New card? pile notice with %s',async scenario=>{
  const card=cards[0],existing={ref:'from-field',zone:'monster',slot:3,cardId:card.passcode,name:card.name,faceUp:true,position:'attack'};
- const fixture=await typedWatcherFixture(card,'GY',[existing],'prompt');
+ const tap=scenario==='Tap mode',fromHand=scenario==='known hand card with a stand-in';
+ const standIn={ref:'physical-typed',zone:'graveyard',faceUp:true,position:'attack'};
+ const twins=fromHand?[standIn]:tap?[existing]:[existing,standIn];
+ const fixture=await typedWatcherFixture(card,'GY',twins,'prompt');
+ const watch=state.fieldWatch.watch;
  try {
+  if(!tap){
+   watch.getTrack=(id:string)=>watch.snapshot.tracks.find((track:FieldTrack)=>track.id===id);
+   fixture.confirm.mockImplementation((id:string,cardId?:string,ref?:string)=>{
+    watch.snapshot.tracks=watch.snapshot.tracks.map((track:FieldTrack)=>track.id===id?{...track,id:ref??id,cardId,state:'identified'}:track);
+   });
+  }
+  if(fromHand){
+   await act(async()=>{await fixture.action({type:'hand.reveal',actorSeat:0,cardId:card.passcode});fixture.refresh();});
+   fixture.post.mockClear();
+  }
   await fixture.emit({reason:'pile',result:{...result,tier:'low match',candidates:[{cardId:card.cardId,score:.62}]}});
-  const watch=state.fieldWatch.watch;
-  watch.enabled=false;watch.getTrack=()=>undefined;watch.snapshot={...watch.snapshot,tracks:[]};
-  await act(async()=>fixture.refresh());
+  if(tap){
+   watch.enabled=false;watch.getTrack=()=>undefined;watch.snapshot={...watch.snapshot,tracks:[]};
+   await act(async()=>fixture.refresh());
+  }
   const prompt=screen.getByTestId('field-watcher-prompt');
-  expect(within(prompt).getByRole('button',{name:'Move Dark Magician from M3'})).toBeVisible();
+  expect(prompt).toHaveTextContent('New card?');
+  expect(within(prompt).getByRole('button',{name:`Move Dark Magician from ${fromHand?'hand':'M3'}`})).toBeVisible();
   expect(within(prompt).getByRole('button',{name:'Remove a GY card…'})).toBeVisible();
   await act(async()=>{fireEvent.keyDown(prompt,{key:'Enter'});});
-  expect(fixture.post).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({type:'twin.move',cardRef:'from-field',zone:'graveyard'}),expect.any(String));
-  expect(fixture.room().state.seats[0].twin).toEqual([expect.objectContaining({ref:'from-field',zone:'graveyard'})]);
+  expect(fixture.post.mock.calls.map(([proposal])=>proposal)).toEqual([
+   expect.objectContaining(fromHand?{type:'twin.place',zone:'graveyard',card:expect.objectContaining({cardId:card.passcode})}:
+    {type:'twin.move',cardRef:existing.ref,zone:'graveyard'}),
+   ...(tap?[]:[expect.objectContaining({type:'twin.remove',cardRef:standIn.ref})]),
+  ]);
+  expect(fixture.room().state.seats[0].twin).toEqual([expect.objectContaining({cardId:card.passcode,zone:'graveyard',...(!fromHand?{ref:existing.ref}:{})})]);
+  if(!tap){
+   const acceptedRef=fixture.room().state.seats[0].twin[0].ref;
+   expect(watch.getTrack(acceptedRef)?.cardId).toBe(card.cardId);
+   const [[,acceptedId],[,removedId]]=fixture.post.mock.calls;
+   fixture.room().state.undo.at=Date.now();
+   fixture.refresh();
+   fireEvent.click(await screen.findByRole('button',{name:'Undo'}));
+   await waitFor(()=>expect(fixture.room().state.seats[0].twin).toEqual(twins));
+   expect(fixture.post.mock.calls.slice(2).map(([proposal])=>proposal)).toEqual([
+    expect.objectContaining({type:'undo',targetActionId:removedId}),
+    expect.objectContaining({type:'undo',targetActionId:acceptedId}),
+   ]);
+   expect(watch.getTrack(standIn.ref)).toMatchObject({zone:'GY',cardId:undefined});
+   expect(watch.getTrack(acceptedRef)).toBeUndefined();
+  }
  } finally { fixture.dispose(); }
 });
 
