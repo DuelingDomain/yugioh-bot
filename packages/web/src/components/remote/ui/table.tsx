@@ -364,6 +364,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
   /** Bumps when a placement is noted, so the toast check runs even if the history entry came first. */
   const [autoNoted, setAutoNoted] = useState(0);
   // The same timer runs for manual and camera activations. The transaction lets already-queued pile reads finish first.
+  const noopAt = useRef(new Map<string, number>());
   useEffect(() => {
     if (!live || mySeat < 0) return;
     const ownSeats = solo ? state.seats.map(s => s.seat) : [mySeat];
@@ -374,23 +375,28 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     const key = crypto.randomUUID(), ref = crypto.randomUUID();
     let timer: ReturnType<typeof setTimeout>;
     const settle = async () => {
-      let placed = false;
-      // A timed placement the server turns down is retried below. Its raw error is not shown (the card is simply not placed yet).
-      quietError.current = true;
+      let placed = false, latestSeq = -1;
       const updated = await ctl.transaction(async (latest, send) => {
         if (stopped || latest.slug !== room.slug || latest.status !== "active" ||
             !pendingRemoteHandActivations(latest.state, pending.seat).some(entry => entry.actionId === pending.actionId)) return latest;
-        placed = true;
-        return send({ type: "twin.place", actorSeat: pending.seat, seat: pending.seat, source: "auto", zone: pending.destination,
-          fromActivation: pending.actionId, handFallback: true, card: { ref, cardId: pending.cardId, name: pending.name, faceUp: true, position: "attack" } }, key);
+        placed = true; latestSeq = latest.lastSeq;
+        // A timed placement the server turns down is retried below. Its raw error is not shown (the card is simply not placed yet).
+        // The flag clears a moment after the send, so the error effect (which runs on the next render) still sees it.
+        quietError.current = true;
+        try {
+          return await send({ type: "twin.place", actorSeat: pending.seat, seat: pending.seat, source: "auto", zone: pending.destination,
+            fromActivation: pending.actionId, handFallback: true, card: { ref, cardId: pending.cardId, name: pending.name, faceUp: true, position: "attack" } }, key);
+        } finally { setTimeout(() => { quietError.current = false; }, 150); }
       }).catch(() => null);
-      setTimeout(() => { quietError.current = false; }, 150);
+      // The server took the send as a no-op (the table did not move): wait a second before the next try instead of looping.
+      if (placed && updated && updated.lastSeq === latestSeq) noopAt.current.set(pending.actionId, Date.now());
       if (!stopped && !updated) timer = setTimeout(() => void settle(), 1000);
       // The toast shows when the placement's own history entry arrives (see the effect below).
       else if (placed && updated) { autoPlaced.current.set(pending.actionId, { label: pending.name ?? cardInfo(pending.cardId)?.name ?? "Card", destination: pending.destination, at: Date.now() }); setAutoNoted(n => n + 1); }
     };
     // The HTTP Date estimate can be up to a second ahead of the server clock; 1.5 s covers a slow link as well.
-    timer = setTimeout(() => void settle(), Math.max(0, pending.at + HAND_ACTIVATION_FALLBACK_MS + 1500 - serverNow()));
+    const delay = Math.max(0, pending.at + HAND_ACTIVATION_FALLBACK_MS + 1500 - serverNow());
+    timer = setTimeout(() => void settle(), Math.max(delay, (noopAt.current.get(pending.actionId) ?? -Infinity) + 1000 - Date.now()));
     return () => { stopped = true; clearTimeout(timer); };
   }, [ctl.transaction, live, mySeat, room.slug, solo, state]);
   // The card went to its pile by itself: say so, with an Undo for that placement (not the newest action of mine).

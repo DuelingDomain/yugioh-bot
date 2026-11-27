@@ -20,7 +20,7 @@ export function describeEvent(event: RemoteEvent, name: (seat: number) => string
       const base = `${who} activated ${sourceName(a)}${a.fromHand ? " from hand" : ""}`;
       const response = link?.of;
       const text = response && response.actorSeat !== null
-        ? `${who} activate${a.fromHand ? "d" : "s"} ${sourceName(a)}${a.fromHand ? " from hand" : ""} in response to ${name(response.actorSeat)}'s ${sourceName(response.action)}`
+        ? `${who} activated ${sourceName(a)}${a.fromHand ? " from hand" : ""} in response to ${name(response.actorSeat)}'s ${sourceName(response.action)}`
         : base;
       return { kind: "CD", text, undoable: true };
     }
