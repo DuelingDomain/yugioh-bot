@@ -496,8 +496,17 @@ test.describe("remote duels screen, solo", () => {
       await bothView(alice);
       // The dev server builds each route on its first call, so the first table can time out. A new table is started until one stands.
       let slug = ""; await expect(async () => { slug = await startTwoPlayerTable(alice.request, bob.request); }).toPass({ timeout: 150_000 });
-      const page = await alice.newPage(); await fakeCamera(page, "16:9"); await page.goto(`/duels/remote/${slug}`);
+      const page = await alice.newPage(); await fakeCamera(page, "16:9");
       const height = (id: string) => page.getByTestId(id).evaluate(el => el.getBoundingClientRect().height);
+      // A seat with no camera (a test bot) has the same switch. Its board goes, and its panel keeps the no-camera message and the cards list at full height.
+      let soloSlug = ""; await expect(async () => { soloSlug = await soloTable(alice.request, 2); }).toPass({ timeout: 100_000 });
+      await page.goto(`/duels/remote/${soloSlug}`);
+      await expect(page.getByTestId("fwrap-1")).toBeVisible({ timeout: 60_000 }); const botCam = await height("feed-box-1");
+      await page.getByTestId("seat-board-1").click();
+      await expect(page.getByTestId("fwrap-1")).toBeHidden(); await expect(page.getByTestId("feed-box-1")).toBeVisible(); await expect(page.getByTestId("wc-cards-1")).toBeAttached(); await expect(page.getByTestId("fwrap-0")).toBeVisible();
+      await expect.poll(() => height("feed-box-1")).toBeGreaterThan(botCam + 40);
+      await page.getByTestId("seat-board-1").click(); await expect(page.getByTestId("fwrap-1")).toBeVisible();
+      await page.goto(`/duels/remote/${slug}`);
       await expect(page.getByTestId("fwrap-0")).toBeVisible(); await expect(page.getByTestId("fwrap-1")).toBeVisible();
       // Per seat: the opponent's board goes and mine stays, then the other way, and the choice is remembered. The webcam "..." menu has the same switch.
       await expect(page.getByTestId("seat-board-1")).toHaveAttribute("aria-pressed", "true");
