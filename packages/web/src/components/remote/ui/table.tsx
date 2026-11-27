@@ -17,7 +17,7 @@ import { activatable, aliveSeats, chainOf, maySignal, onField, recentlyPlaced, t
 const SIGNAL_GAP_MS = 1050;
 import { MicSection, VoxSection, type Proposal } from "./dock";
 import { describeEvent, undoLabel, type LogKind } from "./describe";
-import { ownUndoEntries, phaseBackAction, shortUndoLabel } from "./undo-ui";
+import { ownUndoEntries, phaseBackAction, shortUndoLabel, undoChipText } from "./undo-ui";
 import { DeckFlagPopover } from "./deck-flag";
 import { Banner, HealthPopover, IdleBanner, type HealthExtra, HistoryPopover, InspectorDrawer, LogDrawer, Peek, Toasts, type LogEntry, type PeekState, type ToastItem } from "./drawers";
 import type { BoardReading, FeedHit, FeedMark, FeedPoint, FeedReticle, FeedStart } from "./feed";
@@ -115,6 +115,13 @@ function zoneRect(seat: number, key: ZoneKey): { left: number; top: number; righ
   if (typeof document === 'undefined') return null;
   const box = document.querySelector(`[data-testid="field-${seat}"] [data-zone="${key}"]`)?.getBoundingClientRect();
   return box ? { left: box.left, top: box.top, right: box.right, bottom: box.bottom } : null;
+}
+
+/** The cell of a card on the virtual field of a seat, for a popup beside it. */
+function cardCellRect(seat: number, ref: string): { left: number; top: number; right: number; bottom: number } | null {
+  if (typeof document === 'undefined') return null;
+  const box = document.querySelector(`[data-testid="field-${seat}"] [data-ref="${ref}"]`)?.getBoundingClientRect();
+  return box && box.width > 0 ? { left: box.left, top: box.top, right: box.right, bottom: box.bottom } : null;
 }
 
 /** Entry point of /duels/remote/[slug]: the lobby room before the start, the table after it. */
@@ -1421,7 +1428,13 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     ownerAlive: card.ownerSeat !== undefined && !state.seats[card.ownerSeat]?.eliminated, act, announce: (at, ref) => announceManualMove({ slug: room.slug, seat: at, ref }),
     give: item => { if (control.give(item)) { layers.close(); setSubject(null); } }, giveBack: control.giveBack }) : [];
   const actions: CardActions = {
-    quick: quickFor(subject?.seat ?? mySeat, subjectCard),
+    // A card sent away from the board popup closes it, so the board shows where the card went.
+    quick: quickFor(subject?.seat ?? mySeat, subjectCard).map(move => subject?.from === "board" ? { ...move, run: () => { move.run(); layers.close(); } } : move),
+    // The zone menu keeps what the card popup does not list: a card on top, a token, materials.
+    ...(subject && subjectCard && live && !subjectCard.token && (solo || subject.seat === mySeat) && !state.seats[subject.seat]?.eliminated ? (() => {
+      const entry = Object.entries(cellsFor(state.seats[subject.seat].twin, extraZones)).find(([, cell]) => cell.card?.ref === subjectCard.ref);
+      return entry && !isPile(entry[0] as ZoneKey) ? { onMore: () => openZonePicker(subject.seat, entry[0] as ZoneKey) } : {};
+    })() : {}),
     ...(subject?.handEntryId && !subjectCard && live && (solo || subject.seat === mySeat) ? { onForgetHand: () => {
       void act({ type: "hand.forget", actorSeat: subject.seat, id: subject.handEntryId! }).then(updated => { if (updated) layers.close(); });
     } } : {}),
@@ -1531,7 +1544,9 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     setSubject({ from, cardId: id ?? 0, seat, ref: card.ref, name: id ? card.name : card.faceUp ? "Unidentified card" : "Face-down card", bestMatch:card.bestMatch, notInDecklist: id && card.ownerSeat === undefined ? flagFor(seat, id) : null, addErrors: [], via: "field" });
     setSelected({ seat, ref: card.ref });
     // From a pile tile the popup points at the tile, so it opens over the viewer and the viewer stays.
-    if (anchor) { setPopAt({ anchor, feed: null }); layers.open("card"); } else if (from === "board") layers.open("insp");
+    // A card of the virtual field opens the same popup as a camera card, beside its cell. The drawer is only the fallback when the cell is not on screen.
+    const at = anchor ?? (from === "board" ? cardCellRect(seat, card.ref) : null);
+    if (at) { setPopAt({ anchor: at, feed: null }); layers.open("card"); } else if (from === "board") layers.open("insp");
   };
   // ---- Graveyard and Banished piles ----
   const [pile, setPile] = useState<{ seat: number; zone: PileZone } | null>(null);
@@ -1713,7 +1728,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
             selectedRef={picking?.seat === seat ? picking.ref : selected?.seat === seat ? selected.ref : undefined} targetRef={attack?.targetSeat === seat ? attack.targetCardRef : undefined} freshRef={fresh}
             warnRefs={warnRefs(seat)} twinCounts={twinCounts(seat)} pickPlate={plate} tournamentTable={isTournamentTable(room)} detectionMode={seat !== mySeat ? stateMode(room.state, seat) ?? "unknown" : undefined} viewScope={String(seatCount)} webcamOnly={webcamOnly && !needsBoard(seat)} onDock={onSeatDock} boardOff={boardOff(seat) ? {} : undefined} onToggleView={needsBoard(seat) || boardOff(seat) ? undefined : () => setWebcamOnly(!webcamOnly)}
             onZoneCard={onZoneCard} onCamPick={onCamPick} hoverTip={hoverTip} onCardMenu={onCardMenu}
-            tokenSlots={tokens.placing && !state.seats[seat]?.eliminated ? tokens.openSlots(seat) : control.giveSlots(seat)} onActivate={(key, card) => { if (tokens.placeAt(seat, key, card) || control.giveAt(seat, key, card)) return; if (picking && card && seat !== picking.seat && (card.zone === "monster" || card.zone === "extra-monster")) void declare(seat, card.ref); else if (!picking && (solo || seat === mySeat) && !isPile(key)) openZonePicker(seat,key); else if (!picking && !card && (/^m[1-5]$/.test(key) || control.canGive && /^s[1-5]$/.test(key))) openZonePicker(seat,key,undefined,true,false,true); else if (card) openSubject(card); }}
+            tokenSlots={tokens.placing && !state.seats[seat]?.eliminated ? tokens.openSlots(seat) : control.giveSlots(seat)} onActivate={(key, card) => { if (tokens.placeAt(seat, key, card) || control.giveAt(seat, key, card)) return; if (picking && card && seat !== picking.seat && (card.zone === "monster" || card.zone === "extra-monster")) void declare(seat, card.ref); else if (!picking && (solo || seat === mySeat) && !isPile(key) && card && !card.token && live && !state.seats[seat]?.eliminated) openSubject(card, "board", undefined, true); else if (!picking && (solo || seat === mySeat) && !isPile(key)) openZonePicker(seat,key); else if (!picking && !card && (/^m[1-5]$/.test(key) || control.canGive && /^s[1-5]$/.test(key))) openZonePicker(seat,key,undefined,true,false,true); else if (card) openSubject(card); }}
             onAttack={(_key, card) => startAttack(seat, card)} onInspect={card => openSubject(card)} onPile={(zone, opener) => openPile(seat, zone, opener)} onDeck={(solo || seat === mySeat) && surrenderable(seat) ? el => { setDeckAt({ seat, rect: el.getBoundingClientRect() }); layers.toggle("deck", el); } : undefined} live={live} drag={fieldDrag(seat)} onPlate={() => { if (plate) void declare(seat); }}
             onLp={delta => void changeLp(seat, delta)} canLp={live} deckWarning={deckFlag(room, seat)?.message} onDeckFlag={el => { setFlagSeat(seat); layers.toggle("flag", el); }}
             hand={handOf(seat)} thinkingSince={thinking.get(seat)}
@@ -1725,7 +1740,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
       </main>
       <BottomBar players={players} turnSeat={turnShown} turn={state.turn} phase={state.phase} canAct={live && myTurn && !state.attack} nextSeat={nextSeat} passHot={state.phase === "end"} mine={!solo && mySeat === turnShown} turnIn={turnIn}
         backTo={previousYgoPhase(state)} ask={phaseAsk.ask} onAsk={phaseAsk.setAsk} onAskYes={id => { phaseAsk.setAsk(null); phaseBack(id); }} onAskNo={() => phaseAsk.setAsk(null)} onPass={passTurn} dockRef={dockRef}
-        undo={{ spokenUndo: false, recognition: voiceRecognition, label: undoText, enabled: canUndo, reason: newestUndo?.reason, flash, histOpen: layers.layer === "hist", onUndo: () => void doUndo(), onHist: el => layers.toggle("hist", el) }}
+        undo={{ spokenUndo: false, recognition: voiceRecognition, label: undoText, chip: newestUndo ? undoChipText(newestUndo) ?? undefined : undefined, enabled: canUndo, reason: newestUndo?.reason, flash, histOpen: layers.layer === "hist", onUndo: () => void doUndo(), onHist: el => layers.toggle("hist", el) }}
         center={<>
           {live && mySeat >= 0 ? <button type="button" className={`${s.btn} ${s.sm} ${s.q} ${s.myfield}`} onClick={() => { setWebcamOnly(false); document.querySelector(`[data-testid="field-${mySeat}"]`)?.scrollIntoView?.({ block: 'center' }); }}>My field</button> : null}
           {signalShown ? <div className={s.signals}>
