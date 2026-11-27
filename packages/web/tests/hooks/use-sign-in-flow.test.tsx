@@ -231,6 +231,14 @@ describe("sign-in flow", () => {
     await act(() => result.current.actions.recheckIdentifier("b@test.dev"));
     expect(result.current.state).toMatchObject({ step: "err-invite", identifier: "b@test.dev", pending: false });
   });
+  it("shows a format error on the new email when the recheck is refused for its format", async () => {
+    mock.signal.signIn.create.mockResolvedValueOnce(error("form_identifier_not_found"));
+    const { result } = setup();
+    await act(() => result.current.actions.submitIdentifier("a@test.dev"));
+    mock.signal.signIn.create.mockResolvedValueOnce({ error: { errors: [{ code: "form_param_format_invalid", meta: { paramName: "identifier" } }] } });
+    await act(() => result.current.actions.recheckIdentifier("b@test.dev"));
+    expect(result.current.state).toMatchObject({ step: "err-invite", identifier: "b@test.dev", fieldErrors: { identifier: "Enter a valid email or username." } });
+  });
   it("keeps the shown email when the recheck fails on the network, so the person can retry", async () => {
     mock.signal.signIn.create.mockResolvedValueOnce(error("form_identifier_not_found"));
     const { result } = setup();

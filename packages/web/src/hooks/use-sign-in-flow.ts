@@ -90,7 +90,9 @@ export function useSignInFlow(opts: { returnTo: string; marketingUrl: string | n
     }
     if (!mounted.current) return;
     const view = mapClerkError(error, context);
-    if (recheckEmail.current !== null && view.kind === "step" && view.step === "err-invite") dispatch({ type: "identified", identifier: recheckEmail.current });
+    // A refusal of the typed email (not found, or a format error on it) is a definite answer about that email.
+    const definite = (view.kind === "step" && view.step === "err-invite") || (view.kind === "field" && view.field === "identifier");
+    if (recheckEmail.current !== null && definite) dispatch({ type: "identified", identifier: recheckEmail.current });
     dispatch({ type: "error", view });
   };
   const signalError = (context: Parameters<typeof mapClerkError>[1]) => {

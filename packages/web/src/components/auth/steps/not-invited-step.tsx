@@ -92,6 +92,8 @@ export function NotInvitedStep({ identifier, error, banner, pending: checking = 
   // Enter after an edit asks the question the person just changed (is this email in?); otherwise it joins.
   // Handled on the keydown, not as a form submit: the Join button's own click would otherwise look like an Enter.
   function enter(event: KeyboardEvent<HTMLFormElement>) {
+    // An Enter that picks an IME candidate (keyCode 229) is not a submit.
+    if (event.nativeEvent.isComposing || event.keyCode === 229) return;
     if (event.key !== "Enter" || !(event.target instanceof HTMLInputElement)) return;
     event.preventDefault();
     if (edited && onCheck) void check();
