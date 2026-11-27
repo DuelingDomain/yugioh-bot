@@ -42,15 +42,18 @@ const STABLE_GPU_MS = 300_000;
 const MAX_GPU_SWAPS = 5;
 const GPU_PROBE_MS = 3000;
 const BUSY_POLL_MS = 1000;
+/** After this many busy polls a swap only waits for a tap or board read, not for background outline passes. */
+const PATIENT_BUSY_POLLS = 30;
 let retryDelay = FIRST_GPU_RETRY_MS;
 let retryTimer: ReturnType<typeof setTimeout> | undefined;
 let automaticGpuSwaps = 0;
+let busyPolls = 0;
 let preparations = 0;
 let gpuSince: number | undefined;
 let recoveringDevice = false;
 let lastGpuLoss: { reason: string; at: number } | undefined;
 const listeners = new Set<() => void>();
-const resetters = new Map<(eager: boolean) => void, (() => boolean) | undefined>();
+const resetters = new Map<(eager: boolean) => void, ((patient: boolean) => boolean) | undefined>();
 
 type BrowserGpu = {
   requestAdapter(options: { powerPreference: "high-performance" }): Promise<{
@@ -119,6 +122,7 @@ function saveMode(mode: RecognitionMode) {
 function clearGpuRetry() {
   clearTimeout(retryTimer);
   retryTimer = undefined;
+  busyPolls = 0;
   update({ gpuRetryAt: null });
 }
 /** Stop recovery when the table releases its reader. Failure state lives only in this page. */
@@ -138,6 +142,7 @@ export function setRecognitionMode(mode: RecognitionMode) {
 export function retryRecognitionGpu() {
   if (load().mode === "cpu" || !hasBrowserGpu()) return;
   stopGpuRecovery();
+  automaticGpuSwaps = 0;
   restartReader({}, true);
 }
 /** Let the replacement CPU reader finish loading before an automatic retry can replace it. */
@@ -164,11 +169,15 @@ async function probeHardwareGpu(): Promise<boolean> {
   catch { return false; }
   finally { clearTimeout(timer); }
 }
-const readerIsBusy = () => preparations > 0 || [...resetters.values()].some(busy => busy?.());
+const readerIsBusy = () => {
+  const patient = busyPolls >= PATIENT_BUSY_POLLS;
+  return preparations > 0 || [...resetters.values()].some(busy => busy?.(patient));
+};
 function scheduleGpuRetry() {
   if (retryTimer !== undefined || recoveringDevice || automaticGpuSwaps >= MAX_GPU_SWAPS || !hasBrowserGpu()) return;
   const retry = async () => {
     if (readerIsBusy()) {
+      busyPolls++;
       retryTimer = setTimeout(retry, BUSY_POLL_MS);
       return;
     }
@@ -176,10 +185,12 @@ function scheduleGpuRetry() {
     const hardwareReady = await probeHardwareGpu();
     if (scheduled !== retryTimer) return;
     if (hardwareReady && readerIsBusy()) {
+      busyPolls++;
       retryTimer = setTimeout(retry, BUSY_POLL_MS);
       return;
     }
     retryTimer = undefined;
+    busyPolls = 0;
     retryDelay = Math.min(retryDelay * 2, MAX_GPU_RETRY_MS);
     if (!hardwareReady) {
       scheduleGpuRetry();
@@ -193,13 +204,16 @@ function scheduleGpuRetry() {
   update({ gpuRetryAt: Date.now() + retryDelay });
 }
 function endGpuRun() {
-  if (gpuSince !== undefined && Date.now() - gpuSince >= STABLE_GPU_MS) retryDelay = FIRST_GPU_RETRY_MS;
+  if (gpuSince !== undefined && Date.now() - gpuSince >= STABLE_GPU_MS) {
+    retryDelay = FIRST_GPU_RETRY_MS;
+    automaticGpuSwaps = 0;
+  }
   gpuSince = undefined;
 }
 /** Changes each time the reader restarts (new mode, GPU lost, GPU retry). */
 export const recognitionGeneration = () => load().generation;
 /** The recognizer module restarts its reader when the mode changes. */
-export function onRecognitionReset(reset: (eager: boolean) => void, busy?: () => boolean) {
+export function onRecognitionReset(reset: (eager: boolean) => void, busy?: (patient: boolean) => boolean) {
   resetters.set(reset, busy);
   return () => { resetters.delete(reset); };
 }

@@ -242,7 +242,7 @@ onRecognitionReset(eager => {
   releaseRecognizer();
   if (ownVideo) void prepareOwnReader().catch(() => undefined);
   else if (eager || wasRunning) void prewarmRecognizer();
-}, () => readerBusy() || pendingDetectJobs > 0);
+}, patient => patient ? foreignJobs() > 0 : readerBusy() || pendingDetectJobs > 0);
 
 /** Plays a track in a hidden element so frames can be sampled without touching the visible video. */
 async function sampleFrames(track: MediaStreamTrack, signal: AbortSignal): Promise<ImageBitmap[]> {
@@ -276,6 +276,8 @@ let pendingBackgroundJobs = 0;
 let backgroundRead: AbortController | undefined;
 /** Outline (detector) jobs among `pendingJobs`: a new resting card waits only for these, never for a queued read. */
 let pendingDetectJobs = 0;
+/** Every outline (detector) pass, however it is queued. */
+let pendingSceneJobs = 0;
 /** The reader handles one job at a time (reads and outlines share it). Later jobs wait their turn. */
 function enqueue<T>(job: () => Promise<T>, spectator = false, high = false, background = false): Promise<T> {
   if (!background) {
@@ -293,6 +295,8 @@ function enqueue<T>(job: () => Promise<T>, spectator = false, high = false, back
 }
 /** True while the reader has a job running or queued (the owner's reads and the field watcher). */
 export const readerBusy = (includeBackground = true) => pendingJobs > (includeBackground ? 0 : pendingBackgroundJobs);
+/** Jobs that are not outline passes or background reads: a tap read, a board read, a warm-up. */
+const foreignJobs = () => pendingJobs - pendingBackgroundJobs - pendingSceneJobs;
 
 /** Also releases the caller when setup or frame capture is still pending at cancellation. */
 export async function runUntilAbort<T>(signal: AbortSignal, job: () => Promise<T>): Promise<T> {
@@ -322,6 +326,10 @@ export function abortSpectatorReads() { for (const job of spectatorJobs) job.abo
 let sceneChain: Promise<unknown> = Promise.resolve();
 /** Outline passes of a split reader (its own detector worker) queue apart from reads; otherwise they share the reader queue. */
 function enqueueScene<T>(vision: VisionRecognizer, job: () => Promise<T>): Promise<T> {
+  pendingSceneJobs++;
+  return enqueueSceneJob(vision, job).finally(() => { pendingSceneJobs--; });
+}
+function enqueueSceneJob<T>(vision: VisionRecognizer, job: () => Promise<T>): Promise<T> {
   if (!vision.separateDetector) return enqueue(job);
   backgroundRead?.abort();
   pendingJobs++;
