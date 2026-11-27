@@ -133,7 +133,7 @@ export function RecognitionTray({ tray, deckIds, inDeck, onPick, onClose, onRemo
             <em>{g.score === null ? "–" : `${Math.round(g.score * 100)}%`}</em>
           </li>)}
       </ul> : null}
-      {strip || tray.status === "empty" ? <div className={s.srch}><Icon name="search" /><input ref={input} type="text" placeholder="Not it? Search any card" aria-label="Search any card" autoComplete="off" value={query}
+      {strip || tray.status === "empty" ? <div className={s.srch}><Icon name="search" /><input ref={input} type="text" placeholder="Not it? Search any card" aria-label="Search any card" autoComplete="off" value={query} data-autofocus={!startsSelected ? "" : undefined}
         onChange={event => { setQuery(event.target.value); setCursor(null); }} onKeyDown={event => { if (event.key === "Enter" && found && current) { event.preventDefault(); choose(current, "typed"); } }} /></div> : null}
       {ai.note ? <p className={s.bnote} role="status" data-testid="ask-ai-note">{ai.status === "off" ? "AI second opinion is not available for this account." : ai.note}</p> : null}
     </div>

@@ -852,7 +852,7 @@
 @media (max-width:900px){
   .seatDock{--dock-anchor:bottom;top:auto;bottom:12px;width:min(280px,calc(100% - 20px));max-height:46%;justify-content:flex-end}
   /* The correction tray needs the room of a sheet: above the bottom bar, not squeezed into the seat's leftover strip behind it. */
-  .app .seat .seatDock:has(.bigTray){position:fixed;left:8px;right:8px;top:auto;bottom:150px;width:auto;max-height:min(60dvh,420px);transform:none!important}
+  .app .seat .seatDock:has(.bigTray){position:fixed;left:8px;right:8px;top:auto;bottom:calc(var(--dockh,128px) + 8px);width:auto;max-height:min(60dvh,420px);transform:none!important}
   .pop.big.show.docked{grid-template-columns:72px minmax(0,1fr);--aw:72px}
   .app{overflow-x:hidden;overflow-y:auto}
   .app,.app:has(.bar){--hdr:50px;--dock:0px;--gap:10px;--bar:64px}

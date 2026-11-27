@@ -1,12 +1,13 @@
 // @vitest-environment jsdom
 import React from 'react';
-import {cleanup,fireEvent,render,screen,within} from '@testing-library/react';
+import {act,cleanup,fireEvent,render,screen,within} from '@testing-library/react';
 import {afterEach,expect,it,vi} from 'vitest';
 import {projectRemoteState,remoteActionSchema} from '@yugidraft/shared/remote';
 import {ZoneActions} from '../src/components/remote/ui/zone-actions';
 import {zoneCardAction} from '../src/components/remote/ui/zone-placement';
 import {HoloField} from '../src/components/remote/ui/holo-field';
 import {RecognitionTray} from '../src/components/remote/ui/recognition-tray';
+import {useLayers} from '../src/components/remote/ui/use-layers';
 import * as catalog from '../src/components/remote/ui/catalog';
 import {liveCardSubject, type Subject} from '../src/components/remote/ui/card-view';
 import {tapRoom,applyTap} from './tap-room-fixture';
@@ -15,15 +16,23 @@ const choices=[{cardId:46986414,name:'Dark Magician',score:.72},{cardId:89631139
 function placed(){return applyTap(tapRoom(),{type:'twin.place',actorSeat:0,seat:0,zone:'monster',source:'auto',card:{ref:'paper',cardId:46986414,name:'Dark Magician',slot:1,faceUp:true,position:'attack',nameCandidates:choices}});}
 afterEach(()=>{cleanup();vi.restoreAllMocks();vi.unstubAllGlobals();});
 
-it('a sure off-deck correction starts unselected and lists every unique deck card',()=>{
+it('opening a sure off-deck correction starts unselected and lists every unique deck card',async()=>{
  const onPick=vi.fn();
  const deckIds=[89631139,11,12,13,14,15,16,16];
  const loadCards=vi.spyOn(catalog,'loadCards');
  vi.stubGlobal('ResizeObserver',class{observe(){}disconnect(){}});
  vi.stubGlobal('fetch',vi.fn(async()=>Response.json({cards:[]})));
- const tray=(ids:number[])=><RecognitionTray tray={{seat:0,ownerName:'Player',status:'guesses',guesses:choices,note:'',reader:'vision',at:{anchor:null,feed:null},tier:'sure',correction:true}} deckIds={ids} inDeck={id=>ids.includes(id)} onPick={onPick} onClose={vi.fn()} saying={false} aiAllowed={false}/>;
- const {rerender}=render(tray(deckIds));
- rerender(tray([...deckIds]));
+ function LayeredTray({ids}:{ids:number[]}) {
+  const layers=useLayers();
+  return <>
+   <button type="button" onClick={event=>layers.open('tray',event.currentTarget)}>Correct card</button>
+   {layers.layer==='tray' ? <RecognitionTray tray={{seat:0,ownerName:'Player',status:'guesses',guesses:choices,note:'',reader:'vision',at:{anchor:null,feed:null},tier:'sure',correction:true}} deckIds={ids} inDeck={id=>ids.includes(id)} onPick={onPick} onClose={()=>layers.close('tray')} saying={false} aiAllowed={false}/> : null}
+  </>;
+ }
+ const {rerender}=render(<LayeredTray ids={deckIds}/>);
+ fireEvent.click(screen.getByRole('button',{name:'Correct card'}));
+ await act(async()=>{await new Promise<void>(resolve=>requestAnimationFrame(()=>resolve()));});
+ rerender(<LayeredTray ids={[...deckIds]}/>);
  expect(loadCards.mock.calls.filter(([,options])=>options?.preload)).toEqual([[deckIds,{preload:true}]]);
  const options=screen.getAllByRole('option');
  expect(options).toHaveLength(8);
@@ -35,6 +44,9 @@ it('a sure off-deck correction starts unselected and lists every unique deck car
  fireEvent.keyDown(document,{key:'Enter'});
  expect(onPick).not.toHaveBeenCalled();
  const search=screen.getByRole('textbox',{name:'Search any card'});
+ expect(document.activeElement).toBe(search);
+ fireEvent.keyDown(search,{key:'Enter'});
+ expect(onPick).not.toHaveBeenCalled();
  fireEvent.change(search,{target:{value:'whisker'}});
  fireEvent.keyDown(search,{key:'Enter'});
  expect(onPick).not.toHaveBeenCalled();
@@ -46,7 +58,7 @@ it('a sure off-deck correction starts unselected and lists every unique deck car
  fireEvent.keyDown(document,{key:'Enter'});
  expect(onPick).toHaveBeenLastCalledWith(expect.objectContaining({cardId:46986414,via:'click'}));
  const updatedDeck=[...deckIds,17];
- rerender(tray(updatedDeck));
+ rerender(<LayeredTray ids={updatedDeck}/>);
  expect(loadCards.mock.calls.filter(([,options])=>options?.preload)).toEqual([[deckIds,{preload:true}],[updatedDeck,{preload:true}]]);
 });
 
