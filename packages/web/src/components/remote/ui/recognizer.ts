@@ -3,7 +3,7 @@ import { zoneInstantOption } from "@/lib/remote/zone-instant-gate";
 import type { RecognizeRawFeed } from "@/lib/remote/video";
 import { pickZoneTier, relatedPriors, type RelatedCards, type RecognitionPriors } from '@yugidraft/vision';
 import { voiceHintFor, type Priors } from '@/lib/remote/recognition-priors';
-import { cardReader, reportReaderNote, reportReaderRead, engineBackend, holdGpuRetry, onRecognitionReset, reportBackend, reportGpuFailure, reportReadTime, recognitionBackendNow, stopGpuRecovery, type EngineBackend } from "./recognition-backend";
+import { cardReader, reportReaderNote, reportReaderRead, engineBackend, finishGpuRestart, holdGpuRetry, isGpuDeviceRecovery, onRecognitionReset, reportBackend, reportGpuDeviceLost, reportGpuFailure, reportReadTime, recognitionBackendNow, stopGpuRecovery, type EngineBackend } from "./recognition-backend";
 
 /** One guess shown in the tray. `score` is null for guesses that are not image matches. */
 export type Guess = { cardId: number; name: string; score: number | null; source?: "ai" };
@@ -88,6 +88,7 @@ export function prewarmRecognizer(): Promise<void> {
     if (epoch === recognizerEpoch) {
       window.dispatchEvent(new CustomEvent("remote-recognizer-warmup", {detail:{ms:performance.now()-started,ready,...(reason?{reason}:{})}}));
       if (!ready) warming = null;
+      finishGpuRestart(ready, reason);
     }
   })());
   return warming;
@@ -131,15 +132,18 @@ function loadRecognizer() {
     if (epoch !== recognizerEpoch) return null;
     return createRecognizer({
       profile: yugioh, reader: hybridCatalogFailed ? 'current' : selected, backend: engineBackend(),
+      // Warm the detector and embedder in one worker before accepting device recovery.
+      ...(isGpuDeviceRecovery() ? { workers: "single" } : {}),
       onBackendChange: status => {
         if (epoch !== recognizerEpoch) return;
         if (status.models.length) {
-          const retryable = status.models.some(model => model.fallbackReason && model.gpu?.navigatorGpu !== false && !model.gpu?.adapter?.isFallbackAdapter);
-          reportBackend(status.backend, status.fallbackReason, retryable);
+          const retryable = status.models.some(model => model.fallbackReason && model.gpu?.adapter && !model.gpu.adapter.isFallbackAdapter);
+          reportBackend(status, retryable);
         }
         reportReaderNote(status.readerNote ?? (hybridCatalogFailed ? HYBRID_CATALOG_NOTE : ""));
       },
       onWorkerFailure: error => { if (epoch === recognizerEpoch) reportGpuFailure(error); },
+      onGpuDeviceLost: error => { if (epoch === recognizerEpoch) reportGpuDeviceLost(error); },
     }) as unknown as VisionRecognizer;
   }).catch(() => null);
   return recognizer;
@@ -238,7 +242,7 @@ onRecognitionReset(eager => {
   releaseRecognizer();
   if (ownVideo) void prepareOwnReader().catch(() => undefined);
   else if (eager || wasRunning) void prewarmRecognizer();
-});
+}, () => readerBusy() || pendingDetectJobs > 0);
 
 /** Plays a track in a hidden element so frames can be sampled without touching the visible video. */
 async function sampleFrames(track: MediaStreamTrack, signal: AbortSignal): Promise<ImageBitmap[]> {
@@ -382,21 +386,23 @@ function fallbackRead(priors: Priors, note: string): ReadResult {
   const ids = [...new Set([...priors.seen, ...priors.decklist])].slice(0, 5);
   return { guesses: ids.map(cardId => ({ cardId, name: "", score: null })), reader: ids.length ? "priors" : "none", frames: 0, note };
 }
-async function readCardNow(track: MediaStreamTrack | null, point: { x: number; y: number }, priors: Priors, signal: AbortSignal, card?: ReadCard, kept?: HTMLCanvasElement[], own = false): Promise<ReadResult> {
+async function readCardNow(track: MediaStreamTrack | null, point: { x: number; y: number }, priors: Priors, signal: AbortSignal, card?: ReadCard, kept?: HTMLCanvasElement[], own = false, retry = true): Promise<ReadResult> {
   const fallback = (note: string) => fallbackRead(priors, note);
   if (!track && !kept?.length && !(own && ownBuffer)) return fallback("No camera frame available. Showing cards from the decklist.");
-  const vision = await loadRecognizer();
-  const found = await loadMeta();
-  if (!vision || !found) return fallback("Card reader data is not installed here. Showing cards from the decklist.");
-  // The selected outline belongs to the first held frame. Keep that pair intact
-  // and avoid another camera sampling window or detector pass for a desktop click.
-  // The own feed keeps a native-resolution ring all the time, so a read of it never waits to sample the camera.
-  const frames = kept?.length ? await Promise.all((card?kept.slice(0,1):kept).map(frame => createImageBitmap(frame)))
-    : own && ownBuffer ? await ownFeedFrames().catch(() => track ? sampleFrames(track, signal) : [])
-    : await sampleFrames(track!, signal);
-  if (!frames.length) return fallback("The camera gave no frames. Showing cards from the decklist.");
-  const byId = new Map(found.entries.map(entry => [entry.cardId, entry]));
+  const epoch = recognizerEpoch;
+  let frames: ImageBitmap[] = [];
   try {
+    const [vision, found] = await Promise.all([loadRecognizer(), loadMeta()]);
+    signal.throwIfAborted();
+    if (epoch !== recognizerEpoch) throw new Error("The card reader restarted");
+    if (!vision || !found) return fallback("Card reader data is not installed here. Showing cards from the decklist.");
+    // Keep the selected outline with the first held frame. The own feed's ring
+    // supplies native frames without another camera sampling window.
+    frames = kept?.length ? await Promise.all((card?kept.slice(0,1):kept).map(frame => createImageBitmap(frame)))
+      : own && ownBuffer ? await ownFeedFrames().catch(() => track ? sampleFrames(track, signal) : [])
+      : await sampleFrames(track!, signal);
+    if (!frames.length) return fallback("The camera gave no frames. Showing cards from the decklist.");
+    const byId = new Map(found.entries.map(entry => [entry.cardId, entry]));
     const result = await vision.recognize(frames, { clickPoint: point, k: 5, regionFallback: false, maxFrames:1, ...(card ? { card: toQuad(card) } : {}), includeCrop: true,deferAICrop:true, ...(feedbackCapture ? { includeFeedback: true } : {}), priors: priorsFor(found, priors) });
     signal.throwIfAborted();
     if (result.timingsMs) reportReadTime(result.timingsMs.total);
@@ -416,6 +422,7 @@ async function readCardNow(track: MediaStreamTrack | null, point: { x: number; y
     return read;
   } catch (error) {
     if (signal.aborted) throw error;
+    if (retry && epoch !== recognizerEpoch) return readCardNow(track, point, priors, signal, card, kept, own, false);
     console.warn("[remote read] failed", error);
     return fallback("The card reader failed. Showing cards from the decklist.");
   } finally { for (const frame of frames) frame.close(); }
@@ -491,9 +498,16 @@ export function attachOwnFeed(video: HTMLVideoElement) {
 
 /** Shared by the table and its lobby preview; the resident worker warms once. */
 export async function prepareOwnReader(priors?:Priors) {
+  const epoch = recognizerEpoch;
   await holdGpuRetry((async () => {
     const [reader,found]=await Promise.all([loadRecognizer(),loadMeta()]);
-    if(reader&&found)await enqueue(()=>reader.prepare(priors?{priors:priorsFor(found,priors,false)}:undefined));
+    try {
+      if(reader&&found)await enqueue(()=>reader.prepare(priors?{priors:priorsFor(found,priors,false)}:undefined));
+      if (epoch === recognizerEpoch) finishGpuRestart(Boolean(reader && found));
+    } catch (error) {
+      if (epoch === recognizerEpoch) finishGpuRestart(false, error instanceof Error ? error.message : undefined);
+      throw error;
+    }
   })());
 }
 export function detachOwnFeed(video: HTMLVideoElement) {

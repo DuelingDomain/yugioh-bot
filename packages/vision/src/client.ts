@@ -51,8 +51,10 @@ export interface RecognizerConfig {
   profile?: GameProfile;
   /** Reports actual providers and exact fallback reasons from the worker, including warmup/detection. */
   onBackendChange?: (status: BackendStatus) => void;
-  /** A device loss, worker crash or hung worker requires a fresh worker to recover. */
+  /** A crashed or hung worker requires replacement. */
   onWorkerFailure?: (error: Error) => void;
+  /** The worker's GPU device was lost. The caller can replace the worker. */
+  onGpuDeviceLost?: (error: Error) => void;
   backend?: 'auto' | 'wasm'; workerUrl?: string; runtimeBase?: string;
   /** One worker, or a detector worker beside the read worker (default 'auto': see chooseWorkerLayout). */
   workers?: WorkerLayout;
@@ -133,9 +135,9 @@ class HybridWorkerFailed extends Error {}
 const HYBRID_WORKER_WAIT_MS = 15_000;
 const BACKGROUND_INFERENCE_MS = 3_000;
 const BACKGROUND_WORKER_HANG_MS = 60_000;
-// Foreground setup can download and warm multiple models, but a wedged worker
-// must eventually release the caller even if its own ORT timers cannot fire.
 const FOREGROUND_WORKER_HANG_MS = 240_000;
+// Cold setup can download and warm several models before the first read.
+const SETUP_WORKER_HANG_MS = 900_000;
 export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
   if (config.game !== undefined && config.game !== 'yugioh') throw new Error(`Unsupported game: ${config.game}`);
   const profile = config.profile ?? yugioh;
@@ -171,14 +173,16 @@ export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
     backendStatus={backend:backendStatus?.backend??'wasm',models:[],readerNote};
     config.onBackendChange?.(backendStatus);
   }
-  function request(lane: Lane, message: object, transfers: Transferable[] = [], signal?: AbortSignal): Promise<unknown> {
+  function request(lane: Lane, message: {type: string} & Record<string, unknown>, transfers: Transferable[] = [], signal?: AbortSignal): Promise<unknown> {
     signal?.throwIfAborted();
     const id = ++serial;
     const worker = lane.worker!;
     const hybrid=selectedReader==='hybrid'&&lane.role!=='scene';
+    const setup = message.type === 'init' || message.type === 'prepare';
+    const hangMs = hybrid ? HYBRID_WORKER_WAIT_MS : setup ? SETUP_WORKER_HANG_MS : FOREGROUND_WORKER_HANG_MS;
     const timer = setTimeout(() => {
       if (lane.worker === worker) workerFailed(lane, new Error('Recognition worker stopped responding'));
-    }, hybrid ? HYBRID_WORKER_WAIT_MS : FOREGROUND_WORKER_HANG_MS);
+    }, hangMs);
     const pending=new Promise((resolve, reject) => {
       lane.pending.set(id, { resolve, reject });
       // Keep the originals until Hybrid answers: a terminated worker cannot return transferred pixels.
@@ -190,8 +194,8 @@ export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
       if(!(error instanceof HybridWorkerFailed)||disposed)throw error;
       clearTimeout(timer);
       const initialized=await startLane(lane,threadsOf(lane));
-      if('type' in message&&message.type==='init')return initialized;
-      if(lastPrepare&&'type' in message&&message.type!=='init'&&message.type!=='prepare')await request(lane,{type:'prepare',opts:lastPrepare},[],signal);
+      if(message.type==='init')return initialized;
+      if(lastPrepare&&message.type!=='prepare')await request(lane,{type:'prepare',opts:lastPrepare},[],signal);
       return await request(lane,message,transfers,signal);
     }).finally(()=>clearTimeout(timer));
   }
@@ -214,7 +218,7 @@ export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
         if (lane.worker !== worker) return;
         const { id, result, error, detectorBackend: backend, timingsMs, backendStatus: status, type, reason } = event.data;
         if (type === 'gpu-device-lost' && typeof reason === 'string') {
-          config.onWorkerFailure?.(new Error(reason));
+          config.onGpuDeviceLost?.(new Error(reason));
           return;
         }
         const value = lane.pending.get(id); if (!value) return; lane.pending.delete(id);
@@ -228,7 +232,9 @@ export function createRecognizer(config: RecognizerConfig = {}): Recognizer {
       const crash = (error: Error) => { if (lane.worker === worker) workerFailed(lane, error); };
       worker.onerror = event => crash(new Error(event.message || 'Recognition worker failed'));
       worker.onmessageerror = () => crash(new Error('Recognition worker message failed'));
-      lane.initial = request(lane, { type: 'init', profile, backend: config.backend ?? 'auto', runtimeBase: config.runtimeBase ?? '/dev/vision-lab/assets/ort/', role: lane.role, threads, reportGpuLoss: Boolean(config.onWorkerFailure), ...(selectedReader==='hybrid'&&lane.role!=='scene'?{reader:'hybrid'}:{}) }).catch(error => {
+      lane.initial = request(lane, { type: 'init', profile, backend: config.backend ?? 'auto', runtimeBase: config.runtimeBase ?? '/dev/vision-lab/assets/ort/', role: lane.role, threads,
+        ...(config.onGpuDeviceLost ? {reportGpuLoss: true} : {}),
+        ...(selectedReader==='hybrid'&&lane.role!=='scene'?{reader:'hybrid'}:{}) }).catch(error => {
         if (lane.worker === worker) { reset(lane); useOneWorker(lane); }
         throw error;
       });
