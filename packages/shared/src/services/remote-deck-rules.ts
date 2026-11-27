@@ -14,7 +14,7 @@ import { deckEngineDataDirectory, loadArtworkIdentityCatalog } from "./card-artw
 import { createInsightCatalog } from "./card-insight-catalog.js";
 import { deriveRemoteEffectPlans, remoteEffectMatches, REMOTE_SEARCH_SOURCE_ZONES, type RemoteEffectSource } from "../remote/effect-filters.js";
 import type { TwinCard } from "../remote/actions.js";
-import { remoteActivationKey, remoteActivationLimit, remoteAssert } from "../remote/actions.js";
+import { remoteActivationLimit, remoteAssert } from "../remote/actions.js";
 import { pinnedVisionIndexDirectory, visionDataDirectory } from '../vision-assets.js';
 
 // Cache catalog inputs, not results: current state and each seat's deck still filter every request.
@@ -85,10 +85,12 @@ export function createRemoteDeckRules(db: Database.Database, directory = deckEng
           return {...plan,pool:[...pool.values()].sort((a,b)=>a.cardId-b.cardId)};
         });
         const { card } = candidate;
-        const handDestination = !fromHand ? undefined : /\bbanish this card\b/i.test(card.text ?? '') ? 'banished' as const : 'graveyard' as const;
-        const namedLimit = card.text?.match(/\byou can only use this effect of ["“]([^"”]+)["”] once per turn\b/i)?.[1];
-        const handLimit = fromHand ? remoteActivationLimit(card.name, card.text) ??
-          (namedLimit && remoteActivationKey(namedLimit) === remoteActivationKey(card.name) ? card.name : undefined) : undefined;
+        const text = card.text ?? '';
+        const summonsItself = card.kind === 'monster' && /\bspecial summon this card\b/i.test(text) &&
+          !/\b(?:discard this card|send this card(?: from your hand)? to the GY)\b/i.test(text);
+        const handDestination = !fromHand || summonsItself ? undefined :
+          /\bbanish this card from your hand\b/i.test(text) ? 'banished' as const : 'graveyard' as const;
+        const handLimit = fromHand ? remoteActivationLimit(card.name, text, true) : undefined;
         return {source:resolved,plans,handDestination,handLimit};
       } finally {catalog.close();}
     },

@@ -9,7 +9,7 @@ import { migrate } from "../../src/db/index.js";
 import { migratedMemoryDatabase } from "../helpers/memory-database.js";
 import { seedIdentity, seedUser } from "../helpers/identity.js";
 import { createRemoteDuelService } from "../../src/services/remote-duels.js";
-import { getRemoteGame, resolveAttack, ygoModule, remoteActionSchema, projectRemoteState, projectRemoteSpectator, type GameModule, type SeatCount, type RemoteAction, type RemoteActionProposal } from "../../src/remote/index.js";
+import { getRemoteGame, resolveAttack, ygoModule, remoteActionSchema, projectRemoteState, projectRemoteSpectator, pendingRemoteHandActivations, remoteActivationLimit, type GameModule, type SeatCount, type RemoteAction, type RemoteActionProposal } from "../../src/remote/index.js";
 import { remoteUndoLabel } from "../../src/remote/undo.js";
 import { readRemoteState } from "../../src/remote/storage.js";
 import { applyRemoteOpening } from "../../src/remote/match.js";
@@ -75,6 +75,8 @@ writeFileSync(join(deckData, "strings.conf"), "");
     [9156135, "Apprentice Magician", "If this card is Summoned: Target 1 face-up card on the field that you can place a Spell Counter on; place 1 Spell Counter on that target. When this card is destroyed by battle: You can Special Summon 1 Level 2 or lower Spellcaster monster from your Deck in face-down Defense Position.", 33, 2, 32, 400, 800, 2],
     [45141844, "Old Vindictive Magician", "FLIP: Target 1 monster your opponent controls; destroy that target.", 2097185, 2, 32, 450, 600, 2],
     [97268402, "Effect Veiler", "During your opponent's Main Phase (Quick Effect): You can send this card from your hand to the GY, then target 1 Effect Monster your opponent controls; negate the effects of that face-up monster your opponent controls, until the end of this turn.", 4129, 2, 16, 0, 0, 1],
+    [27204311, "Nibiru, the Primal Being", 'Special Summon this card from your hand. You can only use this effect of "Nibiru, the Primal Being" once per turn.', 33, 32, 16, 3000, 600, 11],
+    [23434538, 'Maxx "C"', 'You can send this card from your hand to the GY. You can only use “Maxx “C”” once per turn.', 33, 2048, 1, 500, 200, 2],
     [31560081, "Magician of Faith", "FLIP: Target 1 Spell in your GY; add that target to your hand.", 2097185, 2, 16, 300, 400, 1],
     [423585, "Summoner Monk", "While this card is face-up on the field, it cannot be Tributed. If this card is Normal or Flip Summoned: Change this card to Defense Position. Once per turn: You can discard 1 Spell; Special Summon 1 Level 4 monster from your Deck, but that monster cannot attack this turn.", 33, 2, 32, 800, 1600, 4],
   ];
@@ -142,6 +144,13 @@ it('limits named Spell/Trap card activations per seat and turn and restores them
   s.act({ type: 'turn.end' });
   play('trap-next-turn');
   expect(s.service.replay(s.room.slug, 'g', s.users[0])).toEqual(s.room.state);
+});
+
+it('reads named activation limits with inner straight or curly quotes', () => {
+  const name = 'Maxx "C"';
+  expect(remoteActivationLimit(name, 'You can only activate 1 "Maxx "C"" per turn.')).toBe(name);
+  expect(remoteActivationLimit(name, 'You can only activate 1 “Maxx “C”” per turn.')).toBe(name);
+  expect(remoteActivationLimit(name, 'You can only activate 1 “Other “C”” per turn.')).toBeUndefined();
 });
 
 it('requires the seat owner to confirm tournament LP zero and keeps pending results undoable', () => {
@@ -5010,7 +5019,32 @@ describe("remote hand activation (a card held up from the hand)", () => {
     expect(s.room.state.seats[0].handCount).toBe(count);
   });
 
-  it.each(["timed", "pile read", "late banished read", "reveal expired"])("settles one linked hand discard with one Undo (%s)", mode => {
+  it("leaves a self-summoning hand activation out of both piles after five seconds", () => {
+    const s = deckSession("normal"); s.start();
+    const cardId = 27204311;
+    const handCount = s.room.state.seats[0].handCount;
+    s.act({ type: "effect.activated", fromHand: true, source: { cardId } });
+    const activation = s.room.events.at(-1)!;
+    s.wait(activation.at + 5000);
+    expect(activation.action).not.toHaveProperty("handDestination");
+    expect(pendingRemoteHandActivations(s.room.state, 0)).toEqual([]);
+    const before = s.room;
+    s.act({ type: "twin.place", seat: 0, source: "auto", zone: "graveyard", fromActivation: activation.id,
+      handFallback: true, card: { ref: "nibiru-fallback", cardId } });
+    expect(s.room).toEqual(before);
+    expect(s.room.state.seats[0]).toMatchObject({ handCount, twin: [] });
+    s.act({ type: "twin.place", seat: 0, source: "auto", zone: "monster", card: { ref: "nibiru", cardId, slot: 1 } });
+    expect(s.room.state.seats[0].twin).toMatchObject([{ ref: "nibiru", zone: "monster", cardId }]);
+  });
+
+  it('limits repeated hand activations of Maxx "C"', () => {
+    const s = deckSession("normal"); s.start();
+    const show = () => s.act({ type: "effect.activated", fromHand: true, source: { cardId: 23434538 } });
+    show();
+    expect(show).toThrow('Maxx "C": only 1 activation per turn');
+  });
+
+  it.each(["timed", "pile read", "late banished read", "late monster read", "reveal expired"])("settles one linked hand placement with one Undo (%s)", mode => {
     const s = mode === "reveal expired" ? deckSession("normal") : originSession(true);
     if (mode === "reveal expired") {
       s.service.configure(s.room.slug, "g", s.users[0], { format: "normal", revealedHand: "one-turn" }, 2000);
@@ -5018,23 +5052,27 @@ describe("remote hand activation (a card held up from the hand)", () => {
       s.start();
     }
     const before = s.room.state.seats[0].handCount!;
+    const cardId = mode === "late monster read" ? 14558127 : 5318639;
     s.act({ type: "effect.activated", actorSeat: 1, source: { cardId: CARD } });
     const first = s.room.events.at(-1)!;
-    s.act({ type: "effect.activated", fromHand: true, source: { cardId: 5318639 } });
+    s.act({ type: "effect.activated", fromHand: true, source: { cardId } });
     const response = s.room.events.at(-1)!;
     expect(response.action).toMatchObject({ respondsTo: first.id, handDestination: "graveyard" });
-    expect(s.room.state.seats[0].knownHand).toContainEqual(expect.objectContaining({ cardId: 5318639 }));
+    expect(s.room.state.seats[0].knownHand).toContainEqual(expect.objectContaining({ cardId }));
     const discard = (ref: string, timed: boolean) => s.act({
       type: "twin.place", seat: 0, source: "auto", zone: "graveyard", fromActivation: response.id,
-      ...(timed ? { handFallback: true } : {}), card: { ref, cardId: 5318639 },
+      ...(timed ? { handFallback: true } : {}), card: { ref, cardId },
     });
     if (mode !== "pile read") {
-      expect(() => discard("too-early", true)).toThrow("Invalid hand activation placement");
+      s.wait(response.at + 3998);
+      const beforeFallback = s.room;
+      discard("too-early", true);
+      expect(s.room).toEqual(beforeFallback);
       if (mode === "reveal expired") {
         s.act({ type: "turn.end" });
         expect(s.service.snapshot(s.room.slug, "g").state.seats[0].knownHand).toEqual([]);
       }
-      s.wait(response.at + 4000);
+      s.wait(response.at + 3999);
     }
     discard("placed", mode !== "pile read");
     const placement = s.room.events.at(-1)!;
@@ -5046,14 +5084,15 @@ describe("remote hand activation (a card held up from the hand)", () => {
     expect(s.room.state.seats[0].knownHand ?? []).toEqual([]);
     expect(s.service.replay(s.room.slug, "g", s.users[0])).toEqual(s.room.state);
 
-    if (mode === "late banished read") {
-      s.act({ type: "twin.place", seat: 0, source: "auto", zone: "banished", fromActivation: response.id, fromRef: "placed",
-        card: { ref: "placed", cardId: 5318639 } });
-      expect(s.room.state.seats[0].twin).toMatchObject([{ ref: "placed", zone: "banished" }]);
+    const lateZone = mode === "late banished read" ? "banished" : mode === "late monster read" ? "monster" : undefined;
+    if (lateZone) {
+      s.act({ type: "twin.place", seat: 0, source: "auto", zone: lateZone, fromActivation: response.id, fromRef: "placed",
+        card: { ref: "placed", cardId, ...(lateZone === "monster" ? { slot: 1 } : {}) } });
+      expect(s.room.state.seats[0].twin).toMatchObject([{ ref: "placed", zone: lateZone }]);
       expect(s.room.state.seats[0].handCount).toBe(before - 1);
     }
     s.act({ type: "undo", targetActionId: s.room.events.at(-1)!.id });
-    expect(s.room.events.at(-1)?.action).toMatchObject({ alsoUndid: mode === "late banished read" ? [placement.id, response.id] : [response.id] });
+    expect(s.room.events.at(-1)?.action).toMatchObject({ alsoUndid: lateZone ? [placement.id, response.id] : [response.id] });
     expect(s.room.state.seats[0]).toMatchObject({ handCount: before, twin: [] });
     expect(s.room.state.seats[0].knownHand ?? []).toEqual([]);
     expect(s.service.replay(s.room.slug, "g", s.users[0])).toEqual(s.room.state);

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { straightenCardQuotes } from "../services/card-name-match.js";
 import { remoteActionMeta as meta, remoteSeatSchema } from "./action-meta.js";
 import { remoteMatchActionSchemas } from "./match-contract.js";
 import type { RemotePosition } from "./types.js";
@@ -160,10 +161,15 @@ export type RemoteActionProposal = Proposal<RemoteAction>;
 
 export const remoteActivationKey = (name: string) => `card:${name.normalize("NFKC").trim().replace(/\s+/g, " ").toLowerCase()}`;
 
-/** Only a printed limit on activating this named card counts. */
-export function remoteActivationLimit(name: string, text?: string | null): string | undefined {
-  const clauses = (text ?? "").matchAll(/\bYou can only activate 1\s+["“]([^"”]+)["”]\s+per turn\b/gi);
-  for (const [, named] of clauses) if (remoteActivationKey(named) === remoteActivationKey(name)) return name;
+/** Only printed limits for this named card count. Hand activations also check effect-use limits. */
+export function remoteActivationLimit(name: string, text?: string | null, fromHand = false): string | undefined {
+  const printed = straightenCardQuotes(text ?? "");
+  const key = remoteActivationKey(straightenCardQuotes(name));
+  const clauses = [
+    ...printed.matchAll(/\byou can only activate 1\s+"(.+?)"\s+per turn\b/gi),
+    ...(fromHand ? printed.matchAll(/\byou can only use(?: this effect of)?\s+"(.+?)"\s+once per turn\b/gi) : []),
+  ];
+  if (clauses.some(([, named]) => remoteActivationKey(named) === key)) return name;
 }
 
 export function remoteActivationNotice(state: RemotePosition, seat: number, name: string | undefined, fromActivation?: string): string | undefined {

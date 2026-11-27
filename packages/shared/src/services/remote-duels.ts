@@ -14,7 +14,7 @@ import { createRemoteDeckRules } from "./remote-deck-rules.js";
 import { openRemoteChainLink, remoteAliveSeats, REMOTE_CHAIN_EVENT_WINDOW } from "../remote/chain.js";
 import { deleteRemoteRooms, pruneRemoteSessions } from "./remote-cleanup.js";
 import { captureRemoteTournamentEvidence } from "./tournament-remote-evidence.js";
-import { initializeRemoteHandCounts } from "../remote/hand.js";
+import { HAND_ACTIVATION_FALLBACK_MS, initializeRemoteHandCounts, pendingRemoteHandActivations } from "../remote/hand.js";
 import { diffView } from "../remote/delta.js";
 import { remoteFieldZone } from "../remote/twin-placement.js";
 import type { RemoteHistoryItem, RemoteHistoryOptions, RemoteHistoryPage, RemoteReplay, RemoteReplayStep } from "../remote/history.js";
@@ -726,6 +726,10 @@ export function createRemoteDuelService(db: Database.Database, options: {
           return room(row, userId, undefined, before);
         // `now` was read before this write lock. A request that waited for another writer (a second web worker or the sweep) can carry a time just before the state it now sees; the reducer refuses a time before the state, which would drop a valid move. Event time never goes backward.
         const stamp = Math.max(now, before.updatedAt);
+        if (command.type === "twin.place" && handFallback) {
+          const activation = pendingRemoteHandActivations(before, command.actorSeat).find(entry => entry.actionId === command.fromActivation);
+          if (activation && stamp - activation.at < HAND_ACTIVATION_FALLBACK_MS) return room(row, userId, undefined, before);
+        }
         let action = { ...command, at: stamp };
         const effects: RemoteReductionContext = {...REMOTE_REDUCTION_VERSIONS,showCardsSetFromDeck:before.showCardsSetFromDeck};
         const target = 'cardRef' in command && 'seat' in command

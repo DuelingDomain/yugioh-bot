@@ -730,12 +730,14 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       (code===undefined||entry.cardId===code));
   }
   const handObservedAt=(track:FieldTrack)=>serverNow()-Math.max(0,performance.now()-track.firstSeen);
-  function recentHandFallback(event:FieldEvent,track:FieldTrack,code?:number) {
-    const state=current.current.room.state,twins=state.seats[seat].twin,history=state.undoHistory??[];
+  function recentHandFallback(event:FieldEvent,track:FieldTrack,{code,state=current.current.room.state,activationId}:
+    {code?:number;state?:RemoteRoom['state'];activationId?:string}={}) {
+    const twins=state.seats[seat].twin,history=state.undoHistory??[];
     const observedAt=handObservedAt(track);
     for(const entry of history){
       const action=entry.action;
       if(action.type!=='twin.place'||!action.handFallback||action.seat!==seat||code!==undefined&&action.card.cardId!==code||
+        activationId!==undefined&&action.fromActivation!==activationId||
         event.bindRef&&event.bindRef!==action.card.ref&&twins.some(c=>c.ref===event.bindRef))continue;
       const activation=history.find(item=>item.actionId===action.fromActivation);
       if(!activation||observedAt<activation.at-1000||serverNow()-activation.at>=HAND_ACTIVATION_LINK_MS||
@@ -746,7 +748,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
   }
   async function linkHandPile(act:RoomMutation,event:FieldEvent,track:FieldTrack,zone:'graveyard'|'banished',code?:number) {
     if(code===undefined&&(pendingDepartures.current.size||lateDefaults.current.size))return false;
-    const fallback=recentHandFallback(event,track,code);
+    const fallback=recentHandFallback(event,track,{code});
     if(fallback){
       const {action:auto,card}=fallback, ref=card.ref;
       if(card.zone!==zone){
@@ -764,11 +766,16 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     const ref=bindings.current.get(event.track.id)??event.track.id;
     const updated=await act({type:'twin.place',source:'auto',actorSeat:seat,seat,zone,fromActivation:shown.actionId,
       card:{ref,cardId:shown.cardId,name:shown.name,faceUp:true,position:'attack'}});
-    const placement=updated?.state.undoHistory?.find(entry=>entry.undoWith===shown.actionId);
-    if(placement?.action.type==='twin.place'){
-      const bound=placement.action.card.ref;
+    const placement=updated?.state.undoHistory?.find(entry=>entry.undoWith===shown.actionId&&!entry.undone&&
+      entry.action.type==='twin.place'&&!entry.action.handFallback);
+    // The timer may have already placed this card when the server received the camera read.
+    const racedFallback=updated&&!placement?recentHandFallback(event,track,{code:shown.cardId,state:updated.state,activationId:shown.actionId}):undefined;
+    const bound=placement?.action.type==='twin.place'?placement.action.card.ref:racedFallback?.card.ref;
+    if(bound){
       bindings.current.set(event.track.id,bound);pileWrites.current.set(bound,performance.now());
       watch.confirm(event.track.id,track.cardId,bound,false);
+    }
+    if(placement){
       setNotice(`${shown.name??'Card'} activated from hand, then sent to the ${zone==='graveyard'?'GY':'banished pile'} · auto`);
       setUndoId(placement.actionId);
     }
@@ -808,7 +815,7 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
     const physicalPile=!track.faceDown&&(track.zone==='GY'?'graveyard':track.zone==='BANISHED'?'banished':undefined);
     if(physicalPile&&code&&await linkHandPile(act,event,track,physicalPile,code))return;
     const physicalCell=fieldZoneLocation(track.zone);
-    const lateHand=code&&!track.faceDown&&['spell-trap','field','pendulum'].includes(physicalCell.zone)?recentHandFallback(event,track,code):undefined;
+    const lateHand=code&&!track.faceDown&&publicField(physicalCell.zone)?recentHandFallback(event,track,{code}):undefined;
     const fromActivation=code&&!track.faceDown&&!piles.has(track.zone)?lateHand?.action.fromActivation??recentHandActivation(code)?.actionId:undefined;
     if(!humanChoice&&!piles.has(track.zone)&&twins.some(c=>c.ref===track.id&&c.zone==='graveyard')&&keepsManual(track.id,physicalCell,track.position))return;
     // A catalog-sure reveal can still carry Best match when it is outside the
@@ -1016,7 +1023,8 @@ export function AutoFieldWatcher({room,transaction,diagnosticsAllowed=false,dock
       let updated:RemoteRoom|null=null;
       const originReturn=!!existing&&['deck','hand','extra','graveyard','banished'].includes(existing.zone)&&existing.zone!==location.zone;
       const atomicReveal=!!existing&&!originReturn&&!existing.faceUp&&!track.faceDown&&!!entry;
-      const matchingMove=existing?.faceUp&&!track.faceDown&&entry&&(publicField(existing.zone)||!summon&&['graveyard','banished'].includes(existing.zone))&&
+      const matchingMove=existing?.faceUp&&!track.faceDown&&entry&&
+        (publicField(existing.zone)||!summon&&existing.ref!==lateHand?.card.ref&&['graveyard','banished'].includes(existing.zone))&&
         sameObservedCard(existing,{cardId:code,name:entry.name})&&(existing.zone!==location.zone||existing.slot!==location.slot);
       const setMove=existing&&!originReturn&&(existing.faceUp||existing.publicIdentity)
         ?fieldSetMove(existing,track,seat,physicalAtSave.zone!==knownZone(existing)):undefined;
