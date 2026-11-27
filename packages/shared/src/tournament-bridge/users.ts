@@ -1,4 +1,4 @@
-// Tournament bridge: global application identities only; never select email.
+// Tournament bridge: global application identities with email omitted from results.
 import type Database from "better-sqlite3";
 
 export interface TournamentUser {
@@ -38,9 +38,20 @@ export function createTournamentBridgeUsers(db: Database.Database) {
         on conflict(user_id) do update set discord_username=excluded.discord_username, updated_at=excluded.updated_at`)
         .run(id, discordUsername, new Date().toISOString());
     },
-    search(query: string): TournamentUser[] {
+    search(query: string, exact = false): TournamentUser[] {
       const q = query.trim();
       if (!q) return [];
+      if (exact) {
+        return db.prepare<{ name: string; memberId: string | null; email: string }, TournamentUser>(`${selectUser}
+          and (p.member_id = @memberId or u.username = @name collate nocase
+            or p.discord_username = @name collate nocase or (u.email_verified = 1 and u.email = @email))
+          order by case
+            when p.member_id = @memberId then 0
+            when u.username = @name collate nocase then 1
+            when p.discord_username = @name collate nocase then 2
+            else 3 end, u.id limit 1`)
+          .all({ name: q, memberId: normalizeMemberId(q), email: q.toLowerCase() });
+      }
       const escaped = q.replace(/[\\%_]/g, "\\$&");
       return db.prepare<[string, string | null, string, string, string, string, string | null, string], TournamentUser>(`${selectUser}
         and (u.discord_user_id=? or p.member_id=? or u.username like ? escape '\\' collate nocase

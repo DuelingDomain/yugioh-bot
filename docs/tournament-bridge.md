@@ -145,16 +145,22 @@ signatures permit retries within the window; they are not single-use nonces.
 
 | Route | Request | Response |
 | --- | --- | --- |
-| `GET /api/tournament-bridge/users/search?q=` | Signed query | `{users:[User]}`, at most 20 |
+| `GET /api/tournament-bridge/users/search?q=` | Signed query with optional `exact=1` | `{users:[User]}`, up to 20 in partial mode or 1 in exact mode |
 | `POST /api/tournament-bridge/users/lookup` | `{ids:number[]}`, at most 500 positive safe integer IDs | `{users:[User],missing:number[]}` |
 | `PUT /api/tournament-bridge/users/[id]/member-id` | `{memberId:string|null}`, positive safe integer path ID | `{memberId:string|null,checkDigitOk:boolean}` |
 
-Search trims `q`; empty queries return no users. It matches exact
-`discord_user_id`, exact normalized member ID, and case-insensitive SQLite LIKE
-prefix/contains matches on username, display name and Discord username. LIKE
-wildcards (`%`, `_`) and backslashes are escaped. Exact ID matches sort first,
-then username prefixes, then other contains matches; ties sort by username and
-ID. SQLite's built-in case folding applies. Email is neither searched nor returned.
+Search trims `q` and returns an empty list for empty queries. Partial mode
+matches exact `discord_user_id`, exact normalized member ID, and case-insensitive
+SQLite LIKE prefix/contains matches on username, display name and Discord
+username. LIKE wildcards (`%`, `_`) and backslashes are escaped. Exact ID
+matches sort first, followed by username prefixes and other contains matches.
+Ties sort by username and ID.
+
+Set `exact=1` for whole-identifier matches on username, Discord username,
+normalized member ID, or verified email. Usernames use SQLite's case-insensitive
+comparison. Email queries are lowercased to match stored addresses. If several
+accounts match, the lowest user ID wins. Both modes return the same user fields
+and omit email.
 
 Lookup de-duplicates IDs in first-request order; `users` and `missing` follow
 that order. Deleted, anonymised and unknown users appear in `missing`. An empty

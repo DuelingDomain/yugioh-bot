@@ -7,6 +7,8 @@ export const runtime = "nodejs";
 export async function GET(request: Request) {
   const auth = await authenticateTournamentRequest(request);
   if (auth instanceof Response) return auth;
-  const query = new URL(request.url).searchParams.get("q") ?? "";
-  return tournamentJson({ users: createTournamentBridgeUsers(getDb()).search(query) });
+  const { searchParams } = new URL(request.url);
+  const query = searchParams.get("q") ?? "";
+  const exact = searchParams.get("exact") === "1";
+  return tournamentJson({ users: createTournamentBridgeUsers(getDb()).search(query, exact) });
 }
