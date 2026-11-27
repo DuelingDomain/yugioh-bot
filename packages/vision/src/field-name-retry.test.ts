@@ -66,13 +66,23 @@ for(const release of ['Scan field','expiry'] as const)test(`retired outlines are
   try{
     await r.untilPrompt();
     const first=r.watcher.getSnapshot().tracks[0].id;
+    const reads=r.reads.length;
     r.watcher.forget(first);
     r.sure();
     r.watcher.scanNow({gentle:true});
     for(let i=0;i<10;i++)await r.tick();
     assert.equal(r.events.filter(e=>e.type==='placed').length,0);
-    if(release==='Scan field')r.watcher.scanNow();
-    else for(let i=0;i<90;i++)await r.tick();
+    if(release==='Scan field'){
+      for(let i=0;i<110;i++)await r.tick();
+      assert.equal(r.reads.length,reads,'an outline that never cleared still stays suppressed after 10 s');
+      r.watcher.scanNow();
+    }else{
+      r.visible=false;r.look=Array(12).fill(.8);
+      r.watcher.scanNow({gentle:true});await r.tick(600);
+      r.visible=true;r.look=Array(12).fill(.6);
+      for(let i=0;i<80;i++)await r.tick();
+      assert.equal(r.reads.length,reads,'one clear sample does not release the outline before expiry');
+    }
     for(let i=0;i<25&&!r.events.some(e=>e.type==='placed');i++)await r.tick();
     assert.ok(r.events.some(e=>e.type==='placed'&&e.track.id!==first));
   }finally{r.watcher.dispose();}

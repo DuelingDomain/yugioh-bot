@@ -739,13 +739,12 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
   let softCamera=false,softHinted=false,softTrack:InternalTrack|undefined;
   let gridOffPasses=0,gridOffAt=-Infinity,gridShift:{gap:number;outside:number;suspect:boolean}|undefined,lastMotionAt:number|undefined,untracked=0,debugAt=0,debugTick='',emptySince:number|undefined,emptyPasses=0,emptyPassAt=-Infinity;
   const debugPath=(path:string,at:number)=>{debugTick=path;debugAt=at;};
-  const suppressed:{id:string;zone:FieldZone;card:DetectedQuad;appearance?:number[];halo?:number[];retiredAt:number;clearAt?:number;samples:number}[]=[];let guarded=false;
+  const suppressed:{id:string;zone:FieldZone;card:DetectedQuad;appearance?:number[];halo?:number[];retiredAt:number;sawClear?:boolean;clearAt?:number;samples:number}[]=[];let guarded=false;
   const retireOutline=(t:InternalTrack)=>{
     const {id,zone}=t.view;
     if(publicPile(zone)||suppressed.some(q=>q.id===id&&q.zone===zone))return;
     const card=t.announcedZone===zone?t.announced??t.view.card:t.restQuad??t.view.card;
     suppressed.push({id,zone,card,appearance:t.identityAppearance??t.appearance,halo:t.halo,retiredAt:now(),samples:0});
-    if(suppressed.length>maxTracks)suppressed.shift();
   };
   const session=globalThis.crypto?.randomUUID?.()??Math.random().toString(36).slice(2);
   const epochAt=()=>performance.timeOrigin;
@@ -1115,7 +1114,10 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
   async function tick() {
     if(disposed||inFlight)return;
     const at=now();
-    for(let i=suppressed.length-1;i>=0;i--)if(at-suppressed[i].retiredAt>=OUTLINE_SUPPRESSION_MS)suppressed.splice(i,1);
+    for(let i=suppressed.length-1;i>=0;i--){
+      const q=suppressed[i];
+      if(q.sawClear&&at-q.retiredAt>=OUTLINE_SUPPRESSION_MS)suppressed.splice(i,1);
+    }
     if(hidden()){status='hidden';metrics.skipped++;interruptWindow();notify();return;}
     const urgent=urgentTick(now()),busy=idle(urgent),tracked=tracks.some(t=>t.view.state==='identified'&&!t.view.removed),empty=!tracks.some(t=>!t.view.removed);
     if(busy&&empty){status='busy';metrics.skipped++;interruptWindow();notify();return;}
@@ -2011,10 +2013,12 @@ export function createFieldWatcher(options:FieldWatcherOptions) {
       if(recent.length>=3&&!laidOut){for(const [i,t] of newcomers.entries()){t.promptOnly='spread';if(i>0){t.view.state='dismissed';t.softDismiss=!!calibration;t.needsRead=false;t.read=undefined;}}}
       for(let i=suppressed.length-1;i>=0;i--){
         const q=suppressed[i],halo=evidence.halo?.(q.card);
-        const clear=!outlines.some(c=>quadIou(c,q.card)>.04)&&!handNear(evidence,q.card)&&!removalHold(q.card)&&evidence.motion(q.card)<=.01&&
+        const clear=sample.at>q.retiredAt&&!outlines.some(c=>quadIou(c,q.card)>.04)&&!handNear(evidence,q.card)&&!removalHold(q.card)&&evidence.motion(q.card)<=.01&&
           !!halo?.length&&(!q.halo?.length||halo.length===q.halo.length&&halo.filter((v,j)=>Math.abs(v-q.halo![j])>.06).length/halo.length<=.08)&&
           clearFieldBackground(evidence.appearance?.(q.card),halo);
-        if(!clear){q.clearAt=undefined;q.samples=0;}else{q.clearAt??=sample.at;q.samples++;if(q.samples>=5&&sample.at-q.clearAt>=Math.max(removalMs,1500))suppressed.splice(i,1);}
+        if(!clear){q.clearAt=undefined;q.samples=0;continue;}
+        if(q.clearAt===undefined){q.clearAt=sample.at;q.sawClear=true;}
+        if(++q.samples>=5&&sample.at-q.clearAt>=Math.max(removalMs,1500))suppressed.splice(i,1);
       }
       // An empty, still mat clears the field: after ~2 s of full detector passes
       // with no field outline and no motion, every field card not seen leaves
