@@ -482,6 +482,12 @@ test.describe("remote duels screen, solo", () => {
     await page.getByTestId("feed-box-0").hover();
     await expect(toggle).toHaveAttribute("aria-pressed", "true");
     await expect(page.getByTestId("zone-grid-hint")).toHaveText("Recommended — shows where your zones are");
+    // The camera row never takes a click itself: every point of its box that is not a button, label or input reaches the picture (a card under it).
+    expect(await page.evaluate(() => {
+      const bar = document.querySelector('[data-testid="feed-box-0"] [data-feed-toolbar]')!, box = bar.getBoundingClientRect(); let stray = 0;
+      for (let x = box.left + 1; x < box.right; x += 3) for (let y = box.top + 1; y < box.bottom; y += 3) { const hit = document.elementFromPoint(x, y); if (hit && bar.contains(hit) && !hit.closest("button,label,input,select,a")) stray++; }
+      return stray;
+    })).toBe(0);
     await toggle.click();
     await expect(toggle).toHaveAttribute("aria-pressed", "false");
     await expect(page.getByTestId("zone-grid-hint")).toHaveText("Zones off");
