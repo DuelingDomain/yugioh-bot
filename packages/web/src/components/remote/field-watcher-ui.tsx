@@ -175,10 +175,10 @@ function PilePrompt({id,pile,deck,pending,onPick,onOpen,onNotACard,onLater}:{
   return <div className={s.pilePrompt}>
     <p id={id} className={s.pileGuess}>{guess?<><img src={cardArt(guess.cardId,'small')} alt="" />{guess.name}</>:gy?'Detected in GY':'Detected in Banished'}</p>
     {guess?<button type="button" className={`${table.btn} ${table.sm} ${s.pilePrimary}`} aria-keyshortcuts="Enter" disabled={pending} onClick={()=>onPick(guess)}>
-      {guess.from?`Move ${guess.name} from ${guess.from}`:`Add ${guess.name} to ${gy?'GY':'Banished'}`} <kbd>Enter</kbd>
+      {guess.from?`Move ${guess.name} from ${guess.from}`:`Add ${guess.name} to ${gy?'GY':'Banished'}`} <kbd aria-hidden="true">Enter</kbd>
     </button>:null}
     <div className={s.pilePromptActions}>
-      <button type="button" className={`${table.btn} ${table.sm}`} aria-keyshortcuts={!guess?'Enter':undefined} aria-expanded={search} disabled={pending} onClick={()=>setSearch(value=>!value)}>Pick card…{!guess?<> <kbd>Enter</kbd></>:null}</button>
+      <button type="button" className={`${table.btn} ${table.sm}`} aria-keyshortcuts={!guess?'Enter':undefined} aria-expanded={search} disabled={pending} onClick={()=>setSearch(value=>!value)}>Pick card…{!guess?<> <kbd aria-hidden="true">Enter</kbd></>:null}</button>
       <button type="button" className={`${table.btn} ${table.sm}`} disabled={pending} onClick={()=>{setSearch(false);onNotACard();}}>Not a card</button>
       <button type="button" className={`${table.btn} ${table.sm}`} disabled={pending} onClick={()=>{setSearch(false);onOpen();}}>{gy?'Remove a GY card…':'Remove a banished card…'}</button>
       <button type="button" className={s.pileLater} disabled={pending} onClick={onLater}>Later</button>
