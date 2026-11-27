@@ -1793,7 +1793,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
       onDetails={card => openSubject(card)} details={(() => { const c = cellsFor(state.seats[zonePicker.seat].twin, extraZones)[zonePicker.key]?.card; return !!c && !c.faceUp && !!state.effectTracking?.origins.some(o => o.seat === zonePicker.seat && o.ref === c.ref); })()} quick={quickFor(zonePicker.seat, cellsFor(state.seats[zonePicker.seat].twin, extraZones)[zonePicker.key]?.card)} onClose={() => layers.close('zone')} /> : null}
     <InspectorDrawer open={layers.layer === "insp"} onClose={() => layers.close("insp")}>
       <InspectorBody subject={subject} info={subjectInfo} warning={subject ? deckFlag(room, subject.seat)?.message : undefined} actions={shownActions}
-        sourceLine={subject ? `Identified by ${subject.via} on ${name(subject.seat)}'s side` : ""} />
+        sourceLine={subject ? `${subject.via === "typed" ? "Named by hand" : `Identified by ${subject.via}`} on ${name(subject.seat)}'s side` : ""} />
     </InspectorDrawer>
     <DeckFlagPopover open={layers.layer === "flag"} flag={deckFlag(room, flagSeat)} instances={room.state.deckChecks?.instances ?? []} canMerge={live && (solo || flagSeat === mySeat)} busy={!live}
       onDismiss={flag => { void act({ type: "deck.flag.dismiss", actorSeat: flagActor, flagId: flag.id, reason: "Player marked this flag as wrong" }); layers.close("flag"); }}
