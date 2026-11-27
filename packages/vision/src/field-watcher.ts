@@ -25,7 +25,7 @@ import { fieldQuarterTurn, fieldZoneBounds, fieldZoneCells, fieldMatPoint, field
 function confidentDeckRead(result:RecognitionResult,priors:RecognitionPriors|undefined) {
   const id=result.candidates[0]?.cardId,{quality,raw,reader}=result;
   if(result.tier!=='sure'||!id||!priors?.decklist?.includes(id)||quality.notInDecklist||quality.fallback||
-    quality.covered||quality.partial||quality.faceDown||quality.framesAgree===false||raw?.blocked.length)return false;
+    quality.covered||quality.partial||quality.faceDown||quality.framesAgree===false||raw?.blocked?.length)return false;
   if(reader?.stage==='first'){
     const first=reader.first;
     return !!first&&first.score>=DUELSIGHT_CONFIDENT.score&&first.margin>=DUELSIGHT_CONFIDENT.margin;
