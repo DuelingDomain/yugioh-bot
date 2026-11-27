@@ -54,6 +54,28 @@ it('a later manual click prevents an older queued camera write, even before the 
   expect(room.state.seats[0].twin).toEqual([expect.objectContaining({ref:'paper',slot:3})]);expect(room.lastSeq).toBe(1);
 });
 
+it('a player removal of a camera card sticks through a brief missing sample and a new track ref', async () => {
+  let room=tapRoom();
+  const queue=createRoomMutationQueue(()=>room,async action=>room=applyTap(room,action));
+  await queue.action({type:'twin.place',source:'auto',actorSeat:0,seat:0,zone:'monster',card:placementCard()});
+  const holds=correctionsFor(room,0);
+  holds.observe([observed()],0);
+  await queue.action({type:'twin.remove',actorSeat:0,seat:0,cardRef:'paper'});
+  holds.observe([observed({removed:true,resting:false})],100);
+  holds.observe([observed({id:'new-outline',ref:'new-ref'})],500);
+  await queue.action({type:'twin.place',source:'auto',actorSeat:0,seat:0,zone:'monster',card:placementCard('new-ref')});
+  expect(room.state.seats[0].twin).toEqual([]);
+  expect(holds.blocks(['new-ref'],{zone:'monster',slot:1})).toBe(true);
+  const moved=observed({id:'new-outline',ref:'new-ref',slot:2});
+  holds.observe([moved],1000);
+  holds.observe([moved],3000);
+  expect(holds.blocks(['new-ref'],{zone:'monster',slot:2})).toBe(true);
+  const departure={...moved,removed:true,resting:false};
+  holds.observe([departure],3500);
+  holds.observe([departure],5000);
+  expect(holds.blocks(['another-ref'],{zone:'monster',slot:2})).toBe(false);
+});
+
 it('holds survive reload, release on a sustained physical change or a proven departure, and keep a separate copy independent', () => {
   const first=createManualCorrections(sessionStorage,'holds');first.observe([observed()],0);first.begin('paper',[{zone:'monster',slot:1}]);
   const reload=createManualCorrections(sessionStorage,'holds');reload.observe([],5000);

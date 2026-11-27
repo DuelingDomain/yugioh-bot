@@ -16,7 +16,7 @@ export type CardSource = "camera" | "board" | "pile" | "hand";
 /** One card the table is looking at: from a feed click, the field, or the tray. */
 export type Subject = {
   from: CardSource;
-  cardId: number; seat: number; ref?: string; name?: string;
+  cardId: number; seat: number; ref?: string; name?: string; handEntryId?: string;
   /** null = no decklist to compare with. */
   notInDecklist: boolean | null; addErrors: string[]; via: string;
   /** How sure the reader was when it named this card (feed reads only). */
@@ -79,9 +79,10 @@ export type CardActions = {
   control?: { label: string; onClick: () => void };
   /** Give my card on the field to an opponent: it shows there as a proxy that I keep owning. */
   give?: { label: string; onClick: () => void };
-  /** The same important card moves as the board zone menu (give control, position, send, remove proxy). Shown on a camera click too. */
+  /** The same card moves as the board zone menu. */
   quick?: QuickMove[];
   onWrong?: () => void; onPin?: () => void;
+  onForgetHand?: () => void;
   /** A remembered card: read the camera again. */
   onReadAgain?: () => void;
   /** Opens the card search; the chosen card goes to the hand (hand.add). */
@@ -148,6 +149,7 @@ function Actions({ a, subject }: { a: CardActions; subject: Subject }) {
       {a.undo ? <button type="button" className={`${BTN} ${a.undo.reason ? s.cblocked : ""}`} aria-disabled={!!a.undo.reason} aria-describedby={a.undo.reason ? "card-undo-reason" : undefined}
         onClick={a.undo.onUndo} data-testid="card-undo" title={a.undo.label}>Undo last change</button> : null}
       {a.onWrong ? <button type="button" className={BTN} onClick={a.onWrong}>Wrong card?</button> : null}
+      {a.onForgetHand ? <button type="button" className={BTN} onClick={a.onForgetHand}>Remove from revealed hand</button> : null}
       {a.onPin ? <button type="button" className={BTN} onClick={a.onPin} data-testid="pin-inspector">Pin to inspector</button> : null}
       {a.onFlag ? <button type="button" className={BTN} data-layer-opener onClick={event => a.onFlag?.(event.currentTarget)} data-testid="review-flag"><Icon name="warn" />Deck warning</button> : null}
       {a.undo?.reason ? <small className={s.cureason} id="card-undo-reason" data-testid="card-undo-reason">{a.undo.reason}</small> : null}

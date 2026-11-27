@@ -1334,7 +1334,10 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
   const knownIds = state.seats.flatMap(item => ((item as unknown as { knownHand?: { cardId: number }[] }).knownHand ?? []).map(card => card.cardId)).join(",");
   useEffect(() => { if (knownIds) void loadCards(knownIds.split(",").map(Number)).then(() => setNames(n => n + 1)); }, [knownIds]);
   const openKnown = (seat: number, card: KnownHandCard) => {
-    setSubject({ from: "hand", cardId: card.cardId, seat, name: card.name, notInDecklist: null, addErrors: [], via: "field" });
+    const move = room.events.find(e => e.id === card.id)?.action;
+    const ref = (solo || seat === mySeat) && move?.type === "twin.move" && move.seat === seat && move.zone === "hand" &&
+      state.seats[seat].twin.some(c => c.ref === move.cardRef && c.zone === "hand") ? move.cardRef : undefined;
+    setSubject({ from: "hand", cardId: card.cardId, seat, ref, handEntryId: card.id, name: card.name, notInDecklist: null, addErrors: [], via: "field" });
     layers.open("insp");
   };
   // A camera read without a search arrives as a local browser event. The owner decides; nothing is sent before a choice.
@@ -1419,6 +1422,9 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     give: item => { if (control.give(item)) { layers.close(); setSubject(null); } }, giveBack: control.giveBack }) : [];
   const actions: CardActions = {
     quick: quickFor(subject?.seat ?? mySeat, subjectCard),
+    ...(subject?.handEntryId && !subjectCard && live && (solo || subject.seat === mySeat) ? { onForgetHand: () => {
+      void act({ type: "hand.forget", actorSeat: subject.seat, id: subject.handEntryId! }).then(updated => { if (updated) layers.close(); });
+    } } : {}),
     ...(subject && subjectCard && live && (solo || subject.seat === mySeat) ? (() => {
       const twins = state.seats[subject.seat].twin;
       const xyz = (c: TwinCard) => c.faceUp && ['monster','extra-monster'].includes(c.zone) && /xyz/i.test(info(cardCode(c))?.type ?? '');
@@ -1514,14 +1520,14 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
       onEquip: key => { const [target, ref] = key ? [Number(key.split(":")[0]), key.slice(key.indexOf(":") + 1)] : [];
         void act({ type: "twin.equip", actorSeat: solo ? seat : mySeat, seat, cardRef: card.ref, target: key ? { seat: target!, ref: ref! } : null }); } };
   }
-  const openSubject = (card: TwinCard, from: Exclude<CardSource, "hand"> = "board", anchor?: Rect) => {
+  const openSubject = (card: TwinCard, from: Exclude<CardSource, "hand"> = "board", anchor?: Rect, cardActions = false) => {
     const seat = state.seats.findIndex(item => item.twin.some(c => c.ref === card.ref));
     if (card.token) { tokens.open(seat, card); return; }
     const origin=state.effectTracking?.origins.find(o=>o.seat===seat && o.ref===card.ref);
-    if(!card.faceUp && origin && (solo || seat===mySeat)) {setEffectOrigin(origin.id); layers.open("effect"); return;}
+    if(!cardActions && !card.faceUp && origin && (solo || seat===mySeat)) {setEffectOrigin(origin.id); layers.open("effect"); return;}
     const id = cardCode(card);
     // Your own card with no name still gets its actions (move, flip, Graveyard, Wrong card?). cardId 0 = not identified.
-    if (!id && !((solo || seat === mySeat) && from === "board" && !anchor)) { toast(card.setBy ? "Face-down · Set by "+card.setBy.name : card.faceUp?"This card is not identified yet. Click it on the camera feed.":"Face-down card"); return; }
+    if (!id && !(solo || seat === mySeat)) { toast(card.setBy ? "Face-down · Set by "+card.setBy.name : card.faceUp?"This card is not identified yet. Click it on the camera feed.":"Face-down card"); return; }
     setSubject({ from, cardId: id ?? 0, seat, ref: card.ref, name: id ? card.name : card.faceUp ? "Unidentified card" : "Face-down card", bestMatch:card.bestMatch, notInDecklist: id && card.ownerSeat === undefined ? flagFor(seat, id) : null, addErrors: [], via: "field" });
     setSelected({ seat, ref: card.ref });
     // From a pile tile the popup points at the tile, so it opens over the viewer and the viewer stays.
@@ -1608,8 +1614,11 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     if (tapOwnSeat && seat === mySeat) return false;
     const card = twinAtPoint(seat, at.x, at.y);
     if (card?.token) { cancelRead(); tokens.open(seat, card); return true; }
-    // The table already knows this card: its details open in both views, with no read.
-    if (card && cardCode(card)) {
+    // Open actions for an own twin even if the camera has no name for it.
+    // Keep the saved face-down read path when this browser has a name to show.
+    const memory = tapMemory(seat);
+    const editable = live && (solo || seat === mySeat);
+    if (card && (cardCode(card) || editable && (card.faceUp || !memory?.recall(memory.spot(at.x, at.y))))) {
       cancelRead(); openSubject(card, "camera", at.anchor);
       ctx.current = { seat, x: at.x, y: at.y, at: { anchor: at.anchor, feed: at.feed }, id: ++readCounter.current, ref: card.ref };
       return true;
@@ -1617,7 +1626,6 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     if (!webcamOnly && !boardOff(seat)) return false;
     if (!card) { const pile = pileAt(zoneAtPoint(seat, at.x, at.y)); if (!pile) return false; cancelRead(); openPile(seat, pile, null); return true; }
     // A Set card this browser remembers takes the click read, which ends in the local popup. No name shows until then.
-    const memory = tapMemory(seat);
     if (card.faceUp) return false;
     if (memory?.recall(memory.spot(at.x, at.y))) { setCardClick.current = seat; return false; }
     cancelRead(); toast("Set card"); layers.close(); return true;
@@ -1635,7 +1643,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     const seat = state.seats.findIndex(item => item.twin.some(c => c.ref === card.ref));
     if (card.token) { tokens.open(seat, card); return true; }
     if (!cardCode(card) && !card.faceUp && !(solo || seat === mySeat)) { toast("Set card"); return true; }
-    openSubject(card, "board"); return true;
+    openSubject(card, "board", undefined, true); return true;
   };
   /** The feed handler runs first and the table handler after it, in the same event. This tells the table handler what the feed did. */
   const feedMenu = useRef(false);
@@ -1743,7 +1751,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
       onAction={action => void saveZoneActions(latest => [zoneCardAction(latest, zonePicker.key, action)])} onSet={() => { const ref = crypto.randomUUID(); void saveZoneActions(latest => [zoneSet(latest, zonePicker.seat, zonePicker.key, ref)]); }}
       onToken={() => tokens.create(zonePicker.seat, /^m[1-5]$/.test(zonePicker.key) && !cellsFor(state.seats[zonePicker.seat].twin, extraZones)[zonePicker.key]?.card ? zonePicker.key : undefined)}
       onGive={zonePicker.tokenOnly && control.canGive ? () => control.giveHere(zonePicker.seat, zonePicker.key) : undefined}
-      onDetails={card => openSubject(card)} quick={quickFor(zonePicker.seat, cellsFor(state.seats[zonePicker.seat].twin, extraZones)[zonePicker.key]?.card)} onClose={() => layers.close('zone')} /> : null}
+      onDetails={card => openSubject(card, "board", undefined, true)} quick={quickFor(zonePicker.seat, cellsFor(state.seats[zonePicker.seat].twin, extraZones)[zonePicker.key]?.card)} onClose={() => layers.close('zone')} /> : null}
     <InspectorDrawer open={layers.layer === "insp"} onClose={() => layers.close("insp")}>
       <InspectorBody subject={subjectDetails} info={subjectInfo} warning={subject ? deckFlag(room, subject.seat)?.message : undefined} actions={shownActions}
         sourceLine={subject ? `Identified by ${subject.via} on ${name(subject.seat)}'s side` : ""} />
