@@ -1,4 +1,4 @@
-import type { RemoteAction, RemoteState, RemoteSystemAction, RemoteUndoEntry } from "@yugidraft/shared/remote";
+import { remoteUndoLabel, type RemoteAction, type RemoteState, type RemoteSystemAction, type RemoteUndoEntry } from "@yugidraft/shared/remote";
 import { PHASE_LONG } from "./model";
 
 type AnyAction = RemoteAction | RemoteSystemAction;
@@ -53,7 +53,7 @@ export function shortUndoLabel(event: { action: unknown }, cardName: (seat: numb
     case "twin.flip": return `${cardName(a.seat, a.cardRef) ?? "Card"} flipped ${a.faceUp ? "up" : "down"}`;
     case "twin.remove": return `${cardName(a.seat, a.cardRef) ?? "Card"} removed`;
     case "monsters.tribute": return `Tribute (${a.targets.length})`;
-    case "pile.lift": return `${a.zone === "graveyard" ? "Graveyard" : "Banished"} picked up (${a.cardRefs.length})`;
+    case "pile.lift": return remoteUndoLabel(a);
     case "lp.change": return `${name(a.seat)} ${a.delta < 0 ? "−" : "+"}${Math.abs(a.delta)} LP`;
     case "phase.set": return PHASE_LONG[a.phase] ?? a.phase;
     case "chain.ok": return "OK";

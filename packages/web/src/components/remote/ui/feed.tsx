@@ -14,14 +14,15 @@ import { PeerVisionChip } from "./peer-vision-chip";
 import { TapModeBanner, TapModeChip } from "./tap-mode-banner";
 import { ZoneGridOverlay, FieldDebugOverlay } from "./zone-grid";
 import { HubFeedCards } from "./feed-cards";
-import {fieldCenter,fieldZoneLocation,mapFieldZone} from '@yugidraft/vision';
+import {fieldCenter,fieldZoneCells,fieldZoneLocation,mapFieldZone,onMat,zoneCellAt} from '@yugidraft/vision';
 import { noteTapFrame } from "@/lib/remote/tap-memory";
-import { useTapToIdentify, useZoneGrid, useGridPref, useHoverFreeze, currentZoneGrid, useFieldDebugEnabled } from "@/lib/remote/zone-grid";
+import { displayCalibration, useTapToIdentify, useZoneGrid, useGridPref, useHoverFreeze, currentZoneGrid, useFieldDebugEnabled } from "@/lib/remote/zone-grid";
 import s from "./remote-ui.module.css";
 import { isTypingTarget } from "@/lib/typing-target";
 import { isThemedListOpen } from "@/components/ui/themed-select";
 import type { TournamentMode } from "@/lib/remote/tournament-detection";
 import { watchTapFeed } from "./tap-preread";
+import type { PublicPile } from "./pile-viewer";
 
 /** A card the table has identified on a feed. Normalized to the video frame (0..1). `quad` is set when it came from an outline. */
 export type FeedMark = { id: string; x: number; y: number; label: string; notInDecklist: boolean; show: boolean; cardCode?: number; ref?: string; quad?: Pt[];
@@ -105,7 +106,7 @@ function FirstRunHint({ camRef }: { camRef: { current: HTMLElement | null } }) {
   return <div className={s.firstHint} role="status" data-testid="first-run-hint"><span><span className={s.hintClick}>Click a card to see it and act</span><span className={s.hintTap}>Tap a card to see it and act</span></span><button type="button" onClick={dismiss} aria-label="Dismiss hint" data-testid="first-run-hint-close">Got it</button></div>;
 }
 
-export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLive, onAbort, onPoint, onMiss, onSearch, onSelect, onAdd, onReset, onReadBoard, holdSelection, extra, onZoneCard, onPick, hoverTip, silentHover, onHoverEnd, onCardMenu, below, emptyText, emptyAction, prereadScope, announcedMode, tournament = false, openZones }: {
+export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLive, onAbort, onPoint, onMiss, onSearch, onSelect, onAdd, onReset, onReadBoard, holdSelection, extra, onZoneCard, onTapPile, onPick, hoverTip, silentHover, onHoverEnd, onCardMenu, below, emptyText, emptyAction, prereadScope, announcedMode, tournament = false, openZones }: {
   seat: number; name: string; you: boolean; health: Health; marks: FeedMark[]; reticles: FeedReticle[];
   /** A click landed on the live feed, before the card is found. Returns the id of this read. No popup opens yet. */
   onBegin: (seat: number, start: FeedStart) => number | void;
@@ -130,6 +131,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
   openZones?: readonly string[];
   /** Webcam only: a click on a spot with no outline asks the table first. It answers true when the zone under the click holds a card it handled. */
   onZoneCard?: (seat: number, at: { x: number; y: number; anchor: Rect; feed: Rect }) => boolean;
+  onTapPile?: (seat: number, zone: PublicPile) => void;
   /** Webcam only, while the table waits for an attack target: a click on a card there picks it. It answers true when it took the click. */
   onPick?: (seat: number, x: number, y: number) => boolean;
   /** The board is shown: hoverTip only tracks the card under the pointer (for E) and shows no label. */
@@ -394,6 +396,19 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
     return true;
   }
 
+  function openTappedPile(p: Pt) {
+    if (!onTapPile || !(tapOwn || tapSeat || opponentTap)) return false;
+    const own = zoneGrid.ownSeat === seat;
+    const saved = own ? zoneGrid.calibration : hub.trackedCalibration?.(seat);
+    if (!saved?.orientation && !(own && gridOn)) return false;
+    const calibration = displayCalibration(saved, zoneGrid.defaultSide);
+    const cell = zoneCellAt(onMat(p, calibration), fieldZoneCells(zoneGrid.format, calibration.zoneSpacing, calibration.zones));
+    const zone = cell?.zone === "GY" ? "graveyard" : cell?.zone === "BANISHED" ? "banished" : null;
+    if (!zone) return false;
+    ++run.current; setMiss(null); onTapPile(seat, zone);
+    return true;
+  }
+
   /** A cache miss searches the sharpest buffered frame for the card under the click. */
   async function liveClick(p: Pt) {
     if (!box) return;
@@ -429,6 +444,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
     wrap.current?.focus({ preventScroll: true }); noteFrame();
     const f = frozenRef.current;
     if (!f && onPick && onPick(seat, p.x, p.y)) return;
+    if (!f && openTappedPile(p)) return;
     const cached=!f?hub.trackedAt(seat,p.x,p.y):undefined;
     if(cached){
       ++run.current; setMiss(null);
@@ -588,7 +604,18 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
     aria-label={`${name}'s field camera. ${you ? "Your" : "Their"} view. Click a card to read it. Press F to freeze the frame and outline every card. Then Tab moves between cards and Enter opens one.`}
     data-testid={`feed-box-${seat}`} data-frozen={isFrozen ? frozen.status : "live"}>
     <div className={`${s.fcam} ${isFrozen ? s.fcamFrozen : ""}`} ref={cam} onClick={click} onPointerMove={move} onPointerLeave={() => onHoverEnd?.(seat)}
-      onPointerDown={event=>{lastPointer.current=event.pointerType;phonePointerHandled.current=false;if(closingPress.current||event.button!==0||!event.isPrimary||frozenRef.current||(event.target as HTMLElement).closest("button")||!hub.phones.some(phone=>phone.seat===seat&&phone.paired))return;const p=point(event.clientX,event.clientY);if(p){phonePointerHandled.current=true;if(dwell.current){clearTimeout(dwell.current);dwell.current=null;}wrap.current?.focus({preventScroll:true});void liveClick(p);}}}
+      onPointerDown={event => {
+        lastPointer.current = event.pointerType;
+        phonePointerHandled.current = false;
+        if (closingPress.current || event.button !== 0 || !event.isPrimary || frozenRef.current || (event.target as HTMLElement).closest("button") || !hub.phones.some(phone => phone.seat === seat && phone.paired)) return;
+        const p = point(event.clientX, event.clientY);
+        if (!p) return;
+        phonePointerHandled.current = true;
+        if (dwell.current) { clearTimeout(dwell.current); dwell.current = null; }
+        wrap.current?.focus({ preventScroll: true });
+        if (onPick?.(seat, p.x, p.y) || openTappedPile(p)) return;
+        void liveClick(p);
+      }}
       onPointerCancel={()=>{phonePointerHandled.current=false;}}
       onContextMenu={event => {
         if (!onCardMenu || !source || event.shiftKey) return;

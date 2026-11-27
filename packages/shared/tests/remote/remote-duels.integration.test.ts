@@ -508,6 +508,7 @@ it('keeps who-made-it stamps as evidence only: old actions stay valid, a retry w
   const stageTimes = {detectorWait:220,restGate:100,handGate:90,read:60,nameVote:0,post:12};
   const player = {sentAt:5000,by:'player',ui:'popup-remove'};
   const camera = {seenAt:4000,namedAt:4500,sentAt:5000,v:'build-1',by:'camera',timing:{id:'vision-read-1',stagesMs:stageTimes}};
+  const cell = {centre:{x:.91,y:.36},zone:'GY'};
   // An old action (no cam, or a cam without by/ui) still parses; a bad ui or an unknown by does not.
   expect(remoteActionSchema.safeParse(place()).success).toBe(true);
   expect(remoteActionSchema.safeParse(place({sentAt:5000,v:'old'})).success).toBe(true);
@@ -527,10 +528,12 @@ it('keeps who-made-it stamps as evidence only: old actions stay valid, a retry w
   const events = s.service.snapshot(s.room.slug,'g').events;
   expect(events.at(-1)).toMatchObject({id:'stamp-place',action:{cam:{by:'player',ui:'popup-remove'}}});
   // A watcher action keeps by:'camera' and the same board result.
-  const cameraInput = {baseSeq:first.lastSeq,action:remoteActionSchema.parse({...place(camera),actorSeat:1,seat:1,idempotencyKey:'stamp-camera'})};
+  const cameraInput = {baseSeq:first.lastSeq,action:remoteActionSchema.parse({
+    ...place({...camera,cell}),zone:'graveyard',actorSeat:1,seat:1,idempotencyKey:'stamp-camera',
+  })};
   const other = s.service.act(s.room.slug,'g',s.users[1],{...cameraInput,postStartedAt:performance.now()},3003);
   expect(s.service.snapshot(s.room.slug,'g').events.at(-1)).toMatchObject({
-    id:'stamp-camera',action:{cam:{by:'camera',timing:{id:'vision-read-1',stagesMs:{...stageTimes,postServer:expect.any(Number)}}}},
+    id:'stamp-camera',action:{cam:{by:'camera',cell,timing:{id:'vision-read-1',stagesMs:{...stageTimes,postServer:expect.any(Number)}}}},
   });
   expect(s.service.act(s.room.slug,'g',s.users[1],cameraInput,3004).lastSeq).toBe(other.lastSeq);
   expect(s.service.replay(s.room.slug,'g',s.users[1])).toEqual(other.state);
@@ -1322,17 +1325,69 @@ describe("remote deck registration and live checks", () => {
     expect(s.room.state.seats[0].twin).toEqual(before.state.seats[0].twin);
     expect(s.room.state.deckChecks).toEqual(before.state.deckChecks);
     expect(s.room.state.identified).toEqual(before.state.identified);
-    // The camera saw the whole GY picked up: one action moves every GY card to
-    // the hand, and one Undo puts the pile back.
+    // A player can pick up several cards in one undoable action. Historical
+    // camera lifts still replay, but an empty camera zone cannot submit a lift.
     s.act({ type: "twin.place", seat: 0, zone: "graveyard", source: "auto", card: { ref: "gy-1", cardId: 14558127 } });
     s.act({ type: "twin.place", seat: 0, zone: "graveyard", source: "auto", card: { ref: "gy-2", cardId: 46986414 } });
     const pile = structuredClone(s.room.state.seats[0].twin);
-    s.act({ type: "pile.lift", seat: 0, zone: "graveyard", cardRefs: ["gy-1", "gy-2"], source: "auto", idempotencyKey: "gy-lift" });
+    const lift = { type: "pile.lift", seat: 0, zone: "graveyard", cardRefs: ["gy-1", "gy-2"], idempotencyKey: "gy-lift" } as const;
+    const cameraLift = remoteActionSchema.parse({ ...lift, actorSeat: 0, source: "auto" });
+    expect(() => ygoModule.reduce(s.room.state, cameraLift)).toThrow(/requires a player action/);
+    expect(ygoModule.reduce(s.room.state, cameraLift, { replay: true, handReview: 1 }).seats[0].twin.filter(c => c.zone === "hand")).toHaveLength(2);
+    s.act({ ...lift, cardRefs: [...lift.cardRefs] });
     expect(s.room.state.seats[0].twin.filter(c => c.zone === "hand").map(c => c.ref).sort()).toEqual(["gy-1", "gy-2"]);
     expect(s.room.state.undo!.actionId).toBe("gy-lift");
     s.act({ type: "undo", targetActionId: "gy-lift" });
     expect(s.room.state.seats[0].twin).toEqual(pile);
     expect(s.service.replay(s.room.slug, "g", s.users[0])).toEqual(s.room.state);
+  });
+  it("replays historical face-up Extra Deck events while declining new ones", () => {
+    let state = ygoModule.initialState({ seatCount: 2 }), seq = 0;
+    const act = (action: RemoteActionProposal) => {
+      const event = { ...action, at: ++seq, idempotencyKey: `extra-${seq}` };
+      if (event.type === "twin.place" && event.pendulum || event.type === "pile.order" && event.zone === "extra") {
+        expect(remoteActionSchema.safeParse(event).success).toBe(false);
+        expect(() => ygoModule.reduce(state, event)).toThrow(/Invalid remote action/);
+      }
+      state = ygoModule.reduce(state, event, { replay: true, twinPlacementGuard: 8, handKnowledge: 1 });
+    };
+    const place = (ref: string, cardId: number, faceUp: boolean) => act({ type: "twin.place", actorSeat: 0, seat: 0,
+      zone: "extra", card: { ref, cardId, faceUp, position: "attack" }, ...(faceUp ? { source: "auto", pendulum: true } : {}) });
+    const refs = () => state.seats[0].twin.map(c => c.ref);
+    place("first", 16178681, true);
+    place("private", 101, false);
+    place("top", 20563387, true);
+    place("rescan", 16178681, true);
+    expect(refs()).toEqual(["first", "private", "top"]);
+    act({ type: "pile.order", actorSeat: 0, seat: 0, zone: "extra", cardRefs: ["top", "first"], source: "auto" });
+    expect(refs()).toEqual(["top", "private", "first"]);
+    expect(projectRemoteState(state, new Set([1])).seats[0].twin).toEqual([
+      expect.objectContaining({ ref: "top", cardId: 20563387 }),
+      { ref: "private", zone: "extra", faceUp: false, position: "attack" },
+      expect.objectContaining({ ref: "first", cardId: 16178681 }),
+    ]);
+    act({ type: "undo", actorSeat: 0, targetActionId: state.undo!.actionId });
+    expect(refs()).toEqual(["first", "private", "top"]);
+  });
+  it.each(["hand", "deck"] as const)("moves a whole public pile to %s in one undoable action", destination => {
+    const s = deckSession(); s.start();
+    s.act({ type: "deck.count", value: 35, cause: "other" });
+    for (const [ref, cardId] of [["bulk-first", 14558127], ["bulk-second", 46986414]] as const)
+      s.act({ type: "twin.place", seat: 0, zone: "banished", card: { ref, cardId, faceUp: ref === "bulk-first" } });
+    const before = structuredClone(s.room.state.seats[0]);
+    const action = { type: "pile.lift", seat: 0, zone: "banished", destination, cardRefs: ["bulk-first", "bulk-second"] } as const;
+    expect(() => s.act({ ...action, cardRefs: ["bulk-first", "missing"] })).toThrow(/left that pile/);
+    expect(s.room.state.seats[0]).toEqual(before);
+    s.act({ ...action, cardRefs: [...action.cardRefs], idempotencyKey: "bulk-move" });
+    const moved = s.room.state.seats[0];
+    expect(moved.twin).toMatchObject(action.cardRefs.map(ref => ({ ref, zone: destination, faceUp: false })));
+    expect(moved.twin.every(card => !card.inspectionFrom)).toBe(true);
+    expect(moved.handCount).toBe(before.handCount! + (destination === "hand" ? 2 : 0));
+    expect(moved.deckCount).toBe(before.deckCount! + (destination === "deck" ? 2 : 0));
+    expect(s.room.state.undo!.actionId).toBe("bulk-move");
+    expect(s.service.replay(s.room.slug, "g", s.users[0])).toEqual(s.room.state);
+    s.act({ type: "undo", targetActionId: "bulk-move" });
+    expect(s.room.state.seats[0]).toEqual(before);
   });
   it("adds the new columns to populated pre-deck tables without rewriting events", () => {
     const { db, service, table, users } = setup();
@@ -3101,6 +3156,33 @@ it("targets an untouched card after LP changes, rejects dependencies, and preser
   act({type:"undo",targetActionId:"touch",idempotencyKey:"undo-touch"});
   act({type:"twin.place",seat:0,zone:"monster",card:{ref:"occupied",slot:1},idempotencyKey:"occupied"});
   expect(()=>act({type:"undo",targetActionId:"move-again",idempotencyKey:"occupied-undo"})).toThrow(/occupied/i);
+});
+
+it('replaces an owned public pile in one replayable and undoable action', () => {
+  const s = deckSession('normal'); s.start();
+  const zone = 'graveyard';
+  s.act({type:'twin.place', seat:0, zone, card:{ref:'first', cardId:1, faceUp:true}});
+  s.act({type:'twin.place', seat:0, zone, card:{ref:'second', cardId:2, faceUp:true}});
+  s.act({type:'twin.place', seat:0, zone, card:{ref:'third', cardId:4, faceUp:true}});
+  s.act({type:'hand.add', cardId:3, source:'unknown'});
+  const refs = (room = s.room) => room.state.seats[0].twin.filter(card => card.zone === zone).map(card => card.ref);
+  const before = s.room.state.undoHistory!.length;
+  const entries = [{ref:'third'}, {ref:'second'}, {ref:'new-top', cardId:3, name:'New top', faceUp:true}];
+  expect(() => s.act({type:'pile.set', seat:1, zone, entries})).toThrow(/owner/i);
+  expect(() => s.act({type:'pile.set', source:'auto', seat:0, zone, entries})).toThrow(/player action/i);
+  expect(() => s.act({type:'pile.set', seat:0, zone, entries, expectedRefs:['first','second']})).toThrow(/changed/i);
+  expect(() => s.act({type:'pile.set', seat:0, zone, entries:[{ref:'third',faceUp:true,cardId:4}]})).toThrow(/only its ref/i);
+  s.act({type:'pile.set', seat:0, zone, entries, expectedRefs:refs()});
+  expect(refs()).toEqual(['third','second','new-top']);
+  expect(s.room.state.seats[0].knownHand).toContainEqual(expect.objectContaining({cardId:3}));
+  expect(s.room.state.undoHistory).toHaveLength(before + 1);
+  expect(s.service.replay(s.room.slug, 'g', s.users[0])).toEqual(s.room.state);
+  const targetActionId = s.room.state.undo!.actionId;
+  s.act({type:'twin.place', actorSeat:1, seat:0, zone:'monster', give:true, card:{ref:'given', cardId:5, slot:1, faceUp:true}});
+  s.act({type:'undo', targetActionId});
+  expect(refs()).toEqual(['first','second','third']);
+  expect(s.room.state.seats[0].twin).toContainEqual(expect.objectContaining({ref:'given',zone:'monster'}));
+  expect(s.service.replay(s.room.slug, 'g', s.users[0])).toEqual(s.room.state);
 });
 
 it.each(['graveyard','banished'])('targeted undo restores %s pile order while preserving later edits to other cards',pile=>{

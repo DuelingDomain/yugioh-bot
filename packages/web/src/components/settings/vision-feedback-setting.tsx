@@ -10,7 +10,12 @@ export function VisionFeedbackSetting({onChange,promptOnly=false,loadOnly=false}
     const localOnly=()=>{if(alive)onChange?.({enabled:false,askedAt:null,collectionEnabled:false});};
     let retry:ReturnType<typeof setTimeout>|undefined;
     // A slow first answer must not skip the consent card for the visit: one retry after 3 s with a longer wait. Only a second failure skips it; nothing is stored.
-    const load=async(ms:number)=>{const reply=await fetch('/api/remote-vision/feedback',{cache:'no-store',signal:AbortSignal.timeout(ms)});if(!reply.ok)throw new Error('feedback');return reply;};
+    const load=async(ms:number)=>{
+      const reply=await fetch('/api/remote-vision/feedback',{cache:'no-store',signal:AbortSignal.timeout(ms)});
+      if(reply.status===401)return null;
+      if(!reply.ok)throw new Error('feedback');
+      return reply;
+    };
     const firstReply=async()=>{
       try{return await load(5000);}catch{
         await new Promise<void>(done=>{retry=setTimeout(done,3000);});
@@ -21,6 +26,7 @@ export function VisionFeedbackSetting({onChange,promptOnly=false,loadOnly=false}
     void (async()=>{
       try {
         const reply=await firstReply();
+        if(!reply){localOnly();return;}
         let pref=await reply.json() as FeedbackPreference;
         if(!alive)return;
         if(!pref.isAdmin&&pref.askedAt===null&&pref.collectionEnabled){

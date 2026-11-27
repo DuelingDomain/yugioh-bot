@@ -1032,6 +1032,30 @@ test('hidden and busy tabs do not infer or count time toward a stable placement'
   r.hidden=false;r.busy=true;await r.tick();assert.equal(r.detects,1);r.busy=false;await r.tick();assert.equal(r.reads,0);r.motion=0;
   for(let i=0;i<5;i++)await r.tick();assert.equal(r.reads,1);r.watcher.dispose();
 });
+test('a new M5 monster that touches the GY top stays M5',async t=>{
+  for(const position of ['attack','defense'] as const)await t.test(position,async()=>{
+    const r=fieldRig(),gy=card(position==='attack'?.82:.848,.39,.10,.22);
+    // In Defense Position the edge crosses into the GY cell, but its centre is still in M5.
+    const monster=position==='attack'?card(.73,.39,.10,.22):card(.72,.43,.14,.14);
+    r.watcher.setCalibration(zones.createFieldCalibration([{x:0,y:0},{x:1,y:1}]));
+    r.decklist=['A','B'];
+    r.identityAt=c=>zones.fieldCenter(c).x>.84?'A':'B';
+    r.outlines=[gy];
+    try{
+      for(let i=0;i<15&&!r.events.some(e=>e.type==='placed'&&e.track.zone==='GY');i++)await r.tick(100);
+      const top=r.events.find(e=>e.type==='placed'&&e.track.zone==='GY');
+      assert.ok(top);
+      r.known=[{id:top.track.id,zone:'GY',cardId:'A'}];
+      r.outlines=[gy,monster];
+      for(let i=0;i<20&&!r.events.some(e=>e.type==='placed'&&e.track.cardId==='B');i++)await r.tick(100);
+      assert.deepEqual(r.events.filter(e=>e.type==='placed').map(e=>[e.track.cardId,e.track.zone,e.track.position]),[
+        ['A','GY','attack'],['B','M5',position],
+      ]);
+      assert.equal(r.watcher.getSnapshot().fannedPiles?.includes('GY'),false);
+    }finally{r.watcher.dispose();}
+  });
+});
+
 test('field calibration maps perspective grid, side piles, EMZ and defense orientation',()=>{
   const calibration=zones.createFieldCalibration([{x:.1,y:.1},{x:.9,y:.15},{x:.85,y:.95},{x:.15,y:.9}]);
   assert.equal(zones.mapFieldZone(card(.44,.35,.04,.06),calibration).zone,'M3');
@@ -1308,10 +1332,17 @@ test('single clean placement overlaps one upright read with fresh face evidence'
  }
 });
 
-test('deck outlines never place identities and new GY reads stay single-shot',async()=>{
+test('private deck outlines never place identities and public pile reads stay single-shot',async()=>{
   for(const [x,y] of [[.87,.32],[.87,.03],[.87,.7],[.03,.7]])for(const faceDown of [true,false]){
-    const r=fieldRig();r.outlines=[{...card(x,y,.05,.07),kind:faceDown?'face-down':'face-up'}];for(let i=0;i<7;i++)await r.tick();
-    if(['DECK','EXTRA'].includes(zones.mapFieldZone(r.watcher.getSnapshot().tracks[0]?.card??card(x,y,.05,.07)).zone))assert.equal(r.events.some(e=>e.type==='placed'),false,`${x}/${y}/${faceDown}`);else assert.ok(r.events.filter(e=>e.type==='placed').length<=1);r.watcher.dispose();
+    const r=fieldRig(),outline:DetectedQuad={...card(x,y,.05,.07),kind:faceDown?'face-down':'face-up'};
+    r.outlines=[outline];for(let i=0;i<7;i++)await r.tick();
+    const zone=zones.mapFieldZone(outline).zone,placed=r.events.filter(e=>e.type==='placed');
+    if(zone==='DECK'||zone==='EXTRA'){
+      assert.equal(r.reads,0,`${zone} should stay private`);
+      assert.equal(placed.length,0,`${x}/${y}/${faceDown}`);
+    }
+    else assert.ok(placed.length<=1);
+    r.watcher.dispose();
   }
 });
 test('review S2: a five-card fan and three new separate outlines cannot auto-place',async()=>{
@@ -1322,7 +1353,7 @@ test('review F: uncalibrated M2/M4 columns stay absolute when other cards appear
 });
 
 test('review E: a removed monster reappearing on GY moves its original ref, never places another',async()=>{
- const r=fieldRig();for(let i=0;i<7;i++)await r.tick();const id=r.watcher.getSnapshot().tracks[0].id;r.watcher.confirm(id,'A');r.outlines=[];for(let i=0;i<6;i++)await r.tick(100);
+ const r=fieldRig();for(let i=0;i<7;i++)await r.tick();const {id,zone}=r.watcher.getSnapshot().tracks[0];r.watcher.confirm(id,'A');r.known=[{id,zone,cardId:'A'}];r.outlines=[];for(let i=0;i<6;i++)await r.tick(100);
  r.outlines=[card(.84,.3)];for(let i=0;i<7;i++)await r.tick();assert.equal(r.events.filter(e=>e.type==='placed').length,1);assert.equal(r.events.filter(e=>e.type==='moved'&&e.track.id===id&&e.track.zone==='GY').length,1);r.watcher.dispose();
 });
 test('review S3: forgetting a placement suppresses auto reapply for the same physical evidence',async()=>{
@@ -1457,6 +1488,53 @@ test('owner live move: two clean frames 100 ms apart settle an unchanged identit
  assert.equal(r.events.filter(e=>e.type==='moved').length,1);assert.equal(r.events.at(-1)?.track.id,id);assert.equal(r.reads,before);r.watcher.dispose();
 });
 
+test('a lost M2 track cannot follow a new outline in Banished by appearance',async t=>{
+ const r=fieldRig();t.after(()=>r.watcher.dispose());
+ for(let i=0;i<8;i++)await r.tick();
+ const original=r.events.find(e=>e.type==='placed')!.track;
+ assert.equal(original.zone,'M2');r.watcher.confirm(original.id,'A');
+ const look=Array.from({length:12},(_,i)=>i%2?.6:.2),mat=Array(12).fill(.2);
+ r.appearanceAt=c=>zones.fieldCenter(c).x>.8?look:mat;
+ r.outlines=[card(.86,.11)];r.watcher.scanNow();await r.tick(100);
+ const snapshot=r.watcher.getSnapshot();
+ assert.equal(snapshot.tracks.find(track=>track.id===original.id)?.zone,'M2');
+ assert.ok(snapshot.tracks.some(track=>track.zone==='BANISHED'&&track.id!==original.id));
+});
+test('Banished commits a back read only when the resting sleeve differs from the mat',async t=>{
+ for(const sleeve of [true,false]){
+  const r=fieldRig();t.after(()=>r.watcher.dispose());
+  r.watcher.setCalibration(zones.createFieldCalibration([{x:0,y:0},{x:1,y:1}]));
+  r.appearance=Array(12).fill(sleeve?.7:.2);
+  r.outlines=[{...card(.86,.08,.10,.15),kind:'face-down'}];
+  for(let i=0;i<10;i++)await r.tick(100);
+  const placed=r.events.find(e=>e.type==='placed'&&e.track.zone==='BANISHED');
+  if(sleeve){
+   assert.equal(placed?.track.setEvidence?.decision,'committed');
+   assert.equal(placed?.track.setEvidence?.positive,true);
+  }else assert.equal(placed,undefined);
+ }
+});
+test('a fresh Banished read of a known field ref preserves its result after tracker restart',async t=>{
+ const r=fieldRig();t.after(()=>r.watcher.dispose());
+ r.known=[{id:'field-card',zone:'M2',cardId:'A'}];
+ r.outlines=[card(.86,.08)];
+ for(let i=0;i<10;i++)await r.tick(100);
+ const move=r.events.find(e=>e.type==='moved'&&e.track.id==='field-card'&&e.track.zone==='BANISHED');
+ assert.equal(move?.result?.candidates[0].cardId,'A');
+});
+test('a GY outline keeps its track when its centre jitters just into Banished',async t=>{
+ const r=fieldRig();t.after(()=>r.watcher.dispose());
+ r.watcher.setCalibration(zones.createFieldCalibration([{x:0,y:0},{x:1,y:1}]));
+ r.outlines=[card(.86,.28,.10,.15)];
+ for(let i=0;i<8;i++)await r.tick();
+ const original=r.events.find(e=>e.type==='placed')!.track;
+ assert.equal(original.zone,'GY');r.watcher.confirm(original.id,'A');
+ r.outlines=[card(.86,.25,.10,.15)];r.watcher.scanNow();await r.tick(100);
+ const snapshot=r.watcher.getSnapshot();
+ assert.equal(snapshot.tracks.find(track=>track.id===original.id)?.zone,'GY');
+ assert.equal(snapshot.tracks.find(track=>track.id===original.id)?.lastSeen,r.at);
+ assert.ok(!snapshot.tracks.some(track=>track.zone==='BANISHED'));
+});
 test('a verified read reconnects a rotated card across the mat to its acknowledged live ref',async()=>{
  const r=fieldRig();r.embedding=[1,0];for(let i=0;i<8;i++)await r.tick();const original=r.events[0].track;r.watcher.confirm(original.id,'A');r.known=[{id:original.id,zone:original.zone,cardId:'A'}];
  const pattern=Array.from({length:12},(_,i)=>i%2),mat=Array(12).fill(.2);r.appearanceAt=c=>zones.fieldCenter(c).x>.6?pattern:mat;
@@ -1481,6 +1559,16 @@ for(const zone of ['GY','BANISHED'] as const)test(`a matching field read cannot 
  assert.equal(r.events.some(e=>e.type==='moved'&&e.track.id===id),false,'pile history alone does not prove a move');
  const placements=r.events.filter(e=>e.type==='placed');assert.equal(placements.length,2);assert.notEqual(placements[1].track.id,id);assert.equal(placements[1].track.cardId,'A');
  assert.equal(r.reads,2);assert.equal(r.events.some(e=>e.type==='prompt'),false);
+});
+
+for(const recent of [true,false])test(`a field read reuses a displaced pile top only within its order window (${recent})`,async t=>{
+ const r=fieldRig();t.after(()=>r.watcher.dispose());
+ r.known=[{id:'previous-top',zone:'GY',cardId:'A',pileDisplacedAt:[recent?0:-20_000]},{id:'new-top',zone:'GY',cardId:'B'}];
+ for(let i=0;i<8;i++)await r.tick();
+ const arrivals=r.events.filter(e=>e.type==='moved'||e.type==='placed');
+ assert.equal(arrivals.length,1);
+ assert.equal(arrivals[0].fromRef,recent?'previous-top':undefined);
+ assert.equal(arrivals[0].track.id==='previous-top',recent);
 });
 
 test('a rotated return after explicit removal Undo follows the same restored public ref',async()=>{
@@ -1521,7 +1609,7 @@ test('duel gallery reuses confirmed and dismissed embeddings without stealing ph
  restored.remember(vector,'B');assert.deepEqual(restored.resolve(vector),{kind:'match',cardId:'B'});
 });
 
-test('tracker follows slides, quarter turns and GY entry without another identity read',async()=>{
+test('tracker follows quarter turns locally and reads a cross-mat GY arrival before reusing the ref',async()=>{
  const r=fieldRig();r.watcher.setCalibration(zones.createFieldCalibration([{x:0,y:0},{x:1,y:1}]));
  const pixels=Array.from({length:288},(_,i)=>((Math.floor(i/3)*17+(i%3)*31)%251)/255);
  r.appearance=pixels;for(let i=0;i<8;i++)await r.tick();const original=r.events[0].track;r.watcher.confirm(original.id,'A');
@@ -1530,13 +1618,14 @@ test('tracker follows slides, quarter turns and GY entry without another identit
  const turn=Array.from({length:288},(_,i)=>{const p=Math.floor(i/3),x=p%8,y=Math.floor(p/8),sx=Math.round(y/11*7),sy=Math.round((1-x/7)*11);return pixels[(sy*8+sx)*3+i%3];});
  r.outlines=[card(.32,.3,.25,.15)];r.appearance=turn;r.motion=.2;await r.tick(100);r.motion=0;for(let i=0;i<4;i++)await r.tick(100);
  assert.ok(r.events.some(e=>e.type==='moved'&&e.track.position==='defense'));assert.equal(r.reads,before);
- // Non-overlapping transfer: the old footprint is empty, exactly one incoming card.
+ r.known=[{id:original.id,zone:r.watcher.getSnapshot().tracks[0].zone,cardId:'A'}];
+ // A GY arrival from another field cell is read before it can take the old ref.
  r.appearanceAt=c=>zones.fieldCenter(c).x>.8?turn:Array(288).fill(.2);r.outlines=[card(.84,.3,.14,.2)];
- const from=r.at;r.motion=.2;await r.tick(100);assert.equal(r.watcher.getSnapshot().tracks.length,1,'motion frame reserves the incoming outline rather than birthing a second copy');r.motion=0;for(let i=0;i<4&&!r.events.some(e=>e.type==='moved'&&e.track.zone==='GY');i++)await r.tick(100);
- const gy=r.events.find(e=>e.type==='moved'&&e.track.zone==='GY');assert.ok(gy);assert.equal(gy.track.id,original.id);assert.ok(r.at-from<=500);assert.equal(r.reads,before);assert.equal(r.events.filter(e=>e.type==='placed').length,1);assert.equal(r.events.some(e=>e.type==='prompt'),false);r.watcher.dispose();
+ r.motion=.2;await r.tick(100);assert.ok(!r.events.some(e=>e.type==='moved'&&e.track.zone==='GY'));r.motion=0;for(let i=0;i<12&&!r.events.some(e=>e.type==='moved'&&e.track.zone==='GY');i++)await r.tick(100);
+ const gy=r.events.find(e=>e.type==='moved'&&e.track.zone==='GY');assert.ok(gy);assert.equal(gy.track.id,original.id);assert.equal(gy.result?.candidates[0].cardId,'A');assert.equal(r.reads,before+1);assert.equal(r.events.filter(e=>e.type==='placed').length,1);assert.equal(r.events.some(e=>e.type==='prompt'),false);r.watcher.dispose();
  for(const destination of [card(.84,.3,.14,.2),card(.38,.3)]){const covered=fieldRig();covered.appearance=pixels;for(let i=0;i<8;i++)await covered.tick();const id=covered.events[0].track.id;covered.watcher.confirm(id,'A');
  covered.outlines=[];covered.appearance=Array(288).fill(.8);covered.motion=.2;await covered.tick(100);covered.motion=0;covered.appearanceAt=c=>c.quad[0].x===destination.quad[0].x?pixels:Array(288).fill(.8);covered.outlines=[destination];for(let i=0;i<8;i++)await covered.tick(100);
- assert.equal(covered.events.some(e=>e.type==='moved'&&e.track.id===id),true,'without simultaneous copy proof, matching incoming pixels follow the existing ref');covered.watcher.dispose();}
+ assert.equal(covered.events.some(e=>e.type==='moved'&&e.track.id===id),destination.quad[0].x<.8,'only the field target can follow the ref while the source is covered');covered.watcher.dispose();}
 });
 
 test('owner Fenrir: M3 -> GY -> back to M3 face-up with a white Set in M2 and an arm moving at the side',async t=>{
@@ -1592,6 +1681,7 @@ test('owner Fenrir: M3 -> GY -> back to M3 face-up with a white Set in M2 and an
  assert.ok(r.events.some(e=>e.track.id===s3Set.track.id&&!e.track.faceDown&&e.track.cardId==='C'),'Infinite Impermanence revealed on its Set ref');
  r.watcher.confirm(s3Set.track.id,'C');
  r.known=[{id:'gy-old',zone:'GY',cardId:'B'},{id,zone:'M3',cardId:'A'},{id:s3Set.track.id,zone:'S3',cardId:'C'}];
+ r.identityAt=c=>{const p=zones.fieldCenter(c);return p.x>.8||p.y>.6?'C':'A';};
  r.appearanceAt=c=>{const p=zones.fieldCenter(c);return p.x>.8?imperm:p.x>.4&&p.x<.5&&p.y<.6?fenrir:p.x<.4&&p.x>.25&&p.y<.6?white:mat;};
  r.outlines=[{...gy},{...m3},set];r.motion=.2;await r.tick(100);r.motion=0;
  for(let i=0;i<15&&!r.events.some(e=>e.type==='moved'&&e.track.id===s3Set.track.id&&e.track.zone==='GY');i++)await r.tick(100);
@@ -1627,9 +1717,8 @@ test('owner Fenrir: M3 -> GY -> back to M3 face-up with a white Set in M2 and an
  for(let i=0;i<30&&!r.events.some(e=>e.type==='removed'&&e.track.id===named.track.id);i++)await r.tick(100);
  assert.ok(r.events.some(e=>e.type==='removed'&&e.track.id===named.track.id),'removed by detector absence, without a uniform mat ring');
  assert.ok(r.at-goneFrom<=1500,`removed after ${r.at-goneFrom} ms`);
- // Piles: out of view is gone. No Deck on this mat shows as missing; a Deck
- // stack makes it present. The whole GY stack is picked up: GY is missing
- // after 2 full scans (the glue lifts all GY cards in one action).
+ // No Deck on the mat shows as missing. A stack makes it present. The GY
+ // also becomes missing after enough empty scans, without changing its list.
  assert.ok(r.watcher.getSnapshot().missingPiles?.includes('DECK'),'no Deck on the mat');
  const cal=zones.createFieldCalibration([{x:0,y:0},{x:1,y:1}]),dcell=zones.fieldZoneCells('normal',cal.zoneSpacing,cal.zones).find(c=>c.zone==='DECK')!;
  const dc=zones.fieldMatPoint({x:dcell.x+dcell.w/2,y:dcell.y+dcell.h/2},cal),deckOutline={...card(dc.x-.04,dc.y-.06,.08,.12),kind:'face-down' as const,confidence:.9};
@@ -1661,14 +1750,16 @@ test('owner Fenrir: M3 -> GY -> back to M3 face-up with a white Set in M2 and an
  const atS2=r.events.slice(beforeS2).find(e=>(e.type==='placed'||e.type==='moved')&&e.track.zone==='S2');
  assert.ok(atS2,'Ghost Belle shows in S2');assert.equal(atS2.track.id===gid||atS2.fromRef===gid,true,`the GY ref moves to S2 (got ${atS2.type} ${atS2.track.id})`);
  assert.equal(r.events.slice(beforeS2).some(e=>e.type==='placed'&&e.track.cardId==='G'&&e.track.id!==gid&&e.fromRef!==gid),false,'no second Ghost Belle');
- // A 2nd Ghost Belle: GY = [Belle X, card Y on top]. A hand goes over the GY (Y is sent),
- // and 3 s later a new Belle shows in S4. X is not the top and the touch is older than
- // 2.5 s, so X stays in the GY: the new card is a 2nd copy with a new ref.
+ // A second Ghost Belle appears in S4 after the GY return window has ended.
+ // A hand passing over the visible pile leaves its deeper Belle in the GY.
  const s4=card(.54,.72,.1,.15),inS4=(c:DetectedQuad)=>zones.fieldCenter(c).y>.6&&zones.fieldCenter(c).x>.5&&zones.fieldCenter(c).x<.6;
  r.known=[...inHand,{id:'gy-x',zone:'GY',cardId:'G'},{id:'gy-y',zone:'GY',cardId:'B'},{id:gid,zone:'S2',cardId:'G'}];
  r.identityAt=c=>zones.fieldCenter(c).x>.8?'B':'G';
  r.appearanceAt=c=>zones.fieldCenter(c).x>.8?under:zones.fieldCenter(c).y>.6&&zones.fieldCenter(c).x<.4||inS4(c)?belle:mat;r.outlines=[deckOutline,{...gy},s2];
  for(let i=0;i<10;i++)await r.tick(100);
+ const returnedAt=r.watcher.getSnapshot().pileReturnedAt?.GY;
+ assert.ok(returnedAt!==undefined);
+ while(r.at-returnedAt<=10_000)await r.tick(300);
  r.motionAt=c=>zones.fieldCenter(c).x>.8?.2:0;await r.tick(100);r.motionAt=undefined;
  for(let i=0;i<30;i++)await r.tick(100);
  const before2nd=r.events.length;r.outlines=[deckOutline,{...gy},s2,s4];

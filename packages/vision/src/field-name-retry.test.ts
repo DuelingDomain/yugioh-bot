@@ -88,6 +88,23 @@ for(const release of ['Scan field','expiry'] as const)test(`retired outlines are
   }finally{r.watcher.dispose();}
 });
 
+test('explicitly forgetting a GY card suppresses its still-visible outline',async()=>{
+  const r=rig(false,false,.15,0,false,'GY');
+  try{
+    r.sure();
+    for(let i=0;i<25&&!r.events.some(e=>e.type==='placed');i++)await r.tick();
+    const first=r.events.find(e=>e.type==='placed');
+    assert.ok(first);
+    assert.equal(first.track.zone,'GY');
+
+    const reads=r.reads.length;
+    r.watcher.forget(first.track.id);
+    for(let i=0;i<25;i++)await r.tick();
+    assert.equal(r.reads.length,reads,'the unchanged top must not be read again');
+    assert.deepEqual(r.watcher.getSnapshot().tracks,[]);
+  }finally{r.watcher.dispose();}
+});
+
 for(const pile of ['GY','BANISHED'] as const)test(`forgetting a ${pile} outline leaves the next arrival readable`,async()=>{
   const r=rig(false,false,.15,0,false,pile);
   try{
@@ -96,6 +113,7 @@ for(const pile of ['GY','BANISHED'] as const)test(`forgetting a ${pile} outline 
     const first=r.events.find(e=>e.type==='placed');
     assert.equal(first?.track.zone,pile);
     r.watcher.forget(first.track.id);
+    r.look=[.2,.25,.4,.8,.65,.25,.25,.15,.35,.9,.75,.2];
     r.sure('B');
     for(let i=0;i<25&&!r.events.some(e=>e.track.cardId==='B');i++)await r.tick();
     assert.ok(r.events.some(e=>e.type==='placed'&&e.track.zone===pile&&e.track.cardId==='B'));

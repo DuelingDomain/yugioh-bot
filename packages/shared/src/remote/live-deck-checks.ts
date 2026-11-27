@@ -85,12 +85,21 @@ export function applyLiveDeckChecks(input: RemoteState, action: RemoteAction, co
     const twin=action.give ? { ...stored, ...stored.ownerIdentity } : stored;
     observe(action.give ? action.actorSeat : action.seat, { ...twin, cardRef: twin.ref, newCopy });
   }
+  if (action.type === "pile.set") {
+    const pile = next.seats[action.seat].twin.filter(c => c.zone === action.zone);
+    for (const entry of action.entries) if (entry.faceUp !== undefined) {
+      const twin = pile.find(c => c.ref === entry.ref);
+      if (twin && twin.ownerSeat === undefined) observe(action.seat, { ...twin, cardRef: twin.ref, newCopy: true, distinct: true });
+    }
+  }
   if (action.type === 'hand.add') for (const instance of checks.instances.filter(i=>i.seat===action.actorSeat)) {
     const twin=next.seats[action.actorSeat].twin.find(t=>instance.refs.includes(t.ref));
     if(twin && twin.zone === 'hand') {instance.zone='hand';delete instance.slot;instance.public=false;instance.anchored=false;}
   }
   const moved: [number, string][] = action.type === "twin.move" || action.type === "twin.flip" || action.type === "twin.remove" ? [[action.seat, action.cardRef]]
     : action.type === "pile.lift" ? action.cardRefs.map(ref => [action.seat, ref] as [number, string])
+    : action.type === "pile.set" ? checks.instances.filter(i => i.seat === action.seat && i.zone === action.zone &&
+      !next.seats[action.seat].twin.some(c => i.refs.includes(c.ref))).flatMap(i => i.refs.map(ref => [action.seat, ref] as [number,string]))
     : action.type === "monsters.tribute" ? action.targets.map(t => [t.seat, t.cardRef] as [number, string]) : [];
   for (const [movedSeat, cardRef] of moved) {
     let instance = checks.instances.find(i => i.seat === movedSeat && i.refs.includes(cardRef));

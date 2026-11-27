@@ -45,7 +45,7 @@ function setup(bestOf: 1 | 3 = 1, start = true) {
     return room;
   };
   const evidence = () => db.prepare('select * from tournament_remote_evidence where tournament_match_id=?').get(matchId) as
-    {purge_after_at:number|null;hard_delete_at:number} | undefined;
+    {purge_after_at:number|null;hard_delete_at:number;public_board_json:string} | undefined;
   const removeGameEvents = () => {
     // Simulate a legacy or truncated event log while retaining the current room state.
     db.exec('drop trigger remote_events_no_delete');
@@ -120,6 +120,29 @@ it('stops the caller when evidence capture rolls back the outer transaction', ()
   }).immediate()).toThrow('evidence rollback');
   expect(s.db.inTransaction).toBe(false);
   expect(s.db.prepare('select name from tournaments').get()).toEqual({name:'Evidence regression'});
+});
+
+it('replays a historical face-up Extra Deck placement before capturing the eliminated board', () => {
+  const s = setup();
+  const card = {ref:'historical-pendulum',cardId:16178681,faceUp:true,position:'attack'};
+  const placed = s.act({type:'twin.place',seat:0,zone:'monster',source:'auto',card:{...card,slot:1}});
+  s.act({type:'twin.move',seat:0,zone:'graveyard',cardRef:card.ref});
+  const ended = s.act({type:'player.concede'});
+
+  // Replace the live placement with an event from when the watcher could read an Extra Deck top.
+  const event = s.db.prepare('select action_json from remote_events where table_id=? and seq=?')
+    .get(s.tableId, placed.lastSeq) as {action_json:string};
+  const historical = {...JSON.parse(event.action_json),zone:'extra',card,pendulum:true};
+  expect(remoteActionSchema.safeParse(historical).success).toBe(false);
+  s.db.exec('drop trigger remote_events_no_update');
+  s.db.prepare('update remote_events set action_json=? where table_id=? and seq=?')
+    .run(JSON.stringify(historical), s.tableId, placed.lastSeq);
+  s.db.prepare('delete from tournament_remote_evidence where tournament_match_id=?').run(s.matchId);
+
+  captureRemoteTournamentEvidence(s.db, s.tableId, ended.endedAt! + 1);
+  expect(JSON.parse(s.evidence()!.public_board_json)[0]).toMatchObject({
+    seat:0,cards:[{zone:'graveyard',cardId:card.cardId,position:'attack'}],
+  });
 });
 
 it('prunes expired evidence even when room retention configuration is invalid', () => {

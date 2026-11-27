@@ -11,7 +11,7 @@ import { FieldOrientationSettings } from "../field-orientation";
 import { feedTool } from "./feed";
 import { Icon } from "./icons";
 import { RecognitionBadge, RecordingBadge } from "./recognition-setting";
-import { useVideoHub } from "./video-hub";
+import { usePeerVision, useTapSeat, useVideoHub } from "./video-hub";
 import { Row } from "./zone-actions";
 import s from "./remote-ui.module.css";
 
@@ -91,6 +91,8 @@ export function CameraToolsMenu({ seat, name, you, scan, advice, warn, onToken, 
   const [open, setOpen] = useState(false);
   const [note, setNote] = useState("");
   const grid = useZoneGrid(), hub = useVideoHub();
+  const tapSeat = useTapSeat(seat), peerVision = usePeerVision(seat);
+  const tapPeer = !you && (tapSeat || peerVision?.detect === "tap");
   const zonesOn = useGridPref(you), opponentsOn = useGridPref(false), hoverFreeze = useHoverFreeze();
   useEffect(() => { if (!note) return; const timer = setTimeout(() => setNote(""), 4000); return () => clearTimeout(timer); }, [note]);
   // The menu hangs from the button's right edge and scrolls inside when the page is short.
@@ -128,9 +130,9 @@ export function CameraToolsMenu({ seat, name, you, scan, advice, warn, onToken, 
           onClick={() => { close(); board.onChange(!board.on); }}>{`Virtual board under ${you ? "my" : `${name}'s`} webcam`}</Row>
       </Group> : null}
       <Group label="Zones">
-        <Row icon="grid" role="menuitemcheckbox" aria-checked={zonesOn} pill={onOff(zonesOn)} hint={you ? "G" : undefined} aria-keyshortcuts={you ? "G" : undefined} data-testid={you ? "zone-grid-toggle" : `zone-grid-toggle-opponent-${seat}`}
+        <Row icon="grid" role="menuitemcheckbox" aria-checked={zonesOn && !tapPeer} pill={onOff(zonesOn && !tapPeer)} disabled={tapPeer} hint={you ? "G" : undefined} aria-keyshortcuts={you ? "G" : undefined} data-testid={you ? "zone-grid-toggle" : `zone-grid-toggle-opponent-${seat}`}
           aria-label={you ? "Show zone grid" : undefined} aria-describedby={you ? `${id}-zone-hint` : undefined}
-          sub={you ? gridHint : "An opponent who uses Tap to identify has no zone grid, so none shows on that camera."}
+          sub={you ? gridHint : tapPeer ? "This player uses Tap to identify, so their zone grid is unavailable." : "An opponent who uses Tap to identify has no zone grid, so none shows on that camera."}
           onClick={() => writeGridPref(you, !zonesOn)}>{you ? "Show zone grid" : "Show zone grid on opponent webcams"}</Row>
         {you ? <>
           <span id={`${id}-zone-hint`} className={s.sr} data-testid="zone-grid-hint">{gridHint}</span>

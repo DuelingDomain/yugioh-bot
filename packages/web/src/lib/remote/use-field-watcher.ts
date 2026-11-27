@@ -7,7 +7,7 @@ import { readTapChoice } from './tap-offer';
 import { e2eFieldHook } from './e2e-field-hook';
 import { banishedOf, defaultGridCalibration, fieldDebugEnabled, isPlacedCalibration, withBanished } from './zone-grid';
 import { attachClipRecorder, detachClipRecorder, clipEvent, clipAction, clipCalibration } from './clip-capture';
-import { createFieldCalibration, createFieldWatcher, flattenFieldCalibration, FIELD_ZONE_LAYOUT, fieldZoneCells, ignoreSetRegion, createFieldIdentityGallery, type FieldZone, type SetCardMemory, type FieldIdentityGallery, type FieldCalibration, type FieldEvent, type FieldSnapshot, type FieldWatcher, type FieldWatcherOptions } from '@yugidraft/vision';
+import { createFieldCalibration, createFieldWatcher, flattenFieldCalibration, FIELD_ZONE_LAYOUT, fieldZoneCells, ignoreSetRegion, onMat, createFieldIdentityGallery, type FieldZone, type SetCardMemory, type FieldIdentityGallery, type FieldCalibration, type FieldEvent, type FieldSnapshot, type FieldWatcher, type FieldWatcherOptions } from '@yugidraft/vision';
 
 export type CaptureSize = {width:number;height:number};
 const initial:FieldSnapshot={status:'stopped',tracks:[],metrics:{detectorMs:0,recognitionMs:0,dutyPercent:0,intervalMs:333,samples:0,skipped:0,placements:0,latencyMs:0,errors:0}};
@@ -181,12 +181,14 @@ export function useFieldWatcher(options:UseFieldWatcherOptions) {
     isRemoved:useCallback((id:string)=>watcher.current?.getSnapshot().tracks.some(t=>t.id===id&&t.removed)??false,[]),
     confirm:useCallback((id:string,cardId?:string,ref?:string,human=true)=>{clipAction('confirm',{trackId:id,cardId,ref,human,zone:watcher.current?.getSnapshot().tracks.find(t=>t.id===id)?.zone});return watcher.current?.confirm(id,cardId,ref,human);},[]),
     acceptSet:useCallback((id:string)=>watcher.current?.acceptSet(id)??false,[]),
-    notACard:useCallback((id:string,zone?:FieldZone)=>{
+    notACard:useCallback((id:string,zone?:FieldZone,quad?:readonly {x:number;y:number}[])=>{
       clipAction('note',{notACard:id});if(watcher.current)return watcher.current.notACard(id);if(!guardsRef.current.ignore)return;
       // The correction popup is also usable with Auto-detect off. Keep its physical cell for the next watcher.
-      const grid=gridRef.current,cell=fieldZoneCells(undefined,grid?.zoneSpacing,grid?.zones).find(c=>c.zone===zone);if(!cell)return;
+      const grid=gridRef.current,cell=fieldZoneCells(undefined,grid?.zoneSpacing,grid?.zones).find(c=>c.zone===zone);
+      const region=quad?.map(point=>onMat(point,grid))??(cell&&[{x:cell.x,y:cell.y},{x:cell.x+cell.w,y:cell.y},{x:cell.x+cell.w,y:cell.y+cell.h},{x:cell.x,y:cell.y+cell.h}]);
+      if(!region)return;
       if(setMemory.current?.key!==setKey)setMemory.current={key:setKey,value:loadSetMemory(setKey)};
-      ignoreSetRegion(setMemory.current.value,[{x:cell.x,y:cell.y},{x:cell.x+cell.w,y:cell.y},{x:cell.x+cell.w,y:cell.y+cell.h},{x:cell.x,y:cell.y+cell.h}],[]);
+      ignoreSetRegion(setMemory.current.value,region,[]);
       saveSetMemory(setKey,setMemory.current.value);
     },[setKey]),
     dismiss:useCallback((id:string)=>{clipAction('dismiss',{trackId:id});return watcher.current?.dismiss(id);},[]),

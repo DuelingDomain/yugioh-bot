@@ -40,11 +40,11 @@ import { zonePlacement, zoneSet, zoneCardAction, type ZonePick } from './zone-pl
 import { RecentDepartures } from './recent-departures';
 import { COLORS, battleMath, leavePosition, pileEntryFace, cardCode, cellsFor, zoneLabel, isPile, sameObservedCard, cardName, cellKeyOf, deckFlag, deckIdsOf, voiceCardNames, facingSeat, foundationZone, hasDeck, hasExtraZones, mirrorEmz, PHASES, PHASE_LONG, readCardOf, placedTwin, sg, type TwinCard, type ZoneKey } from "./model";
 import { findTwinGroups } from "./twins";
-import { PileViewer, type PileZone } from "./pile-viewer";
+import { PileViewer, type PileScan, type PileZone, type PublicPile } from "./pile-viewer";
 import { NotifyDock } from "./notify-dock";
 import { RecognitionTray, type Pick, type TrayState } from "./recognition-tray";
 import { VisionFeedbackSetting } from "@/components/settings/vision-feedback-setting";
-import { isBestMatch, isClearRead, setFeedbackCapture, type FeedbackSource, type Guess } from "./recognizer";
+import { detectCards, isBestMatch, isClearRead, setFeedbackCapture, type FeedbackSource, type Guess } from "./recognizer";
 import { SeatPanel } from "./seat-panel";
 import type { RescanResult } from "@/lib/remote/video-protocol";
 import { RemoteFx } from "./remote-fx";
@@ -87,7 +87,7 @@ import {publicTrackedTwin, trackedRereadTarget} from '@/lib/remote/field-track-c
 import { AutoFieldWatcher } from "../field-watcher";
 import { isTournamentTable, stateMode, seatBoardOff } from "@/lib/remote/tournament-detection";
 import {manualFieldZoneWarning,projectFieldZone,tokenInCell,becomesTrapMonster,equipSourceOnField,fieldZoneCheck} from '@/lib/remote/field-legality';
-import {fieldOrientation,fieldZoneAt,fieldZoneLocation,mapFieldZone,onMat,type FieldFormat} from '@yugidraft/vision';
+import {fieldOrientation,fieldZoneAt,fieldZoneLocation,isCovered,mapFieldZone,onMat,publicPileOutlines,type FieldFormat} from '@yugidraft/vision';
 import {useCardDetection,resolveWebcamOnly,useZoneGrid,useTapToIdentify,tapToIdentifyNow,currentZoneGrid,setFieldDeveloper,runFieldScan,useFieldWatcherError,readGridPref,writeGridPref} from '@/lib/remote/zone-grid';
 import {distinctFieldQuads,fieldReadingPlaceholder,rememberFieldObservation} from '@/lib/remote/field-proposals';
 import {SUMMON_WINDOW_MS} from '@/lib/remote/field-summons';
@@ -1867,6 +1867,8 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
   };
   // ---- Graveyard and Banished piles ----
   const [pile, setPile] = useState<{ seat: number; zone: PileZone } | null>(null);
+  const reviewingPile = useRef<PublicPile | null>(null);
+  const reviewPile = useCallback((zone: PublicPile | null) => { reviewingPile.current = zone; }, []);
   const openPile = (seat: number, zone: PileZone, opener: HTMLElement | null) => {
     if (pile && pile.seat === seat && pile.zone === zone && layers.layer === "pile") { layers.close("pile"); return; }
     setPile({ seat, zone }); layers.open("pile", opener);
@@ -1912,6 +1914,32 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
   // ---- camera card info and card actions ----
   const tapOwnSeat = useTapToIdentify(mySeat);
   const gridFormat = (room.format?.id ?? state.deckChecks.format.id) as FieldFormat;
+  const scanPile = (seat: number): PileScan => async (zone, signal) => {
+    const video = appRef.current?.querySelector<HTMLVideoElement>(`[data-remote-seat="${seat}"] video`);
+    if (!video?.videoWidth || video.readyState < 2) return null;
+    const grid = currentZoneGrid();
+    const calibration = grid.ownSeat === seat ? grid.calibration : hub.trackedCalibration?.(seat);
+    if (!calibration?.orientation) throw new Error("Adjust zones to line up the pile with the camera, or edit the list here.");
+    const frame = document.createElement("canvas");
+    frame.width = video.videoWidth; frame.height = video.videoHeight;
+    const context = frame.getContext("2d"); if (!context) return null;
+    context.drawImage(video, 0, 0);
+    const detection = await detectCards(await createImageBitmap(frame));
+    signal.throwIfAborted();
+    if (detection.status !== "ready") throw new Error(detection.note);
+    const cards = publicPileOutlines(detection.cards, calibration, gridFormat)[zone === "graveyard" ? "GY" : "BANISHED"];
+    const blockers = detection.cards.filter(card => !cards.includes(card));
+    const seen = [];
+    for (const card of cards) {
+      const covered = card.covered && (isCovered(card, blockers) || !isCovered(card, cards));
+      const read = await hub.peek(seat, frame, { ...card, covered }, blockers, signal);
+      signal.throwIfAborted();
+      if (read.status !== "ready") throw new Error(read.note);
+      const { cardId, name, faceDown, tier } = read.peek;
+      seen.push({ cardId, name: name ?? undefined, faceUp: !faceDown, uncertain: !faceDown && tier !== "sure" });
+    }
+    return seen;
+  };
   /** The mat zone under a point on a camera feed ("M1", "GY", "BANISHED" ...). Needs the feed's confirmed mat grid. */
   const zoneAtPoint = (seat: number, x: number, y: number): string | undefined => {
     const calibration = zoneGrid.ownSeat === seat ? zoneGrid.calibration : hub.trackedCalibration?.(seat);
@@ -2025,8 +2053,9 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     room.seats.some(seat => seat.seat === mySeat && seat.userId === room.createdBy);
   const turnOffTimer = hostOfTimer ? () => void act({ type: "time.off", actorSeat: mySeat }) : undefined;
   const matchTimeControl = turnOffTimer ? <MatchTimeOff onConfirm={turnOffTimer} /> : null;
-  return <FeedCardsProvider seats={state.seats} info={info} ownerName={name} marks={chainMarks}><div ref={appRef} className={`${duelFontClasses} ${s.app}`} data-drawer={layers.layer === "log" ? drawerTab : layers.layer === "insp" ? "insp" : undefined} data-mode={mode} data-handui={handUiOpen ? "1" : undefined} data-wc={webcamOnly ? "1" : undefined} data-testid="remote-table" data-status={room.status} data-open-chain-link={respondTo?.event.id} {...cardMenu}>
-    <AutoFieldWatcher dock={seatDocks[mySeat] ?? null} room={room} transaction={ctl.transaction} diagnosticsAllowed={feedbackPref?.isAdmin===true && feedbackPref.collectionEnabled} />
+  return <FeedCardsProvider seats={state.seats} info={info} ownerName={name} marks={chainMarks}><div ref={appRef} className={`${duelFontClasses} ${s.app}`} data-drawer={layers.layer === "log" ? drawerTab : layers.layer === "insp" ? "insp" : undefined} data-mode={mode} data-handui={handUiOpen ? "1" : undefined} data-wc={webcamOnly ? "1" : undefined} data-testid="remote-table" data-open-layer={layers.layer ?? undefined} data-status={room.status} data-open-chain-link={respondTo?.event.id} {...cardMenu}>
+    <AutoFieldWatcher dock={seatDocks[mySeat] ?? null} room={room} transaction={ctl.transaction} reviewingPile={reviewingPile}
+      onOpenPile={zone => { cancelRead(); setPile({seat:mySeat, zone}); layers.open("pile"); }} diagnosticsAllowed={feedbackPref?.isAdmin===true && feedbackPref.collectionEnabled} />
     <a className={s.skip} href="#stage">Skip to the table</a>
     <div className={s.shell}>
       <TopBar crumb={`Table ${room.slug.slice(0, 8)}`} startedAt={room.startedAt} endedAt={room.endedAt} tournament={tournament ? { name: tournament.tournamentName, href: `/tournament/${encodeURIComponent(tournament.tournamentSlug)}` } : null} chip={`${formatLabel} · ${solo ? "Solo test" : `${seatCount} players`}${room.spectatorCount ? ` · ${room.spectatorCount} watching` : ""}`} adminWatchers={(room.adminWatchers ?? []).map(watcher => watcher.name)} cardOpen={layers.layer === "insp"} logOpen={layers.layer === "log" && drawerTab === "log"} logDot={unread} settingsOpen={layers.layer === "log" && drawerTab === "settings"} onSettings={el => toggleDrawerTab("settings", el)} health={{ q: worstQ, text: healthSummary }} healthOpen={layers.layer === "log" && drawerTab === "info"} onHealth={el => openDrawer("info", el)}
@@ -2071,7 +2100,7 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
             twin={twin} deckRegistered={!!(registration?.deckRegistered??registration?.deck)} deckListSizes={deck?{deck:deck.main.length,extra:deck.extra.length}:undefined} info={info} extraZones={extraZones} facing={facing(seat)} boardSeats={state.seats} owners={state.seats.map(item => ({ seat: item.seat, name: name(item.seat), color: COLORS[item.seat] }))} rv={rv[seat] ?? "m1"} onRv={key => setRv(old => ({ ...old, [seat]: key }))} picking={!!picking && seat !== picking.seat}
             selectedRef={picking?.seat === seat ? picking.ref : selected?.seat === seat ? selected.ref : undefined} targetRef={attack?.targetSeat === seat ? attack.targetCardRef : undefined} freshRef={fresh}
             warnRefs={warnRefs(seat)} twinCounts={twinCounts(seat)} pickPlate={plate} direct={direct} tournamentTable={isTournamentTable(room)} detectionMode={seat !== mySeat ? stateMode(room.state, seat) ?? "unknown" : undefined} viewScope={String(seatCount)} webcamOnly={seatWebcam(seat)} onBoard={!multi ? on => setSeatBoard(seat, on) : undefined} onDock={onSeatDock} boardOff={boardOff(seat) ? {} : undefined}
-            onZoneCard={onZoneCard} onCamPick={onCamPick} hoverTip={hoverTip} onHoverEnd={clearCamHover} onCardMenu={onCardMenu}
+            onZoneCard={onZoneCard} onTapPile={(seat, zone) => { cancelRead(); openPile(seat, zone, null); }} onCamPick={onCamPick} hoverTip={hoverTip} onHoverEnd={clearCamHover} onCardMenu={onCardMenu}
             tokenSlots={tokens.placing && !state.seats[seat]?.eliminated ? tokens.openSlots(seat) : control.giveSlots(seat)} onActivate={(key, card) => { if (tokens.placeAt(seat, key, card) || control.giveAt(seat, key, card)) return; if (picking && card && seat !== picking.seat && (card.zone === "monster" || card.zone === "extra-monster")) void declare(seat, card.ref); else if (!picking && (solo || seat === mySeat) && !isPile(key) && card && !card.token && live && !state.seats[seat]?.eliminated) openSubject(card, "board", undefined, true); else if (!picking && (solo || seat === mySeat) && !isPile(key)) openZonePicker(seat,key); else if (!picking && !card && (/^m[1-5]$/.test(key) || control.canGive && /^s[1-5]$/.test(key))) openZonePicker(seat,key,undefined,true,false,true); else if (card) openSubject(card); }}
             onAttack={(_key, card) => startAttack(seat, card)} onInspect={card => openSubject(card)} onPile={(zone, opener) => openPile(seat, zone, opener)} onDeck={(solo || seat === mySeat) && surrenderable(seat) ? el => { setDeckAt({ seat, rect: el.getBoundingClientRect() }); layers.toggle("deck", el); } : undefined} live={live} drag={fieldDrag(seat)} onPlate={() => { if (plate) void declare(seat); }}
             onLp={delta => void changeLp(seat, delta)} canLp={live} deckWarning={deckFlag(room, seat)?.message} onDeckFlag={el => { setFlagSeat(seat); layers.toggle("flag", el); }}
@@ -2139,7 +2168,17 @@ function Table({ ctl, room, tournament }: { ctl: RoomController; room: RemoteRoo
     {pile && state.seats[pile.seat] ? <PileViewer fieldHidden={boardHidden(pile.seat)} seat={pile.seat} name={name(pile.seat)} mine={live && (solo || pile.seat === mySeat)} twin={state.seats[pile.seat].twin} zone={pile.zone}
       onZone={zone => setPile({ seat: pile.seat, zone })} info={info} drag={fieldDrag(pile.seat)} onOpenCard={(card, anchor) => openSubject(card, "pile", anchor)} onClose={() => layers.close()}
       {...(live && (solo || pile.seat === mySeat) ? {
-        onOrder: (zone, cardRefs) => act({ type: "pile.order", actorSeat: solo ? pile.seat : mySeat, seat: pile.seat, zone: zone as "graveyard" | "banished", cardRefs }),
+        deck: deckIdsOf(room, pile.seat),
+        onAdd: (zone, card) => ctl.transaction((latest, post) => {
+          const expectedRefs = latest.state.seats[pile.seat].twin.filter(entry => entry.zone === zone).map(entry => entry.ref);
+          return post({type:"pile.set", actorSeat:solo ? pile.seat : mySeat, seat:pile.seat, zone, expectedRefs,
+            entries:[...expectedRefs.map(ref => ({ref})),{ref:crypto.randomUUID(),cardId:card.id,name:card.name,faceUp:true}],cam:playerStamp("pile-add")});
+        }),
+        onScan: !hub.manual(pile.seat) && hub.sourceFor(pile.seat) ? scanPile(pile.seat) : undefined,
+        onReview: pile.seat === mySeat ? reviewPile : undefined,
+        onApply: (zone, entries, expectedRefs) => act({type:"pile.set", actorSeat:solo ? pile.seat : mySeat, seat:pile.seat, zone, entries, expectedRefs, cam:playerStamp("pile-set")}),
+        onOrder: (zone, cardRefs) => act({ type: "pile.order", actorSeat: solo ? pile.seat : mySeat, seat: pile.seat, zone, cardRefs }),
+        onLift: (zone, cardRefs, destination) => act({ type: "pile.lift", actorSeat: solo ? pile.seat : mySeat, seat: pile.seat, zone, cardRefs, destination }),
         onName: (card, cardId, cardName) => void act({ type: "card.identified", actorSeat: solo ? pile.seat : mySeat, seat: pile.seat, cardId, name: cardName, source: "typed", cardRef: card.ref }),
         onRemove: card => void act({ type: "twin.remove", actorSeat: solo ? pile.seat : mySeat, seat: pile.seat, cardRef: card.ref, cam: playerStamp("popup-remove") }),
       } : {})} /> : null}

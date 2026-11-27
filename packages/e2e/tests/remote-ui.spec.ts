@@ -2340,6 +2340,9 @@ test('field watcher automatic: tap to identify reads every camera on a click, ru
     await expect.poll(()=>b.locator('[data-testid="feed-0"] video').evaluate((v:HTMLVideoElement)=>v.videoWidth),{timeout:40_000}).toBeGreaterThan(0);
     // Bob sees Alice's mode on her camera.
     await expect(b.getByTestId('feed-tap-tag')).toHaveText('Tap mode — auto-detect off');
+    await openCameraMenu(b, 0);
+    await expect(b.getByTestId('zone-grid-toggle-opponent-0')).toBeDisabled();
+    await b.keyboard.press('Escape');
     // A normal table logs each mode switch with its reason too: Alice took the slow-computer offer, Bob chose it himself.
     await expect.poll(async()=>((await alice.request.get(`/api/remote/${slug}`).then(r=>r.json())).events as any[]).filter(e=>e.action.type==='detection.mode'&&e.action.mode==='tap').map(e=>`${e.action.actorSeat}:${e.action.reason}`).sort(),{timeout:15_000}).toEqual(['0:slow-offer','1:player']);
     await a.evaluate(()=>((window as any).fieldTest).appear());await a.waitForTimeout(1500);
@@ -2632,7 +2635,7 @@ test('field watcher automatic: Set backs, deck stacks, and revealed Sets keep fa
   expect(manualCard.ref).toBe(card.ref);expect(afterPlaceholder.state.seats[0].twin).toHaveLength(1);
   await expect(page.getByTestId('field-watcher-prompt')).toHaveCount(0);
   expect(writes.filter(write=>!write.recovery&&write.status!==200)).toEqual([]);
-  const eventDelay=(snapshot:any,type:string,timing:{changedAt:number})=>snapshot.events.findLast((e:any)=>e.action.type===type).at-timing.changedAt;
+  const eventDelay=(snapshot:any,type:string,timing:{changedAt:number})=>snapshot.events.filter((e:any)=>e.action.type===type).at(-1).at-timing.changedAt;
   const backend=await page.getByTestId('recognition-backend').first().getAttribute('data-backend');
   const runtime=await page.evaluate(()=>(window as any).fieldRuntime);
   console.log(JSON.stringify({backend,runtime,

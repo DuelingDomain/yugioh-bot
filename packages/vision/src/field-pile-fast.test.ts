@@ -19,18 +19,45 @@ function rig(tier:RecognitionResult['tier'],noCrop=false) {
   const frame:ImageData={width,height,data,colorSpace:'srgb'},events:FieldEvent[]=[];
   const gy=fieldZoneCells('normal',calibration.zoneSpacing,calibration.zones).find(cell=>cell.zone==='GY')!,m=fieldMatPoint({x:gy.x+gy.w/2,y:gy.y+gy.h/2},calibration),h=gy.h*.7,w=h*.43;
   const at=(dx:number):DetectedQuad=>({kind:'face-up',confidence:.9,partial:false,quad:[{x:m.x-w/2+dx,y:m.y-h/2},{x:m.x+w/2+dx,y:m.y-h/2},{x:m.x+w/2+dx,y:m.y+h/2},{x:m.x-w/2+dx,y:m.y+h/2}]});
-  let now=0,outlines=[at(0)],look=.6,reads=0,gate:Promise<void>|undefined,id='A',motion=0,patch:((c:DetectedQuad)=>number[])|undefined;
+  let now=0,outlines=[at(0)],look=.6,reads=0,gate:Promise<void>|undefined,id='A',motion=0,patch:((c:DetectedQuad)=>number[])|undefined,identify:((c:DetectedQuad)=>string)|undefined;
   const watcher=createFieldWatcher({profile:yugioh,calibration,now:()=>now,hidden:()=>false,clone:async f=>f,
     buffer:{sample:async()=>({frame,at:now})},
-    recognizer:{separateDetector:true,detectCards:async()=>structuredClone(outlines),recognize:async()=>{
+    recognizer:{separateDetector:true,detectCards:async()=>structuredClone(outlines),recognize:async(_frames,opts)=>{
       reads++;const wait=gate;await wait;
-      return {identityEmbedding:{space:'art-box',values:[look,1-look]},candidates:[{cardId:id,score:tier==='sure'?.95:.6},{cardId:'RUNNER',score:.3}],tier,quality:{detected:true,cornersFound:true,framesUsed:1,selectedFrameIndices:[0],sharpness:20,fallback:false},timingsMs:{}} as unknown as RecognitionResult;
+      return {identityEmbedding:{space:'art-box',values:[look,1-look]},candidates:[{cardId:opts?.card&&identify?identify(opts.card):id,score:tier==='sure'?.95:.6},{cardId:'RUNNER',score:.3}],tier,quality:{detected:true,cornersFound:true,framesUsed:1,selectedFrameIndices:[0],sharpness:20,fallback:false},timingsMs:{}} as unknown as RecognitionResult;
     }},
     analyze:()=>({motion:()=>motion,sharpness:()=>20,crop:()=>noCrop?undefined:frame,appearance:c=>patch?patch(c):Array(12).fill(c.quad[0].x>at(.01).quad[0].x?.2:look),halo:()=>Array(12).fill(.8),touched:()=>0,occluded:()=>false})});
   watcher.subscribe(e=>events.push(e));
   const tick=async(ms=100)=>{now+=ms;await watcher.tick();await new Promise<void>(r=>setImmediate(r));};
-  return {watcher,events,tick,at,get now(){return now;},get reads(){return reads;},set outlines(v:DetectedQuad[]){outlines=v;},set look(v:number){look=v;},set gate(v:Promise<void>|undefined){gate=v;},set motion(v:number){motion=v;},set patch(v:((c:DetectedQuad)=>number[])|undefined){patch=v;},set id(v:string){id=v;}};
+  return {watcher,events,tick,at,get now(){return now;},get reads(){return reads;},set outlines(v:DetectedQuad[]){outlines=v;},set look(v:number){look=v;},set gate(v:Promise<void>|undefined){gate=v;},set motion(v:number){motion=v;},set patch(v:((c:DetectedQuad)=>number[])|undefined){patch=v;},set id(v:string){id=v;},set identify(v:(c:DetectedQuad)=>string){identify=v;}};
 }
+
+test('four connected GY cards are logged in fan order even when the fan reaches M5',async()=>{
+  const r=rig('sure',true),step=.042;
+  const index=(c:DetectedQuad)=>Math.round((r.at(0).quad[0].x-c.quad[0].x)/step);
+  r.patch=c=>base(index(c)+1);r.identify=c=>String(index(c)+1);
+  const entries=()=>r.events.filter(e=>e.type==='placed').map(e=>[e.track.zone,e.track.cardId]);
+  try {
+    for(let count=1;count<=4;count++){
+      r.outlines=Array.from({length:count},(_,i)=>({...r.at(-step*i),covered:count>1})).reverse();
+      for(let i=0;i<10&&entries().length<count;i++)await r.tick();
+      assert.equal(entries().length,count,`card ${count} is logged within one second`);
+    }
+    assert.deepEqual(entries(),[['GY','1'],['GY','2'],['GY','3'],['GY','4']]);
+    assert.ok(r.watcher.getSnapshot().fannedPiles?.includes('GY'));
+    assert.equal(r.watcher.getSnapshot().tracks.filter(t=>!t.removed&&t.zone==='M5').length,0);
+    r.identify=c=>index(c)>2?'separate':String(index(c)+1);
+    r.outlines=[r.at(0),r.at(-step),r.at(-.148)];
+    const separate=()=>r.watcher.getSnapshot().tracks.find(t=>!t.removed&&t.visible&&t.zone==='M5');
+    for(let i=0;i<15&&!separate();i++)await r.tick();
+    assert.equal(separate()?.state,'identified');
+    const monsterRef=separate()!.id;
+    r.watcher.confirm(monsterRef,'separate');
+    r.outlines=[r.at(0),r.at(-.06),r.at(-.148)];
+    for(let i=0;i<10;i++)await r.tick();
+    assert.equal(r.watcher.getSnapshot().tracks.find(track=>track.id===monsterRef)?.zone,'M5');
+  } finally {r.watcher.dispose();}
+});
 
 test('a GY top whose face pixels are unknown is read after 100 ms, not the 600 ms face wait',async()=>{
   const r=rig('sure',true);

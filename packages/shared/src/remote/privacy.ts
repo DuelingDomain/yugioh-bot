@@ -75,6 +75,7 @@ function projectEvent(event:RemoteEvent,seats:ReadonlySet<number>):RemoteEvent {
       delete next.messages;
     }
     if(a.type==="twin.place" && hidden(a.zone,a.card.faceUp)) { delete a.card.cardId; delete a.card.passcode; delete a.card.name; delete a.card.race; delete a.card.nameCandidates; delete next.messages; }
+    if(a.type==="pile.set") for(const card of a.entries) if(card.faceUp!==true) { delete card.cardId; delete card.name; }
     if(a.type==="card.identified" || a.type==="cards.identified") {
       const sightings=a.type==="card.identified" ? [a] : a.cards;
       const privateSight=effects?.privateRecognition ?? sightings.some(s=>s.zone==="hand" || s.zone==="deck" || s.zone==="extra");
@@ -90,7 +91,7 @@ function projectEvent(event:RemoteEvent,seats:ReadonlySet<number>):RemoteEvent {
  */
 const SPECTATOR_EVENTS:ReadonlySet<string>=new Set(["table.created","table.configured","table.started","table.ended","idle.warning","admin.watching","seat.joined","seat.left","seat.ready","seat.deck","time.called","time.extraTurn","time.result","time.off",
   "phase.set","phase.advance","turn.end","lp.change","detection.mode","attack.declare","attack.resolve","player.concede","player.leave","match.declare","match.confirm","match.continue","match.first","side.ready","side.unready","side.timeout",
-  "hand.draw","hand.count","twin.place","twin.move","twin.flip","twin.remove","twin.attach","twin.detach","twin.counters","twin.equip","twin.control","monsters.tribute","pile.lift","pile.order","effect.activated","card.identified","cards.identified","chain.respond","chain.thinking","chain.ok","random.roll"]);
+  "hand.draw","hand.count","twin.place","twin.move","twin.flip","twin.remove","twin.attach","twin.detach","twin.counters","twin.equip","twin.control","monsters.tribute","pile.lift","pile.order","pile.set","effect.activated","card.identified","cards.identified","chain.respond","chain.thinking","chain.ok","random.roll"]);
 const PUBLIC_ZONE = (card: TwinCard) => card.faceUp !== false && !["hand", "deck", "extra"].includes(card.zone) ||
   !!card.knownFaceDown && !!card.publicIdentity && remoteFieldZone(card.zone);
 /** Twin refs can hold the card id ("c0-<id>-..."). A ref that is not of a card public now becomes a name with no meaning for one snapshot. */
@@ -155,6 +156,7 @@ function spectatorEvent(event:RemoteEvent,refs:SpectatorRefs,visibleEventIds:Rea
   if(a.type==="twin.place" && (a.zone==="hand" || a.zone==="deck")) return {...projected,action:{type:"log.note",actorSeat:actor,text:"Updated a private card",idempotencyKey:event.id}};
   // Historic events may name only cards whose identity is public on the current board.
   const subject=(a.type==="twin.place" ? a.card : a.type==="effect.activated" ? a.source : a) as unknown as Record<string,unknown>, subjectRef=a.type==="twin.place" ? a.card.ref : "cardRef" in subject ? subject.cardRef : undefined;
+  if(a.type==="pile.set") for(const card of a.entries) if(!refs.open.has(card.ref)) { delete card.cardId; delete card.name; }
   if(typeof subjectRef==="string" && !refs.open.has(subjectRef)) {
     for(const key of CARD_IDENTITY) delete subject[key];
     delete (a as Record<string,unknown>).name; delete (a as Record<string,unknown>).zoneRule;
