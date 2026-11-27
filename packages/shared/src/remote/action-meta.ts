@@ -10,12 +10,11 @@ export const remoteSetEvidenceSchema = z.strictObject({
   basis:z.enum(['pixels','uniform','known-back','zoom','none','player','legacy']),decision:z.enum(['waiting','committed','prompted','ignored','not-a-card']),
 });
 /**
- * Test evidence from the actor's own browser, in epoch milliseconds on the CLIENT clock (`performance.timeOrigin + performance.now()`;
- * never trusted for game state): `seenAt` the detector's first outline of the card, `namedAt` the end of the last read, `sentAt` the
- * watcher sent this action (the board placement), `v` the web build id. Compare with the recording of the table camera and with the server `at`.
+ * Evidence from the actor's own browser, in epoch milliseconds on the CLIENT clock (`performance.timeOrigin + performance.now()`):
+ * `seenAt` the sample supporting the action, `namedAt` the end of the last read, `sentAt` the board write, `v` the web build id.
+ * The reducer compares camera times to reject stale evidence. Server time still determines game order.
  * `by` who made the change (`camera` = the watcher on its own, `player` = a person: a click, a typed or spoken command, or a choice in a prompt; left out when the code cannot know)
- * and `ui` the control that made it (a short name such as `popup-remove`, `undo`, `voice`, `typed`, `stale-recover`). Both are evidence only and optional:
- * old events and clients without them stay valid, and no rule reads them (`source` stays the field that matters to the game).
+ * and `ui` the control that made it (a short name such as `popup-remove`, `undo`, `voice`, `typed`, `stale-recover`). Both are optional.
  */
 export const remoteCameraStampSchema = z.strictObject({
   seenAt: z.number().int().nonnegative().optional(), namedAt: z.number().int().nonnegative().optional(),

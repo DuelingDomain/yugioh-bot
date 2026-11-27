@@ -117,6 +117,32 @@ function deckSession(format: "normal" | "domain" | "genesys" | "genesys-domain" 
   return { db, users, service, save, select, start, act, place, wait, get room() { return room; } };
 }
 
+it('keeps one instance through camera relocation and drops stale moves and removed track replays', () => {
+  const s = deckSession('normal'); s.start();
+  const place = (slot: number, cardId?: number) => s.act({
+    type: 'twin.place', seat: 0, source: 'auto', zone: 'monster',
+    card: { ref: 'fw-room8-track', slot, faceUp: true, position: 'attack', ...(cardId ? { cardId } : {}) },
+    cam: { by: 'camera', seenAt: 5_000, sentAt: 5_400 },
+  });
+  const camera = { by: 'camera', sentAt: 27_000, seenAt: 2_379 };
+  place(5);
+  const seq = s.room.lastSeq;
+  place(5);
+  expect(s.room.lastSeq).toBe(seq);
+  s.act({ type: 'twin.move', seat: 0, source: 'auto', zone: 'hand', cardRef: 'fw-room8-track', cam: camera });
+  expect(s.room.lastSeq).toBe(seq);
+  s.act({ type: 'twin.move', seat: 0, source: 'auto', zone: 'hand', cardRef: 'fw-room8-track', cam: { by: 'camera', seenAt: 4_000, sentAt: 6_000 } });
+  expect(s.room.lastSeq).toBe(seq);
+  expect(s.room.state.seats[0].twin[0].slot).toBe(5);
+  place(4, 1);
+  expect(s.room.state.seats[0].twin).toEqual([expect.objectContaining({ ref: 'fw-room8-track', cardId: 1, zone: 'monster', slot: 4 })]);
+  s.act({ type: 'twin.remove', seat: 0, source: 'auto', cardRef: 'fw-room8-track' });
+  const removedSeq = s.room.lastSeq;
+  place(4);
+  expect(s.room.lastSeq).toBe(removedSeq);
+  expect(s.room.state.seats[0].twin).toEqual([]);
+});
+
 it('limits named Spell/Trap card activations per seat and turn and restores them on Undo', () => {
   const s = deckSession('normal'); s.start();
   const play = (ref: string, cardId = 80101899, seat = 0, faceUp = true, fromActivation?: string) => s.act({
