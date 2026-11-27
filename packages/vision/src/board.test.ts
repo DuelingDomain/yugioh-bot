@@ -1307,10 +1307,15 @@ test('single clean placement overlaps one upright read with fresh face evidence'
  }
 });
 
-test('deck outlines never place identities and new GY reads stay single-shot',async()=>{
+test('private deck outlines never place identities and public pile reads stay single-shot',async()=>{
   for(const [x,y] of [[.87,.32],[.87,.03],[.87,.7],[.03,.7]])for(const faceDown of [true,false]){
-    const r=fieldRig();r.outlines=[{...card(x,y,.05,.07),kind:faceDown?'face-down':'face-up'}];for(let i=0;i<7;i++)await r.tick();
-    if(['DECK','EXTRA'].includes(zones.mapFieldZone(r.watcher.getSnapshot().tracks[0]?.card??card(x,y,.05,.07)).zone))assert.equal(r.events.some(e=>e.type==='placed'),false,`${x}/${y}/${faceDown}`);else assert.ok(r.events.filter(e=>e.type==='placed').length<=1);r.watcher.dispose();
+    const r=fieldRig(),outline:DetectedQuad={...card(x,y,.05,.07),kind:faceDown?'face-down':'face-up'};
+    r.outlines=[outline];for(let i=0;i<7;i++)await r.tick();
+    const zone=zones.mapFieldZone(outline).zone,placed=r.events.filter(e=>e.type==='placed');
+    if(zone==='DECK'||zone==='EXTRA'&&faceDown)assert.equal(placed.length,0,`${x}/${y}/${faceDown}`);
+    else if(zone==='EXTRA')assert.equal(placed.length,1,'a face-up Extra Deck top can be read');
+    else assert.ok(placed.length<=1);
+    r.watcher.dispose();
   }
 });
 test('review S2: a five-card fan and three new separate outlines cannot auto-place',async()=>{

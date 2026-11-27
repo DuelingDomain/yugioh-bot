@@ -80,6 +80,8 @@ export const remoteActionSchema = z.discriminatedUnion("type", [
     .refine(a => (!!a.keepInstanceId && !!a.removeInstanceId && !a.keepRef && !a.removeRef) ||
       (!!a.keepRef && !!a.removeRef && !a.keepInstanceId && !a.removeInstanceId), "Choose two instance IDs or two twin refs"),
   z.strictObject({ ...meta, type: z.literal("twin.place"), seat: remoteSeatSchema, zone, card: twinCardSchema, source: z.literal("auto").optional(),
+    /** A visible Pendulum Monster on top of the Extra Deck. */
+    pendulum: z.literal(true).optional(),
     /** The camera already showed this activation from the hand. */
     fromActivation: id.optional(),
     /** A camera card that the zone rules put in another row than seen ("Trap → S3"). Log text only. */ zoneRule: z.string().trim().min(1).max(80).optional(),
@@ -94,13 +96,13 @@ export const remoteActionSchema = z.discriminatedUnion("type", [
     anotherCopy: z.boolean().optional(),
     /** An Extra Deck summon: the camera saw these monsters go under the card or leave the field just before it. */
     summon: summon.optional() }),
-  /** The camera saw a whole GY/banished pile leave the mat: its cards go to the hand in one undoable action. */
+  /** The player takes selected GY/banished cards into the hand. Old camera lifts remain readable in event history. */
   z.strictObject({ ...meta, type: z.literal("pile.lift"), seat: remoteSeatSchema, zone: z.enum(["graveyard", "banished"]), cardRefs: z.array(id).min(1).max(120), source: z.literal("auto").optional() }),
   /** One tap sends the listed monsters (any field, tokens included) to their owners' Graveyards. A token just leaves the table. One Undo restores them all. */
   z.strictObject({ ...meta, type: z.literal("monsters.tribute"), seat: remoteSeatSchema,
     targets: z.array(z.strictObject({ seat: remoteSeatSchema, cardRef: id })).min(1).max(60) }),
-  /** The owner fixes the order of a GY/banished pile (oldest first). The list must hold every card of the pile once. */
-  z.strictObject({ ...meta, type: z.literal("pile.order"), seat: remoteSeatSchema, zone: z.enum(["graveyard", "banished"]), cardRefs: z.array(id).min(1).max(120)
+  /** Orders a public pile (oldest first). For the Extra Deck, only face-up Pendulum Monsters are included. */
+  z.strictObject({ ...meta, type: z.literal("pile.order"), seat: remoteSeatSchema, zone: z.enum(["graveyard", "banished", "extra"]), cardRefs: z.array(id).min(1).max(120)
     .refine(refs => new Set(refs).size === refs.length, "Duplicate pile card"), source: z.literal("auto").optional() }),
   z.strictObject({ ...meta, type: z.literal("twin.move"), seat: remoteSeatSchema, zone, cardRef: id, slot: slot.optional(), position: z.enum(["attack", "defense"]).optional(), faceUp: z.boolean().optional(), source: z.literal("auto").optional(), name: z.string().trim().min(1).max(200).optional(),
     /** Fresh public ref for a camera-confirmed face-down return from the hand. */
@@ -188,6 +190,10 @@ export type TwinCard = z.infer<typeof twinCardSchema> & {
   /** Server-authored: a face-down field card whose identity was already public on the field, including to spectators. */
   knownFaceDown?: true;
 };
+export type RemoteOrderedPile = Extract<RemoteAction, { type: "pile.order" }>["zone"];
+export function remoteOrderedPileContains(zone: RemoteOrderedPile, card: TwinCard): boolean {
+  return card.zone === zone && (zone !== "extra" || card.faceUp && !!card.pendulumUp);
+}
 export class RemoteDuelError extends Error {
   constructor(message: string, public readonly status = 400, public readonly code = "REMOTE_INVALID") { super(message); this.name = "RemoteDuelError"; }
 }

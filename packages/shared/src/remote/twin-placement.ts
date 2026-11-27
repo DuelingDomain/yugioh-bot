@@ -1,4 +1,4 @@
-import { remoteAssert, type RemoteAction, type TwinCard } from "./actions.js";
+import { remoteAssert, remoteOrderedPileContains, type RemoteAction, type TwinCard } from "./actions.js";
 import { remotePhysicalSlot, type RemoteReductionContext } from "./deck-checks.js";
 import type { RemoteState } from "./types.js";
 
@@ -85,6 +85,7 @@ export function guardTwinPlacement(state: RemoteState, action: Placement, contex
     remoteAssert(selected, "The chosen card origin is no longer available", 409);
     return { ref: selected.ref, card: selected };
   }
+  if (action.source === "auto" && action.pendulum && matches.some(t => remoteOrderedPileContains("extra", t))) return {noop:true};
   const hand = (!context?.replay || context.handKnowledge === 1) ? matches.find(t => t.zone === "hand" && (action.source !== "auto" || !t.departedFrom)) : undefined;
   const handDestination = remoteFieldZone(action.zone) || pileZone(action.zone);
   if (action.anotherCopy) return hand && handDestination ? {ref:hand.ref,card:hand} : undefined;

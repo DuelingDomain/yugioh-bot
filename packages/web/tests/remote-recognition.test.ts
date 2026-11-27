@@ -1379,42 +1379,62 @@ it.each(['GY','BANISHED'] as const)('a clear %s lift leaves the pile once and st
   }finally{r.dispose();}
 });
 
-it.each(['GY','BANISHED'] as const)('a changed %s top reveals a known lower member and removes the taken top',async zone=>{
-  const r=await ownerFieldRig(),y=zone==='GY'?.3:.02;
+it.each([['GY',.9,.3],['BANISHED',.9,.02],['EXTRA',.03,.7]] as const)('a changed %s top reveals a known lower member without inferring a departure',async(zone,x,y)=>{
+  const r=await ownerFieldRig();
   try{
-    r.state.outlines=[r.quad(.9,y)];await r.tick(10);const first=r.state.events.find(e=>e.type==='placed')!;
+    r.state.outlines=[r.quad(x,y)];await r.tick(10);const first=r.state.events.find(e=>e.type==='placed')!;
+    expect(first.track.zone).toBe(zone);
     r.state.known=[{id:'bottom',zone,cardId:'300'},{id:'below',zone,cardId:'200'},{id:first.track.id,zone,cardId:'100'}];
     r.state.motion=.2;await r.tick(2);r.state.motion=0;
-    r.state.faces.set(`0.9/${y}`,{id:'200',look:Array.from({length:12},(_,i)=>i%2?.1:.8),embedding:[0,1]});
+    r.state.faces.set(`${x}/${y}`,{id:'200',look:Array.from({length:12},(_,i)=>i%2?.1:.8),embedding:[0,1]});
     await r.tick(18);
-    expect(r.state.events.filter(e=>e.type==='removed')).toEqual([expect.objectContaining({track:expect.objectContaining({id:first.track.id,removed:true})})]);
+    expect(r.state.events.filter(e=>e.type==='removed')).toEqual([]);
     const revealed=r.state.events.filter(e=>['placed','moved'].includes(e.type)&&e.track.cardId==='200');
     expect(revealed).toHaveLength(1);expect(revealed[0].track.id).toBe('below');
-    await r.tick(12);expect(r.state.events.filter(e=>e.type==='removed')).toHaveLength(1);
+    await r.tick(12);expect(r.state.events.filter(e=>e.type==='removed')).toHaveLength(0);
+  }finally{r.dispose();}
+});
+
+it('a matching field read during an empty GY does not take a middle entry',async()=>{
+  const r=await ownerFieldRig();
+  try{
+    r.state.known=[{id:'bottom',zone:'GY',cardId:'300'},{id:'middle',zone:'GY',cardId:'100'},{id:'top',zone:'GY',cardId:'200'}];
+    const {fieldZoneCells,fieldMatPoint,createFieldCalibration}=await import('@yugidraft/vision');
+    const calibration=createFieldCalibration([{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:0,y:1}]);
+    const gy=fieldZoneCells(undefined,calibration.zoneSpacing,calibration.zones).find(c=>c.zone==='GY')!;
+    const corner=fieldMatPoint({x:gy.x,y:gy.y},calibration);
+    r.state.empty.add(`${corner.x}/${corner.y}`);r.state.halo=.2;
+    r.state.outlines=[r.quad(.634)];await r.tick(20);
+    expect(r.watcher.getSnapshot().pileClearSince?.GY).toBeDefined();
+    const field=r.state.events.find(e=>e.type==='placed'&&e.track.zone==='M4');
+    expect(field?.track.cardId).toBe('100');
+    expect(field?.track.id).not.toBe('middle');
+    expect(field?.fromRef).toBeUndefined();
   }finally{r.dispose();}
 });
 
 for(const origin of ['GY','BANISHED'] as const)it.each([
   ['M4',.634,.3],['S2',.34,.68],['FIELD',.03,.3],['EMZ1',.34,.02],
   [origin==='GY'?'BANISHED':'GY',.9,origin==='GY'?.02:.3],
-] as const)('a touched '+origin+' member moves to %s with one physical ref',async(zone,x,y)=>{
+] as const)('a touched '+origin+' top moves to %s with one physical ref',async(zone,x,y)=>{
   const r=await ownerFieldRig(),pileY=origin==='GY'?.3:.02;
   try{
-    r.state.outlines=[r.quad(.9,pileY)];r.state.identity='200';r.state.embedding=[0,1];await r.tick(10);
+    r.state.outlines=[r.quad(.9,pileY)];await r.tick(10);
     const top=r.state.events.find(e=>e.type==='placed')!;
-    r.state.known=[{id:'member',zone:origin,cardId:'100'},{id:top.track.id,zone:origin,cardId:'200'}];
+    r.state.known=[{id:'bottom',zone:origin,cardId:'300'},{id:'middle',zone:origin,cardId:'200'},{id:top.track.id,zone:origin,cardId:'100'}];
     r.state.motion=.2;await r.tick(2);r.state.motion=0;
+    r.state.empty.add(`0.9/${pileY}`);r.state.halo=.2;
     r.state.faces.set(`${x}/${y}`,{id:'100',look:Array.from({length:12},(_,i)=>i%2?.1:.8),embedding:[1,0]});
-    r.state.outlines.push(r.quad(x,y));await r.tick(18);
+    r.state.outlines=[r.quad(x,y)];await r.tick(18);
     const returned=r.state.events.filter(e=>['placed','moved'].includes(e.type)&&e.track.zone===zone&&e.track.cardId==='100');
-    expect(returned).toHaveLength(1);expect(returned[0]).toMatchObject({fromRef:'member',track:{id:'member'}});
+    expect(returned).toHaveLength(1);expect(returned[0]).toMatchObject({fromRef:top.track.id,track:{id:top.track.id}});
     const {fieldPlacementProposals}=await import('../src/lib/remote/field-proposals');
     const {ygoModule}=await import('../../shared/src/remote/games/ygo');const {remoteActionSchema}=await import('../../shared/src/remote/actions');
     let state=ygoModule.initialState({seatCount:2});const pile=origin==='GY'?'graveyard':'banished';
-    state.seats[0].twin=[{ref:'bottom',zone:pile,cardId:300,faceUp:true,position:'attack'},{ref:'member',zone:pile,cardId:100,name:'Fenrir',faceUp:true,position:'attack'},{ref:top.track.id,zone:pile,cardId:200,faceUp:true,position:'attack'}];
+    state.seats[0].twin=[{ref:'bottom',zone:pile,cardId:300,faceUp:true,position:'attack'},{ref:'middle',zone:pile,cardId:200,faceUp:true,position:'attack'},{ref:top.track.id,zone:pile,cardId:100,name:'Fenrir',faceUp:true,position:'attack'}];
     const proposal=fieldPlacementProposals({track:returned[0].track,seat:0,cardId:100,name:'Fenrir',fromRef:(returned[0] as any).fromRef})[0];
     state=ygoModule.reduce(state,remoteActionSchema.parse({...proposal,at:1,idempotencyKey:'pile-return'}));
-    expect(state.seats[0].twin.filter(c=>c.zone===pile).map(c=>c.ref)).toEqual(['bottom',top.track.id]);
+    expect(state.seats[0].twin.filter(c=>c.zone===pile).map(c=>c.ref)).toEqual(['bottom','middle']);
     expect(state.seats[0].twin).toHaveLength(3);expect(state.twinConfirmation).toBeUndefined();
   }finally{r.dispose();}
 });
@@ -1445,7 +1465,7 @@ it.each(['GY','BANISHED'] as const)('a real %s arrival keeps its lower history; 
     r.state.motion=.2;await r.tick(2);r.state.motion=0;r.state.faces.delete(`0.9/${y}`);await r.tick(18);
     const revealed=r.state.events.filter(e=>['placed','moved'].includes(e.type)&&e.track.cardId==='100');
     expect(revealed).toHaveLength(2);expect(revealed.at(-1)?.track.id).toBe(below.track.id);
-    expect(r.state.events.filter(e=>e.type==='removed').map(e=>e.track.id)).toEqual([top.track.id]);
+    expect(r.state.events.filter(e=>e.type==='removed')).toEqual([]);
   }finally{r.dispose();}
 });
 
@@ -1489,7 +1509,7 @@ it.each(['GY','BANISHED'] as const)('a card that shows on the field while its %s
   }finally{r.dispose();}
 });
 
-for(const zone of ['GY','BANISHED'] as const)it.each([undefined,'DECK','EXTRA'] as const)('lifting two '+zone+' cards reveals the lower member and detects destination=%s',async destination=>{
+for(const zone of ['GY','BANISHED'] as const)it.each([undefined,'DECK','EXTRA'] as const)('revealing a lower '+zone+' card keeps the other entries when nearby pile motion=%s',async destination=>{
   const r=await ownerFieldRig(),y=zone==='GY'?.3:.02;
   try{
     r.state.outlines=[r.quad(.9,y),...(destination?[r.quad(destination==='DECK'?.93:.03,.7,true)]:[])];await r.tick(10);
@@ -1498,10 +1518,9 @@ for(const zone of ['GY','BANISHED'] as const)it.each([undefined,'DECK','EXTRA'] 
     r.state.motion=.2;r.state.extraMotion=destination==='EXTRA'?.2:0;await r.tick(2);r.state.motion=0;r.state.extraMotion=0;
     r.state.faces.set(`0.9/${y}`,{id:'300',look:Array.from({length:12},(_,i)=>i%2?.1:.8),embedding:[0,1]});await r.tick(18);
     const removed=r.state.events.filter(e=>e.type==='removed');
-    expect(removed.map(e=>e.track.id).sort()).toEqual([first.track.id,'middle'].sort());
-    for(const event of removed)expect(event.destination).toBe(destination);
+    expect(removed).toEqual([]);
     expect(r.watcher.getSnapshot().tracks.find(t=>t.id==='bottom')).toMatchObject({zone,cardId:'300',removed:false});
-    await r.tick(10);expect(r.state.events.filter(e=>e.type==='removed')).toHaveLength(2);
+    await r.tick(10);expect(r.state.events.filter(e=>e.type==='removed')).toHaveLength(0);
   }finally{r.dispose();}
 });
 

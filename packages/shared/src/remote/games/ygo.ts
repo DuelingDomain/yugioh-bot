@@ -2,7 +2,7 @@ import { cloneRemoteCurrent } from "../position.js";
 import { applyRemoteGive, applyRemoteHand, moveRemoteCardToHand, reduceRemoteHandAction, restoreOwnerIdentity, sendGivenCardsHome } from "../hand.js";
 import { rememberRemoteAction, undoRemoteAction } from "../undo.js";
 import { ensureRemoteMatch, finishRemoteGame, initialRemoteMatch, reduceRemoteMatch, remoteOpeningPending, syncRemoteSideStart } from "../match.js";
-import { remoteActionSchema, remoteActivationKey, remoteActivationNotice, remoteAssert, remoteSummonKinds, type RemoteAction, type TwinCard } from "../actions.js";
+import { remoteActionSchema, remoteActivationKey, remoteActivationNotice, remoteAssert, remoteOrderedPileContains, remoteSummonKinds, type RemoteAction, type TwinCard } from "../actions.js";
 import type { GameModule, RemoteSeatState, RemoteState } from "../types.js";
 import { resolveAttack } from "../attack-resolver.js";
 import { parseRemoteCommand } from "../command-parser.js";
@@ -351,6 +351,7 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
         tokenAction = true; break;
       }
       const s = action.card.token ? tokenField(action.seat) : ownField(action.seat); validZone(action.zone);
+      if (action.pendulum) remoteAssert(action.zone === "extra" && action.card.faceUp && !action.card.token && (action.card.cardId || action.card.passcode), "A face-up Extra Deck arrival needs a named card", 409);
       if(action.card.nameCandidates)remoteAssert(action.source==='auto'&&action.card.faceUp&&remoteFieldZone(action.zone)&&!action.card.token&&action.card.nameCandidates[0]?.cardId===(action.card.cardId??action.card.passcode),'Unsure names require a named public field placement',409);
       if (action.card.token) {
         const token = action.card;
@@ -377,12 +378,13 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
       freeSlot(s, placement.zone, placement.card.slot, reuse?.ref, action.summon?.materialRefs);
       const card = { ...reuse?.card, ...placement.card, ref, zone: placement.zone };
       if (card.zone !== "hand") delete card.departedFrom;
-      if (card.zone !== "extra") delete card.pendulumUp;
+      if (action.pendulum) card.pendulumUp = true;
+      else if (card.zone !== "extra") delete card.pendulumUp;
       if(!card.faceUp&&!reuse?.card?.publicIdentity || ["hand","deck","extra"].includes(card.zone)) delete card.publicIdentity;
       if (placement.card.slot === undefined) delete card.slot;
       // Reusing a ref during placement does not establish a tracked face-down move.
       if (fieldFaceVersion === 2 && !card.faceUp && (reuse?.card?.zone !== card.zone || reuse.card.slot !== card.slot)) delete card.publicIdentity;
-      if (reuse?.card && enteringPile(reuse.card.zone, placement.zone)) { s.twin.splice(s.twin.indexOf(reuse.card), 1); s.twin.push(card); }
+      if (reuse?.card && (enteringPile(reuse.card.zone, placement.zone) || action.pendulum && !remoteOrderedPileContains("extra", reuse.card))) { s.twin.splice(s.twin.indexOf(reuse.card), 1); s.twin.push(card); }
       else if (reuse?.card) s.twin[s.twin.indexOf(reuse.card)] = card;
       else s.twin.push(card);
       if (action.summon) applySummon(next.seats, s, card, action.summon.kind, action.summon.materialRefs, at, false, givenCardsOn);
@@ -615,13 +617,14 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
       break;
     }
     case "pile.order": {
-      const s = ownField(action.seat); const pile = s.twin.filter(c => c.zone === action.zone);
+      const s = ownField(action.seat); const pile = s.twin.filter(c => remoteOrderedPileContains(action.zone, c));
       remoteAssert(pile.length === action.cardRefs.length && action.cardRefs.every(ref => pile.some(c => c.ref === ref)), "The order must list every card of the pile", 409);
       const ordered = action.cardRefs.map(ref => pile.find(c => c.ref === ref)!);let i = 0;
-      s.twin = s.twin.map(c => c.zone === action.zone ? ordered[i++] : c);
+      s.twin = s.twin.map(c => remoteOrderedPileContains(action.zone, c) ? ordered[i++] : c);
       break;
     }
     case "pile.lift": {
+      remoteAssert(action.source !== "auto" || context?.replay, "Picking up pile cards requires a player action", 409);
       const s = ownField(action.seat);
       for (const ref of action.cardRefs) {
         const card = s.twin.find(c => c.ref === ref);

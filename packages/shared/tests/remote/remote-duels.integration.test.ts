@@ -1018,17 +1018,44 @@ describe("remote deck registration and live checks", () => {
     expect(s.room.state.seats[0].twin).toEqual(before.state.seats[0].twin);
     expect(s.room.state.deckChecks).toEqual(before.state.deckChecks);
     expect(s.room.state.identified).toEqual(before.state.identified);
-    // The camera saw the whole GY picked up: one action moves every GY card to
-    // the hand, and one Undo puts the pile back.
+    // A player can pick up several cards in one undoable action. Historical
+    // camera lifts still replay, but an empty camera zone cannot submit a lift.
     s.act({ type: "twin.place", seat: 0, zone: "graveyard", source: "auto", card: { ref: "gy-1", cardId: 14558127 } });
     s.act({ type: "twin.place", seat: 0, zone: "graveyard", source: "auto", card: { ref: "gy-2", cardId: 46986414 } });
     const pile = structuredClone(s.room.state.seats[0].twin);
-    s.act({ type: "pile.lift", seat: 0, zone: "graveyard", cardRefs: ["gy-1", "gy-2"], source: "auto", idempotencyKey: "gy-lift" });
+    const lift = { type: "pile.lift", seat: 0, zone: "graveyard", cardRefs: ["gy-1", "gy-2"], idempotencyKey: "gy-lift" } as const;
+    const cameraLift = remoteActionSchema.parse({ ...lift, actorSeat: 0, source: "auto" });
+    expect(() => ygoModule.reduce(s.room.state, cameraLift)).toThrow(/requires a player action/);
+    expect(ygoModule.reduce(s.room.state, cameraLift, { replay: true, handReview: 1 }).seats[0].twin.filter(c => c.zone === "hand")).toHaveLength(2);
+    s.act({ ...lift, cardRefs: [...lift.cardRefs] });
     expect(s.room.state.seats[0].twin.filter(c => c.zone === "hand").map(c => c.ref).sort()).toEqual(["gy-1", "gy-2"]);
     expect(s.room.state.undo!.actionId).toBe("gy-lift");
     s.act({ type: "undo", targetActionId: "gy-lift" });
     expect(s.room.state.seats[0].twin).toEqual(pile);
     expect(s.service.replay(s.room.slug, "g", s.users[0])).toEqual(s.room.state);
+  });
+  it("orders the face-up Extra Deck pile without touching its private entries", () => {
+    let state = ygoModule.initialState({ seatCount: 2 }), seq = 0;
+    const act = (action: RemoteActionProposal) => {
+      state = ygoModule.reduce(state, remoteActionSchema.parse({ ...action, at: ++seq, idempotencyKey: `extra-${seq}` }));
+    };
+    const place = (ref: string, cardId: number, faceUp: boolean) => act({ type: "twin.place", actorSeat: 0, seat: 0,
+      zone: "extra", card: { ref, cardId, faceUp, position: "attack" }, ...(faceUp ? { source: "auto", pendulum: true } : {}) });
+    const refs = () => state.seats[0].twin.map(c => c.ref);
+    place("first", 16178681, true);
+    place("private", 101, false);
+    place("top", 20563387, true);
+    place("rescan", 16178681, true);
+    expect(refs()).toEqual(["first", "private", "top"]);
+    act({ type: "pile.order", actorSeat: 0, seat: 0, zone: "extra", cardRefs: ["top", "first"], source: "auto" });
+    expect(refs()).toEqual(["top", "private", "first"]);
+    expect(projectRemoteState(state, new Set([1])).seats[0].twin).toEqual([
+      expect.objectContaining({ ref: "top", cardId: 20563387 }),
+      { ref: "private", zone: "extra", faceUp: false, position: "attack" },
+      expect.objectContaining({ ref: "first", cardId: 16178681 }),
+    ]);
+    act({ type: "undo", actorSeat: 0, targetActionId: state.undo!.actionId });
+    expect(refs()).toEqual(["first", "private", "top"]);
   });
   it("adds the new columns to populated pre-deck tables without rewriting events", () => {
     const { db, service, table, users } = setup();

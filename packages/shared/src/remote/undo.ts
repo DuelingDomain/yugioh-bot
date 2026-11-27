@@ -1,7 +1,7 @@
 import { copyRemoteHistory, freezeRemoteValue } from "./position.js";
 import { availableEffectCandidates } from "./effect-tracking.js";
 import { ygoBattleAllowed } from "./phases.js";
-import { remoteAssert, type RemoteAction } from "./actions.js";
+import { remoteAssert, remoteOrderedPileContains, type RemoteAction } from "./actions.js";
 import { remotePhysicalSlot, remotePublicCard } from "./deck-checks.js";
 import type { RemotePosition, RemoteState, RemoteUndoEntry } from "./types.js";
 
@@ -60,7 +60,7 @@ function touchedCards(action: RemoteAction, before: RemotePosition, after: Remot
     case "pile.lift": for (const ref of action.cardRefs) add(action.seat, ref); break;
     case "monsters.tribute": for (const t of action.targets) add(t.seat, t.cardRef); break;
     // Only the cards whose place changed: a reorder must not block Undo of earlier pile actions.
-    case "pile.order": { const old = before.seats[action.seat]?.twin.filter(c => c.zone === action.zone).map(c => c.ref) ?? [];
+    case "pile.order": { const old = before.seats[action.seat]?.twin.filter(c => remoteOrderedPileContains(action.zone, c)).map(c => c.ref) ?? [];
       action.cardRefs.forEach((ref, i) => { if (old[i] !== ref) add(action.seat, ref); }); break; }
     case "effect.activated": add(action.actorSeat, action.source.cardRef); break;
     case "effect.choose": case "effect.announce": {
@@ -272,7 +272,7 @@ export function remoteUndoLabel(action: RemoteAction, position?: RemotePosition)
     case "hand.count": return "Changed hand count";
     case "hand.draw": return `Drew ${action.count} card${action.count===1?'':'s'}`;
     case "deck.count": return "Changed Deck count";
-    case "pile.order": return `${action.zone === "graveyard" ? "Graveyard" : "Banished"} order changed`;
+    case "pile.order": return `${action.zone === "graveyard" ? "Graveyard" : action.zone === "banished" ? "Banished" : "Extra Deck"} order changed`;
     case "monsters.tribute": return `Tribute: ${action.targets.length} monster${action.targets.length === 1 ? "" : "s"} sent to the Graveyard`;
     case "pile.lift": return `${action.zone === "graveyard" ? "Graveyard" : "Banished"} picked up (${action.cardRefs.length} card${action.cardRefs.length === 1 ? "" : "s"})`;
     case "lp.change": return `${action.delta < 0 ? "−" : "+"}${Math.abs(action.delta)} LP`;
