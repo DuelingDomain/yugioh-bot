@@ -8,7 +8,7 @@ import { resolveAttack } from "../attack-resolver.js";
 import { parseRemoteCommand } from "../command-parser.js";
 import { initialDeckChecks, remotePhysicalSlot, remotePublicCard, type RemoteReductionContext } from "../deck-checks.js";
 import { applyLiveDeckChecks } from "../live-deck-checks.js";
-import { cameraTwinGuardOn, clearTwinConfirmation, guardTwinPlacement, obsoleteCameraTwinAction, remoteFieldZone } from "../twin-placement.js";
+import { cameraTwinGuardOn, clearTwinConfirmation, guardTwinPlacement, obsoleteCameraTwinAction, remoteFieldZone, remoteProxyClashMessage, remoteProxyInSlot } from "../twin-placement.js";
 
 import { applyRemoteEffectTracking, availableEffectCandidates } from "../effect-tracking.js";
 import { battleEnteredThisTurn, ygoBattleAllowed, ygoPhases as phases } from "../phases.js";
@@ -209,6 +209,8 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
     used[remoteActivationKey(name)] = { turn: next.turn, ...(awaitingPlacement ? {awaitingPlacement} : {}) };
   };
   const replaceFieldSpell = (holder: RemoteSeatState, incomingRef: string) => {
+    const proxy = !context?.replay && remoteProxyInSlot(holder.twin, { zone: "field" }, incomingRef);
+    if (proxy) remoteAssert(false, remoteProxyClashMessage(proxy), 409, "TWIN_SLOT_OCCUPIED");
     for (const old of holder.twin.filter(c => c.zone === "field" && c.ref !== incomingRef)) {
       delete old.slot; delete old.departedFrom;
       old.faceUp = true; old.position = "attack";
@@ -223,6 +225,11 @@ function reduce(state: RemoteState, input: RemoteAction, context?: RemoteReducti
     // Legacy row twins without a slot do not identify a physical position.
     if (shape === "row" && physicalSlot === undefined) return;
     if (context?.replay) return;
+    const twins = materials.length ? s.twin.filter(card => !materials.includes(card.ref)) : s.twin;
+    const facing = zone === "extra-monster" && physicalSlot && next.seats[s.seat ^ 1];
+    const proxy = remoteProxyInSlot(twins, { zone, slot }, exceptRef) || (facing &&
+      remoteProxyInSlot(facing.twin, { zone, slot: physicalSlot === 1 ? 2 : 1 }, exceptRef));
+    if (proxy) remoteAssert(false, remoteProxyClashMessage(proxy), 409, "TWIN_SLOT_OCCUPIED");
     // A Trap Monster holds its Spell & Trap Zone; Pendulum Zones 1/2 are S1/S5.
     const heldSlot = zone === "spell-trap" ? physicalSlot : zone === "pendulum" ? (physicalSlot === 1 ? 1 : physicalSlot === 2 ? 5 : undefined) : undefined;
     // An Xyz goes on top of its materials: their slot is free for it.

@@ -481,6 +481,12 @@ test.describe("remote duels screen, solo", () => {
     await page.getByTestId("feed-box-0").hover();
     await expect(toggle).toHaveAttribute("aria-pressed", "true");
     await expect(page.getByTestId("zone-grid-hint")).toHaveText("Recommended — shows where your zones are");
+    // The camera row never takes a click itself: every point of its box that is not a button, label or input reaches the picture (a card under it).
+    expect(await page.evaluate(() => {
+      const bar = document.querySelector('[data-testid="feed-box-0"] [data-feed-toolbar]')!, box = bar.getBoundingClientRect(); let stray = 0;
+      for (let x = box.left + 1; x < box.right; x += 3) for (let y = box.top + 1; y < box.bottom; y += 3) { const hit = document.elementFromPoint(x, y); if (hit && bar.contains(hit) && !hit.closest("button,label,input,select,a")) stray++; }
+      return stray;
+    })).toBe(0);
     await toggle.click();
     await expect(toggle).toHaveAttribute("aria-pressed", "false");
     await expect(page.getByTestId("zone-grid-hint")).toHaveText("Zones off");
@@ -2549,7 +2555,13 @@ test.describe("remote duels screen, tokens and the camera", () => {
     await page.getByTestId("token-clash-remove").click();
     const cell = async () => (await mine()).filter(c => c.startsWith("monster:3:"));
     await expect.poll(cell).toEqual(["monster:3:card"]);
-    await page.getByRole("button", { name: "Undo", exact: true }).click();
+    // The Undo notice stays past the old 5 s, and a hover on it keeps it: the first click lands.
+    const undo = page.getByRole("button", { name: "Undo", exact: true }).first();
+    await page.waitForTimeout(5500);
+    // The older "Token removed" notice is not kept with its own Undo: the newer one takes that action back with it, so a click there would be refused.
+    await expect(page.getByRole("status").filter({ hasText: "Token removed" }).getByRole("button", { name: "Undo", exact: true })).toHaveCount(0);
+    await undo.hover(); await page.waitForTimeout(4000); await expect(undo).toBeVisible();
+    await undo.click();
     // The whole board is back: the token in M3, the first card in M4, no card in M3.
     await expect.poll(mine).toEqual(["monster:3:token", "monster:4:card"]);
   });

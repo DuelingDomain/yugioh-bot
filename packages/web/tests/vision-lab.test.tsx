@@ -765,6 +765,95 @@ it('forgets the camera track when a player removal hold releases',async()=>{
  }finally{clock.mockRestore();fixture.dispose();}
 });
 
+it.each(['move','replace'] as const)('holds a physical card on a controlled proxy zone until the player can %s',async resolution=>{
+ const {judgeMove}=await import('../src/components/remote/ui/placement');
+ const proxy={ref:'given',cardId:cards[0].passcode,name:cards[0].name,ownerSeat:1,zone:'monster',slot:4,faceUp:true,position:'attack'} as const;
+ const message='This zone has Dark Magician (proxy). Move your card to a free zone.';
+ const fixture=await typedWatcherFixture(cards[0],'M4',[proxy]);
+ try{
+  await fixture.emit();
+  const prompt=await screen.findByTestId('proxy-clash');
+  expect(prompt).toHaveTextContent(message);
+  expect(fixture.post).not.toHaveBeenCalled();
+  expect(judgeMove({card:{...proxy,ref:'paper',ownerSeat:undefined,slot:2},info:undefined,land:{zone:'monster',slot:4},twin:[proxy],extraZones:true})).toEqual({kind:'refuse',message:message.replace('Move your card to a free zone.','Drop your card in a free zone.')});
+  expect(prompt).toHaveTextContent(/Free zones: .*M2/);
+  expect(prompt).not.toHaveTextContent('M4');
+  if(resolution==='move'){
+   Object.assign(fixture.track,{zone:'M2',revision:1});
+   await fixture.emit({type:'moved'});
+  }else{
+   fireEvent.click(within(prompt).getByRole('button',{name:'Remove proxy and place here'}));
+   await waitFor(()=>expect(fixture.post).toHaveBeenCalledWith(expect.objectContaining({type:'twin.remove',cardRef:proxy.ref}),expect.anything()));
+  }
+  await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());
+  expect(fixture.room().state.seats[0].twin).toEqual([
+   ...(resolution==='move'?[proxy]:[]),expect.objectContaining({cardId:cards[0].passcode,zone:'monster',slot:resolution==='move'?2:4}),
+  ]);
+  fixture.refresh();
+  expect(screen.queryByTestId('proxy-clash')).toBeNull();
+ }finally{fixture.dispose();}
+});
+
+it.each(['moved','removed'] as const)('leaves a proxy marker out of Card notices until the track is %s',async change=>{
+ const proxy={ref:'given',cardId:cards[0].passcode,name:cards[0].name,ownerSeat:1,zone:'monster',slot:4,faceUp:true,position:'attack'} as const;
+ const fixture=await typedWatcherFixture(cards[0],'M4',[proxy,{...proxy,ref:'other-given',slot:3}]);
+ try{
+  await fixture.emit();
+  fireEvent.click(within(await screen.findByTestId('proxy-clash')).getByRole('button',{name:'Leave it (marker)'}));
+  Object.assign(fixture.track,{position:'defense',revision:1});
+  await fixture.emit({type:'moved'});
+  expect(screen.queryByTestId('proxy-clash')).toBeNull();
+  expect(screen.getByTestId('field-watcher-status')).toHaveTextContent('Watching field');
+  expect(fixture.post).not.toHaveBeenCalled();
+  if(change==='removed'){
+   Object.assign(fixture.track,{removed:true,visible:false});
+   await fixture.emit({type:'removed'});
+   Object.assign(fixture.track,{removed:false,visible:true});
+  }else fixture.track.zone='M3';
+  fixture.track.revision=2;
+  await fixture.emit({type:change==='removed'?'placed':'moved'});
+  expect(await screen.findByTestId('proxy-clash')).toBeInTheDocument();
+ }finally{fixture.dispose();}
+});
+
+it.each(['Undo','Retry field update'])('shows the %s notice ahead of a proxy clash',async notice=>{
+ const proxy={ref:'given',cardId:cards[0].passcode,name:cards[0].name,ownerSeat:1,zone:'monster',slot:4,faceUp:true,position:'attack'} as const;
+ const fixture=await typedWatcherFixture(cards[0],'M2',[proxy],'placed',undefined,async()=>{if(notice==='Retry field update')return false;});
+ try{
+  await fixture.emit();
+  if(notice==='Undo'){
+   await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());
+   fixture.room().state.undo.at=Date.now();
+   fixture.refresh();
+  }
+  expect(await screen.findByRole('button',{name:notice})).toBeInTheDocument();
+  const clashing=fixture.addTrack({id:'clashing',zone:'M4'});
+  await fixture.emit({track:{...clashing}});
+  expect(screen.getByRole('button',{name:notice})).toBeInTheDocument();
+  expect(screen.queryByTestId('proxy-clash')).toBeNull();
+  expect(screen.getByTestId('field-watcher-status')).toHaveTextContent('1 card needs you');
+ }finally{fixture.dispose();}
+});
+
+it.each([['GY','graveyard'],['BANISHED','banished']] as const)('records a card moved from a proxy zone into %s',async(zone,pile)=>{
+ const proxy={ref:'given',cardId:cards[0].passcode,name:cards[0].name,ownerSeat:1,zone:'monster',slot:4,faceUp:true,position:'attack'} as const;
+ const fixture=await typedWatcherFixture(cards[0],'M4',[proxy]);
+ const realNow=performance.now.bind(performance),clock=vi.spyOn(performance,'now').mockImplementation(()=>realNow()+3000);
+ try{
+  fixture.track.firstSeen=performance.now();
+  await fixture.emit();
+  expect(await screen.findByTestId('proxy-clash')).toBeInTheDocument();
+  const {watch}=state.fieldWatch;
+  watch.getSnapshot=()=>({...watch.snapshot,pileTouchedAt:{[zone]:performance.now()}});
+  fixture.refresh();
+  Object.assign(fixture.track,{zone,revision:1});
+  await fixture.emit({type:'moved'});
+  await waitFor(()=>expect(fixture.confirm).toHaveBeenCalledOnce());
+  expect(fixture.room().state.seats[0].twin).toEqual([proxy,expect.objectContaining({zone:pile,cardId:cards[0].passcode})]);
+  expect(screen.queryByTestId('proxy-clash')).toBeNull();
+ }finally{clock.mockRestore();fixture.dispose();}
+});
+
 it.each([false,true])('flips a projected Trap in place even when the physical monster row is full: %s',async full=>{
  const old={ref:'projected-trap',zone:'spell-trap',slot:4,cardId:41420027,name:'Solemn Judgment',faceUp:true,position:'attack'};
  const others=full?Array.from({length:5},(_,i)=>({ref:`monster-${i}`,zone:'monster',slot:i+1,cardId:46986414,faceUp:true,position:'attack'})):[];

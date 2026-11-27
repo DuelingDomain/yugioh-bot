@@ -569,7 +569,7 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
       {tip && !frozen ? <div className={s.peek2} ref={tipBox} data-testid="hover-tip" style={{ left: tip.left, top: tip.top, transform: tip.flip ? "translateX(calc(-100% - 28px))" : undefined }} aria-hidden="true">
         <b>{tip.label}</b>{tip.detail ? <em>{tip.detail}</em> : null}</div> : null}
       {source && !frozen ? <ZoneGridOverlay seat={seat} box={box} visible={gridOn && !tapSeat} onControlsEnter={calmHover} /> : null}
-      {source && !frozen ? <HubFeedCards seat={seat} frame={box ? boxStyle : null} /> : null}
+      <HubFeedCards seat={seat} frame={source && !frozen && box ? boxStyle : null} />
       {source && !frozen && you && debugOn ? <FieldDebugOverlay box={box} /> : null}
       {flash && !frozen ? <svg key={flash.key} className={s.qflash} style={boxStyle} viewBox="0 0 1 1" preserveAspectRatio="none" aria-hidden="true" data-testid="click-flash">
         <polygon points={flash.quad.map(p => `${p.x},${p.y}`).join(" ")} /></svg> : null}
@@ -624,9 +624,9 @@ export function Feed({ seat, name, you, health, marks, reticles, onBegin, readLi
         <button type="button" className={s.fzbtn} onClick={() => unfreeze("Live feed.")} data-testid="resume-live">Resume live <kbd>Esc</kbd></button>
       </> : <>
         <button type="button" className={s.fzbtn} onClick={() => void freeze(true)} data-testid="freeze-feed" aria-keyshortcuts="F">Freeze <kbd>F</kbd></button>
-        <button type="button" className={`${s.fzbtn} ${s.fzauto}`} aria-pressed={gridOn && !tapSeat} disabled={tapSeat} onClick={toggleGrid} data-testid="zone-grid-toggle" title={tapSeat ? "This player uses Tap to identify: no zone grid" : you ? "Show zone grid on my camera" : "Show zone grid on this opponent camera"}>Show zone grid</button>
+        <button type="button" className={`${s.fzbtn} ${s.fzauto}`} aria-pressed={gridOn && !tapSeat} disabled={tapSeat} onClick={toggleGrid} data-testid="zone-grid-toggle" aria-describedby={you && !tapSeat ? `${maskId}-zone-hint` : undefined} title={tapSeat ? "This player uses Tap to identify: no zone grid" : you ? `Show zone grid on my camera${gridOn ? " (recommended: shows where your zones are)" : ""}` : "Show zone grid on this opponent camera"}>Show zone grid</button>
         {you ? <button type="button" className={`${s.fzbtn} ${s.fzauto}`} disabled={!canAdjust} onClick={() => zoneGrid.calibrate?.()} data-testid="zone-grid-adjust" title={canAdjust ? "Move, resize or turn the zone grid to fit your mat" : "Available once your camera video is showing"}>Adjust zones</button> : null}
-        {you && !tapSeat ? <span className={s.gridHint} data-testid="zone-grid-hint">{gridOn ? "Recommended — shows where your zones are" : "Zones off"}</span> : null}
+        {you && !tapSeat ? <span className={s.gridHint} id={`${maskId}-zone-hint`} data-testid="zone-grid-hint">{gridOn ? "Recommended — shows where your zones are" : "Zones off"}</span> : null}
         {you && isDeveloper ? <button type="button" className={`${s.fzbtn} ${s.fzauto}`} aria-pressed={debugOn} onClick={() => setFieldDebugEnabled(!debugOn)} data-testid="field-debug-toggle" title="Show what the field watcher sees: detector boxes, scores, tracks and reasons">Debug</button> : null}
         {you && isDeveloper && clipReady ? <button type="button" className={`${s.fzbtn} ${s.fzauto}`} onClick={saveClip} data-testid="field-clip-save" title="Save the last 30 s of your mat camera and watcher events to a file on this computer. Nothing is uploaded. The recording restarts empty when the card reader restarts (backend switch, calibration on or off).">Save last 30 s</button> : null}
         <button type="button" className={`${s.fzbtn} ${s.fzauto}`} aria-pressed={auto} onClick={toggleAuto} title="Freeze the frame when the pointer rests on the feed">Hover freeze {auto ? "on" : "off"}</button>
